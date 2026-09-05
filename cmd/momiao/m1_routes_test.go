@@ -47,13 +47,14 @@ func TestM1PublicImageFormats(t *testing.T) {
 	if err := os.MkdirAll(assetDir, 0700); err != nil {
 		t.Fatal(err)
 	}
+	handler := newPortalHandler(config{WebDir: root}, nil)
 	for _, ext := range []string{"avif", "webp"} {
 		name := "bg-royal-observatory-v001." + ext
 		if err := os.WriteFile(filepath.Join(assetDir, name), []byte("synthetic image bytes"), 0600); err != nil {
 			t.Fatal(err)
 		}
 		w := httptest.NewRecorder()
-		serveWebFile(root, w, httptest.NewRequest(http.MethodGet, "/assets/home/"+name, nil))
+		handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/assets/home/"+name, nil))
 		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/"+ext || w.Body.String() != "synthetic image bytes" {
 			t.Fatalf("%s asset not served correctly: status=%d headers=%v", ext, w.Code, w.Header())
 		}
