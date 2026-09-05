@@ -1071,3 +1071,28 @@ td time {
   transition:none!important;
   scroll-behavior:auto!important}
 }
+/* Model workspace: reuse the moonlit palette and flat native controls. */
+.plain-fieldset { border:0; padding:0; margin:0; min-width:0 }
+.inline-code { overflow-wrap:anywhere }
+.model-list { list-style:none; padding:0; margin:20px 0 0 }
+.model-list li { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:21px 0; border-top:1px solid var(--line) }
+.model-list code { overflow-wrap:anywhere; min-width:0; font-size:14px }
+.model-list .row-actions { flex-shrink:0; align-items:center }
+.model-list .button { font-size:11px; min-height:34px; padding:6px 11px }
+.playground-grid { display:grid; grid-template-columns:minmax(280px,.9fr) minmax(0,1.1fr); gap:22px; align-items:start }
+.playground-grid h2 { font-size:18px }
+.playground-grid textarea { resize:vertical }
+.playground-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:22px }
+.response-panel { min-height:400px }
+.response-panel pre { white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font:13px/1.9 "Cascadia Mono",monospace; margin:0 }
+.reasoning-output { border-bottom:1px solid var(--line); padding:0 0 20px; margin-bottom:22px; color:var(--muted) }
+.reasoning-output h3 { font-size:12px; font-weight:600 }
+.usage-summary { border-top:1px solid var(--line); padding-top:20px; margin-top:24px; color:var(--muted); font-size:11px }
+@media(max-width:1000px) { .playground-grid { grid-template-columns:1fr } }
+@media(max-width:760px) {
+ .sidebar nav { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3px; padding-bottom:10px }
+ .sidebar nav a { min-width:0; padding:10px 4px; border-radius:0; white-space:nowrap }
+ .sidebar nav a.active { margin-bottom:0; border-bottom-color:var(--moon) }
+ .model-list li { align-items:flex-start; flex-direction:column; gap:12px }
+ .response-panel { min-height:280px }
+}

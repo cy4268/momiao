@@ -35,4 +35,12 @@ Use service hardening (read-only releases, no added capabilities, private runtim
 5. Check desktop/mobile layout, service status, and host network/firewall invariants. A green health endpoint alone does not pass this gate.
 6. Roll back ingress to the previous origin if acceptance fails. Retain the previous origin and release until this verification is complete.
 
-This revision intentionally has no automated database migration, automatic upstream fallback, or egress policy changes. Model traffic, 2FA enrollment, trusted client-IP propagation, rate-limit policy and load behavior need their own explicit acceptance; successful UI/account operations do not establish those results.
+This revision has no automated database migration or automatic upstream fallback. Configuring a channel alone does not establish model traffic: verify one bounded synthetic request, streamed termination and native consumption records. 2FA enrollment, trusted client-IP propagation, rate-limit policy and load behavior need their own acceptance.
+
+## Native model traffic
+
+The portal forwards the exact `/pg/chat/completions` route to the same native socket with a five-minute total deadline; it does not forward arbitrary `/pg/` paths. Public API clients retain `/v1/` and their own API keys. Model calls require a configured, reachable and priced native channel.
+
+For an outbound-isolated native namespace, a fixed-destination transport can keep that isolation intact: a loopback-only namespace listener connects through a private Unix socket to a host-side TLS connection for one upstream. Verify certificate trust and hostname/SNI, preserve the correct upstream HTTP Host, and keep the Unix directory/socket private. Use a dedicated unprivileged identity; do not grant the portal access to the transport or credentials. Reconcile the bridge when the native namespace changes, stopping it when the namespace is not ready. Do not add a generic forward proxy or change Docker/LXD firewall rules merely to serve the portal.
+
+This transport is deployment-specific, not automatically installed by momiao. Its destination, ports, authentication and native metering must be derived from the actual environment. Example bounds or one successful request are not capacity measurements. Rolling back a portal release does not roll back channel settings; retain a separate record of explicit channel/rate changes and disable the new channel before removing its transport.

@@ -1,3 +1,4 @@
+import { readChat, aborted, modelFailure, type ChatInput, type ChatResult } from './chat';
 // Native contract: new-api f116414, controller/{user,auth_session,token,log}.go.
 // Tokens and session identity deliberately live only in this instance's memory.
 export interface User {
@@ -5,6 +6,7 @@ export interface User {
     username: string;
     display_name: string;
     role: number;
+    group?: string;
     quota?: number;
     used_quota?: number;
     request_count?: number;
@@ -57,11 +59,12 @@ interface Snapshot {
 export class ApiError extends Error {
     constructor(message: string, public status = 0, public code = '', public uncertain = false) { super(message); this.name = 'ApiError'; }
 }
-const isAuthError = (e: unknown) => e instanceof ApiError && (e.status === 401 || e.status === 403 || ['AUTH_UNAUTHORIZED', 'AUTH_TOKEN_EXPIRED', 'AUTH_SESSION_REVOKED', 'AUTH_SESSION_MISMATCH', 'AUTH_USER_DISABLED', 'AUTH_USER_INVALID'].includes(e.code));
+const isAuthError = (e: unknown) => e instanceof ApiError && (e.status === 401 || ['AUTH_UNAUTHORIZED', 'AUTH_TOKEN_EXPIRED', 'AUTH_SESSION_REVOKED', 'AUTH_SESSION_MISMATCH', 'AUTH_USER_DISABLED', 'AUTH_USER_INVALID'].includes(e.code));
 export const errorText = (e: unknown) => e instanceof Error ? e.message : '请求未完成，请稍后重试。';
 function safeUser(u: User): User { if (!u || !Number.isInteger(u.id) || u.id <= 0 || typeof u.username !== 'string')
-    throw new ApiError('账户响应格式异常，请重新登录。'); return { id: u.id, username: u.username, display_name: u.display_name || u.username, role: u.role, quota: u.quota, used_quota: u.used_quota, request_count: u.request_count }; }
+    throw new ApiError('账户响应格式异常，请重新登录。'); return { id: u.id, username: u.username, display_name: u.display_name || u.username, role: u.role, group: typeof u.group === 'string' ? u.group : undefined, quota: u.quota, used_quota: u.used_quota, request_count: u.request_count }; }
 export class ApiClient {
+    private streams = new Set<AbortController>();
     private token = '';
     private sid = '';
     private expires = 0;
@@ -76,7 +79,7 @@ export class ApiClient {
     getSnapshot = () => this.snapshot;
     subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
     private publish(patch: Partial<Snapshot>) { this.snapshot = { ...this.snapshot, ...patch }; this.listeners.forEach(fn => fn()); }
-    private clear(notice = '') { this.epoch++; this.token = ''; this.sid = ''; this.expires = 0; this.publish({ user: null, ready: true, notice }); }
+    private clear(notice = '') { this.streams.forEach(c => c.abort()); this.streams.clear(); this.epoch++; this.token = ''; this.sid = ''; this.expires = 0; this.publish({ user: null, ready: true, notice }); }
     private accept(bundle: Bundle, epoch: number) { if (epoch !== this.epoch || this.snapshot.loggingOut)
         throw new ApiError('登录状态已改变，请重新登录。', 401); if (!bundle?.access_token || !bundle.session?.sid || !Number.isFinite(bundle.access_expires_at))
         throw new ApiError('登录响应格式异常，请重新登录。'); const user = safeUser(bundle.user); this.token = bundle.access_token; this.sid = bundle.session.sid; this.expires = bundle.access_expires_at; this.publish({ user, ready: true, notice: '' }); }
@@ -223,6 +226,45 @@ export class ApiClient {
         throw new ApiError('登录状态已改变。', 401); this.publish({ user }); return user; }
     async page<T>(path: string): Promise<Page<T>> { const p = await this.request<Page<T>>(path); if (!p || !Array.isArray(p.items) || !Number.isFinite(p.total) || !Number.isFinite(p.page_size))
         throw new ApiError('列表响应格式异常，请重新加载。'); return p; }
+    async groups(): Promise<Record<string, { ratio: number | string; desc: string }>> {
+        const data = await this.request<Record<string, { ratio: number | string; desc: string }>>('/api/user/self/groups');
+        if (!data || typeof data !== 'object' || Array.isArray(data) || Object.values(data).some(g => !g || typeof g.desc !== 'string' || !['number', 'string'].includes(typeof g.ratio))) throw new ApiError('分组响应格式异常，请重新加载。');
+        return data;
+    }
+    async models(group: string): Promise<string[]> {
+        const data = await this.request<string[] | null>(`/api/user/models?group=${encodeURIComponent(group)}`);
+        if (data === null) return [];
+        if (!Array.isArray(data) || data.some(m => typeof m !== 'string' || !m)) throw new ApiError('模型列表响应格式异常，请重新加载。');
+        return [...new Set(data)].sort();
+    }
+    async playground(input: ChatInput, signal: AbortSignal, onUpdate: (r: ChatResult) => void): Promise<ChatResult> {
+        if (!input.model || !input.group || !input.prompt.trim() || input.prompt.length > 16000 || !Number.isInteger(input.maxTokens) || input.maxTokens < 1 || input.maxTokens > 4096) throw new ApiError('请选择模型与分组，输入 1–16000 字提示词及 1–4096 的整数输出预算。');
+        if (!this.snapshot.user || this.snapshot.loggingOut) throw new ApiError('请先登录。', 401);
+        const epoch = this.epoch;
+        const controller = new AbortController();
+        const stop = () => controller.abort();
+        signal.addEventListener('abort', stop, { once: true });
+        this.streams.add(controller);
+        let timedOut = false;
+        const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 300000);
+        const check = () => { if (signal.aborted || controller.signal.aborted || epoch !== this.epoch) throw aborted(); };
+        try {
+            check();
+            if (this.expires <= Date.now() / 1000 + 15) await this.refresh();
+            check();
+            const headers = this.headers(); headers.set('Content-Type', 'application/json'); headers.set('Accept', 'text/event-stream, application/json');
+            const response = await this.fetcher('/pg/chat/completions', { method: 'POST', headers, credentials: 'same-origin', cache: 'no-store', signal: controller.signal, body: JSON.stringify({ model: input.model, group: input.group, messages: [{ role: 'user', content: input.prompt }], stream: true, max_tokens: input.maxTokens }) });
+            check();
+            if (response.status === 401) { void response.body?.cancel().catch(() => {}); this.clear('登录已过期，请重新登录。'); throw modelFailure(401); }
+            return await readChat(response, controller.signal, r => { check(); onUpdate(r); });
+        } catch (e) {
+            if (e instanceof ApiError && e.status === 401) throw e;
+            if (timedOut) throw new ApiError('请求已达 5 分钟上限，响应可能不完整。', 0, 'STREAM_TIMEOUT');
+            if (controller.signal.aborted || signal.aborted || epoch !== this.epoch) throw aborted();
+            if (e instanceof ApiError) throw e;
+            throw modelFailure();
+        } finally { clearTimeout(timer); signal.removeEventListener('abort', stop); this.streams.delete(controller); }
+    }
     keys = (page = 1, size = 10) => this.page<Key>(`/api/token/?p=${page}&page_size=${size}`);
     logs = (query = 'p=1&page_size=10') => this.page<UsageLog>(`/api/log/self?${query}`);
 }

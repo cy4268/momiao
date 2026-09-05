@@ -2,7 +2,7 @@
 
 Current reference: NewAPI `v1.0.0-rc.25`, source revision `f116414284162ad15d8925f7bca494c109b83e93`. This is a compatibility scope, not proof of every upstream feature. Recheck before upgrading the native service.
 
-Browser calls stay same-origin. Protected requests use `Authorization: Bearer …` and `New-Api-User`; the active session is attached where supported. The Go transport does not mint tokens or rewrite native cookies. HTTP 200 alone is not success: JSON `success` must be true.
+Browser calls stay same-origin. Protected requests use `Authorization: Bearer …`, `New-Api-User` and `X-Auth-Session`. The Go transport does not mint tokens or rewrite native cookies. For management APIs HTTP 200 alone is not success: JSON `success` must be true. The playground uses a separate OpenAI-style response parser.
 
 | Method / path | Used behavior |
 |---|---|
@@ -17,6 +17,25 @@ Browser calls stay same-origin. Protected requests use `Authorization: Bearer �
 | PUT `/api/token/?status_only=true` | `{id,status}` changes only state; 1 enabled, 2 disabled |
 | DELETE `/api/token/{id}` | Delete exactly one owned key after confirmation |
 | GET `/api/log/self` | Paginated personal logs and supported filters, not admin-wide logs |
+| GET `/api/user/self/groups` | Actual usable groups: `data[group] = {ratio,desc}`; no hardcoded available group |
+| GET `/api/user/models?group=…` | Enabled model IDs for the selected usable group; omitting group returns a union, not necessarily the account group |
+| POST `/pg/chat/completions` | Native login session, text-only OpenAI payload with explicit model/group, messages, max_tokens and stream; no API key creation |
+| GET `/api/channel/?p=1&page_size=10` | Admin channel metadata page; upstream keys omitted |
+| POST `/api/channel/` | Root basic create: `{mode:"single",multi_key_mode:"",batch_add_set_key_prefix_2_name:false,channel:{type:1,…}}`; no ID in response, reload list |
+| PUT `/api/channel/` | Narrow intended field patch including id; never send status or a blank replacement key |
+| POST `/api/channel/{id}/status` | `{status:1}` enable or `{status:2}` disable; distinct operate permission |
+
+## Model workspace details
+
+Source references: `router/relay-router.go`, `controller/{playground,user,group,channel}.go`, `middleware/distributor.go`, `service/authz/resources_channel.go`, `relay/helper/common.go` at the revision above.
+
+Use the account's actual `group` from self as the initial selection. Both catalog and playground use the same explicitly selected group. An empty catalog is a real state; model names do not establish upstream capability or availability.
+
+The playground accepts the current login bundle, not a legacy dashboard personal access token. It bypasses permanent API-token creation, **not** user quota accounting. Success is OpenAI JSON or SSE `data:` events with `[DONE]`; errors may use an OpenAI `error` object or a native authentication envelope. Handle partial frames, UTF-8 boundaries, content/reasoning/usage events, explicit errors and premature EOF. A missing normal terminator is not successful completion. Never replay a model POST after an ambiguous response or authentication failure.
+
+Ordinary HTTP 403 permission/quota errors must not clear a valid login. Explicit authentication/session errors still invalidate local state. Cancellation on navigation/logout must discard late output; authentication renewal happens before a call, not by replaying it.
+
+Channel type 1 appends the relay path to `base_url`; do not enter the full chat-completions URL as the base. `model_mapping`, `setting` and `header_override` are native JSON **strings**. The basic editor only changes its owned fields, not the advanced settings. List/detail/update omit or blank the upstream key; this portal does not call the sensitive channel-key reveal endpoint. New channels and sensitive edits require root or an explicitly granted native `ChannelSensitiveWrite` permission. This UI exposes basic editing to root and leaves custom delegated permission management to native administration.
 
 Native refresh cookie: Secure, HttpOnly, host-only, SameSite Strict, exact Path `/api/user/auth`. The page does not write access/refresh tokens to localStorage, sessionStorage, URLs or logs. A full key is fetched only for explicit reveal/copy and cleared with its view.
 

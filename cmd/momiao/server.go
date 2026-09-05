@@ -22,12 +22,15 @@ const (
 )
 
 var browserRoutes = map[string]bool{
-	"/":          true,
-	"/login":     true,
-	"/sign-in":   true,
-	"/dashboard": true,
-	"/keys":      true,
-	"/logs":      true,
+	"/":               true,
+	"/login":          true,
+	"/sign-in":        true,
+	"/dashboard":      true,
+	"/keys":           true,
+	"/logs":           true,
+	"/models":         true,
+	"/playground":     true,
+	"/admin/channels": true,
 }
 
 func healthHandler() http.Handler {
@@ -76,16 +79,17 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	}
 	proxy := newNativeProxy(transport)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		isRelay := strings.HasPrefix(r.URL.Path, "/v1/") || r.URL.Path == "/pg/chat/completions"
 		switch {
 		case r.URL.Path == "/healthz":
 			healthHandler().ServeHTTP(w, r)
-		case strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/v1/"):
+		case strings.HasPrefix(r.URL.Path, "/api/") || isRelay:
 			if r.Header.Get("Upgrade") != "" || headerHasToken(r.Header.Get("Connection"), "upgrade") {
 				writeJSONError(w, http.StatusBadRequest, "unsupported protocol upgrade")
 				return
 			}
 			timeout := apiProxyRequestTimeout
-			if strings.HasPrefix(r.URL.Path, "/v1/") {
+			if isRelay {
 				timeout = v1ProxyRequestTimeout
 			}
 			deadline := time.Now().Add(timeout)
