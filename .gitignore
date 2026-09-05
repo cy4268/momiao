@@ -1,0 +1,56 @@
+# Build outputs and local tool caches
+/momiao
+/momiao.exe
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage*
+.tools/
+.cache/
+node_modules/
+
+# Local configuration, secrets and data (review the actual diff as well)
+.env
+.env.*
+!.env.example
+secrets/
+private/
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+known_hosts*
+*.db
+*.db-*
+*.sqlite*
+*.sql
+*.dump
+*.bak
+*.log
+cookies*
+*.har
+
+# Private verification inputs and media are not public source
+.codex-tmp/
+evidence/
+operations-private/
+screenshots/
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.mp4
+*.zip
+*.tar
+*.gz
+
+# Editor and OS state
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

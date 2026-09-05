@@ -1,0 +1,5 @@
+* text=auto eol=lf
+# Preserve the standard license text byte-for-byte.
+LICENSE -text
+# Preserve historical Markdown hard breaks and terminal blank lines.
+docs/design/archive/** whitespace=-blank-at-eol,-blank-at-eof

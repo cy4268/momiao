@@ -1,0 +1,52 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "momiao process health API",
+    "version": "0.1.0",
+    "description": "Implemented process liveness only. No authentication, data store, upstream or business readiness assertion. Unmatched paths return 404; methods other than GET/HEAD on /healthz return 405 with Allow: GET, HEAD.",
+    "license": { "name": "AGPL-3.0-only", "identifier": "AGPL-3.0-only" }
+  },
+  "servers": [{ "url": "http://127.0.0.1:8080", "description": "Default local development listener" }],
+  "security": [],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "getProcessHealth",
+        "summary": "Report process liveness",
+        "responses": {
+          "200": {
+            "description": "The process handled this health request; not a dependency readiness check.",
+            "headers": {
+              "Cache-Control": { "schema": { "type": "string", "const": "no-store" } },
+              "X-Content-Type-Options": { "schema": { "type": "string", "const": "nosniff" } }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["status"],
+                  "additionalProperties": false,
+                  "properties": { "status": { "type": "string", "const": "ok" } }
+                },
+                "example": { "status": "ok" }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "operationId": "headProcessHealth",
+        "summary": "Report process liveness without a response body",
+        "responses": {
+          "200": {
+            "description": "No response body. Content-Type is application/json; no dependency readiness assertion.",
+            "headers": {
+              "Cache-Control": { "schema": { "type": "string", "const": "no-store" } },
+              "X-Content-Type-Options": { "schema": { "type": "string", "const": "nosniff" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}
