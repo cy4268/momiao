@@ -93,6 +93,8 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		isRelay := strings.HasPrefix(r.URL.Path, "/v1/") || r.URL.Path == "/pg/chat/completions"
 		switch {
+		case r.URL.Path == "/platform/v1/wallet/exchange" || strings.HasPrefix(r.URL.Path, "/platform/v1/rewards/") || strings.HasPrefix(r.URL.Path, "/platform/v1/transactions"):
+			newEconomyHandler(cfg.PublicOrigin, cfg.economy, transport).ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/platform/v1/master-profile"):
 			newProfileHandler(cfg.PublicOrigin, cfg.profile, transport).ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/platform/v1/"):

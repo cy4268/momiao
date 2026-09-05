@@ -14,6 +14,7 @@ type config struct {
 	PublicOrigin    string
 	wallet          walletStore
 	profile         profileStore
+	economy         economyStore
 	ListenAddr      string
 	ListenSocket    string
 	WebDir          string

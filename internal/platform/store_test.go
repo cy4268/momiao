@@ -394,6 +394,9 @@ func TestStoreIntegration(t *testing.T) {
 								}
 							}
 						}
+						if _, err = tx.Exec(ctx, "DROP TRIGGER daily_checkins_immutable ON rewards.daily_checkins"); err != nil {
+							t.Fatal(err)
+						}
 						// Remove FK dependents for a real DELETE, so a constraint
 						// cannot mask a missing trigger. Other triggers are absent.
 						if op == "delete" && target.table != "platform_meta.mutation_idempotency_records" {
@@ -401,7 +404,7 @@ func TestStoreIntegration(t *testing.T) {
 								t.Fatal(err)
 							}
 							if target.table == "economy.asset_transactions" {
-								if _, err = tx.Exec(ctx, "DELETE FROM economy.wallet_ledger"); err != nil {
+								if _, err = tx.Exec(ctx, "DELETE FROM rewards.daily_checkins; DELETE FROM economy.wallet_ledger"); err != nil {
 									t.Fatal(err)
 								}
 							}

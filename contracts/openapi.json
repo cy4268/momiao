@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "momiao owned APIs",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "Owned process liveness and authenticated local wallet APIs. Native /api/, /v1/ and /pg contracts remain external. Wallet configuration is optional; no payment, grant, transfer or ledger mutation endpoint is exposed.",
     "license": {
       "name": "AGPL-3.0-only",
@@ -1308,6 +1308,763 @@
         },
         "description": "No query parameters. Every request verifies native identity. Only own display identity; no native credentials, wallet writes or grants. Strict JSON; duplicate/unknown/null fields rejected. Unknown write outcome requires GET reconciliation, not automatic replay."
       }
+    },
+    "/platform/v1/rewards/daily": {
+      "get": {
+        "operationId": "getDailyReward",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "description": "Owner-only local wallet operation. No native quota movement. See wallet-actions-api.md for business and retry semantics.",
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed receipt or read-only state; Cache-Control: no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/DailyReward"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/platform/v1/rewards/daily/claim": {
+      "post": {
+        "operationId": "claimDailyReward",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "description": "Owner-only local wallet operation. No native quota movement. See wallet-actions-api.md for business and retry semantics.",
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "Exact configured HTTPS origin"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed receipt or read-only state; Cache-Control: no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AssetTransaction"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "idempotency_key"
+                ],
+                "properties": {
+                  "idempotency_key": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^[0-9a-f-]{36}$"
+                  }
+                }
+              }
+            }
+          },
+          "description": "At most 2048 UTF-8 bytes; reject duplicate and unknown fields."
+        }
+      }
+    },
+    "/platform/v1/wallet/exchange": {
+      "post": {
+        "operationId": "exchangeLocalWallets",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "description": "Owner-only local wallet operation. No native quota movement. See wallet-actions-api.md for business and retry semantics.",
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "Exact configured HTTPS origin"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed receipt or read-only state; Cache-Control: no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AssetTransaction"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "idempotency_key",
+                  "from_asset",
+                  "amount"
+                ],
+                "properties": {
+                  "idempotency_key": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^[0-9a-f-]{36}$"
+                  },
+                  "from_asset": {
+                    "type": "string",
+                    "enum": [
+                      "RESERVE_API_CREDIT",
+                      "AVAILABLE_CHIPS"
+                    ]
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 30,
+                    "pattern": "^[0-9]+(\\.[0-9]{1,6})?$"
+                  }
+                }
+              }
+            }
+          },
+          "description": "At most 2048 UTF-8 bytes; reject duplicate and unknown fields."
+        }
+      }
+    },
+    "/platform/v1/transactions": {
+      "get": {
+        "operationId": "listAssetTransactions",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "description": "Owner-only local wallet operation. No native quota movement. See wallet-actions-api.md for business and retry semantics.",
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "after_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f-]{36}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed receipt or read-only state; Cache-Control: no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AssetTransactionPage"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/platform/v1/transactions/by-key": {
+      "get": {
+        "operationId": "lookupAssetTransaction",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "description": "Owner-only local wallet operation. No native quota movement. See wallet-actions-api.md for business and retry semantics.",
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f-]{36}$"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DAILY",
+                "EXCHANGE"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed receipt or read-only state; Cache-Control: no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/AssetTransaction"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EconomyError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1622,6 +2379,190 @@
         "properties": {
           "success": {
             "type": "boolean",
+            "const": false
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "AssetTransaction": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "user_id",
+          "biz_id",
+          "kind",
+          "status",
+          "from_asset",
+          "to_asset",
+          "amount_units",
+          "amount",
+          "created_at",
+          "confirmed_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f-]{36}$"
+          },
+          "user_id": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "biz_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "DAILY_REWARD",
+              "LOCAL_EXCHANGE"
+            ]
+          },
+          "status": {
+            "const": "CONFIRMED"
+          },
+          "from_asset": {
+            "type": "string",
+            "enum": [
+              "",
+              "RESERVE_API_CREDIT",
+              "AVAILABLE_CHIPS"
+            ]
+          },
+          "to_asset": {
+            "type": "string",
+            "enum": [
+              "RESERVE_API_CREDIT",
+              "AVAILABLE_CHIPS"
+            ]
+          },
+          "amount_units": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "confirmed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DailyReward": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "user_id",
+          "business_date",
+          "timezone",
+          "next_reset_at",
+          "amount",
+          "amount_units",
+          "asset",
+          "policy_version",
+          "claimed",
+          "transaction_id"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "business_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "timezone": {
+            "const": "Asia/Shanghai"
+          },
+          "next_reset_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "amount": {
+            "const": "500"
+          },
+          "amount_units": {
+            "const": "250000000"
+          },
+          "asset": {
+            "const": "RESERVE_API_CREDIT"
+          },
+          "policy_version": {
+            "const": "1"
+          },
+          "claimed": {
+            "type": "boolean"
+          },
+          "transaction_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f-]{36}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "AssetTransactionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "has_more",
+          "next_after_id"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/AssetTransaction"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_after_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-f-]{36}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "EconomyError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "success",
+          "code",
+          "message"
+        ],
+        "properties": {
+          "success": {
             "const": false
           },
           "code": {

@@ -68,3 +68,14 @@ The portal forwards the exact `/pg/chat/completions` route to the same native so
 For an outbound-isolated native namespace, a fixed-destination transport can keep that isolation intact: a loopback-only namespace listener connects through a private Unix socket to a host-side TLS connection for one upstream. Verify certificate trust and hostname/SNI, preserve the correct upstream HTTP Host, and keep the Unix directory/socket private. Use a dedicated unprivileged identity; do not grant the portal access to the transport or credentials. Reconcile the bridge when the native namespace changes, stopping it when the namespace is not ready. Do not add a generic forward proxy or change Docker/LXD firewall rules merely to serve the portal.
 
 This transport is deployment-specific, not automatically installed by momiao. Its destination, ports, authentication and native metering must be derived from the actual environment. Example bounds or one successful request are not capacity measurements. Rolling back a portal release does not roll back channel settings; retain a separate record of explicit channel/rate changes and disable the new channel before removing its transport.
+
+### Schema 3: wallet actions
+Apply the explicit migrator once before the portal release, with a database backup for the changed constraints/new daily table. No database restart is needed. Add only these runtime object grants (retain existing wallet/profile grants):
+
+```sql
+GRANT UPDATE(balance_units,ledger_seq,version,updated_at) ON economy.wallet_balances TO momiao_wallet;
+GRANT SELECT,INSERT ON economy.asset_transactions,economy.wallet_ledger,platform_meta.mutation_idempotency_records TO momiao_wallet;
+GRANT USAGE ON SCHEMA rewards,platform_meta TO momiao_wallet;
+GRANT SELECT,INSERT ON rewards.daily_checkins TO momiao_wallet;
+```
+Runtime still has no UPDATE/DELETE on transaction, ledger, key history or daily claims; immutable triggers remain. The prior portal remains compatible with schema 3, so application rollback retains new data without a destructive down migration. For verification use a private clone for positive claims/exchanges; production balances are not test fixtures.

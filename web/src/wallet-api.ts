@@ -7,9 +7,9 @@ export interface WalletData { initialized: boolean; user_id: string; wallets: Wa
 export interface LedgerEntry { id: string; transaction_id: string; user_id: string; asset: Asset; ledger_seq: string; wallet_version: string; entry_type: string; biz_type: string; biz_id: string; delta_units: string; balance_before_units: string; balance_after_units: string; created_at: string; delta_amount: string; balance_after_amount: string }
 export interface LedgerPage { items: LedgerEntry[]; has_more: boolean; next_after_seq: string | null }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-const integer = (v: unknown, signed = false): v is string => typeof v === 'string' && (signed ? /^-?(0|[1-9]\d*)$/ : /^(0|[1-9]\d*)$/).test(v) && v.length <= 20 && BigInt(v) <= 9223372036854775807n && BigInt(v) >= (signed ? -9223372036854775808n : 0n);
+export const integer = (v: unknown, signed = false): v is string => typeof v === 'string' && (signed ? /^-?(0|[1-9]\d*)$/ : /^(0|[1-9]\d*)$/).test(v) && v.length <= 20 && BigInt(v) <= 9223372036854775807n && BigInt(v) >= (signed ? -9223372036854775808n : 0n);
 // Exact fixed-point validation: display the server string; never pass money through floating point.
-function amount(v: unknown, units: unknown, signed = false): v is string {
+export function amount(v: unknown, units: unknown, signed = false): v is string {
     if (typeof v !== 'string' || !integer(units, signed) || !(signed ? /^-?(0|[1-9]\d*)(\.\d{1,6})?$/ : /^(0|[1-9]\d*)(\.\d{1,6})?$/).test(v) || v.length > 30) return false;
     const [whole, fraction = ''] = v.replace(/^-/, '').split('.');
     const micros = (BigInt(whole) * 1000000n + BigInt(fraction.padEnd(6, '0'))) * (v.startsWith('-') ? -1n : 1n);

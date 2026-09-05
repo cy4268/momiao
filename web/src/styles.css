@@ -1166,3 +1166,15 @@ td time {
   .profile-actions > button { flex: 1; }
   .profile-details > div { gap: 12px; }
 }
+
+/* Wallet actions extend the existing Moonlit panels without a new component system. */
+.wallet-actions-grid { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 24px; }
+.wallet-actions-grid > .panel { min-width: 0; }
+.wallet-actions-grid .wallet-amount small { font-size: 16px; }
+.wallet-actions-grid h2 { margin-bottom: 12px; }
+.exchange-form { display: grid; gap: 16px; margin-top: 24px; }
+.exchange-form label { display: grid; gap: 8px; }
+.exchange-form button { justify-self: start; }
+.pending-operation code,.transaction-id { overflow-wrap: anywhere; }
+.pending-operation .actions { margin-top: 16px; }
+@media (max-width: 760px) { .wallet-actions-grid { grid-template-columns: minmax(0,1fr); gap: 18px; } }

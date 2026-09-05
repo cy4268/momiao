@@ -224,15 +224,29 @@ func insertIdempotency(ctx context.Context, tx pgx.Tx, m Mutation, key, semantic
 // No automatic retries: an ambiguous COMMIT must be reconciled by replaying the
 // original key/business identity. Missing accounts are not silently initialized.
 func (s *Store) Apply(ctx context.Context, m Mutation) (LedgerEntry, error) {
-	key, semantic, err := m.hashes()
-	if err != nil {
+	if _, _, err := m.hashes(); err != nil {
 		return LedgerEntry{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return LedgerEntry{}, err
 	}
 	defer rollback(tx)
+	e, err := applyInTx(ctx, tx, m)
+	if err != nil {
+		return LedgerEntry{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return LedgerEntry{}, err
+	}
+	return e, nil
+}
+
+func applyInTx(ctx context.Context, tx pgx.Tx, m Mutation) (LedgerEntry, error) {
+	key, semantic, err := m.hashes()
+	if err != nil {
+		return LedgerEntry{}, err
+	}
 	// Shared lock order: business identity, user-scoped idempotency, then wallet.
 	// Hash collisions only serialize unrelated work; SQL uniqueness stays authoritative.
 	if err = lockIdentity(ctx, tx, "business", m.BizType, m.BizID); err != nil {
@@ -252,9 +266,6 @@ func (s *Store) Apply(ctx context.Context, m Mutation) (LedgerEntry, error) {
 		if err != nil {
 			return LedgerEntry{}, err
 		}
-		if err = tx.Commit(ctx); err != nil {
-			return LedgerEntry{}, err
-		}
 		return e, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -272,9 +283,6 @@ func (s *Store) Apply(ctx context.Context, m Mutation) (LedgerEntry, error) {
 			return LedgerEntry{}, err
 		}
 		if err = insertIdempotency(ctx, tx, m, key, semantic, e.ID); err != nil {
-			return LedgerEntry{}, err
-		}
-		if err = tx.Commit(ctx); err != nil {
 			return LedgerEntry{}, err
 		}
 		return e, nil
@@ -320,9 +328,6 @@ func (s *Store) Apply(ctx context.Context, m Mutation) (LedgerEntry, error) {
 		return LedgerEntry{}, err
 	}
 	if err = insertIdempotency(ctx, tx, m, key, semantic, e.ID); err != nil {
-		return LedgerEntry{}, err
-	}
-	if err = tx.Commit(ctx); err != nil {
 		return LedgerEntry{}, err
 	}
 	return e, nil
