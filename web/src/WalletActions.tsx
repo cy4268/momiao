@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { DailyReward } from './DailyReward';
 import { ApiClient, ApiError } from './api';
 import { Alert, Empty, Loading, useResource } from './ui';
 import { assetNames, assets, type Asset, type WalletData } from './wallet-api';
 import { amountUnits, matchesOperation, operationError, parsePending, parseTransaction, readDaily, readTransactions, type PendingOperation, type Transaction } from './economy-api';
 
-export function WalletActions({client,userID,wallet,onChange}:{client:ApiClient;userID:string;wallet:WalletData;onChange:(t:Transaction)=>void}) {
+export function WalletActions({client,userID,wallet,onChange,dailyOnly=false}:{client:ApiClient;userID:string;wallet:WalletData;onChange:(t:Transaction)=>void;dailyOnly?:boolean}) {
  const storageKey=`momiao.wallet.pending.${userID}`;
+ const [historyVersion,setHistoryVersion]=useState(0);
  const [pending,setPending]=useState<PendingOperation|null>(null);
  const [storageError,setStorageError]=useState(false);
  const [busy,setBusy]=useState(false);const [retry,setRetry]=useState(false);const [notice,setNotice]=useState('');
@@ -14,10 +16,18 @@ export function WalletActions({client,userID,wallet,onChange}:{client:ApiClient;
  useEffect(()=>{active.current=true;try{setPending(parsePending(sessionStorage.getItem(storageKey)))}catch{setStorageError(true)}return()=>{active.current=false}},[storageKey]);
  const current=()=>active.current && client.getSessionGeneration()===generation.current && String(client.getSnapshot().user?.id)===userID && !client.getSnapshot().loggingOut;
  const daily=useResource(()=>readDaily(client,userID),[client,userID]);
+ // A read at the server-provided reset or on return to this tab refreshes the date; it never claims.
+ useEffect(()=>{
+  const reset=daily.data?.next_reset_at;if(!reset)return;
+  const delay=Date.parse(reset)-Date.now();
+  const timer=delay>0?window.setTimeout(daily.reload,Math.min(delay+100,2147483647)):undefined;
+  const refresh=()=>daily.reload();window.addEventListener('focus',refresh);
+  return()=>{window.clearTimeout(timer);window.removeEventListener('focus',refresh)};
+ },[daily.data?.next_reset_at]);
  const blocked=busy || pending!==null || storageError;
  const to:Asset=from==='RESERVE_API_CREDIT'?'AVAILABLE_CHIPS':'RESERVE_API_CREDIT';
  const units=amountUnits(amount);const balance=wallet.wallets.find(w=>w.asset===from)!;
- function finish(t:Transaction,p:PendingOperation){if(!matchesOperation(t,p))throw new Error('Receipt mismatch');sessionStorage.removeItem(storageKey);setPending(null);setRetry(false);onChange(t)}
+ function finish(t:Transaction,p:PendingOperation){if(!matchesOperation(t,p))throw new Error('Receipt mismatch');sessionStorage.removeItem(storageKey);setPending(null);setRetry(false);daily.reload();setHistoryVersion(v=>v+1);onChange(t)}
  async function send(p:PendingOperation,isRetry=false){
   if(lock.current || storageError || (!isRetry && pending))return;
   lock.current=true;setBusy(true);setNotice('');
@@ -40,12 +50,12 @@ export function WalletActions({client,userID,wallet,onChange}:{client:ApiClient;
  return <>
   {notice && <Alert>{notice}</Alert>}
   {storageError && <Alert>浏览器未能读取待核对请求。请检查会话存储；为避免重复交易，资产操作已暂停。</Alert>}
-  {pending && <section className="panel pending-operation" aria-label="待核对交易"><h2>先核对上一笔操作</h2><p>{pending.kind==='DAILY'?'每日签到':`兑换 ${pending.amount} ${assetNames[pending.from_asset!]}`} · 本页保留原请求，核对前暂停新的资产操作。</p><code>{pending.key}</code><div className="actions"><button disabled={busy} onClick={()=>void reconcile()}>核对交易结果</button>{retry && <button disabled={busy} onClick={()=>void send(pending,true)}>按原请求重试</button>}</div></section>}
-  <div className="wallet-actions-grid">
-   <section className="panel reward-card" aria-labelledby="daily-title"><p className="eyebrow">DAILY / RESERVE SUPPLY</p><h2 id="daily-title">每日签到</h2><p className="wallet-amount">500 <small>API Credit</small></p><p>固定进入 Reserve，按上海自然日每天一次。</p>{daily.loading?<Loading/>:daily.error?<><Alert>签到状态读取未完成。</Alert><button onClick={daily.reload}>刷新签到状态</button></>:daily.data && <><p className="hint">{daily.data.business_date} · {daily.data.claimed?'今日已领取':'今日待领取'}<br/>下次刷新：{new Date(daily.data.next_reset_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false})}（上海时间）</p><button className="primary" disabled={blocked || daily.data.claimed} onClick={()=>void send({kind:'DAILY',key:crypto.randomUUID()})}>{daily.data.claimed?'今日已领取':'领取今日 500 额度'}</button></>}<p className="hint">初始赠金、小时奖励与救济尚未开放。</p></section>
-   <section className="panel" aria-labelledby="exchange-title"><p className="eyebrow">EXCHANGE / LOCAL WALLETS</p><h2 id="exchange-title">本地资产兑换</h2><p>1:1 双向兑换，无手续费；不动原生 Active 额度。</p><form className="exchange-form" onSubmit={exchange}><label>兑换方向<select disabled={blocked} value={from} onChange={e=>setFrom(e.target.value as Asset)}>{assets.map(a=><option value={a} key={a}>{assetNames[a]} → {assetNames[a==='RESERVE_API_CREDIT'?'AVAILABLE_CHIPS':'RESERVE_API_CREDIT']}</option>)}</select></label><label>兑换数量<input inputMode="decimal" maxLength={30} value={amount} disabled={blocked} onChange={e=>setAmount(e.target.value)} placeholder="例如 100"/></label><p className="hint">可用 {balance.amount} {assetNames[from]}；最小步长 0.000002。</p>{amount && <p aria-live="polite">{units===null?'请输入可精确表示的正数。':units>BigInt(balance.balance_units)?'来源余额不足。':`将扣除 ${amount} ${assetNames[from]}，获得 ${amount} ${assetNames[to]}。`}</p>}<button className="primary" disabled={blocked || units===null || units>BigInt(balance.balance_units)}>确认兑换</button></form></section>
+  {pending && <section className="panel pending-operation" aria-label="待核对交易"><h2>先核对上一笔操作</h2><p>{pending.kind==='DAILY'?'每日签到':`兑换 ${pending.amount} ${assetNames[pending.from_asset!]}`} · 已保留原请求，核对前暂停新的资产操作。</p><code>{pending.key}</code><div className="actions"><button disabled={busy} onClick={()=>void reconcile()}>核对交易结果</button>{retry && <button disabled={busy} onClick={()=>void send(pending,true)}>按原请求重试</button>}</div></section>}
+  <div className={dailyOnly?"reward-detail":"wallet-actions-grid"}>
+   <DailyReward daily={daily} blocked={blocked} onClaim={()=>void send({kind:'DAILY',key:crypto.randomUUID()})}/>
+   {!dailyOnly && <section className="panel" aria-labelledby="exchange-title"><p className="eyebrow">EXCHANGE / LOCAL WALLETS</p><h2 id="exchange-title">本地资产兑换</h2><p>1:1 双向兑换，无手续费；不动原生 Active 额度。</p><form className="exchange-form" onSubmit={exchange}><label>兑换方向<select disabled={blocked} value={from} onChange={e=>setFrom(e.target.value as Asset)}>{assets.map(a=><option value={a} key={a}>{assetNames[a]} → {assetNames[a==='RESERVE_API_CREDIT'?'AVAILABLE_CHIPS':'RESERVE_API_CREDIT']}</option>)}</select></label><label>兑换数量<input inputMode="decimal" maxLength={30} value={amount} disabled={blocked} onChange={e=>setAmount(e.target.value)} placeholder="例如 100"/></label><p className="hint">可用 {balance.amount} {assetNames[from]}；最小步长 0.000002。</p>{amount && <p aria-live="polite">{units===null?'请输入可精确表示的正数。':units>BigInt(balance.balance_units)?'来源余额不足。':`将扣除 ${amount} ${assetNames[from]}，获得 ${amount} ${assetNames[to]}。`}</p>}<button className="primary" disabled={blocked || units===null || units>BigInt(balance.balance_units)}>确认兑换</button></form></section>}
   </div>
-  <TransactionHistory client={client} userID={userID}/>
+  <TransactionHistory key={historyVersion} client={client} userID={userID}/>
  </>;
 }
 function TransactionHistory({client,userID}:{client:ApiClient;userID:string}) {

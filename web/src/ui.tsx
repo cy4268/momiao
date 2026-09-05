@@ -3,6 +3,9 @@ import { errorText } from './api';
 export const number = (n?: number) => Number.isFinite(n) ? new Intl.NumberFormat('zh-CN').format(n!) : '—';
 export const date = (n?: number) => n === -1 ? '永不过期' : n && n > 0 ? new Date(n * 1000).toLocaleString('zh-CN', { hour12: false }) : '—';
 export const role = (n: number) => n === 100 ? '超级管理员' : n === 10 ? '管理员' : '成员';
+export function Brand() {
+    return <><svg className="royal-beacon" viewBox="0 0 100 100" fill="none" aria-hidden="true"><path d="M81.5 23.7a41 41 0 1 0 3.4 47.9" stroke="currentColor" strokeWidth="5" /><path d="M68.3 29.1a28 28 0 1 0 1.9 40.3" stroke="currentColor" strokeWidth="4.5" /><path d="m50 40 10 10-10 10-10-10Z" fill="currentColor" /><circle cx="77.4" cy="19.5" r="4" fill="currentColor" /></svg><span className="brand-wordmark">CHALDEA<small>PLATFORM</small></span></>;
+}
 export function Crest({ large = false }: {
     large?: boolean;
 }) { return <svg className={large ? 'crest large' : 'crest'} viewBox="0 0 160 180" fill="none" aria-hidden="true"><path d="M80 8 140 40v69c0 27-36 51-60 64-24-13-60-37-60-64V40Z" stroke="currentColor" strokeWidth="2"/><path d="M80 23 126 48v58c0 21-26 42-46 54-20-12-46-33-46-54V48Z" stroke="currentColor"/><circle cx="80" cy="87" r="34" stroke="currentColor"/><path d="M87 54a32 32 0 1 0 20 56 34 34 0 0 1-20-56Z" fill="currentColor" fillOpacity=".16"/><path d="m80 42 7 34 27 11-27 9-7 35-7-35-27-9 27-11Z" fill="currentColor"/><path d="M80 4v17M9 87h24m94 0h24M80 157v19" stroke="currentColor" strokeWidth="2"/></svg>; }

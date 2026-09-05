@@ -1,0 +1,28 @@
+{
+  "asset_id": "bg-royal-observatory-v001",
+  "domain": "public",
+  "scene": "Chaldea Royal Observatory",
+  "character": null,
+  "skin": null,
+  "role": "background_plate",
+  "version": "v001",
+  "source": "Original imagegen output exec-ec2b4265-48bd-4f29-aecf-f0a7d40dd691.png",
+  "creator_generator": "OpenAI built-in imagegen",
+  "reference": "Art Direction v0.4: architectural language and Bright Moonlit palette; no reference image supplied",
+  "files": {
+    "preferred": "bg-royal-observatory-v001.avif",
+    "fallback": "bg-royal-observatory-v001.webp"
+  },
+  "dimensions": [1672, 941],
+  "desktop_focal_point": [0.5, 0.5],
+  "mobile_focal_point": [0.5, 0.5],
+  "safe_area": "Full panorama is rendered with preserved aspect ratio on desktop and mobile; no center crop or separate mobile composition is needed for this framed illustration.",
+  "alpha": false,
+  "fallback": "Solid ivory panel with the separate Royal Beacon SVG; hero text and actions remain available",
+  "status": "REVIEWED",
+  "rights_status": "ORIGINAL_GENERATED",
+  "rights_note": "Original architecture with no identifiable characters, logos, text, UI or real-location reference. Owner release acceptance and production performance remain separate gates.",
+  "review_date": "2026-09-06",
+  "prompt_archive_id": "docs/assets/m1-home-prompt.md",
+  "production_note": "Requested 2560x1440; generator delivered 1672x941. No upscaling. Used as an inset panorama, not a full-bleed desktop/mobile scene. Not marked PRODUCTION_READY."
+}

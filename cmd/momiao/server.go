@@ -26,6 +26,8 @@ var browserRoutes = map[string]bool{
 	"/login":           true,
 	"/sign-in":         true,
 	"/dashboard":       true,
+	"/me":              true,
+	"/rewards":         true,
 	"/wallet":          true,
 	"/wallet/activate": true,
 	"/master-profile":  true,

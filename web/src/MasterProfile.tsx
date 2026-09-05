@@ -3,13 +3,13 @@ import { ApiClient, ApiError, type User } from './api';
 import { parseProfile, profileError, readProfile, type MasterProfileData } from './profile-api';
 import { Alert, Crest, Loading } from './ui';
 
-export function MasterProfile({ client, user }: { client: ApiClient; user: User }) {
+export function MasterProfile({ client, user, onSaved }: { client: ApiClient; user: User; onSaved?: () => void }) {
     useSyncExternalStore(client.subscribe, client.getSnapshot);
     const generation = client.getSessionGeneration();
     if (!Number.isSafeInteger(user.id) || user.id <= 0) return <Alert>账户标识格式异常，请重新登录后读取资料。</Alert>;
-    return <ProfileView key={`${user.id}:${generation}`} client={client} userID={String(user.id)} generation={generation} />;
+    return <ProfileView key={`${user.id}:${generation}`} client={client} userID={String(user.id)} generation={generation} onSaved={onSaved} />;
 }
-function ProfileView({ client, userID, generation }: { client: ApiClient; userID: string; generation: number }) {
+function ProfileView({ client, userID, generation, onSaved }: { client: ApiClient; userID: string; generation: number; onSaved?: () => void }) {
     const [profile, setProfile] = useState<MasterProfileData>();
     const [name, setName] = useState('');
     const [preview, setPreview] = useState<string | null>(null);
@@ -36,6 +36,7 @@ function ProfileView({ client, userID, generation }: { client: ApiClient; userID
             setProfile(data); setName(data.display_name); setPreview(null); setUncertain(false);
             setNotice(reason === 'stale' ? '资料版本已更新，已读取最新资料。请核对后重新编辑，不会自动重放本次修改。' : '');
             setSaved(reason === 'saved'); lock.current = false;
+            if (reason === 'saved') onSaved?.();
         } catch (e) {
             if (current() && sequence === readSequence.current) setReadError(profileError(e));
         } finally {

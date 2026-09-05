@@ -19,12 +19,12 @@ body {
 button,input,select,textarea {
   font:inherit}
 button,.button {
-  min-height:40px;
+  min-height:44px;
   padding:9px 16px;
-  border:1px solid var(--line);
+  border:1px solid var(--azure);
   border-radius:7px;
   background:transparent;
-  color:var(--ink);
+  color:var(--azure);
   cursor:pointer;
   display:inline-flex;
   align-items:center;
@@ -35,18 +35,20 @@ button,.button {
   font-size:13px;
   font-weight:600}
 button:hover,.button:hover {
-  background:#e9ebee;
-  border-color:var(--moon)}
+  background:var(--moon);
+  color:var(--ink);
+  border-color:var(--azure)}
 button:disabled {
   opacity:.5;
   cursor:not-allowed}
 .primary {
   background:var(--azure);
   border-color:var(--azure);
-  color:white}
+  color:var(--ivory)}
 .primary:hover {
-  background:#2b5697;
-  border-color:#2b5697}
+  background:var(--moon);
+  color:var(--ink);
+  border-color:var(--azure)}
 .quiet {
   border-color:transparent}
 .icon-button {

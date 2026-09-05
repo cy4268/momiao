@@ -1,0 +1,186 @@
+/* M1 / Royal Observatory. The panorama carries atmosphere; DOM carries every action. */
+.royal-beacon { width: 52px; height: 52px; flex-shrink: 0; color: var(--azure); }
+.brand .brand-wordmark { font-family: var(--display); font-size: 25px; letter-spacing: .055em; line-height: 1.2; }
+.brand .brand-wordmark small { font: 10px/1.6 "Segoe UI", sans-serif; letter-spacing: .28em; color: var(--muted); margin-top: 5px; }
+.public-header, .public-footer, .public-home main { width: min(1200px, calc(100% - 48px)); margin-inline: auto; }
+.public-header, .portal-header { min-height: 88px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.public-header { border-bottom: 1px solid var(--line); }
+.public-header nav, .public-footer nav { display: flex; align-items: center; gap: 28px; }
+.public-header nav a, .public-footer nav a { font-size: 13px; text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; }
+.home-hero { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.25fr); align-items: center; gap: 40px; padding: 68px 0 64px; }
+.home-copy { position: relative; min-width: 0; }
+.home-copy .eyebrow { margin-bottom: 28px; }
+.home-copy h1 { font-family: var(--display); font-size: clamp(36px, 3.6vw, 50px); font-weight: 400; letter-spacing: .035em; line-height: 1.55; margin: 0 0 24px; }
+.home-copy h1 span { color: var(--azure); }
+.home-description { font-size: 16px; line-height: 2; color: var(--muted); }
+.public-home .hero-actions { gap: 24px; flex-wrap: wrap; margin-top: 30px; }
+.public-home .hero-actions .button { font-size: 14px; min-height: 48px; padding: 12px 20px; }
+.public-home .hero-actions .text-link { min-height: 44px; display: inline-flex; align-items: center; gap: 16px; font-size: 13px; }
+.home-access-note { font-size: 12px; color: var(--muted); margin: 22px 0 0; }
+.home-art { margin: 0; min-width: 0; border: 1px solid var(--line); border-radius: 140px 140px 14px 14px; overflow: hidden; background: #fbfaf7; }
+.home-art picture { display: block; }
+.home-art img { display: block; width: 100%; height: auto; aspect-ratio: 1672 / 941; object-fit: contain; }
+.home-art figcaption { border-top: 1px solid var(--line); padding: 20px 24px; display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; letter-spacing: .09em; }
+.observatory-fallback { aspect-ratio: 1672 / 941; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; color: var(--azure); }
+.observatory-fallback .royal-beacon { width: 110px; height: 110px; }
+.observatory-fallback .brand-wordmark { text-align: center; font: 20px var(--display); }
+.observatory-fallback small { letter-spacing: .2em; }
+.home-pathways { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 32px; padding: 42px 0 52px; border-top: 1px solid var(--line); scroll-margin-top: 20px; }
+.home-section-title { grid-column: 1 / -1; }
+.home-section-title h2, .home-journey h2 { font: 27px/1.6 var(--display); margin-bottom: 12px; }
+.home-section-title p:last-child { color: var(--muted); font-size: 14px; margin: 0; }
+.home-path { border: 1px solid var(--line); border-top: 3px solid var(--azure); border-radius: 0 0 14px 14px; background: #fbfaf7; padding: 30px 32px; }
+.home-path h3 { font: 23px/1.6 var(--display); margin: 16px 0; }
+.home-path > p:not(.eyebrow) { color: var(--muted); font-size: 15px; line-height: 1.9; max-width: 48ch; }
+.home-path > a { display: inline-flex; align-items: center; gap: 24px; min-height: 44px; }
+.home-path > small { margin-top: 12px; font-size: 12px; }
+.home-journey { display: grid; grid-template-columns: minmax(0,.8fr) minmax(0,1.2fr); gap: 48px; padding: 42px 0 68px; border-top: 1px solid var(--line); }
+.home-journey p { font-size: 14px; color: var(--muted); }
+.home-journey ol { margin: 0; padding: 0 0 0 28px; }
+.home-journey li { padding: 0 0 20px 10px; margin: 0 0 20px; border-bottom: 1px solid var(--line); color: var(--azure); }
+.home-journey li::marker { font-family: var(--display); font-size: 23px; }
+.home-journey li:last-child { margin-bottom: 0; }
+.home-journey strong, .home-journey li span { display: block; }
+.home-journey strong { color: var(--ink); font-size: 15px; margin-bottom: 8px; }
+.home-journey li span { color: var(--muted); font-size: 13px; line-height: 1.8; }
+.public-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; border-top: 1px solid var(--line); padding: 20px 0 28px; font-size: 12px; color: var(--muted); gap: 14px; }
+
+/* Shared authenticated header and compact navigation; no permanent global sidebar. */
+.portal-shell { display: flex; min-height: 100vh; flex-direction: column; }
+.portal-header { width: min(1200px, calc(100% - 48px)); margin-inline: auto; }
+.portal-nav { border-block: 1px solid var(--line); background: #fbfaf7; padding-inline: max(24px, calc((100% - 1200px) / 2)); }
+.portal-primary, .portal-tools { display: flex; gap: 24px; flex-wrap: wrap; }
+.portal-primary { border-bottom: 1px solid var(--line); }
+.portal-nav a { display: inline-flex; min-height: 46px; padding: 10px 8px; justify-content: center; align-items: center; border-bottom: 2px solid transparent; text-decoration: none; font-size: 13px; color: var(--muted); }
+.portal-nav a:hover { color: var(--azure); }
+.portal-nav a.active { color: var(--azure); border-bottom-color: var(--azure); }
+.portal-tools a { font-size: 12px; }
+.portal-header .account-button { min-height: 44px; max-width: 290px; padding: 4px 8px; }
+.portal-header .avatar { width: 35px; height: 35px; }
+.portal-header .avatar .crest { width: 24px; height: 27px; }
+.portal-header .account-menu a { min-height: 44px; display: flex; align-items: center; padding-block: 8px; }
+.portal-shell .main-content { width: min(1248px, 100%); padding: 40px 24px 48px; }
+.portal-shell .workspace-foot { width: min(1200px, calc(100% - 48px)); margin: auto auto 0; font-size: 11px; gap: 20px; }
+.portal-shell .page-heading { padding-top: 0; }
+.portal-shell .page-heading > div > p:last-child { font-size: 14px; }
+.portal-shell .page-heading > button { min-height: 44px; }
+.master-summary { display: flex; gap: 28px; align-items: center; padding: 30px 32px; margin-bottom: 24px; border: 1px solid var(--line); border-left: 3px solid var(--azure); border-radius: 0 14px 14px 0; background: #fbfaf7; }
+.master-emblem { display: flex; align-items: center; justify-content: center; width: 90px; height: 100px; flex-shrink: 0; border-right: 1px solid var(--line); padding-right: 24px; }
+.master-emblem .crest { width: 64px; height: 76px; }
+.master-copy { min-width: 0; flex: 1; }
+.master-copy h2 { font: 28px/1.5 var(--display); overflow-wrap: anywhere; margin: 0 0 8px; }
+.master-copy .loading { text-align: left; padding: 16px 0; }
+.master-copy .eyebrow { margin-bottom: 12px; }
+.master-copy .hint { margin-bottom: 6px; }
+.master-copy .text-link { min-height: 44px; display: inline-flex; align-items: center; }
+.native-account { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-bottom: 28px; padding: 24px 0 28px; border-bottom: 1px solid var(--line); }
+.native-account h2 { font-size: 16px; margin-bottom: 12px; }
+.native-account p:not(.eyebrow) { font-size: 14px; overflow-wrap: anywhere; margin-bottom: 6px; }
+.native-account button { flex-shrink: 0; }
+.hub-sections { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 24px; }
+.hub-group { min-width: 0; }
+.hub-group h2 { font-size: 20px; }
+.hub-link { display: flex; justify-content: space-between; gap: 20px; text-decoration: none; border-top: 1px solid var(--line); padding: 22px 0; min-height: 44px; }
+.hub-link:last-child { padding-bottom: 0; }
+.hub-link strong { font-size: 15px; }
+.hub-link div span { display: block; color: var(--muted); font-size: 13px; line-height: 1.8; margin-top: 7px; }
+.hub-link:hover strong { text-decoration: underline; }
+.hub-admin { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-top: 24px; }
+.hub-admin h2 { font-size: 19px; }
+.hub-admin p:last-child { margin: 0; color: var(--muted); font-size: 13px; }
+.dashboard-paths { display: flex; gap: 12px 28px; align-items: center; flex-wrap: wrap; margin-bottom: 20px; font-size: 13px; }
+.dashboard-paths a { min-height: 44px; display: inline-flex; align-items: center; }
+.dashboard-paths span { width: 100%; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.reward-rail { display: flex; justify-content: space-between; gap: 12px 24px; align-items: center; padding: 18px 22px; border-block: 1px solid var(--line); margin-bottom: 28px; font-size: 13px; }
+.reward-rail span { color: var(--muted); }
+.reward-rail strong { font-variant-numeric: tabular-nums; color: var(--azure); }
+.reward-detail .reward-card { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 40px; margin-bottom: 28px; }
+.reward-detail .daily-action { border-left: 1px solid var(--line); padding-left: 36px; }
+.reward-detail .wallet-amount small { display: inline; font-size: 17px; }
+.daily-state { color: var(--azure); font-weight: 600; margin: 0 0 8px; }
+.daily-action .hint { line-height: 1.9; }
+.daily-action button { margin: 4px 8px 12px 0; }
+.rewards-page .notice { overflow-wrap: anywhere; }
+.rewards-page .pending-operation { margin-bottom: 24px; }
+.reward-next { margin-top: 32px; padding-top: 28px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 30px; }
+.reward-next h2 { font-size: 21px; }
+.reward-next p:last-child { color: var(--muted); font-size: 13px; max-width: 60ch; }
+.reward-next > a { flex-shrink: 0; }
+.public-home, .personal-hub, .rewards-page { overflow-wrap: anywhere; }
+.public-home button, .public-home a, .portal-shell button, .portal-nav a { transition: color 100ms, background-color 100ms, border-color 100ms; }
+
+@media (max-width: 1100px) {
+  .public-header, .public-footer, .public-home main, .portal-header { width: calc(100% - 32px); }
+  .home-hero { gap: 28px; padding-block: 48px; }
+  .home-copy h1 { font-size: 36px; }
+  .home-art { border-radius: 80px 80px 14px 14px; }
+  .portal-nav { padding-inline: 16px; }
+  .portal-primary, .portal-tools { gap: 20px; }
+  .portal-shell .main-content { padding-inline: 16px; }
+  .portal-shell .workspace-foot { width: calc(100% - 32px); }
+}
+@media (max-width: 720px) {
+  .public-header, .public-footer, .public-home main, .portal-header { width: calc(100% - 28px); }
+  .public-header, .portal-header { min-height: 72px; gap: 12px; }
+  .royal-beacon { width: 38px; height: 38px; }
+  .brand .brand-wordmark { font-size: 19px; }
+  .brand .brand-wordmark small { font-size: 8px; }
+  .public-header .brand, .portal-header .brand { gap: 10px; }
+  .public-header nav { gap: 10px; }
+  .public-header nav > a:not(.button) { display: none; }
+  .public-header nav .button { padding-inline: 12px; font-size: 12px; }
+  .home-hero { grid-template-columns: minmax(0,1fr); padding: 36px 0 32px; gap: 32px; }
+  .home-copy h1 { font-size: clamp(30px, 6vw, 40px); line-height: 1.55; margin-bottom: 20px; }
+  .home-copy .eyebrow { margin-bottom: 20px; font-size: 9px; }
+  .home-description { font-size: 15px; }
+  .desktop-break { display: none; }
+  .public-home .hero-actions { margin-top: 24px; }
+  .home-art { border-radius: 64px 64px 12px 12px; }
+  .home-art figcaption { padding: 15px 18px; font-size: 9px; }
+  .home-access-note { font-size: 11px; }
+  .home-pathways { grid-template-columns: minmax(0,1fr); gap: 20px; padding: 30px 0; }
+  .home-section-title h2, .home-journey h2 { font-size: 23px; }
+  .home-path { padding: 24px; }
+  .home-path h3 { font-size: 22px; }
+  .home-path > p:not(.eyebrow) { font-size: 14px; }
+  .home-journey { grid-template-columns: minmax(0,1fr); gap: 20px; padding: 30px 0 36px; }
+  .public-footer { align-items: flex-start; font-size: 11px; }
+  .public-footer nav { gap: 8px 20px; flex-wrap: wrap; }
+  .public-footer nav a { font-size: 12px; }
+  .portal-nav { padding-inline: 14px; }
+  .portal-primary { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 0; }
+  .portal-tools { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 0; }
+  .portal-nav a { font-size: 12px; padding-inline: 2px; min-height: 44px; }
+  .portal-tools a { font-size: 11px; }
+  .portal-header .account-button { max-width: 150px; font-size: 11px; gap: 6px; padding-inline: 3px; }
+  .portal-header .avatar { width: 28px; height: 28px; }
+  .portal-header .avatar .crest { width: 20px; height: 23px; }
+  .portal-header .account-menu { top: 48px; max-width: calc(100vw - 28px); }
+  .portal-shell .main-content { padding: 30px 14px 36px; }
+  .portal-shell .workspace-foot { width: calc(100% - 28px); flex-wrap: wrap; font-size: 10px; }
+  .portal-shell .page-heading > div > p:last-child { font-size: 13px; }
+  .master-summary { padding: 24px 18px; align-items: flex-start; gap: 16px; }
+  .master-emblem { width: 45px; height: 60px; border: 0; padding: 0; }
+  .master-emblem .crest { width: 42px; height: 51px; }
+  .master-copy h2 { font-size: 23px; }
+  .master-copy .hint { font-size: 11px; }
+  .master-copy .alert { flex-direction: column; gap: 6px; }
+  .native-account { align-items: flex-start; flex-direction: column; gap: 16px; }
+  .hub-sections { grid-template-columns: minmax(0,1fr); gap: 20px; }
+  .hub-admin { flex-direction: column; align-items: flex-start; }
+  .reward-rail { flex-wrap: wrap; padding: 16px 0; margin-bottom: 20px; }
+  .reward-rail strong { order: 1; width: 100%; }
+  .reward-detail .reward-card { grid-template-columns: minmax(0,1fr); gap: 20px; }
+  .reward-detail .daily-action { border-left: 0; border-top: 1px solid var(--line); padding: 22px 0 0; }
+  .reward-next { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .rewards-page .pager { flex-wrap: wrap; gap: 14px; }
+}
+@media (max-width: 420px) {
+  .portal-header .brand-wordmark { font-size: 15px; }
+  .portal-header .royal-beacon { width: 30px; height: 30px; }
+  .portal-header .account-button { max-width: 138px; }
+  .public-header .brand-wordmark { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .public-home *, .portal-shell * { scroll-behavior: auto !important; animation: none !important; transition-duration: 0ms !important; }
+}

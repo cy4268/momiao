@@ -53,6 +53,10 @@ screenshots/
 *.tar
 *.gz
 
+# Reviewed public M1 media. Private screenshots remain ignored.
+!/web/public/assets/home/*.webp
+!/web/public/assets/home/*.avif
+
 # Editor and OS state
 .idea/
 .vscode/

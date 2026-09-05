@@ -29,8 +29,10 @@ it('opens an optional profile route without initializing or copying native ident
     expect(await screen.findByLabelText('Master 昵称')).toHaveValue('');
     expect(screen.getByRole('button', { name: '保存并初始化' })).toBeDisabled();
     expect(screen.getByText('尚未初始化')).toBeVisible(); expect(writes(f)).toHaveLength(0);
-    expect(screen.getByRole('button', { name: /Native User/ })).toHaveAccessibleDescription(/原生登录身份/);
-    fireEvent.click(screen.getByRole('button', { name: /Native User/ }));
+    expect(screen.getByRole('button', { name: '账户菜单' })).toHaveTextContent('Master 资料未完成');
+    fireEvent.click(screen.getByRole('button', { name: '账户菜单' }));
+    expect(within(document.getElementById('account-menu')!).getByText('Native User')).toBeVisible();
+    expect(within(document.getElementById('account-menu')!).getByText('原生登录身份 · native-user')).toBeVisible();
     expect(within(document.getElementById('account-menu')!).getByRole('link', { name: 'Master 资料' })).toHaveAttribute('href', '/master-profile');
 });
 it('previews without writing, explicitly initializes once and round-trips the identity', async () => {
@@ -48,7 +50,8 @@ it('previews without writing, explicitly initializes once and round-trips the id
     expect(JSON.parse(String(writes(f)[0][1]?.body))).toEqual({ expected_version: '0', display_name: 'Moonlit', avatar_id: 'system-default' });
     const headers = new Headers(writes(f)[0][1]?.headers);
     expect(headers.get('New-Api-User')).toBe('1'); expect(headers.get('Authorization')).toBe('Bearer memory');
-    expect(f.mock.calls.filter(([p, init]) => p === '/platform/v1/master-profile' && init?.method === 'GET')).toHaveLength(2);
+    // Editor and shell each confirm their view before and after the explicit save.
+    expect(f.mock.calls.filter(([p, init]) => p === '/platform/v1/master-profile' && init?.method === 'GET')).toHaveLength(4);
     expect(client.getSnapshot().user).toMatchObject({ username: 'native-user', display_name: 'Native User' });
 });
 it('sends PATCH with exact string version and renders server rename timestamps', async () => {
@@ -92,7 +95,7 @@ it('locks ambiguous writes across failed reads until successful explicit GET and
     });
     await screen.findByLabelText('Master 昵称'); edit('Draft'); fireEvent.click(screen.getByRole('button', { name: '保存并初始化' }));
     await screen.findByText(/保存结果尚未确认/); expect(screen.getByRole('button', { name: '保存并初始化' })).toBeDisabled();
-    expect(f.mock.calls.filter(([p]) => p === '/platform/v1/master-profile')).toHaveLength(1);
+    expect(f.mock.calls.filter(([p]) => p === '/platform/v1/master-profile')).toHaveLength(2);
     readsFail = true; fireEvent.click(screen.getByRole('button', { name: '刷新资料' })); await screen.findByText(/资料服务暂不可用/);
     expect(screen.getByRole('button', { name: '保存并初始化' })).toBeDisabled();
     readsFail = false; fireEvent.click(screen.getByRole('button', { name: '刷新资料' }));
@@ -133,13 +136,13 @@ it('a new session for the same user drops prior writes and drafts', async () => 
 it('normal token refresh preserves an unsaved draft in the same session', async () => {
     const { client, f } = setup(); await screen.findByLabelText('Master 昵称'); edit('Unsaved');
     await act(() => client.refresh()); expect(screen.getByLabelText('Master 昵称')).toHaveValue('Unsaved');
-    expect(f.mock.calls.filter(([p]) => p === '/platform/v1/master-profile')).toHaveLength(1);
+    expect(f.mock.calls.filter(([p]) => p === '/platform/v1/master-profile')).toHaveLength(2);
 });
 it('leaving the page drops late writes without restoring the profile', async () => {
     let resolve!: (r: Response) => void;
     setup(p => p.endsWith('/initialize') ? new Promise<Response>(r => resolve = r) : undefined);
     await screen.findByLabelText('Master 昵称'); edit('Draft'); fireEvent.click(screen.getByRole('button', { name: '保存并初始化' }));
-    fireEvent.click(within(screen.getByRole('navigation', { name: '主导航' })).getByRole('link', { name: /指挥台/ })); await screen.findByText(/Your next/);
+    fireEvent.click(within(screen.getByRole('navigation', { name: '主导航' })).getByRole('link', { name: /指挥台/ })); await screen.findByRole('heading', { name: '指挥台', level: 1 });
     await act(async () => resolve(ok(complete))); expect(screen.queryByText('Moonlit')).not.toBeInTheDocument();
 });
 it('a write followed by an older GET stays locked instead of falsely claiming persistence was checked', async () => {

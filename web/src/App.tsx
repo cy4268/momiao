@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
-import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
+import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useOutletContext } from 'react-router-dom';
 import { api, ApiClient, type User, type UsageLog, type TwoFactor, errorText } from './api';
 import { Keys } from './Keys';
 import { Models, Playground } from './Models';
@@ -8,15 +8,39 @@ import { Wallet } from './Wallet';
 import { QuotaActivation } from './QuotaActivation';
 import { DiceExperience } from './DiceExperience';
 import { MasterProfile } from './MasterProfile';
-import { Alert, Crest, Empty, Loading, Pager, date, number, role, useResource } from './ui';
-export function App({ client = api }: {
-    client?: ApiClient;
-}) {
+import { Home } from './Home';
+import { PersonalHub, MasterSummary, type MasterResource } from './PersonalHub';
+import { Rewards } from './Rewards';
+import { readProfile, profileError } from './profile-api';
+import { Alert, Brand, Crest, Empty, Loading, Pager, date, number, role, useResource } from './ui';
+export function App({ client = api }: { client?: ApiClient }) {
     const session = useSyncExternalStore(client.subscribe, client.getSnapshot);
     useEffect(() => { void client.bootstrap(); }, [client]);
-    if (!session.ready)
-        return <div className="session-loading"><Crest /><Loading /></div>;
-    return <Routes><Route path="/login" element={session.user ? <Navigate to="/dashboard" replace/> : <Login client={client}/>}/><Route path="/sign-in" element={<Navigate to="/login" replace/>}/><Route element={session.user ? <Shell client={client} user={session.user}/> : <Navigate to="/login" replace/>}><Route path="/dashboard" element={<Dashboard client={client} user={session.user!}/>}/><Route path="/games/dice" element={session.user && <DiceExperience key={`${session.user.id}:${client.getSessionGeneration()}`} userID={String(session.user.id)} />} /><Route path="/wallet/activate" element={session.user && <QuotaActivation key={`${session.user.id}:${client.getSessionGeneration()}`} client={client} userID={String(session.user.id)}/>}/><Route path="/wallet" element={<Wallet client={client} user={session.user!}/>}/><Route path="/master-profile" element={<MasterProfile client={client} user={session.user!}/>}/><Route path="/models" element={<Models client={client} user={session.user!}/>}/><Route path="/playground" element={<Playground client={client} user={session.user!}/>}/><Route path="/admin/channels" element={<Channels client={client} user={session.user!}/>}/><Route path="/keys" element={<Keys client={client}/>}/><Route path="/logs" element={<Logs client={client}/>}/></Route><Route path="*" element={<Navigate to={session.user ? '/dashboard' : '/login'} replace/>}/></Routes>;
+    const loading = <div className="session-loading"><Crest /><Loading /></div>;
+    return <Routes>
+        <Route path="/" element={<Home signedIn={!!session.user} />} />
+        <Route path="/login" element={!session.ready ? loading : session.user ? <Navigate to="/dashboard" replace /> : <Login client={client} />} />
+        <Route path="/sign-in" element={<Navigate to="/login" replace />} />
+        <Route element={!session.ready ? loading : session.user ? <Shell key={session.user.id + ':' + client.getSessionGeneration()} client={client} user={session.user} /> : <Navigate to="/login" replace />}>
+            <Route path="/dashboard" element={<Dashboard client={client} user={session.user!} />} />
+            <Route path="/me" element={<PersonalHub client={client} user={session.user!} />} />
+            <Route path="/rewards" element={<Rewards client={client} user={session.user!} />} />
+            <Route path="/games/dice" element={session.user && <DiceExperience key={session.user.id + ':' + client.getSessionGeneration()} userID={String(session.user.id)} />} />
+            <Route path="/wallet/activate" element={session.user && <QuotaActivation key={session.user.id + ':' + client.getSessionGeneration()} client={client} userID={String(session.user.id)} />} />
+            <Route path="/wallet" element={<Wallet client={client} user={session.user!} />} />
+            <Route path="/master-profile" element={<ProfileRoute client={client} user={session.user!} />} />
+            <Route path="/models" element={<Models client={client} user={session.user!} />} />
+            <Route path="/playground" element={<Playground client={client} user={session.user!} />} />
+            <Route path="/admin/channels" element={<Channels client={client} user={session.user!} />} />
+            <Route path="/keys" element={<Keys client={client} />} />
+            <Route path="/logs" element={<Logs client={client} />} />
+        </Route>
+        <Route path="*" element={!session.ready ? loading : <Navigate to={session.user ? '/dashboard' : '/login'} replace />} />
+    </Routes>;
+}
+function ProfileRoute({ client, user }: { client: ApiClient; user: User }) {
+    const master = useOutletContext<MasterResource>();
+    return <MasterProfile client={client} user={user} onSaved={master.reload} />;
 }
 function Login({ client }: {
     client: ApiClient;
@@ -46,25 +70,46 @@ function Login({ client }: {
     } }
     return <main className="login-layout"><section className="login-story"><a href="/" className="brand"><Crest /><span>momiao<small>CHALDEA PLATFORM</small></span></a><div className="login-title"><p className="eyebrow">YOUR PERSONAL COMMAND DECK</p><h1>Make room<br />for possibility<span>.</span></h1><p>每一次连接，<br />从你的指挥台开始。</p></div><div className="login-orbit"><Crest large/></div><div className="login-foot"><span>MOONLIT / CONNECTED</span><span>账户 · 密钥 · 调用记录</span></div></section><section className="login-entry"><div className="login-form"><p className="eyebrow">WELCOME ABOARD</p><h2>{twoFactor ? '验证你的身份' : '欢迎回来'}</h2><p className="subtitle">{twoFactor ? '输入验证器中的验证码或备用码，完成登录。' : '登录 momiao，管理你的 API 连接。'}</p>{session.notice && <Alert>{session.notice}{session.notice.includes('服务端退出未确认') && <button disabled={session.loggingOut} onClick={() => void client.logout().catch(() => { })}>重试退出</button>}</Alert>}<form onSubmit={submit}>{twoFactor ? <label>验证码或备用码<input autoFocus autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value)} required maxLength={64}/></label> : <><label>用户名<input autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required maxLength={128} placeholder="输入你的用户名"/></label><label>密码<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required maxLength={256} placeholder="输入账户密码"/></label></>}{error && <Alert>{error}</Alert>}<button className="primary login-submit" disabled={busy || session.loggingOut} type="submit">{session.loggingOut ? '正在退出…' : busy ? '正在验证…' : twoFactor ? '验证并登录' : '登录控制台'}<span aria-hidden="true">↗</span></button>{twoFactor && <button type="button" disabled={busy} onClick={() => { setTwoFactor(null); setCode(''); setError(''); }}>返回账户登录</button>}</form><div className="login-note"><span aria-hidden="true">◇</span><p>会话由安全 Cookie 续期。请勿在共享设备上保留登录状态。</p></div></div><footer>momiao <span> / </span> Chaldea Platform <span> / </span><a href="https://github.com/cy4268/momiao" target="_blank" rel="noopener noreferrer">源代码</a></footer></section></main>;
 }
-function Shell({ client, user }: {
-    client: ApiClient;
-    user: User;
-}) {
+const pageTitles: Record<string, string> = {
+    '/dashboard': '指挥台', '/me': '个人中心', '/rewards': '奖励中心', '/games/dice': '骰子体验',
+    '/master-profile': 'Master 资料', '/wallet/activate': '转入原生额度', '/wallet': '我的钱包',
+    '/models': '模型目录', '/playground': '文本测试', '/admin/channels': '渠道管理', '/keys': '密钥管理', '/logs': '调用记录',
+};
+function Shell({ client, user }: { client: ApiClient; user: User }) {
     const location = useLocation();
     const [menu, setMenu] = useState(false);
     const main = useRef<HTMLElement>(null);
-    useEffect(() => { setMenu(false); document.title = `${location.pathname === '/games/dice' ? '骰子体验' : location.pathname === '/master-profile' ? 'Master 资料' : location.pathname === '/wallet/activate' ? '转入原生额度' : location.pathname === '/wallet' ? '我的钱包' : location.pathname === '/models' ? '模型目录' : location.pathname === '/playground' ? '文本测试' : location.pathname === '/admin/channels' ? '渠道管理' : location.pathname === '/keys' ? '密钥管理' : location.pathname === '/logs' ? '调用记录' : '指挥台'} · momiao`; main.current?.focus(); }, [location.pathname]);
-    return <div className="app-shell"><a className="skip-link" href="#main-content">跳至主要内容</a><aside className="sidebar"><Link to="/dashboard" className="brand"><Crest /><span>momiao<small>CHALDEA PLATFORM</small></span></Link><p className="nav-label">WORKSPACE</p><nav aria-label="主导航"><NavLink to="/dashboard"><span aria-hidden="true">⌘</span>指挥台<small>Overview</small></NavLink><NavLink to="/wallet"><span aria-hidden="true">▤</span>我的钱包<small>Wallet</small></NavLink><NavLink to="/games/dice"><span aria-hidden="true">⚄</span>骰子体验<small>Experience</small></NavLink><NavLink to="/models"><span aria-hidden="true">⊞</span>模型目录<small>Models</small></NavLink><NavLink to="/playground"><span aria-hidden="true">▷</span>文本测试<small>Playground</small></NavLink>{user.role >= 10 && <NavLink to="/admin/channels"><span aria-hidden="true">⇄</span>渠道管理<small>Channels</small></NavLink>}<NavLink to="/keys"><span aria-hidden="true">◇</span>密钥管理<small>API keys</small></NavLink><NavLink to="/logs"><span aria-hidden="true">≡</span>调用记录<small>Usage logs</small></NavLink></nav><div className="sidebar-foot"><Crest /><p>A quieter space.<br />A clearer connection.</p><span>MOONLIT EDITION</span></div></aside><div className="workspace"><header className="topbar"><span className="topbar-label">PERSONAL WORKSPACE <span>/</span> 个人控制台</span><div className="account-wrap"><button className="account-button" aria-describedby="native-identity-label" aria-expanded={menu} aria-controls="account-menu" onClick={() => setMenu(!menu)}><span className="avatar">{(user.display_name || user.username).slice(0, 1)}</span><span>{user.display_name || user.username}<small id="native-identity-label">原生登录身份</small></span><span aria-hidden="true">⌄</span></button>{menu && <div className="account-menu" id="account-menu"><strong>{user.username}</strong><span>{role(user.role)} · 原生账户</span><Link to="/master-profile">Master 资料</Link><button onClick={() => void client.logout().catch(() => { })}>退出登录</button></div>}</div></header><main ref={main} id="main-content" tabIndex={-1} className="main-content"><Outlet /></main><footer className="workspace-foot"><span>momiao / Chaldea Platform <span> / </span><a href="https://github.com/cy4268/momiao" target="_blank" rel="noopener noreferrer">源代码</a></span><span>你的连接，由你掌握。</span></footer></div></div>;
+    const account = useRef<HTMLDivElement>(null);
+    const trigger = useRef<HTMLButtonElement>(null);
+    const master = useResource(() => readProfile(client, String(user.id)).catch(e => { throw new Error(profileError(e)); }), [client, user.id, location.pathname]);
+    useEffect(() => { setMenu(false); document.title = (pageTitles[location.pathname] || '指挥台') + ' · momiao'; main.current?.focus(); }, [location.pathname]);
+    useEffect(() => {
+        if (!menu) return;
+        const outside = (e: PointerEvent) => { if (!account.current?.contains(e.target as Node)) setMenu(false); };
+        document.addEventListener('pointerdown', outside);
+        return () => document.removeEventListener('pointerdown', outside);
+    }, [menu]);
+    const masterName = master.loading ? '正在读取 Master' : master.error ? 'Master 资料待核对' : master.data?.status === 'COMPLETE' ? master.data.display_name : 'Master 资料未完成';
+    return <div className="portal-shell"><a className="skip-link" href="#main-content">跳至主要内容</a>
+        <header className="portal-header"><Link to="/" className="brand" aria-label="Chaldea Platform 首页"><Brand /></Link><div className="account-wrap" ref={account} onKeyDown={e => { if (e.key === 'Escape' && menu) { setMenu(false); trigger.current?.focus(); } }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setMenu(false); }}>
+            <button ref={trigger} className="account-button" aria-label="账户菜单" aria-expanded={menu} aria-controls="account-menu" onClick={() => setMenu(!menu)}><span className="avatar"><Crest /></span><span>{masterName}<small>Master 身份</small></span><span aria-hidden="true">⌄</span></button>
+            {menu && <div className="account-menu" id="account-menu"><strong>{user.display_name || user.username}</strong><span>原生登录身份 · {user.username}</span><span>{role(user.role)}</span><Link to="/me">个人中心</Link><Link to="/master-profile">Master 资料</Link><Link to="/rewards">奖励中心</Link><button onClick={() => void client.logout().catch(() => {})}>退出登录</button></div>}
+        </div></header>
+        <nav className="portal-nav" aria-label="主导航"><div className="portal-primary"><NavLink to="/" end>首页</NavLink><NavLink to="/dashboard">指挥台</NavLink><NavLink to="/models">模型目录</NavLink><NavLink to="/wallet" end>我的钱包</NavLink><NavLink to="/me">个人中心</NavLink></div><div className="portal-tools"><NavLink to="/rewards">奖励中心</NavLink><NavLink to="/wallet/activate">激活额度</NavLink><NavLink to="/keys">密钥管理</NavLink><NavLink to="/logs">调用记录</NavLink><NavLink to="/playground">文本测试</NavLink><NavLink to="/games/dice">骰子体验</NavLink>{user.role >= 10 && <NavLink to="/admin/channels">渠道管理</NavLink>}</div></nav>
+        <main ref={main} id="main-content" tabIndex={-1} className="main-content"><Outlet context={master} /></main>
+        <footer className="workspace-foot"><span>momiao / Chaldea Platform <span> / </span><a href="https://github.com/cy4268/momiao" target="_blank" rel="noopener noreferrer">源代码</a></span><span>你的连接，由你掌握。</span></footer>
+    </div>;
 }
-function Dashboard({ client, user }: {
-    client: ApiClient;
-    user: User;
-}) {
+function Dashboard({ client, user }: { client: ApiClient; user: User }) {
+    const master = useOutletContext<MasterResource>();
     const r = useResource(async () => { const [self, keys, logs] = await Promise.all([client.loadSelf(), client.keys(1, 5), client.logs('p=1&page_size=5')]); return { self, keys, logs }; }, [client]);
     const current = r.data?.self || user;
-    return <><section className="command-deck"><div className="command-copy"><p className="eyebrow">CHALDEA / PERSONAL COMMAND DECK</p><h1>Your next<br />connection<span>.</span></h1><div className="command-greeting"><span className="short-rule"/><p>欢迎回来，<strong>{current.display_name || current.username}</strong>。<br />管理连接，开始下一次创造。</p></div><div className="hero-actions"><Link className="button primary" to="/models">选择模型并测试 <span aria-hidden="true">↗</span></Link><Link className="text-link" to="/logs">查看调用记录 →</Link></div></div><div className="deck-emblem"><span className="orbit-label top">MOMIAO · CHALDEA</span><Crest large/><span className="orbit-label bottom">CONNECTED TO POSSIBILITY</span></div><div className="deck-status"><span><i /> 账户已连接</span><span>{role(current.role)}</span></div></section>
- <section className="account-ledger" aria-label="账户使用概览"><div><p>可用原生额度</p><strong>{number(current.quota)}</strong><span>原生单位</span></div><div><p>已用原生额度</p><strong>{number(current.used_quota)}</strong><span>原生单位</span></div><div><p>累计请求</p><strong>{number(current.request_count)}</strong><span>次调用</span></div><div><p>API 密钥</p><strong>{r.loading ? '…' : r.error ? '—' : number(r.data?.keys.total)}</strong><Link to="/keys">管理密钥 ↗</Link></div></section><p className="ledger-note">原生额度为当前服务的计量单位，与平台本地钱包独立。<Link className="text-link" to="/wallet">查看 Reserve API Credit 与可用筹码 →</Link></p>
- <section className="panel recent"><div className="section-heading"><div><p className="eyebrow">RECENT ACTIVITY</p><h2>最近调用与活动</h2></div><Link className="text-link" to="/logs">查看全部 →</Link></div>{r.loading ? <Loading /> : r.error ? <><Alert>{r.error}</Alert><button onClick={r.reload}>重新加载</button></> : r.data && <>{r.data.keys.total === 0 && <div className="first-key"><div><strong>建立你的第一个连接</strong><p>创建一枚独立密钥，再将它添加到你信任的应用。</p></div><Link className="button" to="/keys">创建第一枚密钥 →</Link></div>}<LogTable items={r.data.logs.items}/></>}</section></>;
+    return <><header className="page-heading"><div><p className="eyebrow">CHALDEA / COMMAND CENTER</p><h1>指挥台</h1><p>欢迎回来。管理连接，开始下一次创造。</p></div><Link className="button primary" to="/models">选择模型并测试 <span aria-hidden="true">↗</span></Link></header>
+        <MasterSummary master={master} />
+        <div className="dashboard-paths"><Link to="/me">个人中心 →</Link><Link to="/rewards">领取每日奖励 →</Link><Link to="/wallet/activate">激活 API 额度 →</Link><span>原生登录身份：{current.display_name} · {current.username}</span></div>
+        <section className="account-ledger" aria-label="账户使用概览"><div><p>可用原生额度</p><strong>{number(current.quota)}</strong><span>原生单位</span></div><div><p>已用原生额度</p><strong>{number(current.used_quota)}</strong><span>原生单位</span></div><div><p>累计请求</p><strong>{number(current.request_count)}</strong><span>次调用</span></div><div><p>API 密钥</p><strong>{r.loading ? '…' : r.error ? '—' : number(r.data?.keys.total)}</strong><Link to="/keys">管理密钥 ↗</Link></div></section><p className="ledger-note">原生额度为当前服务的计量单位，与平台本地钱包独立。<Link className="text-link" to="/wallet">查看 Reserve API Credit 与可用筹码 →</Link></p>
+        <section className="panel recent"><div className="section-heading"><div><p className="eyebrow">RECENT ACTIVITY</p><h2>最近调用与活动</h2></div><Link className="text-link" to="/logs">查看全部 →</Link></div>{r.loading ? <Loading /> : r.error ? <><Alert>{r.error}</Alert><button onClick={r.reload}>重新加载</button></> : r.data && <>{r.data.keys.total === 0 && <div className="first-key"><div><strong>建立你的第一个连接</strong><p>创建一枚独立密钥，再将它添加到你信任的应用。</p></div><Link className="button" to="/keys">创建第一枚密钥 →</Link></div>}<LogTable items={r.data.logs.items} /></>}</section>
+    </>;
 }
 const logTypes: Record<number, string> = { 1: '充值', 2: '消费', 3: '管理', 4: '系统', 5: '错误', 6: '退款', 7: '登录' };
 function LogTable({ items }: {

@@ -13,7 +13,7 @@ it('opens the authenticated dice experience without wallet or game requests', as
     expect(await screen.findByRole('button', { name: '模拟掷骰' })).toBeVisible();
     expect(document.title).toBe('骰子体验 · momiao');
     expect(screen.getByRole('link', { name: /骰子体验/ })).toHaveAttribute('aria-current', 'page');
-    expect(fetcher.mock.calls.every(([path]) => path.includes('/refresh') || path === '/api/user/self')).toBe(true);
+    expect(fetcher.mock.calls.every(([path]) => path.includes('/refresh') || path === '/api/user/self' || path === '/platform/v1/master-profile')).toBe(true);
 });
 it('renders login failure and keeps login form', async () => { const f = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ success: false }), { status: 401 })).mockResolvedValueOnce(new Response(JSON.stringify({ success: false, message: '凭据不匹配' }))); render(<MemoryRouter initialEntries={['/login']}><App client={new ApiClient(f)}/></MemoryRouter>); await screen.findByLabelText('用户名'); fireEvent.change(screen.getByLabelText('用户名'), { target: { value: 'test' } }); fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'pass' } }); fireEvent.click(screen.getByRole('button', { name: '登录控制台' })); expect(await screen.findByRole('alert')).toHaveTextContent('凭据不匹配'); });
 it('prevents duplicate key creation and refreshes the list without revealing keys', async () => { let resolve!: (r: Response) => void; const f = vi.fn(async (path: string, init?: RequestInit) => { if (path.includes('/auth/refresh'))
@@ -36,7 +36,7 @@ it('resets the document title to login after logout', async () => {
     render(<MemoryRouter initialEntries={['/keys']}><App client={new ApiClient(fetcher)} /></MemoryRouter>);
     await screen.findByRole('button', { name: '创建 API 密钥' });
     expect(document.title).toBe('密钥管理 · momiao');
-    fireEvent.click(screen.getByRole('button', { name: /Test User/ }));
+    fireEvent.click(screen.getByRole('button', { name: '账户菜单' }));
     fireEvent.click(screen.getByRole('button', { name: '退出登录' }));
     await screen.findByLabelText('用户名');
     expect(document.title).toBe('登录 · momiao');
@@ -50,7 +50,7 @@ it('redirects a mismatched old session to login without logging out the shared c
     await screen.findByLabelText('用户名');
     expect(screen.getByRole('alert')).toHaveTextContent('浏览器会话已变更，本页登录已失效，请重新登录。');
     expect(document.title).toBe('登录 · momiao');
-    expect(screen.queryByRole('button', { name: /Test User/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '账户菜单' })).not.toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls.some(call => call[0].includes('/auth/logout'))).toBe(false);
 });
