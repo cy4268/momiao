@@ -28,6 +28,7 @@ var browserRoutes = map[string]bool{
 	"/dashboard":      true,
 	"/wallet":         true,
 	"/master-profile": true,
+	"/games/dice":     true,
 	"/keys":           true,
 	"/logs":           true,
 	"/models":         true,

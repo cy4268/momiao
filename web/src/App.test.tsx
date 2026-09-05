@@ -7,6 +7,14 @@ const user = { id: 1, username: 'test-user', display_name: 'Test User', role: 1,
 const ok = (data?: unknown) => new Response(JSON.stringify({ success: true, data }));
 const bundle = { access_token: 'synthetic-token', access_expires_at: 9999999999, user, session: { sid: 'test-sid' } };
 const list = { items: [], total: 0, page: 1, page_size: 10 };
+it('opens the authenticated dice experience without wallet or game requests', async () => {
+    const fetcher = vi.fn(async (path: string) => path.includes('/refresh') ? ok(bundle) : path === '/api/user/self' ? ok(user) : ok(list));
+    render(<MemoryRouter initialEntries={['/games/dice']}><App client={new ApiClient(fetcher)} /></MemoryRouter>);
+    expect(await screen.findByRole('button', { name: '模拟掷骰' })).toBeVisible();
+    expect(document.title).toBe('骰子体验 · momiao');
+    expect(screen.getByRole('link', { name: /骰子体验/ })).toHaveAttribute('aria-current', 'page');
+    expect(fetcher.mock.calls.every(([path]) => path.includes('/refresh') || path === '/api/user/self')).toBe(true);
+});
 it('renders login failure and keeps login form', async () => { const f = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ success: false }), { status: 401 })).mockResolvedValueOnce(new Response(JSON.stringify({ success: false, message: '凭据不匹配' }))); render(<MemoryRouter initialEntries={['/login']}><App client={new ApiClient(f)}/></MemoryRouter>); await screen.findByLabelText('用户名'); fireEvent.change(screen.getByLabelText('用户名'), { target: { value: 'test' } }); fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'pass' } }); fireEvent.click(screen.getByRole('button', { name: '登录控制台' })); expect(await screen.findByRole('alert')).toHaveTextContent('凭据不匹配'); });
 it('prevents duplicate key creation and refreshes the list without revealing keys', async () => { let resolve!: (r: Response) => void; const f = vi.fn(async (path: string, init?: RequestInit) => { if (path.includes('/auth/refresh'))
     return ok(bundle); if (path === '/api/user/self')

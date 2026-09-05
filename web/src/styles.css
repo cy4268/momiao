@@ -1178,3 +1178,51 @@ td time {
 .pending-operation code,.transaction-id { overflow-wrap: anywhere; }
 .pending-operation .actions { margin-top: 16px; }
 @media (max-width: 760px) { .wallet-actions-grid { grid-template-columns: minmax(0,1fr); gap: 18px; } }
+
+/* A quiet Moonlit tabletop, clearly separate from the asset wallet. */
+.dice-page { display: grid; gap: 24px; }
+.dice-page .page-heading { margin-bottom: 0; }
+.dice-mode { padding: 8px 12px; border: 1px solid var(--azure); color: var(--azure); font-size: 12px; white-space: nowrap; }
+.dice-scope { margin: 0; padding-left: 14px; border-left: 3px solid var(--azure); font-size: 13px; line-height: 1.9; }
+.dice-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); gap: 24px; }
+.dice-layout > .panel { min-width: 0; }
+.dice-local-label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.dice-stage { padding: 28px 8px 20px; margin: 24px 0; border-block: 1px solid var(--line); text-align: center; }
+.dice-faces { display: flex; justify-content: center; gap: clamp(12px, 3vw, 24px); color: var(--azure); }
+.dice-face { width: clamp(58px, 7vw, 92px); flex-shrink: 0; }
+.dice-result { margin: 24px 0 8px; min-height: 28px; font-size: 17px; font-weight: 600; line-height: 1.6; }
+.dice-previous-choice { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.8; }
+.dice-choices { margin: 0 0 20px; padding: 0; border: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-width: 0; }
+.dice-choices legend { padding: 0; margin-bottom: 12px; font-size: 13px; font-weight: 600; }
+.dice-choices label { display: flex; align-items: center; gap: 12px; padding: 16px; border: 1px solid var(--line); cursor: pointer; border-radius: 7px; }
+.dice-choices label:has(input:checked) { border-color: var(--azure); background: var(--ivory); }
+.dice-choices input { width: 16px; height: 16px; margin: 0; accent-color: var(--azure); flex-shrink: 0; }
+.dice-choices strong,.dice-choices small { display: block; }
+.dice-choices strong { font-size: 17px; color: var(--azure); }
+.dice-choices small { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.7; }
+.dice-roll { width: 100%; min-height: 48px; justify-content: space-between; }
+.dice-random-note { margin: 14px 0 0; line-height: 1.9; }
+.dice-table .alert { margin-top: 16px; }
+.dice-rules dl { margin: 24px 0; }
+.dice-rules dl > div { padding: 18px 0; border-top: 1px solid var(--line); }
+.dice-rules dt { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 19px; color: var(--azure); }
+.dice-rules dt span { font-size: 13px; font-variant-numeric: tabular-nums; }
+.dice-rules dd { margin: 10px 0 0; font-size: 13px; line-height: 1.9; color: var(--muted); }
+.dice-probability { padding-top: 20px; border-top: 1px solid var(--line); }
+.dice-probability strong { font-size: 14px; }
+.dice-probability p { font-size: 12px; margin: 12px 0 0; line-height: 1.9; }
+.dice-storage-note { font-size: 12px; line-height: 1.8; color: var(--muted); }
+.dice-history { min-width: 0; }
+.dice-history table { min-width: 440px; }
+.dice-history .hint { line-height: 1.9; }
+@media (max-width: 1000px) { .dice-layout { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) {
+  .dice-page { gap: 18px; }
+  .dice-page .page-heading { align-items: flex-start; gap: 12px; }
+  .dice-page .page-heading h1 { font-size: 25px; }
+  .dice-mode { padding: 6px 8px; font-size: 10px; }
+  .dice-layout { gap: 18px; }
+  .dice-choices label { padding: 12px 10px; gap: 8px; }
+  .dice-result { font-size: 15px; }
+  .dice-history .section-heading { align-items: flex-start; flex-wrap: wrap; gap: 12px; }
+}

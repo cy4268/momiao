@@ -116,7 +116,7 @@ func TestPortalServesOnlyApprovedSPAAndCompiledFiles(t *testing.T) {
 	}
 
 	handler := newPortalHandler(config{WebDir: webDir, NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, nil)
-	for _, route := range []string{"/", "/login", "/sign-in", "/dashboard", "/keys", "/logs"} {
+	for _, route := range []string{"/", "/login", "/sign-in", "/dashboard", "/keys", "/logs", "/games/dice"} {
 		t.Run("shell "+route, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))

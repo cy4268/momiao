@@ -13,7 +13,7 @@
 - **渠道管理**：管理员查看与启停；超级管理员新建、编辑基本 OpenAI 兼容渠道。已有密钥和未编辑的高级设置保持不变。
 - **交付层**：React + TypeScript 界面；单个 Go 服务提供 SPA、固定 Unix Socket 上游代理及存活探针。
 
-原生额度不是设计中的 Reserve 或 API Credit。充值、奖励、游戏与旧数据迁移尚未上线；本版不把这些功能替换成假数据。旧服务与旧数据独立保留，迁移不再阻塞改造。见 [门户优先决策](docs/decisions/0002-usable-portal-first.md) 和 [模型闭环范围](docs/decisions/0003-model-workspace.md)。
+原生额度不是设计中的 Reserve 或 API Credit。每日签到与本地兑换已接入平台钱包；原生额度划转、正式游戏结算与旧数据迁移尚未上线，V1 不做额度购买商城。旧服务与旧数据独立保留，迁移不再阻塞改造。见 [门户优先决策](docs/decisions/0002-usable-portal-first.md) 和 [模型闭环范围](docs/decisions/0003-model-workspace.md)。
 
 ## 平台钱包一期
 
@@ -26,6 +26,10 @@
 `/master-profile` 仅管理本人的昵称、静态系统默认头像与身份预览。服务端执行 Unicode 规范化、唯一性、保留名及7天改名冷却；首次初始化不消耗冷却。资料操作不更改登录用户名或钱包资产。现有门户不强制资料门禁；外部头像同步、上传、完整运营审核及其他用户公开页尚未开放。
 
 见 [Master 契约](contracts/master-profile-api.md) 与 [切片裁定](docs/decisions/0006-master-profile.md)。
+
+## 骰子体验
+
+`/games/dice` 提供浏览器内的三骰模拟、大小/豹子判定、规则说明和最近 20 条本标签页记录。明确标注体验模式：不下注、不扣筹码、不发奖励、不改额度，不是正式游戏回执或服务端公平性证明。见 [体验范围](contracts/dice-experience.md)。
 
 ## 构建与验证
 
@@ -73,7 +77,7 @@ MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 
 ## 接口与范围
 
-SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/playground`、`/admin/channels`、`/wallet`、`/master-profile`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
+SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/playground`、`/admin/channels`、`/wallet`、`/master-profile`、`/games/dice`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
 
 `/api/`、`/v1/` 及确切的 `/pg/chat/completions` 原样转发到固定原生服务，前端不复制认证规则。适配版本和真实请求载荷见 [原生接口契约](contracts/native-api.md)。[OpenAPI](contracts/openapi.json) 声明 momiao 自有的 `/healthz` 、`/platform/v1/wallet` 与 `/platform/v1/master-profile` 接口，不把原生 API 冒充为自有实现。
 
