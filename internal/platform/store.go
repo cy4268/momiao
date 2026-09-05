@@ -37,8 +37,9 @@ var (
 
 type Store struct{ pool *pgxpool.Pool }
 
-// Open verifies connectivity, but never changes schemas or initializes accounts.
-func Open(ctx context.Context, databaseURL string) (*Store, error) {
+// OpenLazy validates connection configuration without requiring an available database.
+// Queries acquire connections on demand, so a wallet outage does not prevent portal startup.
+func OpenLazy(ctx context.Context, databaseURL string) (*Store, error) {
 	if strings.TrimSpace(databaseURL) == "" {
 		return nil, ErrInvalidDatabaseURL
 	}
@@ -46,11 +47,20 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = p.Ping(ctx); err != nil {
-		p.Close()
+	return &Store{pool: p}, nil
+}
+
+// Open verifies connectivity, but never changes schemas or initializes accounts.
+func Open(ctx context.Context, databaseURL string) (*Store, error) {
+	s, err := OpenLazy(ctx, databaseURL)
+	if err != nil {
 		return nil, err
 	}
-	return &Store{pool: p}, nil
+	if err = s.pool.Ping(ctx); err != nil {
+		s.Close()
+		return nil, err
+	}
+	return s, nil
 }
 func (s *Store) Close() { s.pool.Close() }
 

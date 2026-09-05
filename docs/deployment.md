@@ -1,5 +1,21 @@
 # Portal deployment
 
+## Optional wallet database
+
+Wallet reads and explicit zero initialization use a separate PostgreSQL database. Set `MOMIAO_WALLET_DSN_FILE` (absolute regular file, at most 8192 bytes) and `MOMIAO_PUBLIC_ORIGIN` (exact HTTPS origin) together with the existing complete portal configuration. Protect the DSN file with a restricted group and do not print it, put it in command arguments, or commit it. No credentials are bundled.
+
+Use a non-login schema owner and a distinct runtime role. Runtime needs schema USAGE, SELECT on account_refs/wallet_balances/wallet_ledger, INSERT(newapi_user_id) on account_refs and INSERT(newapi_user_id,asset_type) on wallet_balances only. Do not grant wallet UPDATE, balance_units INSERT, ledger mutation, owner membership or DDL. A2a does not expose Apply.
+
+For Unix-socket deployments, protect the socket directory and require SCRAM authentication for **all** local connections. Do not expose a trust-authenticated native PostgreSQL socket through a proxy. An isolated, network-disabled platform PostgreSQL instance avoids changing the native service's authentication or lifecycle.
+
+Build `./cmd/momiao-migrate` as a separate administration tool. It reads only `MOMIAO_MIGRATION_DSN_FILE`, performs explicit checksum-checked migration and prints generic success/failure; it is not invoked by portal startup. Preserve applied SQL bytes (repository LF policy); validate migration twice, restore a backup into a separate temporary database, and test the runtime role's denied operations before enabling the wallet.
+
+The runtime uses a lazy pool: a connection outage returns wallet 503 without preventing native portal startup. Invalid configuration remains a startup error. Test database restart, portal restart, preserved initialized balances, and credential-restricted recovery in the actual environment. Such tests are not whole-host reboot or load-capacity evidence. A portal rollback must retain the independent database and initialized users, not delete them.
+
+Wallet paths and payloads: [wallet-api.md](../contracts/wallet-api.md). Native authentication and database operations share a 5-second context budget. Request reads are separately subject to the HTTP server's 10-second read timeout. These are engineering ceilings, not throughput guarantees.
+
+## Existing native portal transport
+
 Build the Go binary and `web/dist/` from the same source commit. Deploy an immutable release containing `bin/momiao` and `web/`, record file hashes, and point a `current` symlink at that release. Run with an unprivileged service identity.
 
 The deployment topology for this slice is:

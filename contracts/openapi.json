@@ -1,12 +1,20 @@
 {
   "openapi": "3.1.1",
   "info": {
-    "title": "momiao process health API",
-    "version": "0.1.0",
-    "description": "This contract describes the owned process-liveness endpoint only, not dependency readiness. Configured portal routes serve the SPA; /api/ and /v1/ preserve the external native backend contract documented in native-api.md. Methods other than GET/HEAD on /healthz return 405 with Allow: GET, HEAD.",
-    "license": { "name": "AGPL-3.0-only", "identifier": "AGPL-3.0-only" }
+    "title": "momiao owned APIs",
+    "version": "0.2.0",
+    "description": "Owned process liveness and authenticated local wallet APIs. Native /api/, /v1/ and /pg contracts remain external. Wallet configuration is optional; no payment, grant, transfer or ledger mutation endpoint is exposed.",
+    "license": {
+      "name": "AGPL-3.0-only",
+      "identifier": "AGPL-3.0-only"
+    }
   },
-  "servers": [{ "url": "http://127.0.0.1:8080", "description": "Default local development listener" }],
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8080",
+      "description": "Default local development listener"
+    }
+  ],
   "security": [],
   "paths": {
     "/healthz": {
@@ -17,18 +25,37 @@
           "200": {
             "description": "The process handled this health request; not a dependency readiness check.",
             "headers": {
-              "Cache-Control": { "schema": { "type": "string", "const": "no-store" } },
-              "X-Content-Type-Options": { "schema": { "type": "string", "const": "nosniff" } }
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
             },
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["status"],
+                  "required": [
+                    "status"
+                  ],
                   "additionalProperties": false,
-                  "properties": { "status": { "type": "string", "const": "ok" } }
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "ok"
+                    }
+                  }
                 },
-                "example": { "status": "ok" }
+                "example": {
+                  "status": "ok"
+                }
               }
             }
           }
@@ -41,9 +68,799 @@
           "200": {
             "description": "No response body. Content-Type is application/json; no dependency readiness assertion.",
             "headers": {
-              "Cache-Control": { "schema": { "type": "string", "const": "no-store" } },
-              "X-Content-Type-Options": { "schema": { "type": "string", "const": "nosniff" } }
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
             }
+          }
+        }
+      }
+    },
+    "/platform/v1/wallet": {
+      "get": {
+        "operationId": "getWallet",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified user local-wallet result. No total-asset completeness assertion.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/WalletProjection"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or duplicate/unknown fields",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or rejected identity",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Native permission or Origin rejected; do not clear valid session",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Native identity service unavailable or malformed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Wallet not enabled, unavailable or incomplete",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          }
+        },
+        "description": "No query parameters; no writes. Zero rows means uninitialized. One missing wallet row is an error, not a zero balance."
+      }
+    },
+    "/platform/v1/wallet/initialize": {
+      "post": {
+        "operationId": "initializeWallet",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "Exact configured HTTPS origin."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified user local-wallet result. No total-asset completeness assertion.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/WalletProjection"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or duplicate/unknown fields",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or rejected identity",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Native permission or Origin rejected; do not clear valid session",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Native identity service unavailable or malformed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Wallet not enabled, unavailable or incomplete",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be application/json",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [],
+                "properties": {}
+              }
+            }
+          }
+        },
+        "description": "Ensure two zero rows for the authenticated identity, idempotently. No asset grant. On unknown outcome explicitly GET before another POST; no automatic retry."
+      }
+    },
+    "/platform/v1/wallet/ledger": {
+      "get": {
+        "operationId": "getWalletLedger",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "asset",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "RESERVE_API_CREDIT",
+                "AVAILABLE_CHIPS"
+              ]
+            }
+          },
+          {
+            "name": "after_seq",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "default": "0"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified user local-wallet result. No total-asset completeness assertion.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/WalletLedgerPage"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or duplicate/unknown fields",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or rejected identity",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Native permission or Origin rejected; do not clear valid session",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Native identity service unavailable or malformed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Wallet not enabled, unavailable or incomplete",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Ascending per-asset sequence; next_after_seq is null when has_more is false. Unknown/duplicate parameters rejected."
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "nativeBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "nativeUser": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "New-Api-User"
+      }
+    },
+    "schemas": {
+      "WalletProjection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "initialized",
+          "user_id",
+          "wallets",
+          "scope",
+          "total_assets"
+        ],
+        "properties": {
+          "initialized": {
+            "type": "boolean"
+          },
+          "user_id": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "wallets": {
+            "type": "array",
+            "maxItems": 2,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "asset",
+                "balance_units",
+                "amount",
+                "ledger_seq",
+                "version"
+              ],
+              "properties": {
+                "asset": {
+                  "type": "string",
+                  "enum": [
+                    "RESERVE_API_CREDIT",
+                    "AVAILABLE_CHIPS"
+                  ]
+                },
+                "balance_units": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]{1,6})?$"
+                },
+                "ledger_seq": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "version": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                }
+              }
+            }
+          },
+          "scope": {
+            "type": "string",
+            "const": "LOCAL_WALLETS_ONLY"
+          },
+          "total_assets": {
+            "type": "null"
+          }
+        }
+      },
+      "WalletLedgerPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "has_more",
+          "next_after_seq"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "transaction_id",
+                "entry_type",
+                "biz_type",
+                "biz_id",
+                "user_id",
+                "ledger_seq",
+                "wallet_version",
+                "balance_before_units",
+                "balance_after_units",
+                "asset",
+                "delta_units",
+                "created_at",
+                "delta_amount",
+                "balance_after_amount"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "transaction_id": {
+                  "type": "string"
+                },
+                "entry_type": {
+                  "type": "string"
+                },
+                "biz_type": {
+                  "type": "string"
+                },
+                "biz_id": {
+                  "type": "string"
+                },
+                "user_id": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "ledger_seq": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "wallet_version": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "balance_before_units": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "balance_after_units": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "asset": {
+                  "type": "string",
+                  "enum": [
+                    "RESERVE_API_CREDIT",
+                    "AVAILABLE_CHIPS"
+                  ]
+                },
+                "delta_units": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "delta_amount": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]{1,6})?$"
+                },
+                "balance_after_amount": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]{1,6})?$"
+                }
+              }
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_after_seq": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "WalletError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "success",
+          "code",
+          "message"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": false
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
           }
         }
       }

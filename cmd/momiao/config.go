@@ -10,6 +10,9 @@ import (
 )
 
 type config struct {
+	WalletDSNFile   string
+	PublicOrigin    string
+	wallet          walletStore
 	ListenAddr      string
 	ListenSocket    string
 	WebDir          string
@@ -97,6 +100,9 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 		if err != nil || cfg.ShutdownTimeout < time.Second || cfg.ShutdownTimeout > 30*time.Second {
 			return config{}, errors.New("MOMIAO_SHUTDOWN_TIMEOUT must be a duration in 1s..30s")
 		}
+	}
+	if err := walletConfig(&cfg, lookup); err != nil {
+		return config{}, err
 	}
 	return cfg, nil
 }

@@ -11,15 +11,15 @@
 - **模型**：按实际可用分组列出启用的模型，支持搜索、复制模型 ID 和进入在线测试；不虚构价格或能力参数。
 - **在线测试**：使用原生登录态发送单轮文字请求，流式显示文本、停止生成和实际返回的用量；不额外创建永久 API 密钥，不在浏览器存储对话。
 - **渠道管理**：管理员查看与启停；超级管理员新建、编辑基本 OpenAI 兼容渠道。已有密钥和未编辑的高级设置保持不变。
-- **交付层**：React + TypeScript 界面；单个 Go 标准库服务提供 SPA、固定 Unix Socket 上游代理及存活探针。
+- **交付层**：React + TypeScript 界面；单个 Go 服务提供 SPA、固定 Unix Socket 上游代理及存活探针。
 
-原生额度不是设计中的 Reserve 或 API Credit。钱包页面、充值、奖励、游戏与旧数据迁移尚未上线；本版不把这些功能替换成假数据。旧服务与旧数据独立保留，迁移不再阻塞改造。见 [门户优先决策](docs/decisions/0002-usable-portal-first.md) 和 [模型闭环范围](docs/decisions/0003-model-workspace.md)。
+原生额度不是设计中的 Reserve 或 API Credit。充值、奖励、游戏与旧数据迁移尚未上线；本版不把这些功能替换成假数据。旧服务与旧数据独立保留，迁移不再阻塞改造。见 [门户优先决策](docs/decisions/0002-usable-portal-first.md) 和 [模型闭环范围](docs/decisions/0003-model-workspace.md)。
 
-## 开发中的平台基础
+## 平台钱包一期
 
-`internal/platform` 提供独立 PostgreSQL 的身份锚点、双资产零值钱包、精确金额、幂等单钱包账变与追加式流水；包含显式版本迁移和真实数据库集成测试。**这部分尚未接入门户运行，不代表用户钱包或经济系统已经上线。** 没有新增公网接口、默认赠金或生产数据库凭据。
+`internal/platform` 提供独立 PostgreSQL 的身份锚点、双资产零值钱包、精确金额、幂等单钱包账变与追加式流水；包含显式版本迁移和真实数据库集成测试。钱包页面 `/wallet` 已接入可选的独立平台数据库：显式初始化、真实余额与流水查询。没有开放资产变更接口或默认赠金，也不携带生产数据库凭据。完整经济系统仍未实现。
 
-见 [账本基础与验证](docs/wallet-foundation.md)、[分阶段实现与美术节奏](docs/decisions/0004-wallet-foundation.md)。
+见 [账本基础与验证](docs/wallet-foundation.md)、[钱包接口契约](contracts/wallet-api.md)、[隔离与可用性决策](docs/decisions/0005-wallet-portal.md)。
 
 ## 构建与验证
 
@@ -65,9 +65,9 @@ MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 
 ## 接口与范围
 
-SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/playground`、`/admin/channels`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
+SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/playground`、`/admin/channels`、`/wallet`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
 
-`/api/`、`/v1/` 及确切的 `/pg/chat/completions` 原样转发到固定原生服务，前端不复制认证规则。适配版本和真实请求载荷见 [原生接口契约](contracts/native-api.md)。[OpenAPI](contracts/openapi.json) 只声明 momiao 自有的 `/healthz`，不把原生 API 冒充为自有实现。
+`/api/`、`/v1/` 及确切的 `/pg/chat/completions` 原样转发到固定原生服务，前端不复制认证规则。适配版本和真实请求载荷见 [原生接口契约](contracts/native-api.md)。[OpenAPI](contracts/openapi.json) 声明 momiao 自有的 `/healthz` 与 `/platform/v1/wallet` 接口，不把原生 API 冒充为自有实现。
 
 代理 `/api/` 总上限 30 秒、`/v1/` 与在线测试总上限 5 分钟。它们是明确的工程上限，**不是并发容量或压测结论**；WebSocket 升级尚不支持。本版主动移除转发身份头，原生端看到的是内部代理地址，未宣称按真实客户端 IP 审计或限流。
 

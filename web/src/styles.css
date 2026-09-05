@@ -1096,3 +1096,27 @@ td time {
  .model-list li { align-items:flex-start; flex-direction:column; gap:12px }
  .response-panel { min-height:280px }
 }
+
+/* Wallet follows the existing Bright Moonlit surface, with two separate asset accounts. */
+.wallet-page { min-width: 0; }
+.wallet-scope { color: var(--muted); font-size: 13px; line-height: 1.8; margin: 0 0 24px; }
+.wallet-scope p { margin: 6px 0; }
+.wallet-balances { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; margin-bottom: 28px; }
+.wallet-balance { min-width: 0; border-top: 3px solid var(--azure); }
+.wallet-balance + .wallet-balance { border-top-color: var(--moon); }
+.wallet-balance h2 { margin: 10px 0; }
+.wallet-amount { font-family: var(--display); font-size: clamp(26px,3vw,42px); line-height: 1.3; color: var(--azure); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; margin: 22px 0 10px; }
+.wallet-balance dl { margin: 24px 0 0; padding-top: 16px; border-top: 1px solid var(--line); font-size: 12px; }
+.wallet-balance dl div { display: flex; justify-content: space-between; gap: 12px; margin: 8px 0; }
+.wallet-balance dt { color: var(--muted); flex-shrink: 0; }
+.wallet-balance dd { margin: 0; overflow-wrap: anywhere; text-align: right; font-variant-numeric: tabular-nums; }
+.wallet-initialize { text-align: center; padding-bottom: 32px; }
+.wallet-page .section-heading label { max-width: 100%; }
+.wallet-page .section-heading select { max-width: 100%; }
+.wallet-page .pager > span { overflow-wrap: anywhere; min-width: 0; }
+@media(max-width:640px) {
+  .wallet-balances { grid-template-columns: minmax(0,1fr); gap: 16px; }
+  .wallet-page .section-heading { align-items: stretch; flex-direction: column; gap: 16px; }
+  .wallet-page .pager { flex-wrap: wrap; gap: 12px; }
+  .wallet-page .page-heading > button { align-self: flex-start; }
+}
