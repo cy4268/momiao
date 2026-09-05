@@ -962,7 +962,7 @@ td time {
   border:0;
   padding-left:0}
 .account-ledger strong {
-  font-size:29px}
+  font-size:clamp(18px,5vw,29px)}
 .account-ledger p {
   font-size:10px;
   margin-bottom:10px}
