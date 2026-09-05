@@ -79,3 +79,23 @@ GRANT USAGE ON SCHEMA rewards,platform_meta TO momiao_wallet;
 GRANT SELECT,INSERT ON rewards.daily_checkins TO momiao_wallet;
 ```
 Runtime still has no UPDATE/DELETE on transaction, ledger, key history or daily claims; immutable triggers remain. The prior portal remains compatible with schema 3, so application rollback retains new data without a destructive down migration. For verification use a private clone for positive claims/exchanges; production balances are not test fixtures.
+
+## Schema 4: one-way native quota activation
+
+See [quota-transfer-api.md](../contracts/quota-transfer-api.md) for source pins, unit conversion and recovery semantics. This is an optional deployment-specific bridge, not a generic native quota mutator.
+
+1. Verify the pinned native image/source and actual `users` columns; back up both affected databases and native configuration once. Keep old service and domain separate.
+2. Use native's supported DB-only accounting: empty `REDIS_CONN_STRING` and `BATCH_UPDATE_ENABLED=false`. Preserve the Redis container/data, but do not reuse its cached quota after DB-only writes.
+3. Explicitly install `internal/platform/native_quota.sql` in **native** PostgreSQL. It is default-disabled. Use a non-login owner for this schema/tables/functions with only `SELECT(id,quota,status,deleted_at)` and `UPDATE(quota)` on `public.users`, plus public-schema USAGE. The login runtime gets only schema USAGE and EXECUTE on `read_quota(bigint)`, `query_operation(uuid,bigint)`, `credit(uuid,bigint,bigint)`. No owner membership or direct users/table/credential access. Do not grant arbitrary native administrative access to the portal.
+4. Protect the native transport. A Unix-to-namespace-loopback PostgreSQL proxy still needs SCRAM for **every** TCP role, not just the runtime role. Check actual HBA ordering: the image may have loopback `trust` before the catch-all SCRAM rule. Replace loopback trust with SCRAM, reload configuration, and test that a wrong password is rejected. Keep native SQL credentials valid; no database restart is required. Never expose the container's trust-authenticated Unix socket.
+5. Apply platform migration 4 explicitly and retain prior runtime grants. Add only:
+
+```sql
+GRANT SELECT,INSERT ON economy.quota_transfers TO momiao_wallet;
+GRANT UPDATE(status,reason,native_before,native_after,updated_at) ON economy.quota_transfers TO momiao_wallet;
+```
+
+6. Complete an isolated native-image/cross-database flow with restricted roles. After verified accounting mode, enable native `momiao_quota.settings.enabled`. Set `MOMIAO_NATIVE_QUOTA_DSN_FILE` to a private regular file (max 8192 bytes), never a command-line secret. The portal uses a lazy native pool and background worker. No configuration means no worker; it does not auto-install or auto-enable SQL.
+7. Keep the native PostgreSQL proxy bound to the verified isolated network namespace. Stop it if namespace/image/accounting mode drifts. No host TCP listener or public database port is needed. On native upgrades, disable new requests and drain/reconcile outstanding original operations before changing mode or quota scale.
+
+Rollback the portal release while **retaining both journals and all balances**; migration 4 is additive. Keep native DB-only accounting during an application rollback. Do not restore a database snapshot or re-enable an old Redis cache after credits have been written: that could erase receipts or resurrect stale quota. Target disabled/unreachable leaves unknown transfers PENDING; re-enable only after the original operation IDs are reconciled. NEEDS_REVIEW requires explicit operator repair from both journals; no automatic manual-review resolution is provided in this slice.

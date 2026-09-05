@@ -18,6 +18,34 @@ func TestConfigDefaults(t *testing.T) {
 	}
 }
 
+func TestNativeQuotaConfigRequiresExplicitWallet(t *testing.T) {
+	web := t.TempDir()
+	if err := os.WriteFile(filepath.Join(web, "index.html"), []byte("portal"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path          string
+		wallet, valid bool
+	}{
+		{"", true, false}, {"relative.dsn", true, false},
+		{filepath.Join(t.TempDir(), "native.dsn"), false, false},
+		{filepath.Join(t.TempDir(), "native.dsn"), true, true},
+	} {
+		env := map[string]string{"MOMIAO_WEB_DIR": web, "MOMIAO_NEWAPI_SOCKET": filepath.Join(t.TempDir(), "native.sock"), "MOMIAO_NATIVE_QUOTA_DSN_FILE": tc.path}
+		if tc.wallet {
+			env["MOMIAO_WALLET_DSN_FILE"] = filepath.Join(t.TempDir(), "wallet.dsn")
+			env["MOMIAO_PUBLIC_ORIGIN"] = "https://wallet.example"
+		}
+		cfg, err := loadConfig(func(k string) (string, bool) { v, ok := env[k]; return v, ok })
+		if (err == nil) != tc.valid {
+			t.Fatalf("valid=%v error=%v", tc.valid, err)
+		}
+		if err == nil && cfg.NativeQuotaDSNFile != tc.path {
+			t.Fatal("native DSN not retained")
+		}
+	}
+}
+
 func TestConfigOverridesAndValidation(t *testing.T) {
 	for _, tc := range []struct {
 		name, key, value string

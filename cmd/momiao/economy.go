@@ -22,7 +22,11 @@ type economyStore interface {
 	FindOperation(context.Context, int64, string, string) (*platform.Transaction, error)
 }
 
-func decodeEconomyRequest(body io.Reader, exchange bool) (map[string]string, error) {
+func decodeStringFields(body io.Reader, fields ...string) (map[string]string, error) {
+	allowed := map[string]bool{}
+	for _, field := range fields {
+		allowed[field] = true
+	}
 	invalid := platform.ErrInvalidMutation
 	raw, err := io.ReadAll(io.LimitReader(body, 2049))
 	if err != nil || len(raw) > 2048 || !utf8.Valid(raw) {
@@ -37,7 +41,7 @@ func decodeEconomyRequest(body io.Reader, exchange bool) (map[string]string, err
 	for d.More() {
 		t, err = d.Token()
 		key, ok := t.(string)
-		if err != nil || !ok || (key != "idempotency_key" && (!exchange || (key != "from_asset" && key != "amount"))) {
+		if err != nil || !ok || !allowed[key] {
 			return nil, invalid
 		}
 		if _, ok = values[key]; ok {
@@ -57,12 +61,19 @@ func decodeEconomyRequest(body io.Reader, exchange bool) (map[string]string, err
 	if _, err = d.Token(); err != io.EOF {
 		return nil, invalid
 	}
-	count := 1
-	if exchange {
-		count = 3
-	}
-	if len(values) != count || !platform.ValidOperationKey(values["idempotency_key"]) {
+	if len(values) != len(fields) {
 		return nil, invalid
+	}
+	return values, nil
+}
+func decodeEconomyRequest(body io.Reader, exchange bool) (map[string]string, error) {
+	fields := []string{"idempotency_key"}
+	if exchange {
+		fields = append(fields, "from_asset", "amount")
+	}
+	values, err := decodeStringFields(body, fields...)
+	if err != nil || !platform.ValidOperationKey(values["idempotency_key"]) {
+		return nil, platform.ErrInvalidMutation
 	}
 	return values, nil
 }

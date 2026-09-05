@@ -22,18 +22,19 @@ const (
 )
 
 var browserRoutes = map[string]bool{
-	"/":               true,
-	"/login":          true,
-	"/sign-in":        true,
-	"/dashboard":      true,
-	"/wallet":         true,
-	"/master-profile": true,
-	"/games/dice":     true,
-	"/keys":           true,
-	"/logs":           true,
-	"/models":         true,
-	"/playground":     true,
-	"/admin/channels": true,
+	"/":                true,
+	"/login":           true,
+	"/sign-in":         true,
+	"/dashboard":       true,
+	"/wallet":          true,
+	"/wallet/activate": true,
+	"/master-profile":  true,
+	"/games/dice":      true,
+	"/keys":            true,
+	"/logs":            true,
+	"/models":          true,
+	"/playground":      true,
+	"/admin/channels":  true,
 }
 
 func healthHandler() http.Handler {
@@ -94,6 +95,8 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		isRelay := strings.HasPrefix(r.URL.Path, "/v1/") || r.URL.Path == "/pg/chat/completions"
 		switch {
+		case r.URL.Path == "/platform/v1/native-quota" || strings.HasPrefix(r.URL.Path, "/platform/v1/quota-transfers"):
+			newQuotaHandler(cfg.PublicOrigin, cfg.transfers, cfg.nativeQuota, transport).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/wallet/exchange" || strings.HasPrefix(r.URL.Path, "/platform/v1/rewards/") || strings.HasPrefix(r.URL.Path, "/platform/v1/transactions"):
 			newEconomyHandler(cfg.PublicOrigin, cfg.economy, transport).ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/platform/v1/master-profile"):

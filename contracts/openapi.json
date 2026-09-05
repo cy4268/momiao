@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "momiao owned APIs",
-    "version": "0.4.0",
-    "description": "Owned process liveness and authenticated local wallet APIs. Native /api/, /v1/ and /pg contracts remain external. Wallet configuration is optional; no payment, grant, transfer or ledger mutation endpoint is exposed.",
+    "version": "0.5.0",
+    "description": "Owned liveness, identity profile, local wallets, daily claims, exchanges and explicit one-way native quota transfers. Native /api/, /v1/ and /pg contracts remain external; no credit purchase or game settlement.",
     "license": {
       "name": "AGPL-3.0-only",
       "identifier": "AGPL-3.0-only"
@@ -2065,6 +2065,598 @@
           }
         }
       }
+    },
+    "/platform/v1/native-quota": {
+      "get": {
+        "operationId": "readNativeQuota",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "description": "Owner-only, one-way durable native quota transfer. See quota-transfer-api.md. GET never transfers; unknown POST outcomes retain the original key.",
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Own snapshot or original durable receipt; no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/NativeQuota"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/platform/v1/quota-transfers": {
+      "get": {
+        "operationId": "listQuotaTransfers",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "description": "Owner-only, one-way durable native quota transfer. See quota-transfer-api.md. GET never transfers; unknown POST outcomes retain the original key.",
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Own snapshot or original durable receipt; no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "array",
+                      "maxItems": 20,
+                      "items": {
+                        "$ref": "#/components/schemas/QuotaTransfer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createQuotaTransfer",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "description": "Owner-only, one-way durable native quota transfer. See quota-transfer-api.md. GET never transfers; unknown POST outcomes retain the original key.",
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "Exact configured HTTPS origin"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Own snapshot or original durable receipt; no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/QuotaTransfer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Reserve debit and PENDING intent durably committed. Not yet confirmation of target credit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/QuotaTransfer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "idempotency_key",
+                  "amount"
+                ],
+                "properties": {
+                  "idempotency_key": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^[0-9a-f-]{36}$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$",
+                    "maxLength": 30
+                  }
+                }
+              }
+            }
+          },
+          "description": "At most 2048 UTF-8 bytes; reject duplicate and unknown fields."
+        }
+      }
+    },
+    "/platform/v1/quota-transfers/by-key": {
+      "get": {
+        "operationId": "lookupQuotaTransfer",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "description": "Owner-only, one-way durable native quota transfer. See quota-transfer-api.md. GET never transfers; unknown POST outcomes retain the original key.",
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f-]{36}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Own snapshot or original durable receipt; no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/QuotaTransfer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured error; no-store; no raw internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaTransferError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2554,6 +3146,121 @@
         }
       },
       "EconomyError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "success",
+          "code",
+          "message"
+        ],
+        "properties": {
+          "success": {
+            "const": false
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "NativeQuota": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "user_id",
+          "raw_quota",
+          "amount",
+          "enabled"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "raw_quota": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "QuotaTransfer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "user_id",
+          "amount_units",
+          "amount",
+          "status",
+          "reason",
+          "native_before",
+          "native_after",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "user_id": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "amount_units": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "CONFIRMED",
+              "REFUNDED",
+              "NEEDS_REVIEW"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "native_before": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?(0|[1-9][0-9]*)$"
+          },
+          "native_after": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?(0|[1-9][0-9]*)$"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "QuotaTransferError": {
         "type": "object",
         "additionalProperties": false,
         "required": [

@@ -10,16 +10,19 @@ import (
 )
 
 type config struct {
-	WalletDSNFile   string
-	PublicOrigin    string
-	wallet          walletStore
-	profile         profileStore
-	economy         economyStore
-	ListenAddr      string
-	ListenSocket    string
-	WebDir          string
-	NewAPISocket    string
-	ShutdownTimeout time.Duration
+	NativeQuotaDSNFile string
+	transfers          quotaTransferStore
+	nativeQuota        nativeQuotaReader
+	WalletDSNFile      string
+	PublicOrigin       string
+	wallet             walletStore
+	profile            profileStore
+	economy            economyStore
+	ListenAddr         string
+	ListenSocket       string
+	WebDir             string
+	NewAPISocket       string
+	ShutdownTimeout    time.Duration
 }
 
 func loadConfig(lookup func(string) (string, bool)) (config, error) {
@@ -105,6 +108,12 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 	}
 	if err := walletConfig(&cfg, lookup); err != nil {
 		return config{}, err
+	}
+	if value, ok := lookup("MOMIAO_NATIVE_QUOTA_DSN_FILE"); ok {
+		if value == "" || !filepath.IsAbs(value) || cfg.WalletDSNFile == "" {
+			return config{}, errors.New("native quota DSN requires an absolute path and platform wallet configuration")
+		}
+		cfg.NativeQuotaDSNFile = filepath.Clean(value)
 	}
 	return cfg, nil
 }

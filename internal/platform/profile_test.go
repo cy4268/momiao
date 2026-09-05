@@ -59,7 +59,7 @@ func TestProfileNormalizedStorageBound(t *testing.T) {
 
 func TestProfileMigrationManifest(t *testing.T) {
 	files, err := fs.Glob(migrations, "migrations/*.sql")
-	if err != nil || len(files) != 3 {
+	if err != nil || len(files) != 4 {
 		t.Fatalf("want wallet v1 + profile v2 + actions v3 manifest: %v %v", files, err)
 	}
 	original, err := migrations.ReadFile("migrations/0001_wallet.sql")

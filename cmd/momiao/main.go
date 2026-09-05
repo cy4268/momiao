@@ -41,6 +41,23 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		cfg.wallet = store
 		cfg.profile = store
 		cfg.economy = store
+		cfg.transfers = store
+		if cfg.NativeQuotaDSNFile != "" {
+			dsn, err := readWalletDSN(cfg.NativeQuotaDSNFile)
+			if err != nil {
+				return errors.New("native quota startup failed")
+			}
+			native, err := platform.OpenNativeQuota(ctx, dsn)
+			if err != nil {
+				return errors.New("native quota startup failed")
+			}
+			defer native.Close()
+			cfg.nativeQuota = native
+			workerCtx, cancel := context.WithCancel(ctx)
+			done := make(chan struct{})
+			go func() { defer close(done); runQuotaWorker(workerCtx, store, native) }()
+			defer func() { cancel(); <-done }()
+		}
 	}
 	listener, err := openListener(cfg)
 	if err != nil {
