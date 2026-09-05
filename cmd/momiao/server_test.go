@@ -179,6 +179,26 @@ func TestPortalServesOnlyApprovedSPAAndCompiledFiles(t *testing.T) {
 	}
 }
 
+func TestPortalCanonicalizesWebRootAlias(t *testing.T) {
+	realRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(realRoot, "index.html"), []byte("portal"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realRoot, "app-CfXwKDEl.js"), []byte("asset"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "web-alias")
+	if err := os.Symlink(realRoot, alias); err != nil {
+		t.Skipf("directory aliases are unavailable on this host: %v", err)
+	}
+	handler := newPortalHandler(config{WebDir: alias, NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/app-CfXwKDEl.js", nil))
+	if response.Code != http.StatusOK || response.Body.String() != "asset" {
+		t.Fatalf("aliased web root rejected an in-root asset: status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
 func TestProxyPreservesNativeContractAndRejectsSpoofedForwarding(t *testing.T) {
 	var captured *http.Request
 	var capturedBody string

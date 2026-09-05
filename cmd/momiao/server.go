@@ -68,6 +68,9 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	if cfg.WebDir == "" {
 		return healthHandler()
 	}
+	if root, err := filepath.EvalSymlinks(cfg.WebDir); err == nil {
+		cfg.WebDir = root
+	}
 	if transport == nil {
 		transport = newNativeTransport(cfg.NewAPISocket)
 	}
