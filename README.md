@@ -1,92 +1,73 @@
 # momiao
 
-一个按可验证的小阶段推进的平台项目。当前提交是 **Phase 3 / IS-01 的最小后端基础**，不是完整平台、完整 IS-01 验收或生产发布。
+一个从实际可用功能开始生长的开源 AI 平台。首个改造版本提供 **登录 → 指挥台 → API 密钥 → 个人调用记录**，连接真实 NewAPI，而不是静态页面或演示数据。
 
-## 已实现 / 待实现
+## 当前功能
 
-| 已实现 | 尚未实现 |
-|---|---|
-| 单个 Go 标准库 HTTP 进程；无第三方运行时依赖 | 登录、Session、OAuth 与 NewAPI Adapter |
-| `GET /healthz`、`HEAD /healthz` 进程存活探针 | 数据库、资产账本、奖励、游戏与 Poker |
-| loopback 默认、配置校验、HTTP 超时与有期限的优雅退出 | 前端、正式部署、TLS、迁移与生产监控 |
-| 可重复运行的测试、仅真实端点的 OpenAPI、测试/构建 CI | 全部来源核验、并发与故障验收 |
+- **登录**：原生密码与二步验证流程、刷新后续期、退出登录；访问令牌只保存在内存中。
+- **指挥台**：真实账户身份、原生可用/已用额度、请求数、密钥数量及最近个人记录。
+- **密钥管理**：分页、创建、明确查看/复制、启停、确认删除；列表默认脱敏，离开弹窗清除页面中的明文。
+- **调用记录**：个人记录分页、类型/模型/日期筛选，只展示调用元数据。
+- **交付层**：React + TypeScript 界面；单个 Go 标准库服务提供 SPA、固定 Unix Socket 上游代理及存活探针。
 
-历史页面预览、设计图或原生 NewAPI 页面都不是此后端的已实现功能。`/healthz` 成功仅表示进程可以处理该请求；它不检查数据库、上游或业务就绪状态。其他路径为 `404`，该路径的其他方法为 `405`；没有占位登录接口。
+原生额度不是设计中的 Reserve 或 API Credit。账本、充值、奖励、游戏、模型渠道管理与旧数据迁移尚未实现；本版不把这些功能替换成假数据。旧服务与旧数据独立保留，迁移不再阻塞界面改造。见 [本次范围决策](docs/decisions/0002-usable-portal-first.md)。
 
-## 本地运行
+## 构建与验证
 
-先安装 [Go 官方发行版](https://go.dev/dl/)。本基础使用并核验了 **Go 1.27.1**；`go.mod` 声明版本，CI 按该文件安装。工具版本更新先核对官方实际可用版本，再更新并重跑测试。当前没有前端，因而不要求 Node、npm、Make、Docker 或数据库。
+使用 Go **1.27.1**、Node.js **24.12.0**。在仓库根目录执行：
 
-以下命令在仓库根目录运行，Windows PowerShell 与常见 POSIX shell 均适用：
-
-```text
-go version
+```sh
 go vet ./...
 go test -count=1 -timeout=30s ./...
 go build -trimpath ./cmd/momiao
+cd web
+npm ci
+npm run typecheck
+npm test
+npm run build
 ```
 
-Windows PowerShell：
+前端产物为 `web/dist/`。支持 race detector 的环境另执行 `go test -race -count=1 -timeout=30s ./...`。CI 分别验证 Linux、Windows Go 构建/测试和前端测试/构建；不携带部署凭据、不自动部署。
 
-```powershell
-.\momiao.exe
-# 另一个终端执行：
-Invoke-RestMethod http://127.0.0.1:8080/healthz
-```
+## 运行
 
-Linux / macOS：
+**只运行存活探针**：不设置额外环境变量，执行构建出的 `momiao`（Windows 为 `momiao.exe`），默认监听 `127.0.0.1:8080`。`GET/HEAD /healthz` 返回 `{"status":"ok"}`；该模式其他路径为 404。存活不代表上游或业务就绪。
+
+**完整界面**：需要一个运行中的兼容 NewAPI，以及指向它的私有 Unix HTTP Socket。Linux 示例：
 
 ```sh
+MOMIAO_WEB_DIR=/srv/momiao/web/dist \
+MOMIAO_NEWAPI_SOCKET=/run/native-api/http.sock \
+MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 ./momiao
-# 另一个终端执行：
-curl --fail http://127.0.0.1:8080/healthz
 ```
 
-响应为 `{"status":"ok"}`。终端按 `Ctrl+C` 退出；Unix 服务管理器也可发送 `SIGTERM`。进程停止接收新连接并等待活动请求，超出退出期限后关闭连接并以非零状态退出。强制终止进程不等于优雅退出。
+打开 `/login`。生产环境使用 HTTPS 入口并配置原生安全 Cookie 和准确的可信 Origin；原生认证 Cookie 的 Path 不作改写。也可用 `MOMIAO_LISTEN_SOCKET` 替换 TCP 监听，供支持 Unix Socket 的入口直接连接，见 [部署说明](docs/deployment.md)。没有随仓库提供的账户、默认密码或数据库。
 
-### 配置
+| 环境变量 | 缺省 / 含义 |
+|---|---|
+| `MOMIAO_LISTEN_ADDR` | `127.0.0.1:8080`；数字 IP 与 `1..65535` 端口，IPv6 加方括号 |
+| `MOMIAO_LISTEN_SOCKET` | 可选绝对路径；与显式设置的 TCP 地址互斥；新 Socket 为 0600，不覆盖已有路径 |
+| `MOMIAO_WEB_DIR` | 可选绝对路径；必须存在且含 `index.html`，与上游 Socket 成对配置 |
+| `MOMIAO_NEWAPI_SOCKET` | 固定上游绝对路径；浏览器不参与选择上游 |
+| `MOMIAO_SHUTDOWN_TIMEOUT` | `10s`，可设 `1s..30s`；超时后强制结束剩余连接 |
 
-| 环境变量 | 默认 | 校验 |
-|---|---|---|
-| `MOMIAO_LISTEN_ADDR` | `127.0.0.1:8080` | 必须显式指定数字 IP 与 `1..65535` 端口；IPv6 加方括号 |
-| `MOMIAO_SHUTDOWN_TIMEOUT` | `10s` | Go duration，范围 `1s..30s` |
+空值与缺省不同：非法配置在监听前失败。不默认监听公网；服务自身不终止 TLS。Windows 主要用于开发和测试，完整 Unix 传输部署在 Linux 上验收。
 
-设置为空与缺省不同：空值、非法 IP、缺失主机/端口或越界退出时间会在监听前失败；错误只标识配置项，不回显配置原值。没有 DNS 主机名解析，也不会默认绑定所有网卡。
+## 接口与范围
 
-PowerShell 示例：
+SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
 
-```powershell
-$env:MOMIAO_LISTEN_ADDR = '127.0.0.1:8090'
-$env:MOMIAO_SHUTDOWN_TIMEOUT = '15s'
-.\momiao.exe
-```
+`/api/`、`/v1/` 原样转发到固定原生服务，前端不复制认证规则。适配版本和真实请求载荷见 [原生接口契约](contracts/native-api.md)。[OpenAPI](contracts/openapi.json) 只声明 momiao 自有的 `/healthz`，不把原生 API 冒充为自有实现。
 
-POSIX 示例：
+代理 `/api/` 总上限 30 秒、`/v1/` 总上限 5 分钟。它们是明确的工程上限，**不是模型调用、并发容量或压测结论**；WebSocket 升级尚不支持。本版主动移除转发身份头，原生端看到的是内部代理地址，未宣称按真实客户端 IP 审计或限流。
 
-```sh
-MOMIAO_LISTEN_ADDR=127.0.0.1:8090 MOMIAO_SHUTDOWN_TIMEOUT=15s ./momiao
-```
+登录实际入口使用密码。二步验证有源码契约和自动化覆盖，尚未使用真实已绑定账户验收；OAuth、Passkey、注册、密码找回和 CAPTCHA 控件不在本次范围。
 
-显式设为 `0.0.0.0` 或其他非 loopback 地址会扩大可达范围。本程序只有明文 HTTP 存活探针，不内置 TLS 或访问控制；本地开发保留 loopback，正式对外入口需要另行设计与验证。
+## 设计与贡献
 
-固定 HTTP 上限：读请求头 `5s`、读请求 `10s`、写响应 `10s`、空闲连接 `60s`，最大请求头 `16 KiB`。这些是当前小服务的工程默认值，不是容量或生产调优结论。
+- [六份设计归档](docs/design/archive/README.md)：保留长期产品与 Bright Moonlit 视觉方向，不等于当前实现清单。
+- [迁移基线](docs/migration-baseline.md)：后续需要迁移时再继续；不包含生产数据。
+- 保持改动小而完整：实现、契约和行为测试一起更新；不要提交凭据、数据库、原始业务日志、构建产物或第三方角色图片。
 
-## 项目结构与下一阶段
-
-- `cmd/momiao/`：入口、配置、HTTP 与退出流程、真实行为测试。
-- [OpenAPI](contracts/openapi.json)：只描述 `GET/HEAD /healthz`。
-- [决策 0001](docs/decisions/0001-pragmatic-baseline.md)：当前实现范围及对历史流程的具体简化。
-- [迁移基线](docs/migration-baseline.md)：保留项、迁移规则与证据缺口，不含生产数据或执行脚本。
-- [六份设计文档归档](docs/design/archive/README.md)：历史需求、IA、视觉与技术参考，不等于实现状态。
-
-下一阶段选择一个有实际使用价值的纵向功能；在其依赖入口完成来源与行为核验后再实现。先做无关基础不必等待所有 SV；涉及身份、凭据、资产或迁移的真实验证仍然保留。奖励数值与视觉意图目前不作调整。
-
-## 验证与贡献
-
-提交前运行上面的 `go vet`、`go test`、`go build`，用 `gofmt -w cmd` 格式化 Go 文件。支持 race detector 的环境另运行 `go test -race -count=1 -timeout=30s ./...`。CI 在 Linux 与 Windows 测试、构建，在 Linux 增加 race 检查；它没有部署步骤或项目 Secret 访问。已配置 CI 不代表远端 CI 已运行通过。
-
-保持改动小而完整：实现、边界测试与契约一起更新；新依赖要有当前需求。不要提交 `.env`、凭据、数据库、原始核验日志、私有目录、工具二进制或第三方角色图片。`.gitignore` 只是第一层防护，发布前仍应审阅实际文件与 Git diff。
-
-## 许可证与外部来源
-
-本仓库自有代码与文档使用 **AGPL-3.0-only**，见 [LICENSE](LICENSE)。[ATTRIBUTION.md](ATTRIBUTION.md) 说明外部 NewAPI 参考来源和第三方角色、商标及素材边界；该许可证不授予第三方角色或美术资产权利。仓库不包含 NewAPI 源码副本。
+自有代码与文档使用 **AGPL-3.0-only**，见 [LICENSE](LICENSE)。外部 API、字体及素材说明见 [ATTRIBUTION.md](ATTRIBUTION.md)。仓库不包含 NewAPI 源码副本，也不提供第三方角色图像权利。

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,7 +17,7 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	listener, err := net.Listen("tcp", cfg.ListenAddr)
+	listener, err := openListener(cfg)
 	if err != nil {
 		logger.Printf("listen failed: %v", err)
 		os.Exit(1)

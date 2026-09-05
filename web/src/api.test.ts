@@ -1,0 +1,52 @@
+import { describe, it, expect, vi } from 'vitest';
+import { ApiClient, ApiError } from './api';
+const user = { id: 12, username: 'test-user', display_name: 'Test', role: 1, quota: 80, used_quota: 20, request_count: 2 };
+const bundle = { access_token: 'test-memory-token', access_expires_at: 9999999999, session: { sid: 'test-session' }, user };
+const ok = (data?: unknown) => new Response(JSON.stringify({ success: true, data }), { headers: { 'Content-Type': 'application/json' } });
+const failure = (status = 200) => new Response(JSON.stringify({ success: false, message: 'test failure', code: status === 401 ? 'AUTH_TOKEN_EXPIRED' : undefined }), { status });
+const deferred = () => { let resolve!: (value: Response) => void; const promise = new Promise<Response>(r => resolve = r); return { promise, resolve }; };
+describe('native adapter and memory session', () => {
+    it('rejects HTTP 200 success:false', async () => { const c = new ApiClient(vi.fn().mockResolvedValue(failure())); await expect(c.login('a', 'b')).rejects.toThrow('test failure'); expect(c.getSnapshot().user).toBeNull(); });
+    it('rejects a non-JSON response and network failure clearly', async () => { const c = new ApiClient(vi.fn().mockResolvedValue(new Response('<html>bad</html>'))); await expect(c.login('a', 'b')).rejects.toBeInstanceOf(ApiError); const d = new ApiClient(vi.fn().mockRejectedValue(new TypeError('offline'))); await expect(d.login('a', 'b')).rejects.toThrow('网络'); });
+    it('refresh is single flight and sends same-origin credentials', async () => { const pending = deferred(); const fetcher = vi.fn().mockReturnValue(pending.promise); const c = new ApiClient(fetcher); const a = c.refresh(); const b = c.refresh(); expect(fetcher).toHaveBeenCalledTimes(1); pending.resolve(ok(bundle)); await Promise.all([a, b]); expect(c.getSnapshot().user?.id).toBe(12); expect(fetcher.mock.calls[0][1].credentials).toBe('same-origin'); });
+    it('logout waits for rotation then revokes; a stale refresh never restores user', async () => { const pending = deferred(); const fetcher = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValueOnce(ok()); const c = new ApiClient(fetcher); const refresh = c.refresh(); const logout = c.logout(); expect(c.getSnapshot().user).toBeNull(); pending.resolve(ok(bundle)); await Promise.allSettled([refresh, logout]); expect(c.getSnapshot().user).toBeNull(); expect(fetcher.mock.calls[1][0]).toBe('/api/user/auth/logout'); });
+    it('missing authentication stops protected requests', async () => { const f = vi.fn(); const c = new ApiClient(f); await expect(c.request('/api/token/')).rejects.toThrow(); expect(f).not.toHaveBeenCalled(); });
+    it('expired GET refreshes once with both identity headers', async () => { const f = vi.fn().mockResolvedValueOnce(ok(bundle)).mockResolvedValueOnce(failure(401)).mockResolvedValueOnce(ok(bundle)).mockResolvedValueOnce(ok({ items: [], total: 0, page: 1, page_size: 10 })); const c = new ApiClient(f); await c.login('a', 'b'); await c.request('/api/token/'); expect(f).toHaveBeenCalledTimes(4); expect(new Headers(f.mock.calls[3][1].headers).get('New-Api-User')).toBe('12'); expect(new Headers(f.mock.calls[3][1].headers).get('Authorization')).toBe('Bearer test-memory-token'); });
+    it('does not replay POST on auth or ambiguous network failure', async () => { const f = vi.fn().mockResolvedValueOnce(ok(bundle)).mockResolvedValueOnce(failure(401)); const c = new ApiClient(f); await c.login('a', 'b'); await expect(c.request('/api/token/', 'POST', {})).rejects.toThrow(); expect(f).toHaveBeenCalledTimes(2); expect(c.getSnapshot().user).toBeNull(); });
+    it('reports 2FA without accepting it as a session', async () => { const f = vi.fn().mockResolvedValueOnce(ok({ require_2fa: true, flow_token: 'synthetic-flow' })).mockResolvedValueOnce(ok(bundle)); const c = new ApiClient(f); expect(await c.login('a', 'b')).toEqual({ require_2fa: true, flow_token: 'synthetic-flow' }); expect(c.getSnapshot().user).toBeNull(); await c.verify2fa('synthetic-flow', '123456'); expect(c.getSnapshot().user?.id).toBe(12); expect(JSON.parse(f.mock.calls[1][1].body)).toEqual({ flow_token: 'synthetic-flow', code: '123456' }); });
+    it('late protected response after logout is discarded', async () => { const pending = deferred(); const f = vi.fn().mockResolvedValueOnce(ok(bundle)).mockReturnValueOnce(pending.promise).mockResolvedValueOnce(ok()); const c = new ApiClient(f); await c.login('a', 'b'); const request = c.request('/api/user/self'); await c.logout(); pending.resolve(ok(user)); await expect(request).rejects.toThrow(); expect(c.getSnapshot().user).toBeNull(); });
+});
+it('failed refreshed GET does not loop and clears the session', async () => { const f = vi.fn().mockResolvedValueOnce(ok(bundle)).mockResolvedValueOnce(failure(401)).mockResolvedValueOnce(ok(bundle)).mockResolvedValueOnce(failure(401)); const c = new ApiClient(f); await c.login('a', 'b'); await expect(c.request('/api/token/')).rejects.toThrow(); expect(f).toHaveBeenCalledTimes(4); expect(c.getSnapshot().user).toBeNull(); });
+it('HTTP 403 clears protected authentication without refresh', async () => { const f = vi.fn().mockResolvedValueOnce(ok(bundle)).mockResolvedValueOnce(failure(403)); const c = new ApiClient(f); await c.login('a', 'b'); await expect(c.request('/api/token/')).rejects.toThrow(); expect(f).toHaveBeenCalledTimes(2); expect(c.getSnapshot().user).toBeNull(); });
+it('proactively refreshes expired memory token before a mutation', async () => { const f = vi.fn().mockResolvedValueOnce(ok({ ...bundle, access_expires_at: 1 })).mockResolvedValueOnce(ok(bundle)).mockResolvedValueOnce(ok()); const c = new ApiClient(f); await c.login('a', 'b'); await c.request('/api/token/', 'POST', {}); expect(f.mock.calls.map(call => call[0])).toEqual(['/api/user/login', '/api/user/auth/refresh', '/api/token/']); });
+it('logout during login prevents the late login response restoring state', async () => { const pending = deferred(); const f = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValueOnce(ok()); const c = new ApiClient(f); const login = c.login('a', 'b'); const logout = c.logout(); pending.resolve(ok(bundle)); await Promise.allSettled([login, logout]); expect(c.getSnapshot().user).toBeNull(); expect(f.mock.calls[1][0]).toBe('/api/user/auth/logout'); });
+it('marks non-JSON mutation outcomes as uncertain rather than inviting duplicate writes', async () => { const f = vi.fn().mockResolvedValueOnce(ok(bundle)).mockResolvedValueOnce(new Response('<html>gateway failure</html>', { status: 502 })); const c = new ApiClient(f); await c.login('a', 'b'); await expect(c.request('/api/token/', 'POST', {})).rejects.toMatchObject({ uncertain: true }); expect(f).toHaveBeenCalledTimes(2); });
+it('invalidates only local auth on proactive refresh session mismatch and stops subsequent requests', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(ok({ ...bundle, access_expires_at: 1 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ success: false, code: 'AUTH_SESSION_MISMATCH', message: 'Conflict' }), { status: 409 }));
+    const client = new ApiClient(fetcher);
+    await client.login('a', 'b');
+    await expect(client.request('/api/token/')).rejects.toMatchObject({ code: 'AUTH_SESSION_MISMATCH' });
+    expect(client.getSnapshot().user).toBeNull();
+    expect(client.getSnapshot().notice).toContain('会话已变更');
+    expect(client.getSnapshot().notice).toContain('重新登录');
+    await expect(client.request('/api/token/')).rejects.toMatchObject({ status: 401 });
+    await expect(client.request('/api/log/self')).rejects.toMatchObject({ status: 401 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.some(call => call[0].includes('/auth/logout'))).toBe(false);
+    fetcher.mockResolvedValueOnce(ok(bundle));
+    await client.login('a', 'b');
+    const headers = new Headers(fetcher.mock.calls[2][1].headers);
+    expect(headers.has('Authorization')).toBe(false);
+    expect(headers.has('X-Auth-Session')).toBe(false);
+    expect(headers.has('New-Api-User')).toBe(false);
+    expect(client.getSnapshot().user?.id).toBe(user.id);
+});
+it('does not invalidate an authenticated user for unrelated HTTP 409', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(ok(bundle)).mockResolvedValueOnce(new Response(JSON.stringify({ success: false, code: 'OTHER_CONFLICT', message: 'Conflict' }), { status: 409 }));
+    const client = new ApiClient(fetcher);
+    await client.login('a', 'b');
+    await expect(client.request('/api/token/', 'POST', {})).rejects.toMatchObject({ status: 409 });
+    expect(client.getSnapshot().user?.id).toBe(user.id);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+});

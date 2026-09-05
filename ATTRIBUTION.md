@@ -6,7 +6,7 @@ Original momiao code and project-authored documentation are offered under **GNU 
 
 ## External NewAPI reference
 
-[NewAPI](https://github.com/QuantumNous/new-api) is an external project used as a design and future integration reference. The inspected reference revision is `f116414284162ad15d8925f7bca494c109b83e93`; its `LICENSE` contains the GNU Affero General Public License version 3 text.
+[NewAPI](https://github.com/QuantumNous/new-api) is the independently deployed native API integrated by this portal. The inspected reference revision is `f116414284162ad15d8925f7bca494c109b83e93`; its `LICENSE` contains the GNU Affero General Public License version 3 text.
 
 This repository does not vendor, fork, redistribute or modify NewAPI source code or assets. The only file copied from that reference is the unmodified standard AGPL license text. NewAPI keeps its own authorship, repository, license notices and deployment lifecycle. This independent implementation is not a claim of upstream affiliation or endorsement.
 
@@ -14,4 +14,8 @@ This repository does not vendor, fork, redistribute or modify NewAPI source code
 
 The six Markdown documents under `docs/design/archive/` are historical project design references, not source code or artwork from a third-party product. Their original project name, product/character references and textual visual intent are retained for traceability; private file locations and session-image identifiers are replaced by descriptive example paths.
 
-No character images, screenshots, reference art, logos, fonts or generated media are included. References to FGO/Fate, characters, model brands and other third-party names confer no copyright, trademark or publicity rights. Their rights remain with their respective holders. Project text or prompts describing intended artwork do not establish permission to distribute any resulting or referenced asset; asset-specific rights must be checked before inclusion or publication.
+No third-party character images, screenshots, reference art or logos are included. The portal crest is an original inline vector design. References to FGO/Fate, characters, model brands and other third-party names confer no copyright, trademark or publicity rights. Their rights remain with their respective holders. Project text or prompts describing intended artwork do not establish permission to distribute any resulting or referenced asset; asset-specific rights must be checked before inclusion or publication.
+
+## Marcellus font
+
+The portal locally bundles Marcellus through `@fontsource/marcellus` 5.3.0. Its original copyright notice and SIL Open Font License 1.1 are retained without modification in [web/public/fonts-license.txt](web/public/fonts-license.txt), which is copied to `/fonts-license.txt` in the built site. The font is governed by that license, not relicensed under this repository's AGPL designation. Other package dependencies keep their respective license notices in their distributions and are locked in `web/package-lock.json`.

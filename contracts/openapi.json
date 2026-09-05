@@ -3,7 +3,7 @@
   "info": {
     "title": "momiao process health API",
     "version": "0.1.0",
-    "description": "Implemented process liveness only. No authentication, data store, upstream or business readiness assertion. Unmatched paths return 404; methods other than GET/HEAD on /healthz return 405 with Allow: GET, HEAD.",
+    "description": "This contract describes the owned process-liveness endpoint only, not dependency readiness. Configured portal routes serve the SPA; /api/ and /v1/ preserve the external native backend contract documented in native-api.md. Methods other than GET/HEAD on /healthz return 405 with Allow: GET, HEAD.",
     "license": { "name": "AGPL-3.0-only", "identifier": "AGPL-3.0-only" }
   },
   "servers": [{ "url": "http://127.0.0.1:8080", "description": "Default local development listener" }],

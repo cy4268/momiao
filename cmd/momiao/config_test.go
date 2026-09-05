@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -67,6 +69,58 @@ func TestConfigOverridesAndValidation(t *testing.T) {
 			}
 			if tc.key == "MOMIAO_SHUTDOWN_TIMEOUT" && cfg.ShutdownTimeout.String() != tc.value {
 				t.Fatalf("shutdown override was not applied: %v", cfg.ShutdownTimeout)
+			}
+		})
+	}
+}
+
+func TestPortalConfigAcceptanceAndRejection(t *testing.T) {
+	webDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("portal"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	absSocket := filepath.Join(t.TempDir(), "portal.sock")
+	upstreamSocket := filepath.Join(t.TempDir(), "newapi.sock")
+
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		ok   bool
+	}{
+		{"web with fixed upstream", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, true},
+		{"unix listener", map[string]string{"MOMIAO_LISTEN_SOCKET": absSocket}, true},
+		{"complete production shape", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_LISTEN_SOCKET": absSocket, "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, true},
+		{"empty web", map[string]string{"MOMIAO_WEB_DIR": ""}, false},
+		{"empty listener socket", map[string]string{"MOMIAO_LISTEN_SOCKET": ""}, false},
+		{"empty upstream socket", map[string]string{"MOMIAO_NEWAPI_SOCKET": ""}, false},
+		{"relative web", map[string]string{"MOMIAO_WEB_DIR": "web"}, false},
+		{"missing web", map[string]string{"MOMIAO_WEB_DIR": filepath.Join(t.TempDir(), "missing"), "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, false},
+		{"web without index", map[string]string{"MOMIAO_WEB_DIR": t.TempDir(), "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, false},
+		{"relative listener socket", map[string]string{"MOMIAO_LISTEN_SOCKET": "portal.sock"}, false},
+		{"relative upstream socket", map[string]string{"MOMIAO_NEWAPI_SOCKET": "newapi.sock"}, false},
+		{"web without upstream", map[string]string{"MOMIAO_WEB_DIR": webDir}, false},
+		{"upstream without web", map[string]string{"MOMIAO_NEWAPI_SOCKET": upstreamSocket}, false},
+		{"tcp and unix listener", map[string]string{"MOMIAO_LISTEN_ADDR": "127.0.0.1:8090", "MOMIAO_LISTEN_SOCKET": absSocket}, false},
+		{"same listener and upstream", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_LISTEN_SOCKET": absSocket, "MOMIAO_NEWAPI_SOCKET": absSocket}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := loadConfig(func(key string) (string, bool) {
+				value, ok := tc.env[key]
+				return value, ok
+			})
+			if (err == nil) != tc.ok {
+				t.Fatalf("ok=%v, error=%v", tc.ok, err)
+			}
+			if err != nil {
+				for _, value := range tc.env {
+					if value != "" && strings.Contains(err.Error(), value) {
+						t.Fatalf("configuration error exposed raw value: %v", err)
+					}
+				}
+				return
+			}
+			if tc.env["MOMIAO_LISTEN_SOCKET"] != "" && cfg.ListenAddr != "" {
+				t.Fatalf("unix listener retained TCP address: %+v", cfg)
 			}
 		})
 	}
