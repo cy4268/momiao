@@ -27,6 +27,7 @@ var browserRoutes = map[string]bool{
 	"/sign-in":        true,
 	"/dashboard":      true,
 	"/wallet":         true,
+	"/master-profile": true,
 	"/keys":           true,
 	"/logs":           true,
 	"/models":         true,
@@ -71,6 +72,10 @@ func newServer(cfg config) *http.Server {
 func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	if cfg.WebDir == "" {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/platform/v1/master-profile") {
+				walletError(w, 503, "PROFILE_UNAVAILABLE")
+				return
+			}
 			if strings.HasPrefix(r.URL.Path, "/platform/v1/") {
 				walletError(w, 503, "WALLET_UNAVAILABLE")
 				return
@@ -88,6 +93,8 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		isRelay := strings.HasPrefix(r.URL.Path, "/v1/") || r.URL.Path == "/pg/chat/completions"
 		switch {
+		case strings.HasPrefix(r.URL.Path, "/platform/v1/master-profile"):
+			newProfileHandler(cfg.PublicOrigin, cfg.profile, transport).ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/platform/v1/"):
 			newWalletHandler(cfg.PublicOrigin, cfg.wallet, transport).ServeHTTP(w, r)
 		case r.URL.Path == "/healthz":

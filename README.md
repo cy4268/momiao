@@ -21,6 +21,12 @@
 
 见 [账本基础与验证](docs/wallet-foundation.md)、[钱包接口契约](contracts/wallet-api.md)、[隔离与可用性决策](docs/decisions/0005-wallet-portal.md)。
 
+## Master 展示身份
+
+`/master-profile` 仅管理本人的昵称、静态系统默认头像与身份预览。服务端执行 Unicode 规范化、唯一性、保留名及7天改名冷却；首次初始化不消耗冷却。资料操作不更改登录用户名或钱包资产。现有门户不强制资料门禁；外部头像同步、上传、完整运营审核及其他用户公开页尚未开放。
+
+见 [Master 契约](contracts/master-profile-api.md) 与 [切片裁定](docs/decisions/0006-master-profile.md)。
+
 ## 构建与验证
 
 使用 Go **1.27.1**、Node.js **24.12.0**。在仓库根目录执行：
@@ -59,15 +65,17 @@ MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 | `MOMIAO_LISTEN_SOCKET` | 可选绝对路径；与显式设置的 TCP 地址互斥；新 Socket 为 0600，不覆盖已有路径 |
 | `MOMIAO_WEB_DIR` | 可选绝对路径；必须存在且含 `index.html`，与上游 Socket 成对配置 |
 | `MOMIAO_NEWAPI_SOCKET` | 固定上游绝对路径；浏览器不参与选择上游 |
+| `MOMIAO_WALLET_DSN_FILE` | 可选受限平台 DSN 文件绝对路径；钱包与 Master 共用，与 Public Origin 成对 |
+| `MOMIAO_PUBLIC_ORIGIN` | 与平台 DSN 成对的准确 HTTPS Origin，用于显式写入验证 |
 | `MOMIAO_SHUTDOWN_TIMEOUT` | `10s`，可设 `1s..30s`；超时后强制结束剩余连接 |
 
 空值与缺省不同：非法配置在监听前失败。不默认监听公网；服务自身不终止 TLS。Windows 主要用于开发和测试，完整 Unix 传输部署在 Linux 上验收。
 
 ## 接口与范围
 
-SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/playground`、`/admin/channels`、`/wallet`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
+SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/playground`、`/admin/channels`、`/wallet`、`/master-profile`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
 
-`/api/`、`/v1/` 及确切的 `/pg/chat/completions` 原样转发到固定原生服务，前端不复制认证规则。适配版本和真实请求载荷见 [原生接口契约](contracts/native-api.md)。[OpenAPI](contracts/openapi.json) 声明 momiao 自有的 `/healthz` 与 `/platform/v1/wallet` 接口，不把原生 API 冒充为自有实现。
+`/api/`、`/v1/` 及确切的 `/pg/chat/completions` 原样转发到固定原生服务，前端不复制认证规则。适配版本和真实请求载荷见 [原生接口契约](contracts/native-api.md)。[OpenAPI](contracts/openapi.json) 声明 momiao 自有的 `/healthz` 、`/platform/v1/wallet` 与 `/platform/v1/master-profile` 接口，不把原生 API 冒充为自有实现。
 
 代理 `/api/` 总上限 30 秒、`/v1/` 与在线测试总上限 5 分钟。它们是明确的工程上限，**不是并发容量或压测结论**；WebSocket 升级尚不支持。本版主动移除转发身份头，原生端看到的是内部代理地址，未宣称按真实客户端 IP 审计或限流。
 

@@ -13,6 +13,7 @@ type config struct {
 	WalletDSNFile   string
 	PublicOrigin    string
 	wallet          walletStore
+	profile         profileStore
 	ListenAddr      string
 	ListenSocket    string
 	WebDir          string

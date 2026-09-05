@@ -77,12 +77,14 @@ export class ApiClient {
     private logoutFlight: Promise<void> | null = null;
     constructor(private fetcher: (path: string, init?: RequestInit) => Promise<Response> = (...args) => fetch(...args)) { }
     getSnapshot = () => this.snapshot;
+    // Non-sensitive identity boundary; ordinary token refresh keeps drafts intact.
+    getSessionGeneration = () => this.epoch;
     subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
     private publish(patch: Partial<Snapshot>) { this.snapshot = { ...this.snapshot, ...patch }; this.listeners.forEach(fn => fn()); }
     private clear(notice = '') { this.streams.forEach(c => c.abort()); this.streams.clear(); this.epoch++; this.token = ''; this.sid = ''; this.expires = 0; this.publish({ user: null, ready: true, notice }); }
     private accept(bundle: Bundle, epoch: number) { if (epoch !== this.epoch || this.snapshot.loggingOut)
         throw new ApiError('登录状态已改变，请重新登录。', 401); if (!bundle?.access_token || !bundle.session?.sid || !Number.isFinite(bundle.access_expires_at))
-        throw new ApiError('登录响应格式异常，请重新登录。'); const user = safeUser(bundle.user); this.token = bundle.access_token; this.sid = bundle.session.sid; this.expires = bundle.access_expires_at; this.publish({ user, ready: true, notice: '' }); }
+        throw new ApiError('登录响应格式异常，请重新登录。'); const user = safeUser(bundle.user); if (this.sid !== bundle.session.sid || this.snapshot.user?.id !== user.id) this.epoch++; this.token = bundle.access_token; this.sid = bundle.session.sid; this.expires = bundle.access_expires_at; this.publish({ user, ready: true, notice: '' }); }
     private headers() { const headers = new Headers(); if (this.token)
         headers.set('Authorization', `Bearer ${this.token}`); if (this.snapshot.user)
         headers.set('New-Api-User', String(this.snapshot.user.id)); if (this.sid)

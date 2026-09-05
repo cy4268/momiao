@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "momiao owned APIs",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Owned process liveness and authenticated local wallet APIs. Native /api/, /v1/ and /pg contracts remain external. Wallet configuration is optional; no payment, grant, transfer or ledger mutation endpoint is exposed.",
     "license": {
       "name": "AGPL-3.0-only",
@@ -651,6 +651,663 @@
         },
         "description": "Ascending per-asset sequence; next_after_seq is null when has_more is false. Unknown/duplicate parameters rejected."
       }
+    },
+    "/platform/v1/master-profile": {
+      "get": {
+        "operationId": "getMasterProfile",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Own Master profile; all IDs/versions are exact strings.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/MasterProfile"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or duplicate/unknown fields",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or rejected identity",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Native authorization, exact Origin, or reserved nickname rejected; does not imply session logout",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Native identity service unavailable or malformed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Profile store disabled or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          }
+        },
+        "description": "No query parameters. Every request verifies native identity. Only own display identity; no native credentials, wallet writes or grants."
+      },
+      "patch": {
+        "operationId": "updateMasterProfile",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "Exact configured HTTPS origin."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Own Master profile; all IDs/versions are exact strings.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/MasterProfile"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or duplicate/unknown fields",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or rejected identity",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Native authorization, exact Origin, or reserved nickname rejected; does not imply session logout",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Native identity service unavailable or malformed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Profile store disabled or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be application/json",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "NICKNAME_TAKEN, STALE_RESOURCE_VERSION or RENAME_COOLDOWN",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expected_version"
+                ],
+                "properties": {
+                  "expected_version": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]*$"
+                  },
+                  "display_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Server validates normalized 1..24 Unicode grapheme clusters, allowed characters and reserved names."
+                  },
+                  "avatar_id": {
+                    "type": "string",
+                    "const": "system-default"
+                  }
+                },
+                "anyOf": [
+                  {
+                    "required": [
+                      "display_name"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "avatar_id"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "description": "No query parameters. Every request verifies native identity. Only own display identity; no native credentials, wallet writes or grants. Strict JSON; duplicate/unknown/null fields rejected. Unknown write outcome requires GET reconciliation, not automatic replay."
+      }
+    },
+    "/platform/v1/master-profile/initialize": {
+      "post": {
+        "operationId": "initializeMasterProfile",
+        "security": [
+          {
+            "nativeBearer": [],
+            "nativeUser": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Auth-Session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "Exact configured HTTPS origin."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Own Master profile; all IDs/versions are exact strings.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/MasterProfile"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or duplicate/unknown fields",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or rejected identity",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Native authorization, exact Origin, or reserved nickname rejected; does not imply session logout",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Native identity service unavailable or malformed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Profile store disabled or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be application/json",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "NICKNAME_TAKEN, STALE_RESOURCE_VERSION or RENAME_COOLDOWN",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expected_version",
+                  "display_name",
+                  "avatar_id"
+                ],
+                "properties": {
+                  "expected_version": {
+                    "type": "string",
+                    "const": "0"
+                  },
+                  "display_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Server validates normalized 1..24 Unicode grapheme clusters, allowed characters and reserved names."
+                  },
+                  "avatar_id": {
+                    "type": "string",
+                    "const": "system-default"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "description": "No query parameters. Every request verifies native identity. Only own display identity; no native credentials, wallet writes or grants. Strict JSON; duplicate/unknown/null fields rejected. Unknown write outcome requires GET reconciliation, not automatic replay."
+      }
     }
   },
   "components": {
@@ -844,6 +1501,117 @@
         }
       },
       "WalletError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "success",
+          "code",
+          "message"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": false
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "MasterProfile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "user_id",
+          "short_account_id",
+          "status",
+          "display_name",
+          "avatar_id",
+          "profile_version",
+          "nickname_changed_at",
+          "next_rename_at",
+          "suggested_name",
+          "avatars"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "short_account_id": {
+            "type": "string",
+            "pattern": "^CA-[0-9A-F]{12}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "INCOMPLETE",
+              "COMPLETE"
+            ]
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "avatar_id": {
+            "type": "string",
+            "const": "system-default"
+          },
+          "profile_version": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "nickname_changed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "next_rename_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "suggested_name": {
+            "type": "string"
+          },
+          "avatars": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "label",
+                "source"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "const": "system-default"
+                },
+                "label": {
+                  "type": "string",
+                  "const": "系统默认头像"
+                },
+                "source": {
+                  "type": "string",
+                  "const": "SYSTEM"
+                }
+              }
+            }
+          }
+        },
+        "description": "Own profile projection. INCOMPLETE is a read-only version-0 projection before explicit initialize. IDs/versions remain decimal strings; names are validated by Unicode grapheme policy, not JSON character count."
+      },
+      "MasterError": {
         "type": "object",
         "additionalProperties": false,
         "required": [

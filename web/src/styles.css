@@ -1120,3 +1120,49 @@ td time {
   .wallet-page .pager { flex-wrap: wrap; gap: 12px; }
   .wallet-page .page-heading > button { align-self: flex-start; }
 }
+
+/* Master identity: a quiet form beside one recognizable Crest identity card. */
+.profile-page, .profile-editor, .profile-preview { min-width: 0; }
+.profile-scope { margin: 0 0 24px; color: var(--muted); font-size: 13px; }
+.profile-grid { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(0,1fr); gap: 24px; align-items: start; }
+.profile-identity-column { min-width: 0; display: grid; gap: 20px; }
+.profile-private h2 { font-size: 16px; }
+.profile-editor .section-heading { align-items: start; gap: 16px; flex-wrap: wrap; }
+.profile-editor h2 { font-size: 19px; }
+.profile-editor label { margin: 24px 0 10px; }
+.profile-editor .hint { margin: 12px 0 24px; line-height: 1.9; }
+.profile-state { font-size: 11px; color: var(--azure); border: 1px solid var(--moon); border-radius: 4px; padding: 5px 9px; white-space: nowrap; }
+.profile-suggestion { background: var(--ivory); border-left: 2px solid var(--moon); padding: 13px 15px; font-size: 12px; overflow-wrap: anywhere; }
+.profile-suggestion span { color: var(--muted); font-size: 11px; }
+.profile-avatar-option { border-block: 1px solid var(--line); display: flex; gap: 15px; align-items: center; padding: 21px 0; margin: 26px 0; }
+.profile-avatar { color: var(--azure); flex-shrink: 0; }
+.profile-avatar .crest { width: 40px; height: 48px; }
+.profile-avatar-option strong { font-size: 13px; }
+.profile-avatar-option p { color: var(--muted); font-size: 11px; margin: 3px 0 0; }
+.profile-avatar-option .profile-state { margin-left: auto; }
+.profile-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.profile-preview { text-align: center; border-top: 3px solid var(--azure); }
+.profile-preview h2 { font-size: 16px; }
+.profile-preview-emblem { color: var(--azure); border-bottom: 1px solid var(--line); padding: 12px 0 25px; margin: 20px 0 25px; }
+.profile-preview-emblem .crest { width: 103px; height: 120px; }
+.profile-display-name { font-family: var(--display); font-size: clamp(23px,2.5vw,32px); line-height: 1.5; overflow-wrap: anywhere; margin-bottom: 8px; }
+.profile-preview-label { font-size: 11px; color: var(--muted); }
+.profile-details { border-block: 1px solid var(--line); padding: 16px 0; margin: 24px 0 16px; font-size: 11px; text-align: left; }
+.profile-details > div { display: flex; justify-content: space-between; gap: 16px; margin: 13px 0; }
+.profile-details dt { color: var(--muted); flex-shrink: 0; }
+.profile-details dd { margin: 0; overflow-wrap: anywhere; text-align: right; font-variant-numeric: tabular-nums; }
+.profile-preview .hint { text-align: left; line-height: 1.9; }
+.profile-notice { border-left: 3px solid var(--azure); padding: 12px 16px; background: var(--paper); font-size: 13px; }
+.account-menu > a { padding: 9px 0; font-size: 12px; }
+.account-button small { font-size: 9px; text-align: left; }
+@media(max-width:1000px) { .profile-grid { grid-template-columns: minmax(0,1fr); } }
+@media(max-width:640px) {
+  .profile-grid { gap: 18px; }
+  .profile-page .page-heading { align-items: flex-start; }
+  .profile-page .page-heading h1 { font-size: 25px; }
+  .profile-page .page-heading > button { flex-shrink: 0; }
+  .profile-scope { font-size: 11px; }
+  .profile-avatar-option { gap: 10px; flex-wrap: wrap; }
+  .profile-actions > button { flex: 1; }
+  .profile-details > div { gap: 12px; }
+}

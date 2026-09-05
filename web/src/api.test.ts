@@ -50,3 +50,19 @@ it('does not invalidate an authenticated user for unrelated HTTP 409', async () 
     expect(client.getSnapshot().user?.id).toBe(user.id);
     expect(fetcher).toHaveBeenCalledTimes(2);
 });
+it.each([12, 13])('stops a pending mutation if refresh changes the session for user %s', async id => {
+    const f = vi.fn().mockResolvedValueOnce(ok({ ...bundle, access_expires_at: 1 }))
+        .mockResolvedValueOnce(ok({ ...bundle, session: { sid: 'replacement-session' }, user: { ...user, id } })).mockResolvedValue(ok());
+    const client = new ApiClient(f); await client.login('a', 'b');
+    await expect(client.request('/platform/v1/master-profile', 'PATCH', { expected_version: '1', display_name: 'Old draft' })).rejects.toMatchObject({ status: 401 });
+    expect(f.mock.calls.map(call => call[0])).toEqual(['/api/user/login', '/api/user/auth/refresh']);
+    expect(client.getSnapshot().user?.id).toBe(id);
+});
+it('a late refresh from an older session never replaces the newly accepted identity', async () => {
+    const pending = deferred();
+    const f = vi.fn().mockResolvedValueOnce(ok(bundle)).mockReturnValueOnce(pending.promise)
+        .mockResolvedValueOnce(ok({ ...bundle, session: { sid: 'replacement-session' }, user: { ...user, id: 13 } }));
+    const client = new ApiClient(f); await client.login('a', 'b');
+    const refresh = client.refresh(); await client.login('second', 'password'); pending.resolve(ok(bundle));
+    await expect(refresh).rejects.toMatchObject({ status: 401 }); expect(client.getSnapshot().user?.id).toBe(13);
+});

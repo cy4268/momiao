@@ -14,6 +14,14 @@ The runtime uses a lazy pool: a connection outage returns wallet 503 without pre
 
 Wallet paths and payloads: [wallet-api.md](../contracts/wallet-api.md). Native authentication and database operations share a 5-second context budget. Request reads are separately subject to the HTTP server's 10-second read timeout. These are engineering ceilings, not throughput guarantees.
 
+## Master profile extension
+
+Schema migration 2 adds own Master profiles and append-only name history; the reserved-name baseline is versioned in application code. Never edit already applied migration 1. Master shares the existing protected platform DSN and native identity transport. Apply the new migration explicitly with the separate migration tool, then grant only profile-specific SELECT/INSERT/UPDATE columns and history INSERT to the runtime role. Do not widen economic writes, database ownership or credential access.
+
+Back up initialized wallets before migration, migrate twice, and compare all pre-existing identity/economy rows exactly. Test the new application with the runtime role against a separate acceptance database, including name conflict, stale versions, rename cooldown, no-op updates and immutable history. Never choose and permanently save a real user's public display name just to complete a test.
+
+Roll back the portal binary and built assets together if needed, retaining schema 2 and every real profile/history/wallet record. The older migration executable intentionally rejects unknown newer schema versions; it is not a downgrade tool. Verify the previous portal's wallet reads against schema 2 separately. Whole-host recovery, broad moderation and public-game profile gates remain independent acceptance items. See [Master API](../contracts/master-profile-api.md) and [slice decision](decisions/0006-master-profile.md).
+
 ## Existing native portal transport
 
 Build the Go binary and `web/dist/` from the same source commit. Deploy an immutable release containing `bin/momiao` and `web/`, record file hashes, and point a `current` symlink at that release. Run with an unprivileged service identity.

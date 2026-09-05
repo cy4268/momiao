@@ -39,6 +39,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		}
 		defer store.Close()
 		cfg.wallet = store
+		cfg.profile = store
 	}
 	listener, err := openListener(cfg)
 	if err != nil {
