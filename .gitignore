@@ -58,3 +58,6 @@ screenshots/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Embedded platform migrations are reviewed source
+!/internal/platform/migrations/*.sql

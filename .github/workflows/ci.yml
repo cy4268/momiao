@@ -32,6 +32,38 @@ jobs:
         run: go test -race -count=1 -timeout=30s ./...
       - run: go build -trimpath ./cmd/momiao
 
+  wallet-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
+        env:
+          POSTGRES_DB: momiao_test_ci
+          POSTGRES_USER: postgres
+          # Ephemeral runner fixture only; never a deployment credential.
+          POSTGRES_PASSWORD: momiao-ci-fixture
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d momiao_test_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: 'off'
+      MOMIAO_TEST_DATABASE_URL: postgres://postgres:momiao-ci-fixture@127.0.0.1:5432/momiao_test_ci?sslmode=disable
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: go test -race -count=1 -timeout=90s -v ./internal/platform
+
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 10

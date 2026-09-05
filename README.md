@@ -13,7 +13,13 @@
 - **渠道管理**：管理员查看与启停；超级管理员新建、编辑基本 OpenAI 兼容渠道。已有密钥和未编辑的高级设置保持不变。
 - **交付层**：React + TypeScript 界面；单个 Go 标准库服务提供 SPA、固定 Unix Socket 上游代理及存活探针。
 
-原生额度不是设计中的 Reserve 或 API Credit。账本、充值、奖励、游戏与旧数据迁移尚未实现；本版不把这些功能替换成假数据。旧服务与旧数据独立保留，迁移不再阻塞改造。见 [门户优先决策](docs/decisions/0002-usable-portal-first.md) 和 [模型闭环范围](docs/decisions/0003-model-workspace.md)。
+原生额度不是设计中的 Reserve 或 API Credit。钱包页面、充值、奖励、游戏与旧数据迁移尚未上线；本版不把这些功能替换成假数据。旧服务与旧数据独立保留，迁移不再阻塞改造。见 [门户优先决策](docs/decisions/0002-usable-portal-first.md) 和 [模型闭环范围](docs/decisions/0003-model-workspace.md)。
+
+## 开发中的平台基础
+
+`internal/platform` 提供独立 PostgreSQL 的身份锚点、双资产零值钱包、精确金额、幂等单钱包账变与追加式流水；包含显式版本迁移和真实数据库集成测试。**这部分尚未接入门户运行，不代表用户钱包或经济系统已经上线。** 没有新增公网接口、默认赠金或生产数据库凭据。
+
+见 [账本基础与验证](docs/wallet-foundation.md)、[分阶段实现与美术节奏](docs/decisions/0004-wallet-foundation.md)。
 
 ## 构建与验证
 
@@ -30,7 +36,7 @@ npm test
 npm run build
 ```
 
-前端产物为 `web/dist/`。支持 race detector 的环境另执行 `go test -race -count=1 -timeout=30s ./...`。CI 分别验证 Linux、Windows Go 构建/测试和前端测试/构建；不携带部署凭据、不自动部署。
+前端产物为 `web/dist/`。支持 race detector 的环境另执行 `go test -race -count=1 -timeout=30s ./...`。CI 分别验证 Linux、Windows Go 构建/测试、前端测试/构建及独立 PostgreSQL 钱包集成测试；不携带部署凭据、不自动部署。未配置 `MOMIAO_TEST_DATABASE_URL` 时，本地数据库集成测试明确跳过，不把普通 `go test` 通过当作数据库验收。
 
 ## 运行
 
