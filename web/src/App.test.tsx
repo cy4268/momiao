@@ -1,12 +1,52 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { it, expect, vi } from 'vitest';
 import { ApiClient } from './api';
 import { App } from './App';
+import { fixtureClient } from './m1-test-fixtures';
 const user = { id: 1, username: 'test-user', display_name: 'Test User', role: 1, quota: 100, used_quota: 0, request_count: 0 };
 const ok = (data?: unknown) => new Response(JSON.stringify({ success: true, data }));
 const bundle = { access_token: 'synthetic-token', access_expires_at: 9999999999, user, session: { sid: 'test-sid' } };
 const list = { items: [], total: 0, page: 1, page_size: 10 };
+it.each([
+    ['/dashboard', '/dashboard', []], ['/me', '/me', []],
+    ['/rewards', '/wallet', ['/wallet', '/rewards']], ['/wallet/activate', '/wallet', ['/wallet', '/rewards']],
+    ['/keys', '/models', ['/models', '/keys', '/logs', '/playground']],
+])('R1 keeps five bottom destinations and only the current context on %s', async (path, selected, contextPaths) => {
+    const { client } = fixtureClient();
+    render(<MemoryRouter initialEntries={[path as string]}><App client={client} /></MemoryRouter>);
+    const bottom = await screen.findByRole('navigation', { name: '底部导航' });
+    for (const [name, href] of [['首页', '/dashboard'], ['模型', '/models'], ['资产', '/wallet'], ['我的', '/me']]) {
+        expect(within(bottom).getByRole('link', { name })).toHaveAttribute('href', href);
+    }
+    expect(bottom.children).toHaveLength(5);
+    expect(within(bottom).getByRole('button', { name: '娱乐（未开放）' })).toBeDisabled();
+    expect(bottom.querySelector('[href="' + selected + '"]')).toHaveAttribute('aria-current');
+    expect(bottom.querySelector('a[href="/entertainment"], a[href="/games/dice"]')).toBeNull();
+    const context = screen.queryByRole('navigation', { name: '页面导航' });
+    if (!contextPaths.length) expect(context).not.toBeInTheDocument();
+    else expect(within(context!).getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(contextPaths);
+});
+it('R1 separates desktop global routes, asset shortcut and account destinations', async () => {
+    const { client } = fixtureClient();
+    render(<MemoryRouter initialEntries={['/keys']}><App client={client} /></MemoryRouter>);
+    const global = await screen.findByRole('navigation', { name: '主导航' });
+    expect(within(global).getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(['/dashboard', '/models']);
+    expect(within(global).getByRole('link', { name: '模型目录' })).toHaveAttribute('aria-current');
+    for (const name of ['娱乐（未开放）', '公告（未开放）']) expect(within(global).getByRole('button', { name })).toBeDisabled();
+    expect(screen.getByRole('link', { name: '资产快捷入口' })).toHaveAttribute('href', '/wallet');
+    fireEvent.click(screen.getByRole('button', { name: '账户菜单' }));
+    const menu = within(document.getElementById('account-menu')!);
+    expect(menu.getByRole('link', { name: '个人中心' })).toHaveAttribute('href', '/me');
+    expect(menu.queryByRole('link', { name: '渠道管理' })).not.toBeInTheDocument();
+});
+it('R1 preserves the admin account entry and the explicitly named no-asset experience', async () => {
+    const { client } = fixtureClient(p => p.includes('/auth/refresh') ? ok({ ...bundle, user: { ...user, role: 10 } }) : p === '/api/user/self' ? ok({ ...user, role: 10 }) : undefined);
+    render(<MemoryRouter initialEntries={['/me']}><App client={client} /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: '账户菜单' }));
+    expect(within(document.getElementById('account-menu')!).getByRole('link', { name: '渠道管理' })).toHaveAttribute('href', '/admin/channels');
+    expect(within(screen.getByRole('main')).getByRole('link', { name: '无资产骰子体验' })).toHaveAttribute('href', '/games/dice');
+});
 it('opens the authenticated dice experience without wallet or game requests', async () => {
     const fetcher = vi.fn(async (path: string) => path.includes('/refresh') ? ok(bundle) : path === '/api/user/self' ? ok(user) : ok(list));
     render(<MemoryRouter initialEntries={['/games/dice']}><App client={new ApiClient(fetcher)} /></MemoryRouter>);

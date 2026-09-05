@@ -62,7 +62,7 @@ it('discards a late identity from the previous account after logout and a new lo
     render(<MemoryRouter initialEntries={['/me']}><App client={client} /></MemoryRouter>);
     await waitFor(() => expect(resolve).toBeTypeOf('function'));
     await act(async () => { await client.logout(); account = 2; await client.login('fixture-second', 'fixture'); resolve(ok(profile)); });
-    fireEvent.click(within(screen.getByRole('navigation', { name: '主导航' })).getByRole('link', { name: '个人中心' }));
+    fireEvent.click(within(screen.getByRole('navigation', { name: '底部导航' })).getByRole('link', { name: '我的' }));
     expect(await within(screen.getByRole('region', { name: 'Master 身份' })).findByText('另一个观测员')).toBeVisible();
     expect(screen.queryByText(profile.display_name)).not.toBeInTheDocument();
 });

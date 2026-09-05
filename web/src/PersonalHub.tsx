@@ -20,6 +20,7 @@ export function PersonalHub({ client, user }: { client: ApiClient; user: User })
         <div className="hub-sections"><section className="panel hub-group"><p className="eyebrow">RESERVE & REWARDS</p><h2>奖励与资产</h2><HubLink to="/rewards" title="每日奖励" detail="查看领取状态，领取每日固定 500 Reserve。" /><HubLink to="/wallet" title="钱包与账本" detail="核对本地资产、兑换与交易回执。" /><HubLink to="/wallet/activate" title="激活 API 额度" detail="主动将 Reserve 转入原生可用额度。" /></section>
             <section className="panel hub-group"><p className="eyebrow">MODELS & CONNECTIONS</p><h2>API 工作空间</h2><HubLink to="/keys" title="管理 API 密钥" detail="为不同应用建立与管理独立连接。" /><HubLink to="/logs" title="个人调用记录" detail="查看模型调用和真实额度消耗。" /><HubLink to="/playground" title="单轮文本测试" detail="选择账户可用模型后，按需发起测试。" /><HubLink to="/models" title="浏览可用模型" detail="查看当前账户与分组可用的模型。" /></section>
         </div>
+        <section className="panel hub-admin"><div><h2>轻松体验</h2><p>浏览器内模拟，不下注、不派奖。</p></div><Link className="button" to="/games/dice">无资产骰子体验</Link></section>
         {user.role >= 10 && <section className="panel hub-admin"><div><p className="eyebrow">ADMINISTRATION</p><h2>管理入口</h2><p>管理已有模型渠道与连接配置。</p></div><Link className="button" to="/admin/channels">渠道管理</Link></section>}
     </div>;
 }

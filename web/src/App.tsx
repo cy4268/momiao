@@ -77,6 +77,13 @@ const pageTitles: Record<string, string> = {
 };
 function Shell({ client, user }: { client: ApiClient; user: User }) {
     const location = useLocation();
+    const domain = ['/models', '/keys', '/logs', '/playground'].includes(location.pathname) ? 'models'
+        : ['/wallet', '/wallet/activate', '/rewards'].includes(location.pathname) ? 'assets'
+        : ['/me', '/master-profile', '/admin/channels'].includes(location.pathname) ? 'my'
+        : location.pathname === '/games/dice' ? 'experience' : 'home';
+    const contextLinks = domain === 'models' ? [['/models', '模型目录'], ['/keys', '密钥管理'], ['/logs', '调用记录'], ['/playground', '文本测试']]
+        : domain === 'assets' ? [['/wallet', '我的钱包'], ['/rewards', '奖励中心']]
+        : domain === 'experience' ? [['/games/dice', '骰子体验']] : [];
     const [menu, setMenu] = useState(false);
     const main = useRef<HTMLElement>(null);
     const account = useRef<HTMLDivElement>(null);
@@ -91,13 +98,27 @@ function Shell({ client, user }: { client: ApiClient; user: User }) {
     }, [menu]);
     const masterName = master.loading ? '正在读取 Master' : master.error ? 'Master 资料待核对' : master.data?.status === 'COMPLETE' ? master.data.display_name : 'Master 资料未完成';
     return <div className="portal-shell"><a className="skip-link" href="#main-content">跳至主要内容</a>
-        <header className="portal-header"><Link to="/" className="brand" aria-label="Chaldea Platform 首页"><Brand /></Link><div className="account-wrap" ref={account} onKeyDown={e => { if (e.key === 'Escape' && menu) { setMenu(false); trigger.current?.focus(); } }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setMenu(false); }}>
+        <header className="portal-header"><Link to="/" className="brand" aria-label="Chaldea Platform 首页"><Brand /></Link>
+            <nav className="portal-global" aria-label="主导航">
+                <Link to="/dashboard" aria-current={domain === 'home' ? 'page' : undefined}>指挥台</Link>
+                <Link to="/models" aria-current={domain === 'models' ? 'true' : undefined}>模型目录</Link>
+                <button disabled aria-label="娱乐（未开放）">娱乐<small>未开放</small></button>
+                <button disabled aria-label="公告（未开放）">公告<small>未开放</small></button>
+            </nav>
+            <div className="portal-account"><Link className="asset-shortcut" to="/wallet" aria-label="资产快捷入口" aria-current={domain === 'assets' ? 'true' : undefined}><span aria-hidden="true">◇</span> 资产</Link><div className="account-wrap" ref={account} onKeyDown={e => { if (e.key === 'Escape' && menu) { setMenu(false); trigger.current?.focus(); } }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setMenu(false); }}>
             <button ref={trigger} className="account-button" aria-label="账户菜单" aria-expanded={menu} aria-controls="account-menu" onClick={() => setMenu(!menu)}><span className="avatar"><Crest /></span><span>{masterName}<small>Master 身份</small></span><span aria-hidden="true">⌄</span></button>
-            {menu && <div className="account-menu" id="account-menu"><strong>{user.display_name || user.username}</strong><span>原生登录身份 · {user.username}</span><span>{role(user.role)}</span><Link to="/me">个人中心</Link><Link to="/master-profile">Master 资料</Link><Link to="/rewards">奖励中心</Link><button onClick={() => void client.logout().catch(() => {})}>退出登录</button></div>}
-        </div></header>
-        <nav className="portal-nav" aria-label="主导航"><div className="portal-primary"><NavLink to="/" end>首页</NavLink><NavLink to="/dashboard">指挥台</NavLink><NavLink to="/models">模型目录</NavLink><NavLink to="/wallet" end>我的钱包</NavLink><NavLink to="/me">个人中心</NavLink></div><div className="portal-tools"><NavLink to="/rewards">奖励中心</NavLink><NavLink to="/wallet/activate">激活额度</NavLink><NavLink to="/keys">密钥管理</NavLink><NavLink to="/logs">调用记录</NavLink><NavLink to="/playground">文本测试</NavLink><NavLink to="/games/dice">骰子体验</NavLink>{user.role >= 10 && <NavLink to="/admin/channels">渠道管理</NavLink>}</div></nav>
+            {menu && <div className="account-menu" id="account-menu"><strong>{user.display_name || user.username}</strong><span>原生登录身份 · {user.username}</span><span>{role(user.role)}</span><Link to="/me">个人中心</Link><Link to="/master-profile">Master 资料</Link><Link to="/rewards">奖励中心</Link>{user.role >= 10 && <Link to="/admin/channels">渠道管理</Link>}<button onClick={() => void client.logout().catch(() => {})}>退出登录</button></div>}
+        </div></div></header>
+        {contextLinks.length > 0 && <nav className="portal-context" aria-label="页面导航">{contextLinks.map(([path, title]) => <NavLink to={path} key={path}>{title}</NavLink>)}</nav>}
         <main ref={main} id="main-content" tabIndex={-1} className="main-content"><Outlet context={master} /></main>
         <footer className="workspace-foot"><span>momiao / Chaldea Platform <span> / </span><a href="https://github.com/cy4268/momiao" target="_blank" rel="noopener noreferrer">源代码</a></span><span>你的连接，由你掌握。</span></footer>
+        <nav className="mobile-nav" aria-label="底部导航">
+            <Link to="/dashboard" aria-current={domain === 'home' ? 'page' : undefined}>首页</Link>
+            <Link to="/models" aria-current={domain === 'models' ? 'true' : undefined}>模型</Link>
+            <button disabled aria-label="娱乐（未开放）" aria-current={domain === 'experience' ? 'true' : undefined}>娱乐<small>未开放</small></button>
+            <Link to="/wallet" aria-current={domain === 'assets' ? 'true' : undefined}>资产</Link>
+            <Link to="/me" aria-current={domain === 'my' ? 'true' : undefined}>我的</Link>
+        </nav>
     </div>;
 }
 function Dashboard({ client, user }: { client: ApiClient; user: User }) {

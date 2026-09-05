@@ -5,7 +5,7 @@ import { App } from './App';
 import { bundle, daily, failed, fixtureClient, ok, profile, receipt, user, wallet } from './m1-test-fixtures';
 
 afterEach(() => sessionStorage.clear());
-const nav = (name: string) => within(screen.getByRole('navigation', { name: '主导航' })).getByRole('link', { name });
+const nav = (name: string) => within(screen.getByRole('navigation', { name: '页面导航' })).getByRole('link', { name });
 it('claims fixed Shanghai-day rewards only on click, refreshes confirmed status, and links activation', async () => {
     let claimed = false;
     const { client, fetcher } = fixtureClient((p, init) => {
@@ -86,6 +86,8 @@ it('never consumes a previous account receipt after switching sessions', async (
     fireEvent.click(await screen.findByRole('button', { name: '领取今日 500 额度' }));
     await waitFor(() => expect(resolve).toBeTypeOf('function'));
     await act(async () => { await client.logout(); account = 2; await client.login('second', 'fixture'); resolve(ok(receipt)); });
+    fireEvent.click(within(screen.getByRole('navigation', { name: '底部导航' })).getByRole('link', { name: '资产' }));
+    await screen.findByRole('heading', { name: '我的钱包' });
     fireEvent.click(nav('奖励中心'));
     expect(await screen.findByRole('button', { name: '领取今日 500 额度' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: '核对交易结果' })).not.toBeInTheDocument();

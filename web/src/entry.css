@@ -47,14 +47,19 @@
 
 /* Shared authenticated header and compact navigation; no permanent global sidebar. */
 .portal-shell { display: flex; min-height: 100vh; flex-direction: column; }
-.portal-header { width: min(1200px, calc(100% - 48px)); margin-inline: auto; }
-.portal-nav { border-block: 1px solid var(--line); background: #fbfaf7; padding-inline: max(24px, calc((100% - 1200px) / 2)); }
-.portal-primary, .portal-tools { display: flex; gap: 24px; flex-wrap: wrap; }
-.portal-primary { border-bottom: 1px solid var(--line); }
-.portal-nav a { display: inline-flex; min-height: 46px; padding: 10px 8px; justify-content: center; align-items: center; border-bottom: 2px solid transparent; text-decoration: none; font-size: 13px; color: var(--muted); }
-.portal-nav a:hover { color: var(--azure); }
-.portal-nav a.active { color: var(--azure); border-bottom-color: var(--azure); }
-.portal-tools a { font-size: 12px; }
+.portal-header { width: min(1200px, calc(100% - 48px)); margin-inline: auto; border-bottom: 1px solid var(--line); }
+.portal-global, .portal-account { display: flex; align-items: center; gap: 16px; }
+.portal-global { margin-right: auto; }
+.portal-global a, .portal-global button, .asset-shortcut { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; font-size: 13px; text-decoration: none; white-space: nowrap; border: 0; border-radius: 0; border-bottom: 2px solid transparent; color: var(--muted); }
+.portal-global button { flex-direction: column; gap: 0; font-weight: 400; }
+.portal-global small, .mobile-nav small { font-size: 10px; }
+.portal-global button:disabled, .mobile-nav button:disabled { opacity: 1; color: var(--muted); background: transparent; cursor: default; }
+.asset-shortcut { border: 1px solid var(--line); border-radius: 7px; }
+.portal-context { display: flex; gap: 24px; overflow-x: auto; border-bottom: 1px solid var(--line); background: #fbfaf7; padding: 4px max(24px, calc((100% - 1200px) / 2)); }
+.portal-context a { display: inline-flex; flex-shrink: 0; min-height: 44px; padding: 10px 8px; align-items: center; border-bottom: 2px solid transparent; text-decoration: none; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.portal-context a:hover, .portal-global a:hover { color: var(--azure); }
+.portal-context a.active, .portal-global [aria-current], .asset-shortcut[aria-current], .mobile-nav [aria-current] { color: var(--azure); border-color: var(--azure); }
+.mobile-nav { display: none; }
 .portal-header .account-button { min-height: 44px; max-width: 290px; padding: 4px 8px; }
 .portal-header .avatar { width: 35px; height: 35px; }
 .portal-header .avatar .crest { width: 24px; height: 27px; }
@@ -107,15 +112,17 @@
 .reward-next p:last-child { color: var(--muted); font-size: 13px; max-width: 60ch; }
 .reward-next > a { flex-shrink: 0; }
 .public-home, .personal-hub, .rewards-page { overflow-wrap: anywhere; }
-.public-home button, .public-home a, .portal-shell button, .portal-nav a { transition: color 100ms, background-color 100ms, border-color 100ms; }
+.public-home button, .public-home a, .portal-shell button, .portal-context a { transition: color 100ms, background-color 100ms, border-color 100ms; }
 
 @media (max-width: 1100px) {
   .public-header, .public-footer, .public-home main, .portal-header { width: calc(100% - 32px); }
   .home-hero { gap: 28px; padding-block: 48px; }
   .home-copy h1 { font-size: 36px; }
   .home-art { border-radius: 80px 80px 14px 14px; }
-  .portal-nav { padding-inline: 16px; }
-  .portal-primary, .portal-tools { gap: 20px; }
+  .portal-context { padding-inline: 16px; }
+  .portal-global, .portal-account { gap: 8px; }
+  .portal-header .brand-wordmark { font-size: 20px; }
+  .portal-header .account-button { max-width: 190px; }
   .portal-shell .main-content { padding-inline: 16px; }
   .portal-shell .workspace-foot { width: calc(100% - 32px); }
 }
@@ -147,11 +154,16 @@
   .public-footer { align-items: flex-start; font-size: 11px; }
   .public-footer nav { gap: 8px 20px; flex-wrap: wrap; }
   .public-footer nav a { font-size: 12px; }
-  .portal-nav { padding-inline: 14px; }
-  .portal-primary { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 0; }
-  .portal-tools { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 0; }
-  .portal-nav a { font-size: 12px; padding-inline: 2px; min-height: 44px; }
-  .portal-tools a { font-size: 11px; }
+  .portal-global, .asset-shortcut { display: none; }
+  .portal-context { padding-inline: 14px; gap: 12px; }
+  .portal-context a { font-size: 12px; padding-inline: 4px; }
+  .portal-shell { --mobile-safe-area: env(safe-area-inset-bottom, 0px); padding-bottom: calc(76px + var(--mobile-safe-area)); }
+  html:has(.portal-shell) { scroll-padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  .portal-shell :where(a, button, input, select, textarea, [tabindex]) { scroll-margin-bottom: calc(76px + var(--mobile-safe-area)); }
+  .mobile-nav { position: fixed; z-index: 20; inset: auto 0 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--line); background: var(--ivory); padding: 6px max(6px, env(safe-area-inset-right, 0px)) calc(6px + var(--mobile-safe-area)) max(6px, env(safe-area-inset-left, 0px)); }
+  .mobile-nav a, .mobile-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; min-width: 0; min-height: 52px; padding: 6px 2px; border: 0; border-top: 2px solid transparent; border-radius: 0; color: var(--muted); font-size: 13px; text-decoration: none; }
+  .mobile-nav a[aria-current], .mobile-nav button[aria-current] { color: var(--azure); border-top-color: var(--azure); }
+  .mobile-nav a:focus-visible { outline-offset: -3px; }
   .portal-header .account-button { max-width: 150px; font-size: 11px; gap: 6px; padding-inline: 3px; }
   .portal-header .avatar { width: 28px; height: 28px; }
   .portal-header .avatar .crest { width: 20px; height: 23px; }
