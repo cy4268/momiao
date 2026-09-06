@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "environment": "PRODUCTION",
+  "origin": "https://momiao.win",
+  "evidence_ref": "controller-reviewed-independent-new-site-20260906",
+  "migration_applicability": "NO_MIGRATION_APPLICABLE",
+  "resources": {
+    "ACCOUNT": "AVAILABLE",
+    "API": "AVAILABLE",
+    "COMMUNITY": "AVAILABLE",
+    "OPERATIONS": "AVAILABLE",
+    "ASSETS": "AVAILABLE",
+    "EXPERIENCE": "UNAVAILABLE"
+  }
+}

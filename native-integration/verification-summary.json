@@ -1,0 +1,100 @@
+{
+  "schema": "momiao.native-integration.verification.v1",
+  "status": "local_candidate_not_deployed",
+  "native_tree": "3c15a618fa7a528c06da92de7dbf2f2c843a9162",
+  "combined_regression": {
+    "test_pass": 606,
+    "top_level_pass": 391,
+    "fail": 0,
+    "test_skip": 5,
+    "skip_names": [
+      "TestMomiaoIntegratedFourSwitchesRealLinuxTransportAndSessionFences",
+      "TestTokenMigrationFromChar48ToVarchar128MySQL",
+      "TestTokenMigrationFromChar48ToVarchar128Postgres",
+      "TestUserSessionPreviousRefreshHashMigrationConfiguredDatabases/mysql",
+      "TestUserSessionPreviousRefreshHashMigrationConfiguredDatabases/postgres"
+    ]
+  },
+  "service_auth_group": {
+    "test_pass": 27,
+    "top_level_pass": 20,
+    "fail": 0,
+    "test_skip": 0,
+    "skip_names": []
+  },
+  "original_m2": {
+    "actual_run_and_pass": 37,
+    "test_functions": 37,
+    "fail_or_skip": 0,
+    "mapping": "32-original-m2-coverage.json"
+  },
+  "linux_integration": {
+    "actual_unix_to_loopback_tcp": true,
+    "independent_reader_secrets": true,
+    "session_pat_reader_rejected": true,
+    "real_0600_0644": true,
+    "four_switch_subtests_pass": 4,
+    "password_twofa_refresh_logout": true,
+    "parent_pass": 1
+  },
+  "postgres": {
+    "catalog_write_rejection": "passed",
+    "catalog_server_enforced_readonly": "passed",
+    "isolated_m2_model_controller": "passed"
+  },
+  "fresh_replay": {
+    "smoke": {
+      "test_pass": 9,
+      "top_level_pass": 6,
+      "fail": 0,
+      "test_skip": 2,
+      "skip_names": [
+        "TestMomiaoIntegratedFourSwitchesRealLinuxTransportAndSessionFences",
+        "TestPostgresRealReadOnlyCatalogAndNativeSessionQuote"
+      ]
+    },
+    "tree_matches": true
+  },
+  "vet_exit": 0,
+  "authentic_frontend": {
+    "bytes": 57415911.0,
+    "lock_unchanged": true,
+    "lock_sha256": "ab3dc08dbd0c6bcf3407951ba3d808568af745a7dd4833f2cdbf868f6b11165b",
+    "bun": "1.4.2",
+    "build_exit": 0,
+    "frozen_install_exit": 0,
+    "index_sha256": "52b85e1baa5d23ae08554c2aeb350d83e7eee333825f5ff844aff643e99bdaab",
+    "files": 221
+  },
+  "root_builds": {
+    "windows_amd64": {
+      "exit": 0,
+      "sha256": "4611464274b797f4de13c3ed287b78b353e45fd89d7afe4c0c657f548d812da8"
+    },
+    "linux_amd64": {
+      "exit": 0,
+      "sha256": "bfeeac07b54e41e9602e35cdb1dd44a826cf2183b2effdabc2ba02d7aaa9591d"
+    },
+    "go": "1.27.1"
+  },
+  "linux_root_runtime": {
+    "served_asset_matches": true,
+    "database": "private SQLite fixture",
+    "external_network": "absent: unprivileged user+network namespace",
+    "catalog_default_off": 404,
+    "root_http": 200,
+    "served_js_sha256": "d72abc8f01e16fc1a013d82cc549f080d83e0767f960b5279745bb5be10140c0",
+    "admission_default_off": "absent route; upstream SPA 200 HTML identical to served index",
+    "exit": 0
+  },
+  "known_full_service_failures": [
+    "Two upstream channel-affinity count failures; reproduced on untouched fixed source and both standalone candidates; not rerun or changed in integration"
+  ],
+  "remaining_gates": [
+    "Live community callback and role/account operations",
+    "Container image assembly and image acceptance",
+    "Production private configuration and native migration readiness",
+    "Deployed guard/DB-only/proxy compatibility and release/rollback review"
+  ],
+  "production_actions": []
+}

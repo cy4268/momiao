@@ -23,18 +23,6 @@ function ModelEmpty({ admin }: { admin: boolean }) {
 function GroupSelect({ workspace: w, disabled = false }: { workspace: ReturnType<typeof useModels>; disabled?: boolean }) {
     return <label>分组<select value={w.group} disabled={disabled || !w.names.length} onChange={e => w.setGroup(e.target.value)}>{!w.names.length && <option value="">暂无可用分组</option>}{w.names.map(name => <option value={name} key={name}>{name}{w.groups.data?.[name].desc ? ` · ${w.groups.data[name].desc}` : ''}</option>)}</select></label>;
 }
-export function Models({ client, user }: { client: ApiClient; user: User }) {
-    const w = useModels(client, user);
-    const [search, setSearch] = useState('');
-    const [notice, setNotice] = useState('');
-    const visible = w.ids.filter(id => id.toLowerCase().includes(search.toLowerCase()));
-    async function copy(id: string) { try { await navigator.clipboard.writeText(id); setNotice('模型 ID 已复制。'); } catch { setNotice('复制未完成，请选择模型 ID 手动复制。'); } }
-    return <><header className="page-heading"><div><p className="eyebrow">CONNECT / MODEL DIRECTORY</p><h1>模型目录</h1><p>按实际可用分组选择模型，开始一次文本测试。</p></div><button disabled={w.loading} onClick={w.reload}>刷新模型</button></header>
-        <section className="panel"><div className="filters"><GroupSelect workspace={w}/><label>搜索模型 ID<input value={search} onChange={e => setSearch(e.target.value)} maxLength={200} placeholder="输入模型 ID 关键词"/></label></div>
-        <p className="hint">API Base URL：<code className="inline-code">{window.location.origin}/v1</code>。模型可见不代表调用必定成功；实际权限、额度与渠道状态仍由服务端校验。</p>
-        {notice && <p role="status" className="notice">{notice}</p>}{w.loading ? <Loading/> : w.error ? <><Alert>{w.error}</Alert><button onClick={w.reload}>重新加载</button></> : !w.ids.length ? <ModelEmpty admin={user.role >= 10}/> : !visible.length ? <Empty title="没有匹配的模型">尝试其它关键词，或清空搜索。</Empty> : <ul className="model-list">{visible.map(id => <li key={id}><code>{id}</code><div className="row-actions"><button onClick={() => void copy(id)} aria-label={`复制 ${id} 模型 ID`}>复制 ID</button><Link className="button" to={`/playground?${new URLSearchParams({ model: id, group: w.group })}`}>测试此模型</Link></div></li>)}</ul>}
-        </section></>;
-}
 const emptyResult: ChatResult = { text: '', reasoning: '' };
 export function Playground({ client, user }: { client: ApiClient; user: User }) {
     const [query] = useSearchParams();

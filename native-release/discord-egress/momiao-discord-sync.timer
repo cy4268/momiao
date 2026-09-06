@@ -1,0 +1,11 @@
+[Unit]
+Description=Keep fixed Discord transport in the current verified namespace
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=15s
+AccuracySec=1s
+Unit=momiao-discord-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,3223 @@
+diff --git a/cmd/momiao-admission-migrate/main.go b/cmd/momiao-admission-migrate/main.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..c344d26448cad0632e286eb405ef4fb6893aac95
+--- /dev/null
++++ b/cmd/momiao-admission-migrate/main.go
+@@ -0,0 +1,50 @@
++// Command momiao-admission-migrate applies only the reviewed native admission
++// increment. It never initializes native users, options, quota, or platform DBs.
++package main
++
++import (
++	"errors"
++	"flag"
++	"fmt"
++	"os"
++
++	"github.com/QuantumNous/new-api/model"
++	"gorm.io/driver/postgres"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++func main() {
++	apply := flag.Bool("apply", false, "apply the dedicated increment; default only checks readiness")
++	flag.Parse()
++	if flag.NArg() != 0 || os.Getenv("SQL_DSN") == "" {
++		fmt.Fprintln(os.Stderr, "provide the native PostgreSQL SQL_DSN privately; optional --apply")
++		os.Exit(2)
++	}
++	db, err := gorm.Open(postgres.Open(os.Getenv("SQL_DSN")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "cannot connect to native PostgreSQL; connection details withheld")
++		os.Exit(1)
++	}
++	sqlDB, err := db.DB()
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "cannot access native PostgreSQL connection")
++		os.Exit(1)
++	}
++	defer sqlDB.Close()
++	if *apply {
++		err = model.MigrateMomiaoAdmission(db)
++	} else {
++		err = model.CheckMomiaoAdmissionSchema(db)
++	}
++	if err != nil {
++		var duplicates *model.MomiaoDuplicateDiscordError
++		if errors.As(err, &duplicates) {
++			fmt.Fprintln(os.Stderr, duplicates.Error())
++		} else {
++			fmt.Fprintln(os.Stderr, "native admission schema check/apply failed; no identity details disclosed")
++		}
++		os.Exit(1)
++	}
++	fmt.Println("native admission schema ready")
++}
+diff --git a/common/json.go b/common/json.go
+index d7effa36ef3288704ff77318888d9d855eeaddae..fc2d1a541f896f75c5326ed377bf9c7b49ee556d 100644
+--- a/common/json.go
++++ b/common/json.go
+@@ -3,13 +3,68 @@ package common
+ import (
+ 	"bytes"
+ 	"encoding/json"
++	"errors"
+ 	"io"
++	"unicode/utf8"
+ )
+ 
+ func Unmarshal(data []byte, v any) error {
+ 	return json.Unmarshal(data, v)
+ }
+ 
++// UnmarshalStrictStringObject decodes bounded authentication/configuration
++// objects whose allowed fields are strings. It rejects duplicate decoded keys,
++// unknown fields, non-string values, malformed UTF-8, and trailing JSON.
++// Callers bound the input size before passing data here.
++func UnmarshalStrictStringObject(data []byte, v any, allowed ...string) error {
++	invalid := errors.New("invalid strict JSON object")
++	if !utf8.Valid(data) {
++		return invalid
++	}
++	decoder := json.NewDecoder(bytes.NewReader(data))
++	token, err := decoder.Token()
++	if err != nil || token != json.Delim('{') {
++		return invalid
++	}
++	seen := make(map[string]bool, len(allowed))
++	for decoder.More() {
++		token, err = decoder.Token()
++		if err != nil {
++			return invalid
++		}
++		key, ok := token.(string)
++		if !ok || seen[key] {
++			return invalid
++		}
++		known := false
++		for _, field := range allowed {
++			if field == key {
++				known = true
++				break
++			}
++		}
++		if !known {
++			return invalid
++		}
++		seen[key] = true
++		token, err = decoder.Token()
++		if err != nil {
++			return invalid
++		}
++		if _, ok := token.(string); !ok {
++			return invalid
++		}
++	}
++	token, err = decoder.Token()
++	if err != nil || token != json.Delim('}') {
++		return invalid
++	}
++	if _, err = decoder.Token(); err != io.EOF {
++		return invalid
++	}
++	return json.Unmarshal(data, v)
++}
++
+ func UnmarshalJsonStr(data string, v any) error {
+ 	return json.Unmarshal(StringToByteSlice(data), v)
+ }
+diff --git a/controller/momiao_account.go b/controller/momiao_account.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..8c7f0ec006bf36dc028e7f0fb90488105e7980ab
+--- /dev/null
++++ b/controller/momiao_account.go
+@@ -0,0 +1,207 @@
++package controller
++
++import (
++	"crypto/subtle"
++	"net"
++	"net/http"
++	"strconv"
++	"strings"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/middleware"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/gin-gonic/gin"
++)
++
++func (h *MomiaoAuth) Account(c *gin.Context) {
++	identity, ok := middleware.GetSessionAuthIdentity(c)
++	if !ok {
++		momiaoError(c, model.ErrMomiaoAuthority)
++		return
++	}
++	var user model.User
++	if err := model.DB.Select("id", "username", "password", "discord_id", "status", "auth_version").First(&user, identity.UserID).Error; err != nil {
++		momiaoError(c, err)
++		return
++	}
++	if user.Status != common.UserStatusEnabled || user.AuthVersion != identity.UserAuthVersion {
++		momiaoError(c, model.ErrMomiaoAuthority)
++		return
++	}
++	enabled, err := model.IsTwoFAEnabled(user.Id)
++	if err != nil {
++		momiaoError(c, err)
++		return
++	}
++	c.JSON(200, gin.H{"success": true, "data": gin.H{"id": user.Id, "username": user.Username, "has_password": user.Password != "", "discord_connected": user.DiscordId != "", "two_fa_enabled": enabled}})
++}
++
++func (h *MomiaoAuth) Password(mode string) gin.HandlerFunc {
++	return func(c *gin.Context) {
++		if !h.origin(c) {
++			return
++		}
++		identity, ok := middleware.GetSessionAuthIdentity(c)
++		if !ok {
++			momiaoError(c, model.ErrMomiaoAuthority)
++			return
++		}
++		var req struct {
++			Password    string `json:"password"`
++			OldPassword string `json:"old_password"`
++			Proof       string `json:"proof"`
++		}
++		allowed := []string{"password", "proof"}
++		if mode == "change" {
++			allowed = []string{"password", "old_password"}
++		}
++		if !readMomiaoJSON(c, &req, allowed...) {
++			return
++		}
++		browser, _ := c.Cookie(MomiaoBrowserCookie)
++		user, err := model.ChangeMomiaoPassword(model.MomiaoPasswordChange{Mode: mode, UserID: identity.UserID, SessionID: identity.SessionID, AuthVersion: identity.UserAuthVersion, SessionVersion: identity.SessionVersion, BrowserToken: browser, ConfigVersion: h.Discord.Config.Version(), Proof: req.Proof, Password: req.Password, OldPassword: req.OldPassword})
++		if err != nil {
++			momiaoError(c, err)
++			return
++		}
++		bundle, err := service.AdvanceMomiaoPasswordSession(identity, user.AuthVersion)
++		if err != nil {
++			momiaoError(c, err)
++			return
++		}
++		c.JSON(200, gin.H{"success": true, "data": gin.H{"access_token": bundle.AccessToken, "token_type": bundle.TokenType, "access_expires_at": bundle.AccessExpiresAt, "session": bundle.Session, "has_password": true}})
++	}
++}
++
++func (h *MomiaoAuth) Receipts(c *gin.Context) {
++	setAuthNoStore(c)
++	if !validMomiaoHeaders(c) {
++		return
++	}
++	local := false
++	if host, _, err := net.SplitHostPort(c.Request.RemoteAddr); err == nil {
++		ip := net.ParseIP(host)
++		local = ip != nil && ip.IsLoopback()
++	}
++	if _, ok := c.Request.Context().Value(http.LocalAddrContextKey).(*net.UnixAddr); ok {
++		local = true
++	}
++	header := c.GetHeader("Authorization")
++	if !local || !strings.HasPrefix(header, "Bearer ") || subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(header, "Bearer ")), []byte(h.Discord.Config.ReaderKey)) != 1 {
++		c.AbortWithStatus(404)
++		return
++	}
++	query := c.Request.URL.Query()
++	for key, values := range query {
++		if (key != "after" && key != "limit") || len(values) != 1 {
++			momiaoError(c, model.ErrMomiaoPassword)
++			return
++		}
++	}
++	after, limit := int64(0), 50
++	var err error
++	if query.Get("after") != "" {
++		after, err = strconv.ParseInt(query.Get("after"), 10, 64)
++		if err != nil {
++			momiaoError(c, model.ErrMomiaoPassword)
++			return
++		}
++	}
++	if query.Get("limit") != "" {
++		limit, err = strconv.Atoi(query.Get("limit"))
++		if err != nil {
++			momiaoError(c, model.ErrMomiaoPassword)
++			return
++		}
++	}
++	rows, err := model.ListMomiaoRegistrationReceipts(model.DB, after, limit)
++	if err != nil {
++		momiaoError(c, err)
++		return
++	}
++	next := after
++	if len(rows) > 0 {
++		next = rows[len(rows)-1].Ordinal
++	}
++	c.JSON(200, gin.H{"success": true, "data": gin.H{"receipts": rows, "next_cursor": next}})
++}
++
++// Guard applies only when this explicit admission instance is installed.
++// It closes native identity-creation and self-mutation routes that would
++// otherwise bypass purpose-specific admission. Relay/accounting is untouched.
++func (h *MomiaoAuth) Guard(c *gin.Context) {
++	path := strings.TrimSuffix(c.FullPath(), "/")
++	method := c.Request.Method
++	blocked := strings.HasPrefix(path, "/api/oauth/") || path == "/api/reset_password" || path == "/api/user/reset"
++	if method == http.MethodPost && (path == "/api/setup" || path == "/api/user/register" || path == "/api/user") {
++		blocked = true
++	}
++	if method == http.MethodPut && (path == "/api/user/self" || path == "/api/user") {
++		blocked = true
++	}
++	if method == http.MethodDelete && (path == "/api/user/self" || path == "/api/user/:id" || strings.Contains(path, "/bindings/")) {
++		blocked = true
++	}
++	if blocked {
++		setAuthNoStore(c)
++		c.AbortWithStatusJSON(403, gin.H{"success": false, "code": "MOMIAO_NATIVE_ROUTE_DISABLED"})
++		return
++	}
++	if path == "/api/user/auth/logout" && method == http.MethodPost {
++		if !validMomiaoHeaders(c) {
++			return
++		}
++		if !h.origin(c) {
++			return
++		}
++		expected := strings.TrimSpace(c.GetHeader("X-Auth-Session"))
++		refresh, _ := c.Cookie(service.RefreshCookieName)
++		if sid, ok := service.RefreshTokenSID(refresh); ok && expected != "" && sid != expected {
++			momiaoError(c, model.ErrMomiaoAuthority)
++			return
++		}
++		if access, ok := dashboardBearer(c.GetHeader("Authorization")); ok {
++			if identity, err := service.ParseAccessToken(access); err == nil && expected != "" && identity.SessionID != expected {
++				momiaoError(c, model.ErrMomiaoAuthority)
++				return
++			}
++		}
++		browser, _ := c.Cookie(MomiaoBrowserCookie)
++		links, err := model.CloseMomiaoBrowser(browser)
++		if err != nil {
++			momiaoError(c, err)
++			return
++		}
++		for _, link := range links {
++			if _, err := model.RevokeUserSession(link.UserId, link.SessionId, "admission_browser_logout"); err != nil {
++				momiaoError(c, err)
++				return
++			}
++		}
++		http.SetCookie(c.Writer, &http.Cookie{Name: MomiaoBrowserCookie, Value: "", Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(1, 0)})
++	}
++	c.Next()
++}
++
++func validMomiaoHeaders(c *gin.Context) bool {
++	for _, name := range []string{"Origin", "Content-Type", "Authorization", "X-Auth-Session"} {
++		if len(c.Request.Header.Values(name)) > 1 {
++			momiaoError(c, model.ErrMomiaoPassword)
++			return false
++		}
++	}
++	seen := map[string]bool{}
++	for _, cookie := range c.Request.Cookies() {
++		if cookie.Name != MomiaoBrowserCookie && cookie.Name != service.RefreshCookieName {
++			continue
++		}
++		if seen[cookie.Name] {
++			momiaoError(c, model.ErrMomiaoPassword)
++			return false
++		}
++		seen[cookie.Name] = true
++	}
++	return true
++}
+diff --git a/controller/momiao_account_test.go b/controller/momiao_account_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..25f124f2a56d0ef6b41066ec713e9fee405d40ae
+--- /dev/null
++++ b/controller/momiao_account_test.go
+@@ -0,0 +1,221 @@
++package controller
++
++import (
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++func TestMomiaoHTTPPasswordSetRotatesNativeSessionAndRevokesOthers(t *testing.T) {
++	h, r := setupMomiaoHTTP(t)
++	var calls []string
++	momiaoProvider(t, h, "123456789012345678", 200, &calls)
++	state, nonce := momiaoStart(t, r, "registration", "")
++	w, login := momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=register&state="+state, "", "", nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	access := login.Data.AccessToken
++	w, account := momiaoRequest(t, r, http.MethodGet, "/api/momiao/account", "", access, nonce)
++	require.Equal(t, 200, w.Code)
++	assert.False(t, account.Data.HasPassword)
++	assert.True(t, account.Data.DiscordConnected)
++	user, err := model.FindMomiaoDiscordUser(model.DB, "123456789012345678")
++	require.NoError(t, err)
++	other, err := service.CreateLoginSessionAtAuthVersion(user.Id, 1, "password", "127.0.0.1", "other-browser")
++	require.NoError(t, err)
++	state, nonce = momiaoStart(t, r, "fresh", access, nonce)
++	w, fresh := momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=fresh&state="+state, "", "", nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	require.NotEmpty(t, fresh.Data.Proof)
++	password := "native-password-123"
++	body, err := common.Marshal(map[string]string{"password": password, "proof": fresh.Data.Proof})
++	require.NoError(t, err)
++	w, set := momiaoRequest(t, r, http.MethodPost, "/api/momiao/account/password/set", string(body), access, nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	require.NotEmpty(t, set.Data.AccessToken)
++	assert.Equal(t, login.Data.Session.SID, set.Data.Session.SID)
++	assert.NotEqual(t, access, set.Data.AccessToken)
++	for _, old := range []string{access, other.AccessToken} {
++		w, _ := momiaoRequest(t, r, http.MethodGet, "/api/native-session", "", old)
++		assert.Equal(t, 401, w.Code, w.Body.String())
++	}
++	w, _ = momiaoRequest(t, r, http.MethodGet, "/api/native-session", "", set.Data.AccessToken)
++	assert.Equal(t, 200, w.Code, w.Body.String())
++	otherStored, err := model.GetUserSessionBySID(other.Session.SID)
++	require.NoError(t, err)
++	assert.Equal(t, model.UserSessionStatusRevoked, otherStored.Status)
++	w, account = momiaoRequest(t, r, http.MethodGet, "/api/momiao/account", "", set.Data.AccessToken, nonce)
++	require.Equal(t, 200, w.Code)
++	assert.True(t, account.Data.HasPassword)
++	assert.NotContains(t, w.Body.String(), password)
++	assert.NotContains(t, w.Body.String(), "$2")
++	assert.NotContains(t, w.Body.String(), "auth_version")
++	assert.NotContains(t, w.Body.String(), "refresh_hash")
++	w, _ = momiaoRequest(t, r, http.MethodPost, "/api/momiao/account/password/set", string(body), set.Data.AccessToken, nonce)
++	assert.Equal(t, 409, w.Code)
++	credentials, _ := common.Marshal(map[string]string{"username": user.Username, "password": password})
++	w, native := momiaoRequest(t, r, http.MethodPost, "/api/user/login", string(credentials), "")
++	require.Equal(t, 200, w.Code, w.Body.String())
++	assert.True(t, native.Success)
++	assert.NotEmpty(t, native.Data.AccessToken)
++}
++
++func TestMomiaoHTTPResetRequiresSameBindingAndFreshProof(t *testing.T) {
++	h, r := setupMomiaoHTTP(t)
++	var calls []string
++	momiaoProvider(t, h, "123456789012345678", 200, &calls)
++	state, nonce := momiaoStart(t, r, "registration", "")
++	w, login := momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=register&state="+state, "", "", nonce)
++	require.Equal(t, 200, w.Code)
++	access := login.Data.AccessToken
++	state, nonce = momiaoStart(t, r, "password-reset", access, nonce)
++	wrong := &model.User{Username: "wrong-discord", Password: "", DiscordId: "223456789012345678", AffCode: "wrong-aff", AuthVersion: 1, Status: common.UserStatusEnabled, Role: common.RoleCommonUser}
++	require.NoError(t, model.DB.Create(wrong).Error)
++	momiaoProvider(t, h, wrong.DiscordId, 200, &calls)
++	w, bad := momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=wrong&state="+state, "", "", nonce)
++	assert.Equal(t, 401, w.Code)
++	assert.Empty(t, bad.Data.Proof)
++	momiaoProvider(t, h, "123456789012345678", 500, &calls)
++	state, nonce = momiaoStart(t, r, "password-reset", access, nonce)
++	w, proof := momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=right&state="+state, "", "", nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	require.NotEmpty(t, proof.Data.Proof)
++	body, _ := common.Marshal(map[string]string{"password": "reset-password-123", "proof": proof.Data.Proof})
++	w, reset := momiaoRequest(t, r, http.MethodPost, "/api/momiao/account/password/reset", string(body), access, nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	assert.NotEmpty(t, reset.Data.AccessToken)
++	w, _ = momiaoRequest(t, r, http.MethodPost, "/api/momiao/account/password/reset", string(body), reset.Data.AccessToken, nonce)
++	assert.Equal(t, 409, w.Code)
++}
++
++func TestMomiaoHTTPReceiptPrivateAuthenticationAndNativeBypasses(t *testing.T) {
++	h, r := setupMomiaoHTTP(t)
++	for _, path := range []string{"/api/user/register", "/api/oauth/state", "/api/setup"} {
++		w, response := momiaoRequest(t, r, http.MethodPost, path, "{}", "")
++		assert.Equal(t, 403, w.Code)
++		assert.Equal(t, "MOMIAO_NATIVE_ROUTE_DISABLED", response.Code)
++	}
++	w, _ := momiaoRequest(t, r, http.MethodPut, "/api/user/self", `{"username":"rename"}`, "")
++	assert.Equal(t, 403, w.Code)
++	w, _ = momiaoRequest(t, r, http.MethodGet, "/internal/momiao/registrations", "", "")
++	assert.Equal(t, 404, w.Code)
++	w, _ = momiaoRequest(t, r, http.MethodGet, "/internal/momiao/registrations?after=0&limit=50", "", h.Discord.Config.ReaderKey)
++	assert.Equal(t, 200, w.Code)
++	request := httptest.NewRequest(http.MethodGet, "http://native.invalid/internal/momiao/registrations", nil)
++	request.RemoteAddr = "203.0.113.8:443"
++	request.Header.Set("Authorization", "Bearer "+h.Discord.Config.ReaderKey)
++	request.Header.Set("X-Forwarded-For", "127.0.0.1")
++	w = httptest.NewRecorder()
++	r.ServeHTTP(w, request)
++	assert.Equal(t, 404, w.Code)
++}
++
++func TestMomiaoHTTPCommittedRegistrationSurvivesSessionFailure(t *testing.T) {
++	h, r := setupMomiaoHTTP(t)
++	db := model.DB
++	require.NoError(t, db.Exec("CREATE FUNCTION m2_controller_test.fail_session() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic session failure'; END $$").Error)
++	require.NoError(t, db.Exec("CREATE TRIGGER synthetic_session_failure BEFORE INSERT ON user_sessions FOR EACH ROW EXECUTE FUNCTION m2_controller_test.fail_session()").Error)
++	var calls []string
++	momiaoProvider(t, h, "123456789012345678", 200, &calls)
++	state, nonce := momiaoStart(t, r, "registration", "")
++	w, response := momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=register&state="+state, "", "", nonce)
++	assert.Equal(t, 503, w.Code)
++	assert.Empty(t, response.Data.AccessToken)
++	rows, err := model.ListMomiaoRegistrationReceipts(db, 0, 10)
++	require.NoError(t, err)
++	require.Len(t, rows, 1)
++	require.NoError(t, db.Exec("DROP TRIGGER synthetic_session_failure ON user_sessions").Error)
++	state, nonce = momiaoStart(t, r, "login", "", nonce)
++	w, response = momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=recover&state="+state, "", "", nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	require.NotEmpty(t, response.Data.AccessToken)
++	rows, err = model.ListMomiaoRegistrationReceipts(db, 0, 10)
++	require.NoError(t, err)
++	assert.Len(t, rows, 1)
++}
++
++func TestMomiaoHTTPLogoutDuringExchangePreventsLateRegistration(t *testing.T) {
++	h, r := setupMomiaoHTTP(t)
++	entered, release := make(chan struct{}), make(chan struct{})
++	h.Discord.HTTP.Transport = momiaoHTTPTransport(func(req *http.Request) (*http.Response, error) {
++		body := `{"id":"123456789012345678"}`
++		if req.URL.Path == "/api/oauth2/token" {
++			close(entered)
++			<-release
++			body = `{"access_token":"synthetic-token","token_type":"Bearer","scope":"identify guilds.members.read"}`
++		}
++		if strings.Contains(req.URL.Path, "/member") {
++			body = `{"roles":["789"]}`
++		}
++		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
++	})
++	state, nonce := momiaoStart(t, r, "registration", "")
++	request := httptest.NewRequest(http.MethodGet, "http://native.invalid/api/momiao/auth/discord/callback?code=synthetic&state="+state, nil)
++	request.AddCookie(nonce)
++	late := httptest.NewRecorder()
++	done := make(chan struct{})
++	go func() { defer close(done); r.ServeHTTP(late, request) }()
++	<-entered
++	w, _ := momiaoRequest(t, r, http.MethodPost, "/api/user/auth/logout", "{}", "", nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	close(release)
++	<-done
++	assert.Equal(t, 401, late.Code, late.Body.String())
++	var users int64
++	require.NoError(t, model.DB.Model(&model.User{}).Count(&users).Error)
++	assert.Zero(t, users)
++}
++
++type momiaoDelayedResponse struct {
++	*httptest.ResponseRecorder
++	entered chan struct{}
++	release chan struct{}
++	once    sync.Once
++}
++
++func (w *momiaoDelayedResponse) WriteHeader(code int) {
++	w.once.Do(func() { close(w.entered); <-w.release })
++	w.ResponseRecorder.WriteHeader(code)
++}
++
++func TestMomiaoHTTPResponseArrivingAfterLogoutCannotRestoreRefresh(t *testing.T) {
++	h, r := setupMomiaoHTTP(t)
++	var calls []string
++	momiaoProvider(t, h, "123456789012345678", 200, &calls)
++	state, nonce := momiaoStart(t, r, "registration", "")
++	assert.Greater(t, nonce.MaxAge, 600, "cleanup capability must outlive authentication authority")
++	late := &momiaoDelayedResponse{ResponseRecorder: httptest.NewRecorder(), entered: make(chan struct{}), release: make(chan struct{})}
++	request := httptest.NewRequest(http.MethodGet, "http://native.invalid/api/momiao/auth/discord/callback?code=synthetic&state="+state, nil)
++	request.AddCookie(nonce)
++	done := make(chan struct{})
++	go func() { defer close(done); r.ServeHTTP(late, request) }()
++	<-late.entered
++	// The ceremony expires while the issued response is held in transit.
++	require.NoError(t, model.DB.Model(&model.AuthFlow{}).Where("purpose = ?", model.MomiaoPurposeBrowser).Update("expires_at", time.Now().Add(-time.Second)).Error)
++	_, err := model.GetAuthFlow(nonce.Value, model.AuthFlowMatch{Purpose: model.MomiaoPurposeBrowser})
++	assert.ErrorIs(t, err, model.ErrAuthFlowExpired)
++	w, _ := momiaoRequest(t, r, http.MethodPost, "/api/user/auth/logout", "{}", "", nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	close(late.release)
++	<-done
++	assert.Equal(t, 200, late.Code)
++	var refresh *http.Cookie
++	for _, cookie := range late.Result().Cookies() {
++		if cookie.Name == service.RefreshCookieName {
++			refresh = cookie
++		}
++	}
++	require.NotNil(t, refresh)
++	assert.False(t, nonce.Expires.Before(refresh.Expires), "browser cleanup must cover the native session lifetime")
++	w, _ = momiaoRequest(t, r, http.MethodPost, "/api/user/auth/refresh", "{}", "", refresh)
++	assert.Equal(t, 401, w.Code, w.Body.String())
++}
+diff --git a/controller/momiao_auth.go b/controller/momiao_auth.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..5246e3c03c159935117a1d8a1375ab29c4db0c59
+--- /dev/null
++++ b/controller/momiao_auth.go
+@@ -0,0 +1,435 @@
++package controller
++
++import (
++	"crypto/subtle"
++	"errors"
++	"io"
++	"mime"
++	"net/http"
++	"strings"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/middleware"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/QuantumNous/new-api/setting/momiao_setting"
++	"github.com/gin-gonic/gin"
++	"github.com/google/uuid"
++	"gorm.io/gorm"
++)
++
++const MomiaoBrowserCookie = "__Host-momiao_oauth"
++
++type MomiaoAuth struct{ Discord *service.MomiaoDiscord }
++
++var configuredMomiao *MomiaoAuth
++
++func InitializeMomiaoAdmission() error {
++	cfg, err := momiao_setting.LoadFromEnvironment()
++	if err != nil {
++		return err
++	}
++	if cfg == nil {
++		configuredMomiao = nil
++		return nil
++	}
++	if !constant.Setup || !common.SessionCookieSecure || common.SessionSecret == "" {
++		return momiao_setting.ErrConfig
++	}
++	if err := model.CheckMomiaoAdmissionSchema(model.DB); err != nil {
++		return model.ErrMomiaoUnavailable
++	}
++	configuredMomiao = &MomiaoAuth{Discord: service.NewMomiaoDiscord(*cfg)}
++	return nil
++}
++
++func MomiaoAdmission() *MomiaoAuth { return configuredMomiao }
++
++func (h *MomiaoAuth) RegisterRoutes(api *gin.RouterGroup, router *gin.Engine) {
++	group := api.Group("/momiao")
++	group.Use(func(c *gin.Context) {
++		if !validMomiaoHeaders(c) {
++			return
++		}
++		c.Next()
++	})
++	group.Use(middleware.DisableCache())
++	group.Use(middleware.CriticalRateLimit())
++	group.POST("/auth/discord/login/start", h.Start(model.MomiaoPurposeLogin))
++	group.POST("/auth/discord/registration/start", h.Start(model.MomiaoPurposeRegistration))
++	group.POST("/auth/discord/fresh/start", middleware.UserAuth(), h.Start(model.MomiaoPurposeFresh))
++	group.POST("/auth/discord/password-reset/start", middleware.UserAuth(), h.Start(model.MomiaoPurposeReset))
++	group.GET("/auth/discord/callback", h.Callback)
++	group.POST("/auth/2fa", h.VerifyTwoFA)
++	group.GET("/account", middleware.UserAuth(), h.Account)
++	group.POST("/account/password/set", middleware.UserAuth(), h.Password("set"))
++	group.POST("/account/password/change", middleware.UserAuth(), h.Password("change"))
++	group.POST("/account/password/reset", middleware.UserAuth(), h.Password("reset"))
++	router.GET("/internal/momiao/registrations", h.Receipts)
++}
++
++func (h *MomiaoAuth) origin(c *gin.Context) bool {
++	setAuthNoStore(c)
++	c.Header("Referrer-Policy", "no-referrer")
++	if c.GetHeader("Origin") != h.Discord.Config.PublicOrigin {
++		c.AbortWithStatusJSON(403, gin.H{"success": false, "code": "MOMIAO_ORIGIN_REJECTED"})
++		return false
++	}
++	return true
++}
++
++func readMomiaoJSON(c *gin.Context, dst any, allowed ...string) bool {
++	data, err := io.ReadAll(io.LimitReader(c.Request.Body, 8193))
++	media, params, mediaErr := mime.ParseMediaType(c.GetHeader("Content-Type"))
++	charset := strings.ToLower(params["charset"])
++	if err != nil || len(data) > 8192 || len(c.Request.Header.Values("Content-Type")) != 1 || mediaErr != nil || media != "application/json" || (charset != "" && charset != "utf-8") {
++		momiaoError(c, model.ErrMomiaoPassword)
++		return false
++	}
++	if len(data) == 0 {
++		data = []byte("{}")
++	}
++	if common.UnmarshalStrictStringObject(data, dst, allowed...) != nil {
++		momiaoError(c, model.ErrMomiaoPassword)
++		return false
++	}
++	return true
++}
++
++func (h *MomiaoAuth) Start(purpose string) gin.HandlerFunc {
++	return func(c *gin.Context) {
++		if !h.origin(c) {
++			return
++		}
++		if !readMomiaoJSON(c, &struct{}{}) {
++			return
++		}
++		input := model.AuthFlowCreate{Purpose: purpose, Provider: "discord"}
++		payload := model.MomiaoFlowPayload{ConfigVersion: h.Discord.Config.Version(), OperationID: uuid.NewString()}
++		var currentSession *model.UserSession
++		if purpose == model.MomiaoPurposeFresh || purpose == model.MomiaoPurposeReset {
++			identity, ok := middleware.GetSessionAuthIdentity(c)
++			if !ok {
++				momiaoError(c, model.ErrMomiaoAuthority)
++				return
++			}
++			user, err := model.GetUserById(identity.UserID, false)
++			if err != nil || user.DiscordId == "" {
++				momiaoError(c, model.ErrMomiaoUnbound)
++				return
++			}
++			currentSession, _, err = service.ValidateLoginSession(identity)
++			if err != nil {
++				momiaoError(c, model.ErrMomiaoAuthority)
++				return
++			}
++			input.UserId, input.SessionId = identity.UserID, identity.SessionID
++			payload.AuthVersion, payload.SessionVersion, payload.Subject = identity.UserAuthVersion, identity.SessionVersion, user.DiscordId
++		}
++		browser, _ := c.Cookie(MomiaoBrowserCookie)
++		browserFlow, err := model.GetAuthFlow(browser, model.AuthFlowMatch{Purpose: model.MomiaoPurposeBrowser})
++		if err != nil && !errors.Is(err, model.ErrAuthFlowInvalid) && !errors.Is(err, model.ErrAuthFlowExpired) && !errors.Is(err, model.ErrAuthFlowConsumed) {
++			momiaoError(c, err)
++			return
++		}
++		if err != nil || purpose == model.MomiaoPurposeLogin || purpose == model.MomiaoPurposeRegistration {
++			var links []model.AuthFlow
++			browser, browserFlow, links, err = model.RotateMomiaoBrowser(browser)
++			if err != nil {
++				momiaoError(c, err)
++				return
++			}
++			for _, link := range links {
++				if currentSession != nil && link.SessionId == currentSession.SID && link.UserId == currentSession.UserID {
++					continue
++				}
++				if _, err := model.RevokeUserSession(link.UserId, link.SessionId, "admission_browser_restarted"); err != nil {
++					momiaoError(c, err)
++					return
++				}
++			}
++		}
++		if currentSession != nil {
++			if err := model.LinkMomiaoBrowserSession(browser, currentSession); err != nil {
++				momiaoError(c, err)
++				return
++			}
++		}
++		input.ExpiresAt = browserFlow.ExpiresAt
++		payload.BrowserHash = model.MomiaoBrowserHash(browser)
++		encoded, err := common.Marshal(payload)
++		if err != nil {
++			momiaoError(c, err)
++			return
++		}
++		input.Payload = string(encoded)
++		state, _, err := model.CreateAuthFlow(input)
++		if err != nil {
++			momiaoError(c, err)
++			return
++		}
++		authorization, err := h.Discord.AuthorizationURL(purpose, state)
++		if err != nil {
++			momiaoError(c, err)
++			return
++		}
++		// The database expires authentication after ten minutes. Keep the
++		// opaque cleanup handle through native session expiration so logout can
++		// still revoke an already issued response that arrives after expiry.
++		cleanupExpiry := browserFlow.ExpiresAt.Add(service.LoginSessionTTL)
++		http.SetCookie(c.Writer, &http.Cookie{Name: MomiaoBrowserCookie, Value: browser, Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode, Expires: cleanupExpiry, MaxAge: int(time.Until(cleanupExpiry) / time.Second)})
++		c.JSON(200, gin.H{"success": true, "data": gin.H{"authorization_url": authorization}})
++	}
++}
++
++func (h *MomiaoAuth) Callback(c *gin.Context) {
++	setAuthNoStore(c)
++	c.Header("Referrer-Policy", "no-referrer")
++	if origin := c.GetHeader("Origin"); origin != "" && origin != h.Discord.Config.PublicOrigin {
++		momiaoError(c, model.ErrMomiaoAuthority)
++		return
++	}
++	query := c.Request.URL.Query()
++	if len(c.Request.URL.RawQuery) > 8192 || len(query["state"]) != 1 {
++		momiaoError(c, model.ErrAuthFlowInvalid)
++		return
++	}
++	for key := range query {
++		if key != "state" && key != "code" && key != "error" && key != "error_description" {
++			momiaoError(c, model.ErrAuthFlowInvalid)
++			return
++		}
++	}
++	flow, err := model.GetMomiaoOAuthFlow(query.Get("state"))
++	if err != nil {
++		momiaoError(c, err)
++		return
++	}
++	browser, _ := c.Cookie(MomiaoBrowserCookie)
++	var payload model.MomiaoFlowPayload
++	if common.UnmarshalJsonStr(flow.Payload, &payload) != nil || payload.ConfigVersion != h.Discord.Config.Version() || browser == "" || subtle.ConstantTimeCompare([]byte(payload.BrowserHash), []byte(model.MomiaoBrowserHash(browser))) != 1 {
++		momiaoError(c, model.ErrMomiaoAuthority)
++		return
++	}
++	if _, err := model.GetAuthFlow(browser, model.AuthFlowMatch{Purpose: model.MomiaoPurposeBrowser}); err != nil {
++		momiaoError(c, model.ErrMomiaoAuthority)
++		return
++	}
++	if query.Get("error") != "" {
++		momiaoError(c, &service.MomiaoDiscordError{Code: "DISCORD_DENIED"})
++		return
++	}
++	if len(query["code"]) != 1 {
++		momiaoError(c, model.ErrAuthFlowInvalid)
++		return
++	}
++	if flow.UserId != 0 {
++		identity, err := service.ValidateSessionReference(flow.UserId, flow.SessionId)
++		if err != nil || identity.UserAuthVersion != payload.AuthVersion || identity.SessionVersion != payload.SessionVersion {
++			momiaoError(c, model.ErrMomiaoAuthority)
++			return
++		}
++	}
++	token, err := h.Discord.Exchange(c.Request.Context(), query.Get("code"), flow.Purpose)
++	if err != nil {
++		momiaoError(c, err)
++		return
++	}
++	subject, err := h.Discord.Subject(c.Request.Context(), token)
++	if err != nil {
++		momiaoError(c, err)
++		return
++	}
++	canRegister := false
++	_, lookupErr := model.FindMomiaoDiscordUser(model.DB, subject)
++	if lookupErr != nil && !errors.Is(lookupErr, model.ErrMomiaoUnbound) {
++		momiaoError(c, lookupErr)
++		return
++	}
++	if errors.Is(lookupErr, model.ErrMomiaoUnbound) && flow.Purpose == model.MomiaoPurposeRegistration {
++		if err := h.Discord.CheckMembership(c.Request.Context(), token); err != nil {
++			momiaoError(c, err)
++			return
++		}
++		canRegister = true
++	}
++	user, _, err := model.CompleteMomiaoAdmission(model.MomiaoAdmissionAttempt{State: query.Get("state"), Purpose: flow.Purpose, BrowserToken: browser, BrowserHash: payload.BrowserHash, ConfigVersion: payload.ConfigVersion, Subject: subject, CanRegister: canRegister, PolicyVersion: h.Discord.Config.PolicyVersion})
++	if err != nil {
++		momiaoError(c, err)
++		return
++	}
++	payload.AuthVersion, payload.Subject = user.AuthVersion, user.DiscordId
++	payload.NextPurpose = model.MomiaoPurposeLogin
++	if flow.Purpose == model.MomiaoPurposeFresh {
++		payload.NextPurpose = model.MomiaoPurposeFreshProof
++	}
++	if flow.Purpose == model.MomiaoPurposeReset {
++		payload.NextPurpose = model.MomiaoPurposeResetProof
++	}
++	enabled, err := model.IsTwoFAEnabled(user.Id)
++	if err != nil {
++		momiaoError(c, err)
++		return
++	}
++	if enabled {
++		encoded, err := common.Marshal(payload)
++		if err != nil {
++			momiaoError(c, err)
++			return
++		}
++		challenge, _, err := model.CreateAuthFlow(model.AuthFlowCreate{Purpose: model.MomiaoPurposeTwoFA, Provider: "discord", UserId: user.Id, SessionId: flow.SessionId, Payload: string(encoded), ExpiresAt: flow.ExpiresAt})
++		if err != nil {
++			momiaoError(c, err)
++			return
++		}
++		c.JSON(200, gin.H{"success": true, "data": gin.H{"require_2fa": true, "flow_token": challenge}})
++		return
++	}
++	h.complete(c, user, flow, payload, browser)
++}
++
++func (h *MomiaoAuth) VerifyTwoFA(c *gin.Context) {
++	if !h.origin(c) {
++		return
++	}
++	var req struct {
++		FlowToken string `json:"flow_token"`
++		Code      string `json:"code"`
++	}
++	if !readMomiaoJSON(c, &req, "flow_token", "code") {
++		return
++	}
++	flow, err := model.GetAuthFlow(req.FlowToken, model.AuthFlowMatch{Purpose: model.MomiaoPurposeTwoFA, Provider: "discord"})
++	if err != nil {
++		momiaoError(c, err)
++		return
++	}
++	browser, _ := c.Cookie(MomiaoBrowserCookie)
++	var payload model.MomiaoFlowPayload
++	if common.UnmarshalJsonStr(flow.Payload, &payload) != nil || browser == "" || payload.BrowserHash != model.MomiaoBrowserHash(browser) || payload.ConfigVersion != h.Discord.Config.Version() {
++		momiaoError(c, model.ErrMomiaoAuthority)
++		return
++	}
++	if _, err := model.GetAuthFlow(browser, model.AuthFlowMatch{Purpose: model.MomiaoPurposeBrowser}); err != nil {
++		momiaoError(c, model.ErrMomiaoAuthority)
++		return
++	}
++	if flow.SessionId != "" {
++		identity, err := service.ValidateSessionReference(flow.UserId, flow.SessionId)
++		if err != nil || identity.UserAuthVersion != payload.AuthVersion || identity.SessionVersion != payload.SessionVersion {
++			momiaoError(c, model.ErrMomiaoAuthority)
++			return
++		}
++	}
++	user, err := model.GetUserById(flow.UserId, false)
++	if err != nil || user.Status != common.UserStatusEnabled || user.AuthVersion != payload.AuthVersion || user.DiscordId != payload.Subject {
++		momiaoError(c, model.ErrMomiaoAuthority)
++		return
++	}
++	factor, err := model.GetTwoFAByUserId(user.Id)
++	if err != nil {
++		momiaoError(c, err)
++		return
++	}
++	if factor == nil || !factor.IsEnabled {
++		momiaoError(c, model.ErrMomiaoAuthority)
++		return
++	}
++	valid := false
++	clean, cleanErr := common.ValidateNumericCode(req.Code)
++	if cleanErr == nil {
++		valid, err = factor.ValidateTOTPAndUpdateUsage(clean)
++	}
++	if err == nil && !valid {
++		valid, err = factor.ValidateBackupCodeAndUpdateUsage(req.Code)
++	}
++	if err != nil || !valid {
++		c.JSON(400, gin.H{"success": false, "code": "MOMIAO_2FA_INVALID"})
++		return
++	}
++	_, err = model.ConsumeAuthFlowWithAction(req.FlowToken, model.AuthFlowMatch{Purpose: model.MomiaoPurposeTwoFA, Provider: "discord", UserId: user.Id}, func(tx *gorm.DB, locked *model.AuthFlow) error {
++		if _, err := model.LockMomiaoBrowser(tx, browser); err != nil {
++			return err
++		}
++		var current model.User
++		if err := tx.Where("id = ? AND auth_version = ? AND discord_id = ? AND status = ?", user.Id, payload.AuthVersion, payload.Subject, common.UserStatusEnabled).First(&current).Error; err != nil {
++			return model.ErrMomiaoAuthority
++		}
++		if payload.NextPurpose != model.MomiaoPurposeLogin {
++			return model.ValidateMomiaoSessionWithTx(tx, locked, payload, &current)
++		}
++		return nil
++	})
++	if err != nil {
++		momiaoError(c, err)
++		return
++	}
++	h.complete(c, user, flow, payload, browser)
++}
++
++func (h *MomiaoAuth) complete(c *gin.Context, user *model.User, flow *model.AuthFlow, payload model.MomiaoFlowPayload, browser string) {
++	if payload.NextPurpose == model.MomiaoPurposeLogin {
++		bundle, err := service.CreateMomiaoLoginSession(user.Id, payload.AuthVersion, browser, c.ClientIP(), c.Request.UserAgent())
++		if err != nil {
++			momiaoError(c, err)
++			return
++		}
++		service.WriteRefreshCookie(c, bundle.RefreshToken)
++		model.UpdateUserLastLoginAt(user.Id)
++		recordLoginAudit(user, c)
++		c.JSON(200, gin.H{"success": true, "data": gin.H{"access_token": bundle.AccessToken, "token_type": bundle.TokenType, "access_expires_at": bundle.AccessExpiresAt, "session": bundle.Session, "user": buildSelfUserData(user)}})
++		return
++	}
++	if payload.NextPurpose != model.MomiaoPurposeFreshProof && payload.NextPurpose != model.MomiaoPurposeResetProof {
++		momiaoError(c, model.ErrMomiaoAuthority)
++		return
++	}
++	encoded, err := common.Marshal(payload)
++	if err != nil {
++		momiaoError(c, err)
++		return
++	}
++	proof, _, err := model.CreateAuthFlow(model.AuthFlowCreate{Purpose: payload.NextPurpose, Provider: "discord", UserId: user.Id, SessionId: flow.SessionId, Payload: string(encoded), ExpiresAt: flow.ExpiresAt})
++	if err != nil {
++		momiaoError(c, err)
++		return
++	}
++	c.JSON(200, gin.H{"success": true, "data": gin.H{"proof": proof, "expires_at": flow.ExpiresAt.Unix()}})
++}
++
++func momiaoError(c *gin.Context, err error) {
++	status, code := 503, "MOMIAO_UNAVAILABLE"
++	var provider *service.MomiaoDiscordError
++	switch {
++	case errors.As(err, &provider):
++		code = provider.Code
++		switch code {
++		case "DISCORD_RATE_LIMITED":
++			status = 429
++		case "DISCORD_NOT_MEMBER", "DISCORD_ROLE_REQUIRED", "DISCORD_DENIED":
++			status = 403
++		case "DISCORD_CODE_INVALID":
++			status = 400
++		default:
++			status = 502
++		}
++	case errors.Is(err, model.ErrAuthFlowConsumed):
++		status, code = 409, "MOMIAO_FLOW_CONSUMED"
++	case errors.Is(err, model.ErrAuthFlowInvalid), errors.Is(err, model.ErrAuthFlowExpired), errors.Is(err, model.ErrMomiaoAuthority), errors.Is(err, service.ErrLoginSessionRevoked):
++		status, code = 401, "MOMIAO_AUTH_RESTART_REQUIRED"
++	case errors.Is(err, model.ErrMomiaoUnbound):
++		status, code = 403, "MOMIAO_DISCORD_UNBOUND"
++	case errors.Is(err, model.ErrMomiaoIneligible):
++		status, code = 403, "MOMIAO_NOT_ELIGIBLE"
++	case errors.Is(err, model.ErrMomiaoPassword):
++		status, code = 400, "MOMIAO_INVALID_REQUEST"
++	case errors.Is(err, model.ErrUserSessionLimit):
++		status, code = 409, "AUTH_SESSION_LIMIT"
++	case errors.Is(err, model.ErrUserSessionIssuanceLimit):
++		status, code = 429, "AUTH_SESSION_ISSUANCE_LIMIT"
++	}
++	setAuthNoStore(c)
++	c.AbortWithStatusJSON(status, gin.H{"success": false, "code": code})
++}
+diff --git a/controller/momiao_auth_test.go b/controller/momiao_auth_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..9294697510da5834cd1ffafb3ffbdc541a1a1ac7
+--- /dev/null
++++ b/controller/momiao_auth_test.go
+@@ -0,0 +1,248 @@
++package controller
++
++import (
++	"context"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"os"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/middleware"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/QuantumNous/new-api/setting/momiao_setting"
++	"github.com/gin-gonic/gin"
++	"github.com/pquerna/otp/totp"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"gorm.io/driver/postgres"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++type momiaoHTTPTransport func(*http.Request) (*http.Response, error)
++
++func (f momiaoHTTPTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
++
++type momiaoHTTPResponse struct {
++	Success bool   `json:"success"`
++	Code    string `json:"code"`
++	Data    struct {
++		AuthorizationURL string                   `json:"authorization_url"`
++		AccessToken      string                   `json:"access_token"`
++		RequireTwoFA     bool                     `json:"require_2fa"`
++		FlowToken        string                   `json:"flow_token"`
++		Proof            string                   `json:"proof"`
++		HasPassword      bool                     `json:"has_password"`
++		DiscordConnected bool                     `json:"discord_connected"`
++		Session          service.LoginSessionView `json:"session"`
++	} `json:"data"`
++}
++
++func setupMomiaoHTTP(t *testing.T) (*MomiaoAuth, *gin.Engine) {
++	t.Helper()
++	dsn := os.Getenv("MOMIAO_TEST_POSTGRES_DSN")
++	if dsn == "" {
++		t.Skip("requires isolated PostgreSQL via MOMIAO_TEST_POSTGRES_DSN")
++	}
++	require.Contains(t, dsn, "host=127.0.0.1 ")
++	require.Contains(t, dsn, "dbname=momiao_m2_test ")
++	oldDB, oldLog, oldType, oldRedis, oldSecret, oldSecure := model.DB, model.LOG_DB, common.MainDatabaseType(), common.RedisEnabled, common.SessionSecret, common.SessionCookieSecure
++	db, err := gorm.Open(postgres.Open(dsn+" search_path=m2_controller_test,public"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	require.NoError(t, err)
++	sqlDB, err := db.DB()
++	require.NoError(t, err)
++	sqlDB.SetMaxOpenConns(12)
++	guard, err := sqlDB.Conn(context.Background())
++	require.NoError(t, err)
++	_, err = guard.ExecContext(context.Background(), "SELECT pg_advisory_lock(42684268, 2)")
++	require.NoError(t, err)
++	t.Cleanup(func() {
++		require.NoError(t, db.Exec("DROP SCHEMA IF EXISTS momiao_admission CASCADE").Error)
++		require.NoError(t, db.Exec("DROP SCHEMA IF EXISTS m2_controller_test CASCADE").Error)
++		_, err := guard.ExecContext(context.Background(), "SELECT pg_advisory_unlock(42684268, 2)")
++		require.NoError(t, err)
++		require.NoError(t, guard.Close())
++		require.NoError(t, sqlDB.Close())
++		model.DB, model.LOG_DB = oldDB, oldLog
++		common.SetMainDatabaseType(oldType)
++		common.RedisEnabled, common.SessionSecret, common.SessionCookieSecure = oldRedis, oldSecret, oldSecure
++	})
++	require.NoError(t, db.Exec("DROP SCHEMA IF EXISTS momiao_admission CASCADE").Error)
++	require.NoError(t, db.Exec("DROP SCHEMA IF EXISTS m2_controller_test CASCADE").Error)
++	require.NoError(t, db.Exec("CREATE SCHEMA m2_controller_test").Error)
++	model.DB, model.LOG_DB = db, db
++	common.SetMainDatabaseType(common.DatabaseTypePostgreSQL)
++	common.RedisEnabled, common.SessionSecret, common.SessionCookieSecure = false, "momiao-http-synthetic-secret", true
++	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AuthFlow{}, &model.UserSession{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.Log{}))
++	require.NoError(t, model.MigrateMomiaoAdmission(db))
++	cfg := momiao_setting.Config{ClientID: "123", ClientSecret: "synthetic-secret", GuildID: "456", RoleID: "789", PublicOrigin: "https://admission.test", RedirectURI: "https://admission.test/oauth/discord", PolicyVersion: "v1", ReaderKey: strings.Repeat("r", 32)}
++	h := &MomiaoAuth{Discord: service.NewMomiaoDiscord(cfg)}
++	gin.SetMode(gin.TestMode)
++	r := gin.New()
++	api := r.Group("/api")
++	api.Use(h.Guard)
++	h.RegisterRoutes(api, r)
++	api.POST("/user/auth/logout", AuthLogout)
++	api.POST("/user/login", Login)
++	api.POST("/user/login/2fa", Verify2FALogin)
++	api.POST("/user/auth/refresh", RefreshAuth)
++	api.GET("/native-session", middleware.UserAuth(), func(c *gin.Context) { c.JSON(200, gin.H{"success": true}) })
++	for _, path := range []string{"/user/register", "/oauth/state", "/setup"} {
++		api.POST(path, func(c *gin.Context) { c.JSON(200, gin.H{"success": true}) })
++	}
++	api.PUT("/user/self", func(c *gin.Context) { c.JSON(200, gin.H{"success": true}) })
++	return h, r
++}
++
++func momiaoRequest(t *testing.T, r http.Handler, method, path, body, access string, cookies ...*http.Cookie) (*httptest.ResponseRecorder, momiaoHTTPResponse) {
++	t.Helper()
++	req := httptest.NewRequest(method, "http://native.invalid"+path, strings.NewReader(body))
++	// Exactly like the portal's fixed private HTTP transport: TLS=nil and no
++	// Forwarded/X-Forwarded-* headers. Only the original public Origin remains.
++	req.Header.Set("Origin", "https://admission.test")
++	req.Header.Set("Content-Type", "application/json")
++	req.RemoteAddr = "127.0.0.1:12345"
++	if access != "" {
++		req.Header.Set("Authorization", "Bearer "+access)
++	}
++	for _, cookie := range cookies {
++		if cookie != nil {
++			req.AddCookie(cookie)
++		}
++	}
++	w := httptest.NewRecorder()
++	r.ServeHTTP(w, req)
++	var response momiaoHTTPResponse
++	if len(w.Body.Bytes()) > 0 {
++		require.NoError(t, common.Unmarshal(w.Body.Bytes(), &response), w.Body.String())
++	}
++	return w, response
++}
++
++func momiaoStart(t *testing.T, r http.Handler, purpose, access string, cookies ...*http.Cookie) (string, *http.Cookie) {
++	t.Helper()
++	w, response := momiaoRequest(t, r, http.MethodPost, "/api/momiao/auth/discord/"+purpose+"/start", "{}", access, cookies...)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	require.True(t, response.Success)
++	u, err := url.Parse(response.Data.AuthorizationURL)
++	require.NoError(t, err)
++	var nonce *http.Cookie
++	for _, cookie := range w.Result().Cookies() {
++		if cookie.Name == MomiaoBrowserCookie {
++			nonce = cookie
++		}
++	}
++	require.NotNil(t, nonce)
++	assert.True(t, nonce.Secure)
++	assert.True(t, nonce.HttpOnly)
++	assert.Equal(t, http.SameSiteLaxMode, nonce.SameSite)
++	return u.Query().Get("state"), nonce
++}
++
++func momiaoProvider(t *testing.T, h *MomiaoAuth, subject string, memberStatus int, calls *[]string) {
++	t.Helper()
++	h.Discord.HTTP.Transport = momiaoHTTPTransport(func(req *http.Request) (*http.Response, error) {
++		*calls = append(*calls, req.URL.Path)
++		status := 200
++		body := `{"access_token":"synthetic-provider-token","token_type":"Bearer","scope":"identify guilds.members.read"}`
++		switch req.URL.Path {
++		case "/api/users/@me":
++			body = `{"id":"` + subject + `"}`
++		case "/api/users/@me/guilds/456/member":
++			status = memberStatus
++			body = `{"roles":["789"]}`
++			if status != 200 {
++				body = `{"code":10007}`
++			}
++		case "/api/oauth2/token":
++		default:
++			t.Errorf("unexpected provider endpoint: %s", req.URL.Path)
++		}
++		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
++	})
++}
++
++func TestMomiaoHTTPRegistrationRecoveryAndOldUserSkipsMembership(t *testing.T) {
++	h, r := setupMomiaoHTTP(t)
++	var calls []string
++	momiaoProvider(t, h, "123456789012345678", 200, &calls)
++	state, nonce := momiaoStart(t, r, "registration", "")
++	w, response := momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=synthetic-code&state="+state, "", "", nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	require.NotEmpty(t, response.Data.AccessToken)
++	assert.Contains(t, calls, "/api/users/@me/guilds/456/member")
++	for _, cookie := range w.Result().Cookies() {
++		assert.NotContains(t, cookie.Value, "synthetic-provider-token")
++	}
++	// Losing the entire callback response recovers by a fresh native login.
++	calls = nil
++	momiaoProvider(t, h, "123456789012345678", 500, &calls)
++	state, nonce = momiaoStart(t, r, "login", "")
++	w, response = momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=next-code&state="+state, "", "", nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	require.NotEmpty(t, response.Data.AccessToken)
++	assert.NotContains(t, calls, "/api/users/@me/guilds/456/member")
++	rows, err := model.ListMomiaoRegistrationReceipts(model.DB, 0, 100)
++	require.NoError(t, err)
++	assert.Len(t, rows, 1)
++	w, _ = momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=replay&state="+state, "", "", nonce)
++	assert.Equal(t, 409, w.Code)
++	user, err := model.FindMomiaoDiscordUser(model.DB, "123456789012345678")
++	require.NoError(t, err)
++	assert.Zero(t, user.Quota)
++}
++
++func TestMomiaoHTTPBrowserBindingRejectsBeforeCodeExchange(t *testing.T) {
++	h, r := setupMomiaoHTTP(t)
++	var calls []string
++	momiaoProvider(t, h, "123456789012345678", 200, &calls)
++	state, _ := momiaoStart(t, r, "registration", "")
++	w, _ := momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=secret-code&state="+state, "", "")
++	assert.Equal(t, 401, w.Code)
++	assert.Empty(t, calls)
++	w, _ = momiaoRequest(t, r, http.MethodPost, "/api/momiao/auth/discord/login/start", `{"purpose":"registration"}`, "")
++	assert.Equal(t, 400, w.Code)
++	request := httptest.NewRequest(http.MethodPost, "http://native.invalid/api/momiao/auth/discord/login/start", strings.NewReader("{}"))
++	request.Header.Set("Origin", "https://evil.test")
++	request.Header.Set("X-Forwarded-Proto", "https")
++	w = httptest.NewRecorder()
++	r.ServeHTTP(w, request)
++	assert.Equal(t, 403, w.Code)
++}
++
++func TestMomiaoHTTPDiscordLoginPreservesNativeTwoFA(t *testing.T) {
++	h, r := setupMomiaoHTTP(t)
++	user := &model.User{Username: "existing-2fa", Password: "", DiscordId: "123456789012345678", AffCode: "existing-2fa", AuthVersion: 1, Status: common.UserStatusEnabled, Role: common.RoleCommonUser}
++	require.NoError(t, model.DB.Create(user).Error)
++	secret := "JBSWY3DPEHPK3PXP"
++	require.NoError(t, model.DB.Create(&model.TwoFA{UserId: user.Id, Secret: secret, IsEnabled: true}).Error)
++	var calls []string
++	momiaoProvider(t, h, user.DiscordId, 500, &calls)
++	state, nonce := momiaoStart(t, r, "login", "")
++	w, response := momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=synthetic-code&state="+state, "", "", nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	assert.True(t, response.Data.RequireTwoFA)
++	assert.Empty(t, response.Data.AccessToken)
++	flow := response.Data.FlowToken
++	require.NotEmpty(t, flow)
++	var sessions int64
++	require.NoError(t, model.DB.Model(&model.UserSession{}).Count(&sessions).Error)
++	assert.Zero(t, sessions)
++	code, err := totp.GenerateCode(secret, time.Now())
++	require.NoError(t, err)
++	body, _ := common.Marshal(map[string]string{"flow_token": flow, "code": code})
++	// Native generic 2FA endpoint cannot reinterpret an admission challenge.
++	_, native := momiaoRequest(t, r, http.MethodPost, "/api/user/login/2fa", string(body), "", nonce)
++	assert.False(t, native.Success)
++	w, response = momiaoRequest(t, r, http.MethodPost, "/api/momiao/auth/2fa", string(body), "", nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	assert.NotEmpty(t, response.Data.AccessToken)
++	w, _ = momiaoRequest(t, r, http.MethodPost, "/api/momiao/auth/2fa", string(body), "", nonce)
++	assert.Equal(t, 409, w.Code)
++}
+diff --git a/controller/momiao_browser_rotation_test.go b/controller/momiao_browser_rotation_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..0d0fc1a62dde4779a94da52fa92318dd0dadc319
+--- /dev/null
++++ b/controller/momiao_browser_rotation_test.go
+@@ -0,0 +1,63 @@
++package controller
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++func TestMomiaoNewLoginStartRevokesPriorDelayedResponse(t *testing.T) {
++	h, r := setupMomiaoHTTP(t)
++	var calls []string
++	momiaoProvider(t, h, "123456789012345678", 200, &calls)
++	state, nonce := momiaoStart(t, r, "registration", "")
++	late := &momiaoDelayedResponse{ResponseRecorder: httptest.NewRecorder(), entered: make(chan struct{}), release: make(chan struct{})}
++	request := httptest.NewRequest(http.MethodGet, "http://native.invalid/api/momiao/auth/discord/callback?code=first&state="+state, nil)
++	request.AddCookie(nonce)
++	done := make(chan struct{})
++	go func() { defer close(done); r.ServeHTTP(late, request) }()
++	<-late.entered
++	_, nextNonce := momiaoStart(t, r, "login", "", nonce)
++	assert.NotEqual(t, nonce.Value, nextNonce.Value)
++	close(late.release)
++	<-done
++	var refresh *http.Cookie
++	for _, cookie := range late.Result().Cookies() {
++		if cookie.Name == service.RefreshCookieName {
++			refresh = cookie
++		}
++	}
++	require.NotNil(t, refresh)
++	w, _ := momiaoRequest(t, r, http.MethodPost, "/api/user/auth/refresh", "{}", "", refresh)
++	assert.Equal(t, 401, w.Code, w.Body.String())
++}
++
++func TestMomiaoExpiredBrowserRenewalPreservesOnlyCurrentNativeSession(t *testing.T) {
++	h, r := setupMomiaoHTTP(t)
++	var calls []string
++	momiaoProvider(t, h, "123456789012345678", 200, &calls)
++	state, nonce := momiaoStart(t, r, "registration", "")
++	w, login := momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=first&state="+state, "", "", nonce)
++	require.Equal(t, 200, w.Code)
++	user, err := model.FindMomiaoDiscordUser(model.DB, "123456789012345678")
++	require.NoError(t, err)
++	other, err := service.CreateMomiaoLoginSession(user.Id, 1, nonce.Value, "127.0.0.1", "delayed-session")
++	require.NoError(t, err)
++	require.NoError(t, model.DB.Model(&model.AuthFlow{}).Where("purpose = ?", model.MomiaoPurposeBrowser).Update("expires_at", time.Now().Add(-time.Second)).Error)
++	_, nextNonce := momiaoStart(t, r, "fresh", login.Data.AccessToken, nonce)
++	assert.NotEqual(t, nonce.Value, nextNonce.Value)
++	w, _ = momiaoRequest(t, r, http.MethodGet, "/api/native-session", "", login.Data.AccessToken)
++	assert.Equal(t, 200, w.Code)
++	w, _ = momiaoRequest(t, r, http.MethodGet, "/api/native-session", "", other.AccessToken)
++	assert.Equal(t, 401, w.Code)
++	w, _ = momiaoRequest(t, r, http.MethodPost, "/api/user/auth/logout", "{}", login.Data.AccessToken, nextNonce)
++	require.Equal(t, 200, w.Code)
++	w, _ = momiaoRequest(t, r, http.MethodGet, "/api/native-session", "", login.Data.AccessToken)
++	assert.Equal(t, 401, w.Code)
++}
+diff --git a/controller/momiao_input_test.go b/controller/momiao_input_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..e311a827627956166b6f12323385169368f03538
+--- /dev/null
++++ b/controller/momiao_input_test.go
+@@ -0,0 +1,58 @@
++package controller
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/assert"
++)
++
++func TestMomiaoStrictJSONRejectsAmbiguousPasswordAuthority(t *testing.T) {
++	for _, tc := range []struct{ name, media, body string }{
++		{"media-prefix", "application/jsonx", `{"password":"valid-password"}`},
++		{"duplicate-password", "application/json", `{"password":"first-password","password":"second-password"}`},
++		{"duplicate-proof", "application/json", `{"proof":"first-proof","pr\u006fof":"second-proof"}`},
++		{"invalid-utf8", "application/json", "{\"password\":\"invalid-" + string([]byte{0xff}) + "\"}"},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			w := httptest.NewRecorder()
++			c, _ := gin.CreateTestContext(w)
++			c.Request = httptest.NewRequest(http.MethodPost, "/api/momiao/account/password/set", strings.NewReader(tc.body))
++			c.Request.Header.Set("Content-Type", tc.media)
++			var request struct {
++				Password string `json:"password"`
++				Proof    string `json:"proof"`
++			}
++			assert.False(t, readMomiaoJSON(c, &request, "password", "proof"))
++			assert.Equal(t, 400, w.Code)
++		})
++	}
++}
++
++func TestMomiaoHTTPDuplicateCredentialHeadersRejected(t *testing.T) {
++	_, r := setupMomiaoHTTP(t)
++	for _, header := range []string{"Origin", "Content-Type", "Authorization", "X-Auth-Session", "Cookie"} {
++		t.Run(header, func(t *testing.T) {
++			request := httptest.NewRequest(http.MethodPost, "http://native.invalid/api/momiao/auth/discord/login/start", strings.NewReader("{}"))
++			request.Header.Set("Origin", "https://admission.test")
++			request.Header.Set("Content-Type", "application/json")
++			values := []string{"first", "second"}
++			if header == "Origin" {
++				values = []string{"https://admission.test", "https://evil.test"}
++			}
++			if header == "Content-Type" {
++				values = []string{"application/json", "text/plain"}
++			}
++			if header == "Cookie" {
++				values = []string{MomiaoBrowserCookie + "=first", MomiaoBrowserCookie + "=second"}
++			}
++			request.Header[header] = values
++			w := httptest.NewRecorder()
++			r.ServeHTTP(w, request)
++			assert.Equal(t, 400, w.Code, w.Body.String())
++		})
++	}
++}
+diff --git a/controller/momiao_twofa_test.go b/controller/momiao_twofa_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..3d56a3424ec729a9b5d6726923fdff1235fd4125
+--- /dev/null
++++ b/controller/momiao_twofa_test.go
+@@ -0,0 +1,82 @@
++package controller
++
++import (
++	"net/http"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++func TestMomiaoSensitiveDiscordProofRequiresNativeTwoFAAndSingleUseBackup(t *testing.T) {
++	h, r := setupMomiaoHTTP(t)
++	hash, err := common.Password2Hash("old-password-123")
++	require.NoError(t, err)
++	user := &model.User{Username: "sensitive-2fa", Password: hash, DiscordId: "123456789012345678", AffCode: "sensitive-2fa", AuthVersion: 1, Status: common.UserStatusEnabled, Role: common.RoleCommonUser}
++	require.NoError(t, model.DB.Create(user).Error)
++	require.NoError(t, model.DB.Create(&model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
++	codes, err := common.GenerateBackupCodes()
++	require.NoError(t, err)
++	backupHash, err := common.Password2Hash(common.NormalizeBackupCode(codes[0]))
++	require.NoError(t, err)
++	require.NoError(t, model.DB.Create(&model.TwoFABackupCode{UserId: user.Id, CodeHash: backupHash}).Error)
++	session, err := service.CreateLoginSessionAtAuthVersion(user.Id, 1, "2fa", "127.0.0.1", "verified-browser")
++	require.NoError(t, err)
++	var calls []string
++	momiaoProvider(t, h, user.DiscordId, 500, &calls)
++	state, nonce := momiaoStart(t, r, "password-reset", session.AccessToken)
++	w, challenge := momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=reset&state="+state, "", "", nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	assert.True(t, challenge.Data.RequireTwoFA)
++	assert.Empty(t, challenge.Data.Proof)
++	assert.Empty(t, challenge.Data.AccessToken)
++	flow := challenge.Data.FlowToken
++	body, _ := common.Marshal(map[string]string{"flow_token": flow, "code": "invalid-code"})
++	w, _ = momiaoRequest(t, r, http.MethodPost, "/api/momiao/auth/2fa", string(body), "", nonce)
++	assert.Equal(t, 400, w.Code)
++	body, _ = common.Marshal(map[string]string{"flow_token": flow, "code": codes[0]})
++	w, verified := momiaoRequest(t, r, http.MethodPost, "/api/momiao/auth/2fa", string(body), "", nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	require.NotEmpty(t, verified.Data.Proof)
++	assert.Empty(t, verified.Data.AccessToken)
++	var used model.TwoFABackupCode
++	require.NoError(t, model.DB.Where("user_id = ?", user.Id).First(&used).Error)
++	assert.True(t, used.IsUsed)
++	password, _ := common.Marshal(map[string]string{"password": "reset-password-123", "proof": verified.Data.Proof})
++	w, reset := momiaoRequest(t, r, http.MethodPost, "/api/momiao/account/password/reset", string(password), session.AccessToken, nonce)
++	require.Equal(t, 200, w.Code, w.Body.String())
++	require.NotEmpty(t, reset.Data.AccessToken)
++	state, nonce = momiaoStart(t, r, "fresh", reset.Data.AccessToken, nonce)
++	w, next := momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=fresh&state="+state, "", "", nonce)
++	require.Equal(t, 200, w.Code)
++	assert.True(t, next.Data.RequireTwoFA)
++	body, _ = common.Marshal(map[string]string{"flow_token": next.Data.FlowToken, "code": codes[0]})
++	w, replayed := momiaoRequest(t, r, http.MethodPost, "/api/momiao/auth/2fa", string(body), "", nonce)
++	assert.Equal(t, 400, w.Code)
++	assert.Empty(t, replayed.Data.Proof)
++}
++
++func TestMomiaoTwoFAChallengeFailsAfterNativeSecurityVersionChanges(t *testing.T) {
++	h, r := setupMomiaoHTTP(t)
++	user := &model.User{Username: "changed-2fa", Password: "", DiscordId: "123456789012345678", AffCode: "changed-2fa", AuthVersion: 1, Status: common.UserStatusEnabled, Role: common.RoleCommonUser}
++	require.NoError(t, model.DB.Create(user).Error)
++	require.NoError(t, model.DB.Create(&model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
++	var calls []string
++	momiaoProvider(t, h, user.DiscordId, 500, &calls)
++	state, nonce := momiaoStart(t, r, "login", "")
++	w, challenge := momiaoRequest(t, r, http.MethodGet, "/api/momiao/auth/discord/callback?code=login&state="+state, "", "", nonce)
++	require.Equal(t, 200, w.Code)
++	require.NotEmpty(t, challenge.Data.FlowToken)
++	_, err := model.BumpUserAuthVersion(user.Id)
++	require.NoError(t, err)
++	body, _ := common.Marshal(map[string]string{"flow_token": challenge.Data.FlowToken, "code": "123456"})
++	w, response := momiaoRequest(t, r, http.MethodPost, "/api/momiao/auth/2fa", string(body), "", nonce)
++	assert.Equal(t, 401, w.Code)
++	assert.Empty(t, response.Data.AccessToken)
++	var sessions int64
++	require.NoError(t, model.DB.Model(&model.UserSession{}).Count(&sessions).Error)
++	assert.Zero(t, sessions)
++}
+diff --git a/controller/user.go b/controller/user.go
+index 9b8d931ec1f802d45bd74cc1782574b9ae941880..6ca15071629d4bd569d58153b62a0c5908576a60 100644
+--- a/controller/user.go
++++ b/controller/user.go
+@@ -119,6 +119,8 @@ func loginMethodFromContext(c *gin.Context) string {
+ 		return "password"
+ 	case "/api/user/login/2fa":
+ 		return "2fa"
++	case "/api/momiao/auth/discord/callback", "/api/momiao/auth/2fa":
++		return "oauth:discord"
+ 	case "/api/user/passkey/login/finish":
+ 		return "passkey"
+ 	case "/api/oauth/wechat":
+diff --git a/main.go b/main.go
+index 742d155158761efdff81248b89bcba3e608b823d..8cd65171f7650184751c8ba9b3d06eb5b9b2bdd4 100644
+--- a/main.go
++++ b/main.go
+@@ -185,6 +185,9 @@ func main() {
+ 			},
+ 		})
+ 	}))
++	if controller.MomiaoAdmission() != nil {
++		server.Use(middleware.MomiaoAuthRecovery())
++	}
+ 	// This will cause SSE not to work!!!
+ 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
+ 	server.Use(middleware.RequestId())
+@@ -323,6 +326,9 @@ func InitResources() error {
+ 		}
+ 	}
+ 	model.InitOptionMap()
++	if err := controller.InitializeMomiaoAdmission(); err != nil {
++		return err
++	}
+ 
+ 	// 清理旧的磁盘缓存文件
+ 	common.CleanupOldCacheFiles()
+diff --git a/middleware/logger.go b/middleware/logger.go
+index 151008d9f23ab80034d909dc31e2a48215fac09e..a6d71f99965143d8ab60c49e036eb0bdc90a078a 100644
+--- a/middleware/logger.go
++++ b/middleware/logger.go
+@@ -26,6 +26,9 @@ func SetUpLogger(server *gin.Engine) {
+ 		if tag == "" {
+ 			tag = "web"
+ 		}
++		if momiaoCredentialPath(param.Request.URL.Path) {
++			param.Path = param.Request.URL.Path
++		}
+ 		return fmt.Sprintf("[GIN] %s | %s | %s | %3d | %13v | %15s | %7s %s\n",
+ 			param.TimeStamp.Format("2006/01/02 - 15:04:05"),
+ 			tag,
+diff --git a/middleware/momiao_logger_test.go b/middleware/momiao_logger_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..db9ecc28b936db4c5005592371fd637af5ee1930
+--- /dev/null
++++ b/middleware/momiao_logger_test.go
+@@ -0,0 +1,57 @@
++package middleware
++
++import (
++	"bytes"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/assert"
++)
++
++func TestMomiaoLoggerOmitsAuthenticationQuerySecrets(t *testing.T) {
++	var logs bytes.Buffer
++	previous := gin.DefaultWriter
++	gin.DefaultWriter = &logs
++	t.Cleanup(func() { gin.DefaultWriter = previous })
++	router := gin.New()
++	SetUpLogger(router)
++	for _, path := range []string{"/api/momiao/auth/discord/callback", "/oauth/discord", "/api/oauth/discord", "/internal/momiao/registrations"} {
++		router.GET(path, func(c *gin.Context) { c.Status(200) })
++		request := httptest.NewRequest(http.MethodGet, path+"?code=synthetic-secret-code&state=synthetic-secret-state&reader_key=synthetic-private-key", nil)
++		w := httptest.NewRecorder()
++		router.ServeHTTP(w, request)
++		assert.Equal(t, 200, w.Code)
++		assert.Contains(t, logs.String(), path)
++	}
++	for _, secret := range []string{"synthetic-secret-code", "synthetic-secret-state", "synthetic-private-key"} {
++		assert.NotContains(t, logs.String(), secret)
++	}
++}
++
++func TestMomiaoRecoveryDoesNotDumpCredentialRequestsOrPanicValues(t *testing.T) {
++	var logs bytes.Buffer
++	oldWriter, oldError, oldMode := gin.DefaultWriter, gin.DefaultErrorWriter, gin.Mode()
++	gin.DefaultWriter, gin.DefaultErrorWriter = &logs, &logs
++	gin.SetMode(gin.DebugMode)
++	t.Cleanup(func() {
++		gin.DefaultWriter, gin.DefaultErrorWriter = oldWriter, oldError
++		gin.SetMode(oldMode)
++	})
++	router := gin.New()
++	router.Use(gin.Recovery())
++	router.Use(MomiaoAuthRecovery())
++	SetUpLogger(router)
++	for _, path := range []string{"/api/momiao/auth/discord/callback", "/internal/momiao/registrations", "/api/user/auth/logout", "/api/user/login"} {
++		router.GET(path, func(*gin.Context) { panic("synthetic-secret-panic-token") })
++		request := httptest.NewRequest(http.MethodGet, path+"?code=synthetic-secret-code&state=synthetic-secret-state", nil)
++		request.Header.Set("Cookie", "__Host-momiao_oauth=synthetic-secret-cookie")
++		w := httptest.NewRecorder()
++		router.ServeHTTP(w, request)
++		assert.Equal(t, 500, w.Code)
++		assert.Contains(t, w.Body.String(), "MOMIAO_UNAVAILABLE")
++		assert.NotContains(t, w.Body.String(), "synthetic-secret")
++	}
++	assert.NotContains(t, logs.String(), "synthetic-secret")
++}
+diff --git a/middleware/momiao_recovery.go b/middleware/momiao_recovery.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..6febd736035532dbe8ed64288591df416dcb50c1
+--- /dev/null
++++ b/middleware/momiao_recovery.go
+@@ -0,0 +1,30 @@
++package middleware
++
++import (
++	"strings"
++
++	"github.com/gin-gonic/gin"
++)
++
++func momiaoCredentialPath(path string) bool {
++	return strings.HasPrefix(path, "/api/momiao/") || strings.HasPrefix(path, "/internal/momiao/") ||
++		strings.HasPrefix(path, "/api/user/auth/") || strings.HasPrefix(path, "/api/user/login") ||
++		path == "/oauth/discord" || path == "/api/oauth/discord"
++}
++
++// MomiaoAuthRecovery is installed only in admission mode, inside the native
++// recovery middleware. Gin's default recovery dumps requests and panic values;
++// neither is safe on a credential-bearing authentication path.
++func MomiaoAuthRecovery() gin.HandlerFunc {
++	redacted := gin.CustomRecoveryWithWriter(nil, func(c *gin.Context, _ any) {
++		c.Header("Cache-Control", "no-store")
++		c.AbortWithStatusJSON(500, gin.H{"success": false, "code": "MOMIAO_UNAVAILABLE"})
++	})
++	return func(c *gin.Context) {
++		if momiaoCredentialPath(c.Request.URL.Path) {
++			redacted(c)
++			return
++		}
++		c.Next()
++	}
++}
+diff --git a/model/auth_flow.go b/model/auth_flow.go
+index 96bb72065a64dd2a9dfbe3f4e03e947138dedf6a..03fc1f740035df1b78b720a9b5668ccd791f379d 100644
+--- a/model/auth_flow.go
++++ b/model/auth_flow.go
+@@ -94,6 +94,14 @@ func authFlowTokenHash(token string) string {
+ }
+ 
+ func CreateAuthFlow(input AuthFlowCreate) (string, *AuthFlow, error) {
++	return CreateAuthFlowWithTx(DB, input)
++}
++
++// CreateAuthFlowWithTx lets one native ceremony replace another atomically.
++func CreateAuthFlowWithTx(tx *gorm.DB, input AuthFlowCreate) (string, *AuthFlow, error) {
++	if tx == nil {
++		return "", nil, ErrAuthFlowInvalid
++	}
+ 	if strings.TrimSpace(input.Purpose) == "" || input.ExpiresAt.IsZero() || !input.ExpiresAt.After(time.Now()) {
+ 		return "", nil, ErrAuthFlowInvalid
+ 	}
+@@ -112,7 +120,7 @@ func CreateAuthFlow(input AuthFlowCreate) (string, *AuthFlow, error) {
+ 		Payload:   input.Payload,
+ 		ExpiresAt: input.ExpiresAt,
+ 	}
+-	if err := DB.Create(flow).Error; err != nil {
++	if err := tx.Create(flow).Error; err != nil {
+ 		return "", nil, err
+ 	}
+ 	return token, flow, nil
+diff --git a/model/momiao_admission.go b/model/momiao_admission.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..42f4ec71e3ff9496a3dfd053a3011a3ae0f43c87
+--- /dev/null
++++ b/model/momiao_admission.go
+@@ -0,0 +1,283 @@
++package model
++
++import (
++	"crypto/rand"
++	"crypto/subtle"
++	_ "embed"
++	"encoding/hex"
++	"errors"
++	"fmt"
++	"regexp"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/google/uuid"
++	"gorm.io/gorm"
++	"gorm.io/gorm/clause"
++)
++
++const (
++	MomiaoPurposeLogin          = "momiao_login"
++	MomiaoPurposeRegistration   = "momiao_registration"
++	MomiaoPurposeFresh          = "momiao_fresh"
++	MomiaoPurposeReset          = "momiao_password_reset"
++	MomiaoPurposeTwoFA          = "momiao_2fa"
++	MomiaoPurposeFreshProof     = "momiao_fresh_proof"
++	MomiaoPurposeResetProof     = "momiao_reset_proof"
++	MomiaoPurposeBrowser        = "momiao_browser"
++	MomiaoPurposeBrowserSession = "momiao_browser_session"
++)
++
++var (
++	ErrMomiaoAuthority   = errors.New("admission authority is invalid or changed")
++	ErrMomiaoUnbound     = errors.New("discord account is not bound")
++	ErrMomiaoIneligible  = errors.New("discord membership or role does not qualify")
++	ErrMomiaoUnavailable = errors.New("admission is unavailable")
++	momiaoSubjectPattern = regexp.MustCompile(`^[0-9]{1,20}$`)
++)
++
++//go:embed momiao_migrations/0001_admission.sql
++var momiaoAdmissionMigration string
++
++// MomiaoFlowPayload contains no provider credentials. Authority is checked
++// again after locking the native flow and account, immediately before writes.
++type MomiaoFlowPayload struct {
++	BrowserHash    string `json:"browser_hash"`
++	ConfigVersion  string `json:"config_version"`
++	OperationID    string `json:"operation_id"`
++	AuthVersion    int64  `json:"auth_version,omitempty"`
++	SessionVersion int64  `json:"session_version,omitempty"`
++	Subject        string `json:"subject,omitempty"`
++	NextPurpose    string `json:"next_purpose,omitempty"`
++}
++
++type MomiaoAdmissionAttempt struct {
++	State         string
++	Purpose       string
++	BrowserToken  string
++	BrowserHash   string
++	ConfigVersion string
++	Subject       string
++	CanRegister   bool
++	PolicyVersion string
++}
++
++type MomiaoRegistrationReceipt struct {
++	Ordinal        int64     `json:"ordinal" gorm:"primaryKey"`
++	OperationID    string    `json:"operation_id"`
++	NativeUserID   int       `json:"native_user_id"`
++	DiscordSubject string    `json:"discord_subject"`
++	Source         string    `json:"source"`
++	PolicyVersion  string    `json:"policy_version"`
++	CreatedAt      time.Time `json:"created_at"`
++}
++
++type MomiaoDuplicateDiscordError struct{ Groups int64 }
++
++func (e *MomiaoDuplicateDiscordError) Error() string {
++	return fmt.Sprintf("admission migration rejected; duplicate groups: %d", e.Groups)
++}
++
++func (MomiaoRegistrationReceipt) TableName() string { return "momiao_admission.registration_receipts" }
++
++func GetMomiaoOAuthFlow(token string) (*AuthFlow, error) {
++	if token == "" {
++		return nil, ErrAuthFlowInvalid
++	}
++	var flow AuthFlow
++	err := DB.Where("token_hash = ? AND provider = ? AND purpose IN ?", authFlowTokenHash(token), "discord", []string{MomiaoPurposeLogin, MomiaoPurposeRegistration, MomiaoPurposeFresh, MomiaoPurposeReset}).First(&flow).Error
++	if errors.Is(err, gorm.ErrRecordNotFound) {
++		return nil, ErrAuthFlowInvalid
++	}
++	if err != nil {
++		return nil, err
++	}
++	if flow.ConsumedAt != nil {
++		return nil, ErrAuthFlowConsumed
++	}
++	if !flow.ExpiresAt.After(time.Now()) {
++		return nil, ErrAuthFlowExpired
++	}
++	return &flow, nil
++}
++
++func CheckMomiaoAdmissionSchema(db *gorm.DB) error {
++	if db == nil || db.Dialector.Name() != "postgres" {
++		return ErrMomiaoUnavailable
++	}
++	var ready bool
++	err := db.Raw(`SELECT EXISTS (
++        SELECT 1 FROM pg_index i JOIN pg_class idx ON idx.oid=i.indexrelid
++        JOIN pg_class tab ON tab.oid=i.indrelid JOIN pg_namespace n ON n.oid=tab.relnamespace
++        WHERE idx.relname='momiao_users_discord_nonempty' AND n.nspname=current_schema()
++        AND tab.relname='users' AND i.indisunique AND i.indisvalid AND i.indnatts=1
++        AND i.indkey::text=(SELECT attnum::text FROM pg_attribute WHERE attrelid=tab.oid AND attname='discord_id')
++        AND pg_get_expr(i.indpred,i.indrelid)=?
++    ) AND 2=(SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
++        JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='momiao_admission'
++        AND c.relname='registration_receipts' AND t.tgname IN ('immutable_receipt','immutable_receipt_truncate')
++        AND t.tgenabled IN ('O','A'))`, "((discord_id IS NOT NULL) AND (discord_id <> ''::text))").Scan(&ready).Error
++	if err != nil || !ready {
++		return ErrMomiaoUnavailable
++	}
++	var counter int64
++	if err := db.Table("momiao_admission.receipt_counter").Select("ordinal").Where("id = 1").Take(&counter).Error; err != nil {
++		return ErrMomiaoUnavailable
++	}
++	return nil
++}
++
++// MigrateMomiaoAdmission must be called explicitly by an operator using the
++// native schema owner. It never runs in generic startup migration.
++func MigrateMomiaoAdmission(db *gorm.DB) error {
++	if db == nil || db.Dialector.Name() != "postgres" {
++		return ErrMomiaoUnavailable
++	}
++	return db.Transaction(func(tx *gorm.DB) error {
++		// Serialize DDL and block identity writes during duplicate validation.
++		if err := tx.Exec("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE").Error; err != nil {
++			return err
++		}
++		var duplicateGroups int64
++		if err := tx.Raw("SELECT count(*) FROM (SELECT discord_id FROM users WHERE discord_id IS NOT NULL AND discord_id <> '' GROUP BY discord_id HAVING count(*) > 1) d").Scan(&duplicateGroups).Error; err != nil {
++			return err
++		}
++		if duplicateGroups != 0 {
++			return &MomiaoDuplicateDiscordError{Groups: duplicateGroups}
++		}
++		if err := tx.Exec(momiaoAdmissionMigration).Error; err != nil {
++			return err
++		}
++		return CheckMomiaoAdmissionSchema(tx)
++	})
++}
++
++func FindMomiaoDiscordUser(db *gorm.DB, subject string) (*User, error) {
++	if !momiaoSubjectPattern.MatchString(subject) {
++		return nil, ErrMomiaoAuthority
++	}
++	var user User
++	err := db.Unscoped().Where("discord_id = ?", subject).First(&user).Error
++	if errors.Is(err, gorm.ErrRecordNotFound) {
++		return nil, ErrMomiaoUnbound
++	}
++	if err != nil {
++		return nil, err
++	}
++	if user.DeletedAt.Valid || user.Status != common.UserStatusEnabled {
++		return nil, ErrMomiaoAuthority
++	}
++	return &user, nil
++}
++
++// CompleteMomiaoAdmission consumes state atomically with native account and
++// receipt creation. Provider membership is merely a creation permission; it
++// never overrides an existing binding or authorizes arbitrary account writes.
++func CompleteMomiaoAdmission(in MomiaoAdmissionAttempt) (*User, *MomiaoRegistrationReceipt, error) {
++	if !momiaoSubjectPattern.MatchString(in.Subject) || in.BrowserHash == "" || in.ConfigVersion == "" {
++		return nil, nil, ErrMomiaoAuthority
++	}
++	if in.Purpose != MomiaoPurposeLogin && in.Purpose != MomiaoPurposeRegistration && in.Purpose != MomiaoPurposeFresh && in.Purpose != MomiaoPurposeReset {
++		return nil, nil, ErrMomiaoAuthority
++	}
++	var user *User
++	var receipt *MomiaoRegistrationReceipt
++	_, err := ConsumeAuthFlowWithAction(in.State, AuthFlowMatch{Purpose: in.Purpose, Provider: "discord"}, func(tx *gorm.DB, flow *AuthFlow) error {
++		var payload MomiaoFlowPayload
++		if err := common.UnmarshalJsonStr(flow.Payload, &payload); err != nil {
++			return ErrMomiaoAuthority
++		}
++		if subtle.ConstantTimeCompare([]byte(payload.BrowserHash), []byte(in.BrowserHash)) != 1 || payload.ConfigVersion != in.ConfigVersion {
++			return ErrMomiaoAuthority
++		}
++		if in.BrowserHash != MomiaoBrowserHash(in.BrowserToken) {
++			return ErrMomiaoAuthority
++		}
++		if _, err := LockMomiaoBrowser(tx, in.BrowserToken); err != nil {
++			return err
++		}
++		if _, err := uuid.Parse(payload.OperationID); err != nil {
++			return ErrMomiaoAuthority
++		}
++		var ordinal int64
++		if in.Purpose == MomiaoPurposeRegistration {
++			// Hold this lock until COMMIT, so a later visible cursor cannot
++			// precede a lower ordinal whose transaction is still uncommitted.
++			if err := lockForUpdate(tx.Table("momiao_admission.receipt_counter")).Select("ordinal").Where("id = 1").Take(&ordinal).Error; err != nil {
++				return err
++			}
++		}
++		var err error
++		user, err = FindMomiaoDiscordUser(lockForUpdate(tx), in.Subject)
++		if err == nil {
++			if in.Purpose == MomiaoPurposeFresh || in.Purpose == MomiaoPurposeReset {
++				return ValidateMomiaoSessionWithTx(tx, flow, payload, user)
++			}
++			return nil
++		}
++		if !errors.Is(err, ErrMomiaoUnbound) {
++			return err
++		}
++		if in.Purpose != MomiaoPurposeRegistration {
++			return ErrMomiaoUnbound
++		}
++		if !in.CanRegister {
++			return ErrMomiaoIneligible
++		}
++		if in.PolicyVersion == "" || flow.UserId != 0 || flow.SessionId != "" {
++			return ErrMomiaoAuthority
++		}
++		for attempt := 0; attempt < 5; attempt++ {
++			var random [16]byte
++			if _, err := rand.Read(random[:]); err != nil {
++				return err
++			}
++			user = &User{Username: "dc_" + hex.EncodeToString(random[:8]), Password: "", DisplayName: "Master", DiscordId: in.Subject, Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1, Group: "default", AffCode: hex.EncodeToString(random[8:]), Setting: "{}"}
++			// DO NOTHING handles username/affiliate collisions without leaving
++			// PostgreSQL's transaction aborted; bounded retry has no MaxID race.
++			created := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(user)
++			if created.Error != nil {
++				return created.Error
++			}
++			if created.RowsAffected == 1 {
++				break
++			}
++			user = nil
++		}
++		if user == nil {
++			return ErrMomiaoUnavailable
++		}
++		receipt = &MomiaoRegistrationReceipt{Ordinal: ordinal + 1, OperationID: payload.OperationID, NativeUserID: user.Id, DiscordSubject: in.Subject, Source: "NEW_DISCORD_REGISTRATION", PolicyVersion: in.PolicyVersion, CreatedAt: time.Now().UTC()}
++		if err := tx.Create(receipt).Error; err != nil {
++			return err
++		}
++		return tx.Table("momiao_admission.receipt_counter").Where("id = 1").Update("ordinal", receipt.Ordinal).Error
++	})
++	if err != nil {
++		return nil, nil, err
++	}
++	return user, receipt, nil
++}
++
++func ValidateMomiaoSessionWithTx(tx *gorm.DB, flow *AuthFlow, payload MomiaoFlowPayload, user *User) error {
++	if flow.UserId != user.Id || flow.SessionId == "" || payload.AuthVersion != user.AuthVersion || payload.SessionVersion <= 0 || (payload.Subject != "" && payload.Subject != user.DiscordId) {
++		return ErrMomiaoAuthority
++	}
++	var session UserSession
++	if err := lockForUpdate(tx).Where("sid = ? AND user_id = ?", flow.SessionId, user.Id).First(&session).Error; err != nil {
++		return ErrMomiaoAuthority
++	}
++	if session.Status != UserSessionStatusActive || session.RevokedAt != 0 || session.ExpiresAt <= time.Now().Unix() || session.UserAuthVersion != user.AuthVersion || session.Version != payload.SessionVersion {
++		return ErrMomiaoAuthority
++	}
++	return nil
++}
++
++func ListMomiaoRegistrationReceipts(db *gorm.DB, after int64, limit int) ([]MomiaoRegistrationReceipt, error) {
++	if after < 0 || limit < 1 || limit > 100 {
++		return nil, ErrMomiaoAuthority
++	}
++	rows := make([]MomiaoRegistrationReceipt, 0)
++	err := db.Where("ordinal > ?", after).Order("ordinal ASC").Limit(limit).Find(&rows).Error
++	return rows, err
++}
+diff --git a/model/momiao_admission_test.go b/model/momiao_admission_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..bf6fc5c924351ed674081f04080c92b07b3588c7
+--- /dev/null
++++ b/model/momiao_admission_test.go
+@@ -0,0 +1,275 @@
++package model
++
++import (
++	"context"
++	"errors"
++	"os"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/google/uuid"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"gorm.io/driver/postgres"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++func setupMomiaoPostgres(t *testing.T, migrate bool) *gorm.DB {
++	t.Helper()
++	dsn := os.Getenv("MOMIAO_TEST_POSTGRES_DSN")
++	if dsn == "" {
++		t.Skip("requires isolated PostgreSQL via MOMIAO_TEST_POSTGRES_DSN")
++	}
++	require.Contains(t, dsn, "host=127.0.0.1 ")
++	require.Contains(t, dsn, "dbname=momiao_m2_test ")
++	oldDB, oldLogDB, oldType := DB, LOG_DB, common.MainDatabaseType()
++	db, err := gorm.Open(postgres.Open(dsn+" search_path=m2_native_test,public"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	require.NoError(t, err)
++	sqlDB, err := db.DB()
++	require.NoError(t, err)
++	sqlDB.SetMaxOpenConns(12)
++	guard, err := sqlDB.Conn(context.Background())
++	require.NoError(t, err)
++	_, err = guard.ExecContext(context.Background(), "SELECT pg_advisory_lock(42684268, 2)")
++	require.NoError(t, err)
++	t.Cleanup(func() {
++		_, err := guard.ExecContext(context.Background(), "SELECT pg_advisory_unlock(42684268, 2)")
++		require.NoError(t, err)
++		require.NoError(t, guard.Close())
++		require.NoError(t, sqlDB.Close())
++		DB, LOG_DB = oldDB, oldLogDB
++		common.SetMainDatabaseType(oldType)
++		initCol()
++	})
++	// This named schema belongs exclusively to this isolated test database.
++	require.NoError(t, db.Exec("DROP SCHEMA IF EXISTS momiao_admission CASCADE").Error)
++	require.NoError(t, db.Exec("DROP SCHEMA IF EXISTS m2_native_test CASCADE").Error)
++	require.NoError(t, db.Exec("CREATE SCHEMA m2_native_test").Error)
++	DB, LOG_DB = db, db
++	common.SetMainDatabaseType(common.DatabaseTypePostgreSQL)
++	initCol()
++	require.NoError(t, db.AutoMigrate(&User{}, &AuthFlow{}, &UserSession{}, &TwoFA{}, &TwoFABackupCode{}))
++	t.Cleanup(func() {
++		require.NoError(t, db.Exec("DROP SCHEMA IF EXISTS momiao_admission CASCADE").Error)
++		require.NoError(t, db.Exec("DROP SCHEMA IF EXISTS m2_native_test CASCADE").Error)
++	})
++	if migrate {
++		require.NoError(t, MigrateMomiaoAdmission(db))
++	}
++	return db
++}
++
++func momiaoTestFlow(t *testing.T, purpose, subject string) MomiaoAdmissionAttempt {
++	t.Helper()
++	browser, _, err := CreateAuthFlow(AuthFlowCreate{Purpose: MomiaoPurposeBrowser, ExpiresAt: time.Now().Add(10 * time.Minute)})
++	require.NoError(t, err)
++	payload := MomiaoFlowPayload{BrowserHash: MomiaoBrowserHash(browser), ConfigVersion: "policy-test", OperationID: uuid.NewString()}
++	encoded, err := common.Marshal(payload)
++	require.NoError(t, err)
++	token, _, err := CreateAuthFlow(AuthFlowCreate{Purpose: purpose, Provider: "discord", Payload: string(encoded), ExpiresAt: time.Now().Add(10 * time.Minute)})
++	require.NoError(t, err)
++	return MomiaoAdmissionAttempt{State: token, Purpose: purpose, BrowserToken: browser, BrowserHash: payload.BrowserHash, ConfigVersion: payload.ConfigVersion, Subject: subject, CanRegister: true, PolicyVersion: "test-policy"}
++}
++
++func TestMomiaoRegistrationAtomicAndNoNativeGrant(t *testing.T) {
++	db := setupMomiaoPostgres(t, true)
++	previousQuota := common.QuotaForNewUser
++	common.QuotaForNewUser = 777
++	t.Cleanup(func() { common.QuotaForNewUser = previousQuota })
++	in := momiaoTestFlow(t, MomiaoPurposeRegistration, "123456789012345678")
++	user, receipt, err := CompleteMomiaoAdmission(in)
++	require.NoError(t, err)
++	require.NotNil(t, receipt)
++	assert.Equal(t, "NEW_DISCORD_REGISTRATION", receipt.Source)
++	assert.Equal(t, user.Id, receipt.NativeUserID)
++	assert.Equal(t, "", user.Password)
++	assert.Zero(t, user.Quota)
++	assert.Zero(t, user.InviterId)
++	assert.Zero(t, user.AffQuota)
++	_, _, err = CompleteMomiaoAdmission(in)
++	assert.ErrorIs(t, err, ErrAuthFlowConsumed)
++	assert.Error(t, db.Model(&MomiaoRegistrationReceipt{}).Where("ordinal = ?", receipt.Ordinal).Update("policy_version", "changed").Error)
++	assert.Error(t, db.Where("ordinal = ?", receipt.Ordinal).Delete(&MomiaoRegistrationReceipt{}).Error)
++	assert.Error(t, db.Exec("TRUNCATE TABLE momiao_admission.registration_receipts").Error)
++	rows, err := ListMomiaoRegistrationReceipts(db, 0, 10)
++	require.NoError(t, err)
++	require.Len(t, rows, 1)
++	assert.Equal(t, receipt.OperationID, rows[0].OperationID)
++
++	// Historical binding wins even when the provider membership gate is false.
++	second := momiaoTestFlow(t, MomiaoPurposeRegistration, in.Subject)
++	second.CanRegister = false
++	existing, duplicate, err := CompleteMomiaoAdmission(second)
++	require.NoError(t, err)
++	assert.Equal(t, user.Id, existing.Id)
++	assert.Nil(t, duplicate)
++
++	assert.NoError(t, db.Delete(user).Error)
++	assert.Error(t, db.Create(&User{Username: "deleted_duplicate", Password: "", DiscordId: in.Subject, AffCode: "different"}).Error)
++}
++
++func TestMomiaoRegistrationFailureRollsBackFlowAndUser(t *testing.T) {
++	db := setupMomiaoPostgres(t, true)
++	in := momiaoTestFlow(t, MomiaoPurposeRegistration, "223456789012345678")
++	require.NoError(t, db.Exec("CREATE FUNCTION momiao_admission.fail_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic receipt failure'; END $$").Error)
++	require.NoError(t, db.Exec("CREATE TRIGGER synthetic_failure BEFORE INSERT ON momiao_admission.registration_receipts FOR EACH ROW EXECUTE FUNCTION momiao_admission.fail_receipt()").Error)
++	_, _, err := CompleteMomiaoAdmission(in)
++	require.Error(t, err)
++	var count int64
++	require.NoError(t, db.Model(&User{}).Where("discord_id = ?", in.Subject).Count(&count).Error)
++	assert.Zero(t, count)
++	_, err = GetAuthFlow(in.State, AuthFlowMatch{Purpose: in.Purpose})
++	assert.NoError(t, err)
++	require.NoError(t, db.Exec("DROP TRIGGER synthetic_failure ON momiao_admission.registration_receipts").Error)
++	_, receipt, err := CompleteMomiaoAdmission(in)
++	require.NoError(t, err)
++	assert.EqualValues(t, 1, receipt.Ordinal)
++}
++
++func TestMomiaoConcurrentSameSubjectAndState(t *testing.T) {
++	db := setupMomiaoPostgres(t, true)
++	first := momiaoTestFlow(t, MomiaoPurposeRegistration, "323456789012345678")
++	second := momiaoTestFlow(t, MomiaoPurposeRegistration, first.Subject)
++	inputs := []MomiaoAdmissionAttempt{first, first, second}
++	var wg sync.WaitGroup
++	start := make(chan struct{})
++	results := make(chan error, len(inputs))
++	for _, input := range inputs {
++		wg.Add(1)
++		go func(in MomiaoAdmissionAttempt) {
++			defer wg.Done()
++			<-start
++			_, _, err := CompleteMomiaoAdmission(in)
++			results <- err
++		}(input)
++	}
++	close(start)
++	wg.Wait()
++	close(results)
++	consumed := 0
++	for err := range results {
++		if errors.Is(err, ErrAuthFlowConsumed) {
++			consumed++
++		} else {
++			assert.NoError(t, err)
++		}
++	}
++	assert.Equal(t, 1, consumed)
++	rows, err := ListMomiaoRegistrationReceipts(db, 0, 100)
++	require.NoError(t, err)
++	assert.Len(t, rows, 1)
++	var users int64
++	require.NoError(t, db.Model(&User{}).Count(&users).Error)
++	assert.EqualValues(t, 1, users)
++}
++
++func TestMomiaoRejectsWrongBrowserPurposeAndUnboundLogin(t *testing.T) {
++	setupMomiaoPostgres(t, true)
++	in := momiaoTestFlow(t, MomiaoPurposeRegistration, "423456789012345678")
++	in.BrowserHash = "other-browser"
++	_, _, err := CompleteMomiaoAdmission(in)
++	assert.ErrorIs(t, err, ErrMomiaoAuthority)
++	in.BrowserHash = MomiaoBrowserHash(in.BrowserToken)
++	in.Purpose = MomiaoPurposeLogin
++	_, _, err = CompleteMomiaoAdmission(in)
++	assert.ErrorIs(t, err, ErrAuthFlowInvalid)
++	login := momiaoTestFlow(t, MomiaoPurposeLogin, in.Subject)
++	_, _, err = CompleteMomiaoAdmission(login)
++	assert.ErrorIs(t, err, ErrMomiaoUnbound)
++}
++
++func TestMomiaoLogoutClosesBrowserAndRejectsLateSessionLink(t *testing.T) {
++	db := setupMomiaoPostgres(t, true)
++	in := momiaoTestFlow(t, MomiaoPurposeRegistration, "623456789012345678")
++	user, _, err := CompleteMomiaoAdmission(in)
++	require.NoError(t, err)
++	session := &UserSession{SID: uuid.NewString(), UserID: user.Id, UserAuthVersion: 1, Version: 1, Status: UserSessionStatusActive, RefreshHash: "synthetic-hash", ExpiresAt: time.Now().Add(time.Hour).Unix()}
++	require.NoError(t, db.Create(session).Error)
++	require.NoError(t, LinkMomiaoBrowserSession(in.BrowserToken, session))
++	linked, err := CloseMomiaoBrowser(in.BrowserToken)
++	require.NoError(t, err)
++	require.Len(t, linked, 1)
++	assert.Equal(t, session.SID, linked[0].SessionId)
++	retried, err := CloseMomiaoBrowser(in.BrowserToken)
++	require.NoError(t, err)
++	assert.Len(t, retried, 1, "a retry must be able to finish a failed native session revocation")
++	assert.ErrorIs(t, LinkMomiaoBrowserSession(in.BrowserToken, session), ErrMomiaoAuthority)
++	late := momiaoTestFlow(t, MomiaoPurposeRegistration, "723456789012345678")
++	_, err = CloseMomiaoBrowser(late.BrowserToken)
++	require.NoError(t, err)
++	_, _, err = CompleteMomiaoAdmission(late)
++	assert.ErrorIs(t, err, ErrMomiaoAuthority)
++}
++
++func TestMomiaoConcurrentBrowserRestartsHaveOneSuccessor(t *testing.T) {
++	setupMomiaoPostgres(t, true)
++	previous, _, _, err := RotateMomiaoBrowser("")
++	require.NoError(t, err)
++	start := make(chan struct{})
++	results := make(chan error, 2)
++	var wg sync.WaitGroup
++	for range 2 {
++		wg.Add(1)
++		go func() { defer wg.Done(); <-start; _, _, _, err := RotateMomiaoBrowser(previous); results <- err }()
++	}
++	close(start)
++	wg.Wait()
++	close(results)
++	success := 0
++	for err := range results {
++		if err == nil {
++			success++
++		} else {
++			assert.ErrorIs(t, err, ErrAuthFlowConsumed)
++		}
++	}
++	assert.Equal(t, 1, success)
++}
++
++func TestMomiaoLogoutStillFindsSessionsAfterNativeFlowCleanup(t *testing.T) {
++	db := setupMomiaoPostgres(t, true)
++	in := momiaoTestFlow(t, MomiaoPurposeRegistration, "1223456789012345678")
++	user, _, err := CompleteMomiaoAdmission(in)
++	require.NoError(t, err)
++	session := &UserSession{SID: uuid.NewString(), UserID: user.Id, Version: 1, UserAuthVersion: 1, Status: UserSessionStatusActive, RefreshHash: "synthetic-hash", ExpiresAt: time.Now().Add(time.Hour).Unix()}
++	require.NoError(t, db.Create(session).Error)
++	require.NoError(t, LinkMomiaoBrowserSession(in.BrowserToken, session))
++	require.NoError(t, db.Model(&AuthFlow{}).Where("purpose = ?", MomiaoPurposeBrowser).Update("expires_at", time.Now().Add(-25*time.Hour)).Error)
++	require.NoError(t, DeleteExpiredAuthFlows(time.Now()))
++	_, err = GetAuthFlow(in.BrowserToken, AuthFlowMatch{Purpose: MomiaoPurposeBrowser})
++	assert.ErrorIs(t, err, ErrAuthFlowInvalid)
++	links, err := CloseMomiaoBrowser(in.BrowserToken)
++	require.NoError(t, err)
++	assert.Len(t, links, 1)
++}
++
++func TestMomiaoMigrationRejectsHistoricalDuplicatesWithoutDisclosure(t *testing.T) {
++	db := setupMomiaoPostgres(t, false)
++	for i, name := range []string{"history-a", "history-b"} {
++		u := &User{Username: name, Password: "", AffCode: name, DiscordId: "523456789012345678"}
++		require.NoError(t, db.Create(u).Error)
++		if i == 1 {
++			require.NoError(t, db.Delete(u).Error)
++		}
++	}
++	err := MigrateMomiaoAdmission(db)
++	require.Error(t, err)
++	assert.Contains(t, err.Error(), "duplicate groups: 1")
++	assert.False(t, strings.Contains(err.Error(), "523456789012345678"))
++	var count int64
++	require.NoError(t, db.Unscoped().Model(&User{}).Count(&count).Error)
++	assert.EqualValues(t, 2, count)
++	// Leave an empty owned schema for the fixture's strict cleanup.
++	require.NoError(t, db.Exec("CREATE SCHEMA IF NOT EXISTS momiao_admission").Error)
++}
++
++func TestMomiaoMigrationRejectsMisnamedUniqueIndex(t *testing.T) {
++	db := setupMomiaoPostgres(t, false)
++	require.NoError(t, db.Exec("CREATE UNIQUE INDEX momiao_users_discord_nonempty ON users (username)").Error)
++	assert.ErrorIs(t, MigrateMomiaoAdmission(db), ErrMomiaoUnavailable)
++	assert.ErrorIs(t, CheckMomiaoAdmissionSchema(db), ErrMomiaoUnavailable)
++}
+diff --git a/model/momiao_browser.go b/model/momiao_browser.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..2d30c484548986688e6384d6499f9e71fc88364a
+--- /dev/null
++++ b/model/momiao_browser.go
+@@ -0,0 +1,103 @@
++package model
++
++import (
++	"errors"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"gorm.io/gorm"
++	"gorm.io/gorm/clause"
++)
++
++func MomiaoBrowserHash(token string) string {
++	return common.GenerateHMACWithKey([]byte("momiao-browser-v1:"+common.SessionSecret), token)
++}
++
++// RotateMomiaoBrowser closes a previous browser ceremony and creates its
++// successor in one transaction. A concurrent restart carrying the old cookie
++// loses the CAS; it cannot create an unrelated second successor.
++func RotateMomiaoBrowser(previous string) (string, *AuthFlow, []AuthFlow, error) {
++	var token string
++	var created *AuthFlow
++	links := make([]AuthFlow, 0)
++	err := DB.Transaction(func(tx *gorm.DB) error {
++		if previous != "" {
++			var old AuthFlow
++			if err := applyAuthFlowMatch(lockForUpdate(tx), previous, AuthFlowMatch{Purpose: MomiaoPurposeBrowser}).First(&old).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
++				return ErrMomiaoAuthority
++			}
++			if old.ConsumedAt != nil {
++				return ErrAuthFlowConsumed
++			}
++			if err := tx.Model(&AuthFlow{}).Where("id = ? AND consumed_at IS NULL", old.Id).Update("consumed_at", time.Now()).Error; err != nil {
++				return err
++			}
++			if err := tx.Where("purpose = ? AND provider = ?", MomiaoPurposeBrowserSession, MomiaoBrowserHash(previous)).Find(&links).Error; err != nil {
++				return err
++			}
++		}
++		var err error
++		token, created, err = CreateAuthFlowWithTx(tx, AuthFlowCreate{Purpose: MomiaoPurposeBrowser, ExpiresAt: time.Now().Add(10 * time.Minute)})
++		return err
++	})
++	return token, created, links, err
++}
++
++// LockMomiaoBrowser serializes session completion with browser logout.
++// This nonce is an authentication ceremony, never an alternative session.
++func LockMomiaoBrowser(tx *gorm.DB, token string) (*AuthFlow, error) {
++	if token == "" {
++		return nil, ErrMomiaoAuthority
++	}
++	var flow AuthFlow
++	if err := applyAuthFlowMatch(lockForUpdate(tx), token, AuthFlowMatch{Purpose: MomiaoPurposeBrowser}).First(&flow).Error; err != nil {
++		return nil, ErrMomiaoAuthority
++	}
++	if flow.ConsumedAt != nil || !flow.ExpiresAt.After(time.Now()) {
++		return nil, ErrMomiaoAuthority
++	}
++	return &flow, nil
++}
++
++func LinkMomiaoBrowserSession(token string, session *UserSession) error {
++	if session == nil || session.SID == "" || session.UserID <= 0 {
++		return ErrMomiaoAuthority
++	}
++	return DB.Transaction(func(tx *gorm.DB) error {
++		if _, err := LockMomiaoBrowser(tx, token); err != nil {
++			return err
++		}
++		// No bearer exists for this internal association. Its deterministic
++		// HMAC only supplies a unique row identity in the native flow table.
++		link := AuthFlow{TokenHash: authFlowTokenHash("momiao-session:" + MomiaoBrowserHash(token) + ":" + session.SID), Purpose: MomiaoPurposeBrowserSession, Provider: MomiaoBrowserHash(token), UserId: session.UserID, SessionId: session.SID, ExpiresAt: time.Unix(session.ExpiresAt, 0)}
++		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&link).Error
++	})
++}
++
++func CloseMomiaoBrowser(token string) ([]AuthFlow, error) {
++	links := make([]AuthFlow, 0)
++	if token == "" {
++		return links, nil
++	}
++	err := DB.Transaction(func(tx *gorm.DB) error {
++		var flow AuthFlow
++		if err := applyAuthFlowMatch(lockForUpdate(tx), token, AuthFlowMatch{Purpose: MomiaoPurposeBrowser}).First(&flow).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
++			return err
++		}
++		// Closure is idempotent. Returning the links after an earlier closure
++		// lets a retry finish any native revocation interrupted after commit.
++		if flow.Id != 0 && flow.ConsumedAt == nil {
++			if err := tx.Model(&AuthFlow{}).Where("id = ?", flow.Id).Update("consumed_at", time.Now()).Error; err != nil {
++				return err
++			}
++		}
++		// Native flow cleanup may have removed the short ceremony already.
++		// Possession of its opaque cookie still authorizes only revocation of
++		// linked SIDs, never authentication; links live for the native session TTL.
++		return tx.Where("purpose = ? AND provider = ?", MomiaoPurposeBrowserSession, MomiaoBrowserHash(token)).Find(&links).Error
++	})
++	if errors.Is(err, gorm.ErrRecordNotFound) {
++		return links, nil
++	}
++	return links, err
++}
+diff --git a/model/momiao_migrations/0001_admission.sql b/model/momiao_migrations/0001_admission.sql
+new file mode 100644
+index 0000000000000000000000000000000000000000..d4caf4030446d02bbccb72382cc4e7e60dab6924
+--- /dev/null
++++ b/model/momiao_migrations/0001_admission.sql
+@@ -0,0 +1,39 @@
++-- Dedicated opt-in PostgreSQL increment, intentionally outside AutoMigrate.
++-- Apply through cmd/momiao-admission-migrate, which holds the users lock,
++-- checks duplicates without disclosing identities, and owns the transaction.
++CREATE UNIQUE INDEX IF NOT EXISTS momiao_users_discord_nonempty
++    ON users (discord_id) WHERE discord_id IS NOT NULL AND discord_id <> '';
++CREATE SCHEMA IF NOT EXISTS momiao_admission;
++CREATE INDEX IF NOT EXISTS momiao_auth_flow_browser_links
++    ON auth_flows (purpose, provider) WHERE purpose = 'momiao_browser_session';
++CREATE TABLE IF NOT EXISTS momiao_admission.receipt_counter (
++    id integer PRIMARY KEY CHECK (id = 1),
++    ordinal bigint NOT NULL CHECK (ordinal >= 0)
++);
++INSERT INTO momiao_admission.receipt_counter (id, ordinal)
++    VALUES (1, 0) ON CONFLICT (id) DO NOTHING;
++CREATE TABLE IF NOT EXISTS momiao_admission.registration_receipts (
++    ordinal bigint PRIMARY KEY CHECK (ordinal > 0),
++    operation_id uuid NOT NULL UNIQUE,
++    native_user_id bigint NOT NULL UNIQUE REFERENCES users(id),
++    discord_subject text NOT NULL UNIQUE CHECK (discord_subject <> ''),
++    source text NOT NULL CHECK (source = 'NEW_DISCORD_REGISTRATION'),
++    policy_version text NOT NULL CHECK (policy_version <> ''),
++    created_at timestamptz NOT NULL
++);
++CREATE OR REPLACE FUNCTION momiao_admission.reject_receipt_mutation()
++RETURNS trigger LANGUAGE plpgsql AS $$
++BEGIN
++    RAISE EXCEPTION 'registration receipt is immutable';
++END;
++$$;
++DROP TRIGGER IF EXISTS immutable_receipt ON momiao_admission.registration_receipts;
++CREATE TRIGGER immutable_receipt BEFORE UPDATE OR DELETE
++    ON momiao_admission.registration_receipts FOR EACH ROW
++    EXECUTE FUNCTION momiao_admission.reject_receipt_mutation();
++DROP TRIGGER IF EXISTS immutable_receipt_truncate ON momiao_admission.registration_receipts;
++CREATE TRIGGER immutable_receipt_truncate BEFORE TRUNCATE
++    ON momiao_admission.registration_receipts FOR EACH STATEMENT
++    EXECUTE FUNCTION momiao_admission.reject_receipt_mutation();
++REVOKE ALL ON SCHEMA momiao_admission FROM PUBLIC;
++REVOKE ALL ON ALL TABLES IN SCHEMA momiao_admission FROM PUBLIC;
+diff --git a/model/momiao_password.go b/model/momiao_password.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..83698efda99aad4cc40803a2b4d3a77143f22c77
+--- /dev/null
++++ b/model/momiao_password.go
+@@ -0,0 +1,106 @@
++package model
++
++import (
++	"errors"
++	"unicode/utf8"
++
++	"github.com/QuantumNous/new-api/common"
++	"gorm.io/gorm"
++)
++
++var ErrMomiaoPassword = errors.New("password authority or new password is invalid")
++
++type MomiaoPasswordChange struct {
++	Mode           string
++	UserID         int
++	SessionID      string
++	AuthVersion    int64
++	SessionVersion int64
++	BrowserToken   string
++	ConfigVersion  string
++	Proof          string
++	Password       string
++	OldPassword    string
++}
++
++// ChangeMomiaoPassword keeps the native hash and auth-version authority.
++// Only password/auth_version can change; no full User snapshot is written.
++func ChangeMomiaoPassword(in MomiaoPasswordChange) (*User, error) {
++	length := utf8.RuneCountInString(in.Password)
++	if length < 8 || length > 20 || len(in.Password) > 72 || in.UserID <= 0 || in.AuthVersion <= 0 || in.SessionVersion <= 0 || in.SessionID == "" {
++		return nil, ErrMomiaoPassword
++	}
++	if in.Mode != "set" && in.Mode != "change" && in.Mode != "reset" {
++		return nil, ErrMomiaoAuthority
++	}
++	hash, err := common.Password2Hash(in.Password)
++	if err != nil {
++		return nil, ErrMomiaoPassword
++	}
++	var changed User
++	action := func(tx *gorm.DB, flow *AuthFlow) error {
++		var proof MomiaoFlowPayload
++		if flow != nil {
++			if common.UnmarshalJsonStr(flow.Payload, &proof) != nil || proof.ConfigVersion != in.ConfigVersion || proof.BrowserHash != MomiaoBrowserHash(in.BrowserToken) || flow.UserId != in.UserID || flow.SessionId != in.SessionID {
++				return ErrMomiaoAuthority
++			}
++			if _, err := LockMomiaoBrowser(tx, in.BrowserToken); err != nil {
++				return err
++			}
++		}
++		if err := lockForUpdate(tx).First(&changed, in.UserID).Error; err != nil {
++			return err
++		}
++		if changed.Status != common.UserStatusEnabled || changed.AuthVersion != in.AuthVersion {
++			return ErrMomiaoAuthority
++		}
++		identity := MomiaoFlowPayload{AuthVersion: in.AuthVersion, SessionVersion: in.SessionVersion}
++		if err := ValidateMomiaoSessionWithTx(tx, &AuthFlow{UserId: in.UserID, SessionId: in.SessionID}, identity, &changed); err != nil {
++			return err
++		}
++		if flow != nil {
++			if changed.DiscordId == "" || proof.Subject != changed.DiscordId {
++				return ErrMomiaoAuthority
++			}
++			if err := ValidateMomiaoSessionWithTx(tx, flow, proof, &changed); err != nil {
++				return err
++			}
++		}
++		if in.Mode == "set" && changed.Password != "" {
++			return ErrMomiaoPassword
++		}
++		if in.Mode == "change" && (changed.Password == "" || !common.ValidatePasswordAndHash(in.OldPassword, changed.Password)) {
++			return ErrMomiaoPassword
++		}
++		next, err := IncrementUserAuthVersionWithTx(tx, changed.Id)
++		if err != nil {
++			return err
++		}
++		if err := tx.Model(&User{}).Where("id = ?", changed.Id).Update("password", hash).Error; err != nil {
++			return err
++		}
++		changed.Password, changed.AuthVersion = hash, next
++		return nil
++	}
++	if in.Mode == "change" {
++		err = DB.Transaction(func(tx *gorm.DB) error { return action(tx, nil) })
++	} else {
++		purpose := MomiaoPurposeFreshProof
++		if in.Mode == "reset" {
++			purpose = MomiaoPurposeResetProof
++		}
++		_, err = ConsumeAuthFlowWithAction(in.Proof, AuthFlowMatch{Purpose: purpose, Provider: "discord", UserId: in.UserID, SessionId: in.SessionID}, action)
++	}
++	if err != nil {
++		return nil, err
++	}
++	// Uses native cache fences; a publication failure is a committed security
++	// change requiring fresh authentication, never permission to replay proof.
++	if err := publishCommittedUserAuthVersion(changed.Id, changed.AuthVersion); err != nil {
++		return nil, err
++	}
++	if err := PublishUserAuthCache(changed.Id); err != nil {
++		return nil, err
++	}
++	return &changed, nil
++}
+diff --git a/model/momiao_password_test.go b/model/momiao_password_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..dbd55afd4827d025fe4f2c72352372ccdf393c83
+--- /dev/null
++++ b/model/momiao_password_test.go
+@@ -0,0 +1,126 @@
++package model
++
++import (
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/google/uuid"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++func momiaoPasswordFixture(t *testing.T, mode string) MomiaoPasswordChange {
++	t.Helper()
++	in := momiaoTestFlow(t, MomiaoPurposeRegistration, "823456789012345678")
++	user, _, err := CompleteMomiaoAdmission(in)
++	require.NoError(t, err)
++	session := &UserSession{SID: uuid.NewString(), UserID: user.Id, Version: 1, UserAuthVersion: 1, Status: UserSessionStatusActive, RefreshHash: "test-hash", ExpiresAt: time.Now().Add(time.Hour).Unix()}
++	require.NoError(t, DB.Create(session).Error)
++	change := MomiaoPasswordChange{Mode: mode, UserID: user.Id, SessionID: session.SID, AuthVersion: 1, SessionVersion: 1, BrowserToken: in.BrowserToken, ConfigVersion: in.ConfigVersion, Password: "new-password-123"}
++	if mode != "change" {
++		purpose := MomiaoPurposeFreshProof
++		if mode == "reset" {
++			purpose = MomiaoPurposeResetProof
++		}
++		payload := MomiaoFlowPayload{BrowserHash: in.BrowserHash, ConfigVersion: in.ConfigVersion, OperationID: uuid.NewString(), AuthVersion: 1, SessionVersion: 1, Subject: user.DiscordId}
++		encoded, err := common.Marshal(payload)
++		require.NoError(t, err)
++		change.Proof, _, err = CreateAuthFlow(AuthFlowCreate{Purpose: purpose, Provider: "discord", UserId: user.Id, SessionId: session.SID, Payload: string(encoded), ExpiresAt: time.Now().Add(time.Minute)})
++		require.NoError(t, err)
++	}
++	return change
++}
++
++func TestMomiaoFirstPasswordSetAndProofReplay(t *testing.T) {
++	setupMomiaoPostgres(t, true)
++	in := momiaoPasswordFixture(t, "set")
++	user, err := ChangeMomiaoPassword(in)
++	require.NoError(t, err)
++	assert.EqualValues(t, 2, user.AuthVersion)
++	assert.True(t, common.ValidatePasswordAndHash(in.Password, user.Password))
++	assert.NotEqual(t, in.Password, user.Password)
++	_, err = ChangeMomiaoPassword(in)
++	assert.Error(t, err)
++	var flow AuthFlow
++	require.NoError(t, applyAuthFlowMatch(DB, in.Proof, AuthFlowMatch{Purpose: MomiaoPurposeFreshProof}).First(&flow).Error)
++	assert.NotNil(t, flow.ConsumedAt)
++}
++
++func TestMomiaoPasswordAuthorityFailuresDoNotConsumeProof(t *testing.T) {
++	for _, failure := range []string{"session", "auth-version", "browser", "purpose", "existing-password"} {
++		t.Run(failure, func(t *testing.T) {
++			setupMomiaoPostgres(t, true)
++			in := momiaoPasswordFixture(t, "set")
++			bad := in
++			switch failure {
++			case "session":
++				bad.SessionID = uuid.NewString()
++			case "auth-version":
++				bad.AuthVersion = 9
++			case "browser":
++				bad.BrowserToken = "other-browser"
++			case "purpose":
++				bad.Mode = "reset"
++			case "existing-password":
++				require.NoError(t, DB.Model(&User{}).Where("id = ?", in.UserID).Update("password", "existing-hash").Error)
++			}
++			_, err := ChangeMomiaoPassword(bad)
++			assert.Error(t, err)
++			_, err = GetAuthFlow(in.Proof, AuthFlowMatch{Purpose: MomiaoPurposeFreshProof})
++			assert.NoError(t, err)
++		})
++	}
++}
++
++func TestMomiaoOldPasswordAndConcurrentVersionCAS(t *testing.T) {
++	setupMomiaoPostgres(t, true)
++	in := momiaoPasswordFixture(t, "change")
++	hash, err := common.Password2Hash("old-password-123")
++	require.NoError(t, err)
++	require.NoError(t, DB.Model(&User{}).Where("id = ?", in.UserID).Update("password", hash).Error)
++	in.OldPassword = "wrong-password"
++	_, err = ChangeMomiaoPassword(in)
++	assert.ErrorIs(t, err, ErrMomiaoPassword)
++	in.OldPassword = "old-password-123"
++	start := make(chan struct{})
++	results := make(chan error, 2)
++	var wg sync.WaitGroup
++	for range 2 {
++		wg.Add(1)
++		go func() { defer wg.Done(); <-start; _, err := ChangeMomiaoPassword(in); results <- err }()
++	}
++	close(start)
++	wg.Wait()
++	close(results)
++	success := 0
++	for err := range results {
++		if err == nil {
++			success++
++		} else {
++			assert.ErrorIs(t, err, ErrMomiaoAuthority)
++		}
++	}
++	assert.Equal(t, 1, success)
++	var user User
++	require.NoError(t, DB.First(&user, in.UserID).Error)
++	assert.EqualValues(t, 2, user.AuthVersion)
++	assert.False(t, common.ValidatePasswordAndHash(in.OldPassword, user.Password))
++	assert.True(t, common.ValidatePasswordAndHash(in.Password, user.Password))
++}
++
++func TestMomiaoPasswordWriteFailureRollsBackProofAndVersion(t *testing.T) {
++	db := setupMomiaoPostgres(t, true)
++	in := momiaoPasswordFixture(t, "reset")
++	require.NoError(t, db.Exec("CREATE FUNCTION m2_native_test.fail_password() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic password failure'; END $$").Error)
++	require.NoError(t, db.Exec("CREATE TRIGGER synthetic_password_failure BEFORE UPDATE OF password ON users FOR EACH ROW EXECUTE FUNCTION m2_native_test.fail_password()").Error)
++	_, err := ChangeMomiaoPassword(in)
++	require.Error(t, err)
++	_, err = GetAuthFlow(in.Proof, AuthFlowMatch{Purpose: MomiaoPurposeResetProof})
++	assert.NoError(t, err)
++	var user User
++	require.NoError(t, db.First(&user, in.UserID).Error)
++	assert.EqualValues(t, 1, user.AuthVersion)
++	assert.Empty(t, user.Password)
++}
+diff --git a/model/momiao_receipt_test.go b/model/momiao_receipt_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..8e203fb8cfc8273bf0509affcd592f38f899e49b
+--- /dev/null
++++ b/model/momiao_receipt_test.go
+@@ -0,0 +1,77 @@
++package model
++
++import (
++	"context"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/google/uuid"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"gorm.io/gorm"
++)
++
++func TestMomiaoReceiptCursorCannotSkipLateCommit(t *testing.T) {
++	db := setupMomiaoPostgres(t, true)
++	// Hold a real earlier receipt transaction open after assigning ordinal 1.
++	first := db.Begin()
++	require.NoError(t, first.Error)
++	defer first.Rollback()
++	var ordinal int64
++	require.NoError(t, lockForUpdate(first.Table("momiao_admission.receipt_counter")).Select("ordinal").Where("id = 1").Take(&ordinal).Error)
++	u := &User{Username: "held-commit", Password: "", DiscordId: "923456789012345678", AffCode: "held-commit", AuthVersion: 1, Status: common.UserStatusEnabled}
++	require.NoError(t, first.Create(u).Error)
++	receipt := &MomiaoRegistrationReceipt{Ordinal: 1, OperationID: uuid.NewString(), NativeUserID: u.Id, DiscordSubject: u.DiscordId, Source: "NEW_DISCORD_REGISTRATION", PolicyVersion: "v1", CreatedAt: time.Now()}
++	require.NoError(t, first.Create(receipt).Error)
++	require.NoError(t, first.Table("momiao_admission.receipt_counter").Where("id = 1").Update("ordinal", 1).Error)
++	second := momiaoTestFlow(t, MomiaoPurposeRegistration, "1023456789012345678")
++	result := make(chan error, 1)
++	go func() { _, _, err := CompleteMomiaoAdmission(second); result <- err }()
++	// Observe PostgreSQL actually blocking the second callback on the counter;
++	// no arbitrary sleep or presumed scheduler order substitutes for evidence.
++	require.Eventually(t, func() bool {
++		var waiting int64
++		err := db.Raw("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE '%momiao_admission%receipt_counter%'").Scan(&waiting).Error
++		return err == nil && waiting > 0
++	}, 5*time.Second, 10*time.Millisecond)
++	rows, err := ListMomiaoRegistrationReceipts(db, 0, 1)
++	require.NoError(t, err)
++	assert.Empty(t, rows)
++	require.NoError(t, first.Commit().Error)
++	require.NoError(t, <-result)
++	rows, err = ListMomiaoRegistrationReceipts(db, 0, 1)
++	require.NoError(t, err)
++	require.Len(t, rows, 1)
++	assert.EqualValues(t, 1, rows[0].Ordinal)
++	rows, err = ListMomiaoRegistrationReceipts(db, rows[0].Ordinal, 1)
++	require.NoError(t, err)
++	require.Len(t, rows, 1)
++	assert.EqualValues(t, 2, rows[0].Ordinal)
++}
++
++func TestMomiaoUsernameCollisionRetriesAreBoundedAndRollback(t *testing.T) {
++	db := setupMomiaoPostgres(t, true)
++	require.NoError(t, db.Create(&User{Username: "occupied-name", Password: "", AffCode: "occupied-aff"}).Error)
++	in := momiaoTestFlow(t, MomiaoPurposeRegistration, "1123456789012345678")
++	attempts := 0
++	const callback = "momiao_test_force_username_collision"
++	require.NoError(t, db.Callback().Create().Before("gorm:create").Register(callback, func(tx *gorm.DB) {
++		if user, ok := tx.Statement.Dest.(*User); ok && user.DiscordId == in.Subject {
++			attempts++
++			user.Username = "occupied-name"
++		}
++	}))
++	t.Cleanup(func() { assert.NoError(t, db.Callback().Create().Remove(callback)) })
++	_, _, err := CompleteMomiaoAdmission(in)
++	assert.ErrorIs(t, err, ErrMomiaoUnavailable)
++	assert.Equal(t, 5, attempts)
++	_, err = GetAuthFlow(in.State, AuthFlowMatch{Purpose: in.Purpose})
++	assert.NoError(t, err)
++	rows, err := ListMomiaoRegistrationReceipts(db, 0, 10)
++	require.NoError(t, err)
++	assert.Empty(t, rows)
++	var users int64
++	require.NoError(t, db.WithContext(context.Background()).Model(&User{}).Count(&users).Error)
++	assert.EqualValues(t, 1, users)
++}
+diff --git a/router/api-router.go b/router/api-router.go
+index 31c595e00db24007280a0cf48039f96f9dd31781..e45cf841bc43b531c12caf15fb3d47bcff51199b 100644
+--- a/router/api-router.go
++++ b/router/api-router.go
+@@ -13,10 +13,16 @@ import (
+ 
+ func SetApiRouter(router *gin.Engine) {
+ 	apiRouter := router.Group("/api")
++	if admission := controller.MomiaoAdmission(); admission != nil {
++		apiRouter.Use(admission.Guard)
++	}
+ 	apiRouter.Use(middleware.RouteTag("api"))
+ 	apiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
+ 	apiRouter.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
+ 	apiRouter.Use(middleware.GlobalAPIRateLimit())
++	if admission := controller.MomiaoAdmission(); admission != nil {
++		admission.RegisterRoutes(apiRouter, router)
++	}
+ 	anonymousRequestBodyLimit := middleware.AnonymousRequestBodyLimit()
+ 	{
+ 		apiRouter.GET("/setup", controller.GetSetup)
+diff --git a/router/momiao_admission_mode_test.go b/router/momiao_admission_mode_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..35e341ec9f04ad973fb8035cd284d526835315f3
+--- /dev/null
++++ b/router/momiao_admission_mode_test.go
+@@ -0,0 +1,31 @@
++package router
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"testing"
++
++	"github.com/QuantumNous/new-api/controller"
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++func TestMomiaoModeOffKeepsNativeRoutesAndOmitsAdmissionEndpoints(t *testing.T) {
++	t.Setenv("MOMIAO_ADMISSION_ENABLED", "false")
++	require.NoError(t, controller.InitializeMomiaoAdmission())
++	router := gin.New()
++	SetApiRouter(router)
++	for _, path := range []string{"/api/momiao/account", "/internal/momiao/registrations"} {
++		w := httptest.NewRecorder()
++		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
++		assert.Equal(t, 404, w.Code)
++	}
++	nativeLogin, nativeRegister := false, false
++	for _, route := range router.Routes() {
++		nativeLogin = nativeLogin || (route.Method == http.MethodPost && route.Path == "/api/user/login")
++		nativeRegister = nativeRegister || (route.Method == http.MethodPost && route.Path == "/api/user/register")
++	}
++	assert.True(t, nativeLogin)
++	assert.True(t, nativeRegister)
++}
+diff --git a/service/momiao_discord.go b/service/momiao_discord.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..f7e55cdeb7a4347c90f0256248ca7671ed9dcd08
+--- /dev/null
++++ b/service/momiao_discord.go
+@@ -0,0 +1,163 @@
++package service
++
++import (
++	"context"
++	"io"
++	"net/http"
++	"net/url"
++	"regexp"
++	"strings"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/setting/momiao_setting"
++)
++
++const momiaoDiscordAPI = "https://discord.com/api"
++
++type MomiaoDiscord struct {
++	Config momiao_setting.Config
++	HTTP   *http.Client
++}
++
++type MomiaoDiscordError struct{ Code string }
++
++func (e *MomiaoDiscordError) Error() string { return e.Code }
++
++func NewMomiaoDiscord(cfg momiao_setting.Config) *MomiaoDiscord {
++	return &MomiaoDiscord{Config: cfg, HTTP: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
++}
++
++func (d *MomiaoDiscord) AuthorizationURL(purpose, state string) (string, error) {
++	scope := "identify"
++	switch purpose {
++	case model.MomiaoPurposeRegistration:
++		scope += " guilds.members.read"
++	case model.MomiaoPurposeLogin, model.MomiaoPurposeFresh, model.MomiaoPurposeReset:
++	default:
++		return "", model.ErrMomiaoAuthority
++	}
++	if state == "" {
++		return "", model.ErrMomiaoAuthority
++	}
++	query := url.Values{"client_id": {d.Config.ClientID}, "redirect_uri": {d.Config.RedirectURI}, "response_type": {"code"}, "scope": {scope}, "state": {state}, "prompt": {"consent"}}
++	return "https://discord.com/oauth2/authorize?" + query.Encode(), nil
++}
++
++func (d *MomiaoDiscord) Exchange(ctx context.Context, code, purpose string) (string, error) {
++	if code == "" || len(code) > 4096 {
++		return "", &MomiaoDiscordError{"DISCORD_CODE_INVALID"}
++	}
++	form := url.Values{"grant_type": {"authorization_code"}, "client_id": {d.Config.ClientID}, "client_secret": {d.Config.ClientSecret}, "redirect_uri": {d.Config.RedirectURI}, "code": {code}}
++	req, err := http.NewRequestWithContext(ctx, http.MethodPost, momiaoDiscordAPI+"/oauth2/token", strings.NewReader(form.Encode()))
++	if err != nil {
++		return "", &MomiaoDiscordError{"DISCORD_UNAVAILABLE"}
++	}
++	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
++	data, err := d.request(req, false)
++	if err != nil {
++		return "", err
++	}
++	var token struct {
++		AccessToken string `json:"access_token"`
++		TokenType   string `json:"token_type"`
++		Scope       string `json:"scope"`
++	}
++	if common.Unmarshal(data, &token) != nil || token.AccessToken == "" || len(token.AccessToken) > 8192 || !strings.EqualFold(token.TokenType, "Bearer") {
++		return "", &MomiaoDiscordError{"DISCORD_INVALID_RESPONSE"}
++	}
++	scopes := strings.Fields(token.Scope)
++	hasIdentify, hasMember := false, false
++	for _, scope := range scopes {
++		hasIdentify = hasIdentify || scope == "identify"
++		hasMember = hasMember || scope == "guilds.members.read"
++	}
++	if !hasIdentify || (purpose == model.MomiaoPurposeRegistration && !hasMember) {
++		return "", &MomiaoDiscordError{"DISCORD_SCOPE_DENIED"}
++	}
++	return token.AccessToken, nil
++}
++
++func (d *MomiaoDiscord) Subject(ctx context.Context, token string) (string, error) {
++	req, err := http.NewRequestWithContext(ctx, http.MethodGet, momiaoDiscordAPI+"/users/@me", nil)
++	if err != nil {
++		return "", &MomiaoDiscordError{"DISCORD_UNAVAILABLE"}
++	}
++	req.Header.Set("Authorization", "Bearer "+token)
++	data, err := d.request(req, false)
++	if err != nil {
++		return "", err
++	}
++	var user struct {
++		ID     string `json:"id"`
++		Bot    bool   `json:"bot"`
++		System bool   `json:"system"`
++	}
++	if common.Unmarshal(data, &user) != nil || !regexp.MustCompile(`^[0-9]{1,20}$`).MatchString(user.ID) || user.Bot || user.System {
++		return "", &MomiaoDiscordError{"DISCORD_INVALID_RESPONSE"}
++	}
++	return user.ID, nil
++}
++
++func (d *MomiaoDiscord) CheckMembership(ctx context.Context, token string) error {
++	req, err := http.NewRequestWithContext(ctx, http.MethodGet, momiaoDiscordAPI+"/users/@me/guilds/"+d.Config.GuildID+"/member", nil)
++	if err != nil {
++		return &MomiaoDiscordError{"DISCORD_UNAVAILABLE"}
++	}
++	req.Header.Set("Authorization", "Bearer "+token)
++	data, err := d.request(req, true)
++	if err != nil {
++		return err
++	}
++	var member struct {
++		Roles *[]string `json:"roles"`
++	}
++	if common.Unmarshal(data, &member) != nil || member.Roles == nil {
++		return &MomiaoDiscordError{"DISCORD_INVALID_RESPONSE"}
++	}
++	for _, role := range *member.Roles {
++		if role == d.Config.RoleID {
++			return nil
++		}
++	}
++	return &MomiaoDiscordError{"DISCORD_ROLE_REQUIRED"}
++}
++
++// request never returns network error strings or provider response bodies.
++// Redirects cannot send an authorization code or bearer to another endpoint.
++func (d *MomiaoDiscord) request(req *http.Request, membership bool) ([]byte, error) {
++	req.Header.Set("Accept", "application/json")
++	response, err := d.HTTP.Do(req)
++	if err != nil {
++		return nil, &MomiaoDiscordError{"DISCORD_UNAVAILABLE"}
++	}
++	defer response.Body.Close()
++	data, err := io.ReadAll(io.LimitReader(response.Body, 65537))
++	if err != nil || len(data) > 65536 {
++		return nil, &MomiaoDiscordError{"DISCORD_INVALID_RESPONSE"}
++	}
++	if response.StatusCode == http.StatusOK {
++		return data, nil
++	}
++	if response.StatusCode == 429 {
++		return nil, &MomiaoDiscordError{"DISCORD_RATE_LIMITED"}
++	}
++	if response.StatusCode >= 500 {
++		return nil, &MomiaoDiscordError{"DISCORD_UNAVAILABLE"}
++	}
++	var provider struct {
++		Code  int    `json:"code"`
++		Error string `json:"error"`
++	}
++	_ = common.Unmarshal(data, &provider)
++	if membership && response.StatusCode == 404 && provider.Code == 10007 {
++		return nil, &MomiaoDiscordError{"DISCORD_NOT_MEMBER"}
++	}
++	if response.StatusCode == 400 && provider.Error == "invalid_grant" {
++		return nil, &MomiaoDiscordError{"DISCORD_CODE_INVALID"}
++	}
++	// Unknown guild (10004) may be a bad configured id, not proof the user
++	// left the guild. Fail closed as a configuration/provider error.
++	return nil, &MomiaoDiscordError{"DISCORD_CONFIG_ERROR"}
++}
+diff --git a/service/momiao_discord_test.go b/service/momiao_discord_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..4dd798ea0e13e8d835a88c9370acf0afafff319c
+--- /dev/null
++++ b/service/momiao_discord_test.go
+@@ -0,0 +1,92 @@
++package service
++
++import (
++	"context"
++	"io"
++	"net/http"
++	"net/url"
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/setting/momiao_setting"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++type momiaoTestTransport func(*http.Request) (*http.Response, error)
++
++func (f momiaoTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
++
++func TestMomiaoDiscordScopesAndFixedEndpoints(t *testing.T) {
++	cfg := momiao_setting.Config{ClientID: "123", ClientSecret: "synthetic-secret", GuildID: "456", RoleID: "789", PublicOrigin: "https://admission.test", RedirectURI: "https://admission.test/oauth/discord", PolicyVersion: "v1", ReaderKey: strings.Repeat("r", 32)}
++	client := NewMomiaoDiscord(cfg)
++	for _, purpose := range []string{model.MomiaoPurposeLogin, model.MomiaoPurposeRegistration, model.MomiaoPurposeFresh, model.MomiaoPurposeReset} {
++		raw, err := client.AuthorizationURL(purpose, "opaque-state")
++		require.NoError(t, err)
++		u, err := url.Parse(raw)
++		require.NoError(t, err)
++		assert.Equal(t, "https://discord.com/oauth2/authorize", u.Scheme+"://"+u.Host+u.Path)
++		want := "identify"
++		if purpose == model.MomiaoPurposeRegistration {
++			want += " guilds.members.read"
++		}
++		assert.Equal(t, want, u.Query().Get("scope"))
++		assert.Equal(t, cfg.RedirectURI, u.Query().Get("redirect_uri"))
++	}
++	_, err := client.AuthorizationURL("client-selected-bind", "state")
++	assert.Error(t, err)
++	var paths []string
++	client.HTTP.Transport = momiaoTestTransport(func(r *http.Request) (*http.Response, error) {
++		paths = append(paths, r.URL.String())
++		body := `{"access_token":"provider-token","token_type":"Bearer","scope":"identify guilds.members.read"}`
++		switch r.URL.Path {
++		case "/api/oauth2/token":
++			require.NoError(t, r.ParseForm())
++			assert.Equal(t, "authorization_code", r.Form.Get("grant_type"))
++			assert.Equal(t, cfg.RedirectURI, r.Form.Get("redirect_uri"))
++		case "/api/users/@me":
++			body = `{"id":"123456789012345678","username":"ignored"}`
++		case "/api/users/@me/guilds/456/member":
++			body = `{"roles":["789"]}`
++		default:
++			t.Fatalf("unexpected provider path: %s", r.URL.Path)
++		}
++		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
++	})
++	token, err := client.Exchange(context.Background(), "single-use-code", model.MomiaoPurposeRegistration)
++	require.NoError(t, err)
++	subject, err := client.Subject(context.Background(), token)
++	require.NoError(t, err)
++	assert.Equal(t, "123456789012345678", subject)
++	require.NoError(t, client.CheckMembership(context.Background(), token))
++	assert.Equal(t, []string{"https://discord.com/api/oauth2/token", "https://discord.com/api/users/@me", "https://discord.com/api/users/@me/guilds/456/member"}, paths)
++}
++
++func TestMomiaoDiscordDistinguishesMembershipAndProviderFailures(t *testing.T) {
++	client := NewMomiaoDiscord(momiao_setting.Config{GuildID: "456", RoleID: "789"})
++	for _, tc := range []struct {
++		status int
++		body   string
++		code   string
++	}{
++		{404, `{"code":10004}`, "DISCORD_CONFIG_ERROR"},
++		{404, `{"code":10007}`, "DISCORD_NOT_MEMBER"},
++		{200, `{"roles":["other"]}`, "DISCORD_ROLE_REQUIRED"},
++		{429, `{"secret":"must-not-leak"}`, "DISCORD_RATE_LIMITED"},
++		{500, `{"secret":"must-not-leak"}`, "DISCORD_UNAVAILABLE"},
++		{403, `{"secret":"must-not-leak"}`, "DISCORD_CONFIG_ERROR"},
++		{200, `not-json`, "DISCORD_INVALID_RESPONSE"},
++	} {
++		t.Run(tc.code, func(t *testing.T) {
++			client.HTTP.Transport = momiaoTestTransport(func(r *http.Request) (*http.Response, error) {
++				return &http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader(tc.body)), Header: make(http.Header)}, nil
++			})
++			err := client.CheckMembership(context.Background(), "provider-token")
++			var providerErr *MomiaoDiscordError
++			require.ErrorAs(t, err, &providerErr)
++			assert.Equal(t, tc.code, providerErr.Code)
++			assert.NotContains(t, err.Error(), "must-not-leak")
++		})
++	}
++}
+diff --git a/service/momiao_session.go b/service/momiao_session.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..1bdfed16b168c74d906fc48ca3a655f9be9ae37d
+--- /dev/null
++++ b/service/momiao_session.go
+@@ -0,0 +1,39 @@
++package service
++
++import "github.com/QuantumNous/new-api/model"
++
++func CreateMomiaoLoginSession(userID int, authVersion int64, browserToken, ip, userAgent string) (*AuthBundle, error) {
++	bundle, err := CreateLoginSessionAtAuthVersion(userID, authVersion, "oauth:discord", ip, userAgent)
++	if err != nil {
++		return nil, err
++	}
++	session, err := model.GetUserSessionBySID(bundle.Session.SID)
++	if err == nil {
++		err = model.LinkMomiaoBrowserSession(browserToken, session)
++	}
++	if err != nil {
++		_, _ = model.RevokeUserSession(userID, bundle.Session.SID, "admission_browser_closed")
++		return nil, err
++	}
++	if _, _, err := ValidateLoginSession(AuthIdentity{UserID: userID, SessionID: session.SID, SessionVersion: session.Version, UserAuthVersion: authVersion}); err != nil {
++		return nil, err
++	}
++	return bundle, nil
++}
++
++// AdvanceMomiaoPasswordSession must never adopt a later, unrelated security
++// change. Only the exact version committed by this password transaction may
++// be restored to its previously validated native session.
++func AdvanceMomiaoPasswordSession(identity AuthIdentity, next int64) (*AuthBundle, error) {
++	if next != identity.UserAuthVersion+1 {
++		return nil, ErrLoginSessionRevoked
++	}
++	user, err := model.GetUserById(identity.UserID, false)
++	if err != nil {
++		return nil, err
++	}
++	if user.AuthVersion != next {
++		return nil, ErrLoginSessionRevoked
++	}
++	return advanceCurrentSessionToVersion(identity, next, "momiao_password_changed")
++}
+diff --git a/setting/momiao_setting/config.go b/setting/momiao_setting/config.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..6885e53cf17438e04fe75489d196a0754fc4e970
+--- /dev/null
++++ b/setting/momiao_setting/config.go
+@@ -0,0 +1,88 @@
++// Package momiao_setting contains immutable opt-in admission configuration.
++// Secrets are deliberately not registered with the native public option store.
++package momiao_setting
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"io"
++	"net/url"
++	"os"
++	"regexp"
++	"runtime"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
++)
++
++type Config struct {
++	ClientID      string `json:"client_id"`
++	ClientSecret  string `json:"client_secret"`
++	GuildID       string `json:"guild_id"`
++	RoleID        string `json:"role_id"`
++	PublicOrigin  string `json:"public_origin"`
++	RedirectURI   string `json:"redirect_uri"`
++	PolicyVersion string `json:"policy_version"`
++	ReaderKey     string `json:"reader_key"`
++}
++
++var ErrConfig = errors.New("invalid admission configuration; check restricted configuration file")
++var snowflake = regexp.MustCompile(`^[0-9]{1,20}$`)
++
++func (c Config) Validate() error {
++	origin, err := url.Parse(c.PublicOrigin)
++	if err != nil || origin.Scheme != "https" || origin.Host == "" || origin.User != nil || origin.Path != "" || origin.RawQuery != "" || origin.Fragment != "" || origin.Opaque != "" {
++		return ErrConfig
++	}
++	if c.RedirectURI != c.PublicOrigin+"/oauth/discord" || !snowflake.MatchString(c.ClientID) || !snowflake.MatchString(c.GuildID) || !snowflake.MatchString(c.RoleID) {
++		return ErrConfig
++	}
++	if strings.TrimSpace(c.ClientSecret) == "" || len(c.ClientSecret) > 1024 || len(c.ReaderKey) < 32 || len(c.ReaderKey) > 256 || strings.TrimSpace(c.PolicyVersion) == "" || len(c.PolicyVersion) > 64 {
++		return ErrConfig
++	}
++	return nil
++}
++
++func (c Config) Version() string {
++	// HMAC with the native session secret prevents offline probing of the
++	// configuration digest and invalidates ceremonies across secret rotation.
++	data, _ := common.Marshal(c)
++	h := sha256.Sum256([]byte(common.GenerateHMACWithKey([]byte(common.SessionSecret), string(data))))
++	return hex.EncodeToString(h[:])
++}
++
++func LoadFromEnvironment() (*Config, error) {
++	flag := os.Getenv("MOMIAO_ADMISSION_ENABLED")
++	if flag == "" || flag == "false" {
++		return nil, nil
++	}
++	if flag != "true" {
++		return nil, ErrConfig
++	}
++	path := os.Getenv("MOMIAO_ADMISSION_CONFIG_FILE")
++	info, err := os.Lstat(path)
++	// The deployment target is Linux. Refuse to pretend POSIX mode bits
++	// establish Windows ACL confidentiality for an enabled production mode.
++	if err != nil || runtime.GOOS == "windows" || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 8192 {
++		return nil, ErrConfig
++	}
++	file, err := os.Open(path)
++	if err != nil {
++		return nil, ErrConfig
++	}
++	defer file.Close()
++	openedInfo, err := file.Stat()
++	if err != nil || !os.SameFile(info, openedInfo) {
++		return nil, ErrConfig
++	}
++	data, err := io.ReadAll(io.LimitReader(file, 8193))
++	if err != nil || len(data) > 8192 {
++		return nil, ErrConfig
++	}
++	var cfg Config
++	if common.UnmarshalStrictStringObject(data, &cfg, "client_id", "client_secret", "guild_id", "role_id", "public_origin", "redirect_uri", "policy_version", "reader_key") != nil || cfg.Validate() != nil {
++		return nil, ErrConfig
++	}
++	return &cfg, nil
++}
+diff --git a/setting/momiao_setting/config_test.go b/setting/momiao_setting/config_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..a101529efd16b0edb7908151502ecdde36d36c0a
+--- /dev/null
++++ b/setting/momiao_setting/config_test.go
+@@ -0,0 +1,39 @@
++package momiao_setting
++
++import (
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"testing"
++)
++
++func TestMomiaoConfigDisabledWithoutSecrets(t *testing.T) {
++	t.Setenv("MOMIAO_ADMISSION_ENABLED", "")
++	cfg, err := LoadFromEnvironment()
++	require.NoError(t, err)
++	assert.Nil(t, cfg)
++}
++
++func TestMomiaoConfigValidatesFixedPublicCallbackAndRequiredFields(t *testing.T) {
++	good := Config{ClientID: "123456789012345678", ClientSecret: "synthetic-secret", GuildID: "223456789012345678", RoleID: "323456789012345678", PublicOrigin: "https://admission.test", RedirectURI: "https://admission.test/oauth/discord", PolicyVersion: "policy-v1", ReaderKey: "01234567890123456789012345678901"}
++	require.NoError(t, good.Validate())
++	for _, field := range []string{"secret", "redirect", "origin", "guild", "role", "reader"} {
++		t.Run(field, func(t *testing.T) {
++			bad := good
++			switch field {
++			case "secret":
++				bad.ClientSecret = ""
++			case "redirect":
++				bad.RedirectURI += "?next=evil"
++			case "origin":
++				bad.PublicOrigin = "http://admission.test"
++			case "guild":
++				bad.GuildID = "../../../evil"
++			case "role":
++				bad.RoleID = ""
++			case "reader":
++				bad.ReaderKey = "short"
++			}
++			assert.Error(t, bad.Validate())
++		})
++	}
++}

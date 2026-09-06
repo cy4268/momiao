@@ -1,0 +1,25 @@
+[Unit]
+Description=Native namespace loopback TLS stream to fixed Discord transport
+BindsTo=momiao-discord-upstream.service
+After=momiao-discord-upstream.service
+
+[Service]
+Type=simple
+User=momiao-egress
+Group=momiao-egress
+NetworkNamespacePath=/run/chaldea-preview/netns
+ExecStart=/usr/bin/socat -T 120 TCP4-LISTEN:443,bind=127.0.0.1,reuseaddr,fork,max-children=16 UNIX-CONNECT:/run/momiao-discord/upstream.sock
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryMax=128M
+TasksMax=64
+Restart=on-failure
+RestartSec=3

@@ -119,7 +119,7 @@ func (s *Store) InitializeProfile(ctx context.Context, userID, expected int64, d
 		return Profile{}, err
 	}
 	existing, err := scanProfile(tx.QueryRow(ctx, "SELECT "+profileColumns+" FROM identity.master_profiles WHERE newapi_user_id=$1 FOR UPDATE", userID))
-	if err == nil {
+	if err == nil && existing.ProfileVersion > 0 {
 		if existing.ProfileVersion != 1 || existing.DisplayName != display || existing.AvatarID != avatar {
 			return Profile{}, ErrStaleProfileVersion
 		}
@@ -128,13 +128,15 @@ func (s *Store) InitializeProfile(ctx context.Context, userID, expected int64, d
 		}
 		return existing, nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return Profile{}, err
 	}
 	if _, err = tx.Exec(ctx, "INSERT INTO identity.account_refs(newapi_user_id) VALUES($1) ON CONFLICT DO NOTHING", userID); err != nil {
 		return Profile{}, err
 	}
-	p, err := scanProfile(tx.QueryRow(ctx, `INSERT INTO identity.master_profiles(newapi_user_id,display_name,normalized_name,avatar_id) VALUES($1,$2,$3,$4) RETURNING `+profileColumns, userID, display, normalized, avatar))
+	p, err := scanProfile(tx.QueryRow(ctx, `INSERT INTO identity.master_profiles(newapi_user_id,display_name,normalized_name,avatar_id) VALUES($1,$2,$3,$4)
+ ON CONFLICT(newapi_user_id) DO UPDATE SET display_name=EXCLUDED.display_name,normalized_name=EXCLUDED.normalized_name,avatar_id=EXCLUDED.avatar_id,profile_version=1,updated_at=now()
+ WHERE identity.master_profiles.profile_version=0 RETURNING `+profileColumns, userID, display, normalized, avatar))
 	if err != nil {
 		return Profile{}, profileDBError(err)
 	}

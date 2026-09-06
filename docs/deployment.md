@@ -99,3 +99,19 @@ GRANT UPDATE(status,reason,native_before,native_after,updated_at) ON economy.quo
 7. Keep the native PostgreSQL proxy bound to the verified isolated network namespace. Stop it if namespace/image/accounting mode drifts. No host TCP listener or public database port is needed. On native upgrades, disable new requests and drain/reconcile outstanding original operations before changing mode or quota scale.
 
 Rollback the portal release while **retaining both journals and all balances**; migration 4 is additive. Keep native DB-only accounting during an application rollback. Do not restore a database snapshot or re-enable an old Redis cache after credits have been written: that could erase receipts or resurrect stale quota. Target disabled/unreachable leaves unknown transfers PENDING; re-enable only after the original operation IDs are reconciled. NEEDS_REVIEW requires explicit operator repair from both journals; no automatic manual-review resolution is provided in this slice.
+
+## Schemas 5-9: incremental runtime grants
+
+Apply the reviewed migrations as the existing non-login schema owner, retaining the 1-4 grants above. [Runtime template](../deploy/sql/runtime-grants-0005-0009.psql) and [separate bootstrap deployer template](../deploy/sql/bootstrap-deployer-grant.psql) are opt-in psql inputs, not portal startup hooks. With `apply_grants` omitted/false they issue no SQL changes. Use a protected `PGSERVICE`/passfile, `psql -X`, and trusted role-name parameters; never put passwords in arguments:
+
+```sh
+psql -X --set=schema_owner=SCHEMA_OWNER --set=runtime_role=RUNTIME_ROLE --file=deploy/sql/runtime-grants-0005-0009.psql
+# Only after review, add --set=apply_grants=true to apply that template.
+# Separate bootstrap template additionally requires --set=bootstrap_deployer=DEPLOYER_ROLE.
+```
+
+The existing roles must be distinct: runtime/deployer have no owner membership, superuser, CREATEDB, CREATEROLE, replication or BYPASSRLS powers. Bootstrap's three SECURITY DEFINER functions must retain the same controlled schema owner. No role creation, schema CREATE, ownership transfer, native `users` access, bootstrap invocation or notice publication is included. The bootstrap template grants only schema USAGE plus the narrow function EXECUTE; revoke that EXECUTE and remove its credential after the approved attempt/result reconciliation.
+
+Column grants follow the actual store SQL: announcements/job/audit writes (5), receipt/grant workers including deferred issuance reads (6), catalog sync/editorial writes (7), no runtime bootstrap/history/closure grants (8), notice SELECT plus ACK-key INSERT only (9). `UPDATE(updated_at)` on principals is required for their `SELECT FOR UPDATE`; it is not authority-field access. Announcement placement guards similarly need one UPDATE column for locking, with actual mutation still rejected by their immutable trigger. No 5-9 sequence grants are needed. No broad/default table grants are installed, and inherited pre-existing grants are not silently repaired by these templates.
+
+These templates have not been applied to production. Catalog grants were derived from the current M3c storage SQL, not an imported WIP build. Reconcile against its final integrated SHA, then perform one combined acceptance using the actual low-privilege runtime identity: announcement writes/jobs, receipt ingestion/grant completion, sync/metadata/publication, notice ACK/replay; separately verify denial of DDL, authority/closure/history mutation, bootstrap EXECUTE, notice-fact mutation and direct native `users` access. Schema-owner tests do not establish runtime acceptance. Retain all records on application rollback.

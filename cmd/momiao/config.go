@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"github.com/cy4268/momiao/internal/platform"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,19 +11,32 @@ import (
 )
 
 type config struct {
-	NativeQuotaDSNFile string
-	transfers          quotaTransferStore
-	nativeQuota        nativeQuotaReader
-	WalletDSNFile      string
-	PublicOrigin       string
-	wallet             walletStore
-	profile            profileStore
-	economy            economyStore
-	ListenAddr         string
-	ListenSocket       string
-	WebDir             string
-	NewAPISocket       string
-	ShutdownTimeout    time.Duration
+	catalog                   catalogStore
+	catalogSource             platform.CatalogSource
+	CatalogReaderKeyFile      string
+	CatalogSyncInterval       time.Duration
+	CatalogStaleAfter         time.Duration
+	CatalogDisableAfter       time.Duration
+	APIBaseURL                string
+	accessGate                accessGateStore
+	accessDeclaration         *accessDeclaration
+	announcements             announcementStore
+	AdmissionEnabled          bool
+	admission                 admissionStore
+	RegistrationReaderKeyFile string
+	NativeQuotaDSNFile        string
+	transfers                 quotaTransferStore
+	nativeQuota               nativeQuotaReader
+	WalletDSNFile             string
+	PublicOrigin              string
+	wallet                    walletStore
+	profile                   profileStore
+	economy                   economyStore
+	ListenAddr                string
+	ListenSocket              string
+	WebDir                    string
+	NewAPISocket              string
+	ShutdownTimeout           time.Duration
 }
 
 func loadConfig(lookup func(string) (string, bool)) (config, error) {
@@ -114,6 +128,19 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 			return config{}, errors.New("native quota DSN requires an absolute path and platform wallet configuration")
 		}
 		cfg.NativeQuotaDSNFile = filepath.Clean(value)
+	}
+	if err := admissionConfig(&cfg, lookup); err != nil {
+		return config{}, err
+	}
+	if path, ok := lookup("MOMIAO_ACCESS_GATE_DECLARATION_FILE"); ok {
+		declaration, err := loadAccessDeclaration(path, cfg.PublicOrigin)
+		if err != nil {
+			return config{}, err
+		}
+		cfg.accessDeclaration = declaration
+	}
+	if err := catalogConfig(&cfg, lookup); err != nil {
+		return config{}, err
 	}
 	return cfg, nil
 }

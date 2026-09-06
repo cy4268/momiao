@@ -1,4 +1,5 @@
 import { readChat, aborted, modelFailure, type ChatInput, type ChatResult } from './chat';
+import { validateDiscordAuthorization, type AdmissionConfig, type AdmissionResult, type DiscordCallbackInput, type DiscordPurpose, type SensitiveProof } from './admission-api';
 // Native contract: new-api f116414, controller/{user,auth_session,token,log}.go.
 // Tokens and session identity deliberately live only in this instance's memory.
 export interface User {
@@ -64,6 +65,21 @@ export const errorText = (e: unknown) => e instanceof Error ? e.message : '请�
 function safeUser(u: User): User { if (!u || !Number.isInteger(u.id) || u.id <= 0 || typeof u.username !== 'string')
     throw new ApiError('账户响应格式异常，请重新登录。'); return { id: u.id, username: u.username, display_name: u.display_name || u.username, role: u.role, group: typeof u.group === 'string' ? u.group : undefined, quota: u.quota, used_quota: u.used_quota, request_count: u.request_count }; }
 export class ApiClient {
+    async catalogRequest<T>(path: string): Promise<T> {
+        if (!/^\/platform\/v1\/models(?:\?.*)?$/.test(path) && !/^\/platform\/v1\/models\/(?:detail|access-config)(?:\?.*)?$/.test(path)) throw new ApiError('无效的公开模型路径。');
+        const epoch = this.epoch;
+        const result = await this.raw<T>(path);
+        if (epoch !== this.epoch) throw new ApiError('登录状态已改变，请重新读取模型。', 401);
+        return result;
+    }
+    async announcementRequest<T>(path: string): Promise<T> {
+        if (!/^\/platform\/v1\/announcements(?:$|[/?])/.test(path)) throw new ApiError('无效的公告路径。');
+        if (this.snapshot.user) return this.request<T>(path);
+        const epoch = this.epoch;
+        const result = await this.raw<T>(path);
+        if (epoch !== this.epoch || this.snapshot.user) throw new ApiError('登录状态已改变，请重新读取公告。', 401);
+        return result;
+    }
     private streams = new Set<AbortController>();
     private token = '';
     private sid = '';
@@ -73,6 +89,7 @@ export class ApiClient {
     private listeners = new Set<() => void>();
     private refreshFlight: Promise<void> | null = null;
     private loginFlight: Promise<Bundle | TwoFactor> | null = null;
+    private admissionFlight: Promise<unknown> | null = null;
     private bootstrapFlight: Promise<void> | null = null;
     private logoutFlight: Promise<void> | null = null;
     constructor(private fetcher: (path: string, init?: RequestInit) => Promise<Response> = (...args) => fetch(...args)) { }
@@ -145,7 +162,7 @@ export class ApiClient {
         return this.bootstrapFlight;
     }
     private async authenticate(path: string, body: unknown): Promise<TwoFactor | void> {
-        if (this.snapshot.loggingOut || this.loginFlight)
+        if (this.snapshot.loggingOut || this.loginFlight || this.admissionFlight)
             throw new ApiError('登录请求处理中，请稍候。');
         const epoch = this.epoch;
         this.loginFlight = this.raw<Bundle | TwoFactor>(path, 'POST', body);
@@ -166,11 +183,68 @@ export class ApiClient {
     }
     login = (username: string, password: string) => this.authenticate('/api/user/login', { username, password });
     verify2fa = (flow_token: string, code: string) => this.authenticate('/api/user/login/2fa', { flow_token, code });
+    async admissionConfig(): Promise<AdmissionConfig> {
+        const data = await this.raw<AdmissionConfig>('/platform/v1/admission/config');
+        if (!data || typeof data.enabled !== 'boolean' || typeof data.registration_enabled !== 'boolean' || typeof data.eligibility !== 'string') throw new ApiError('账户服务配置暂时无法读取。');
+        return data;
+    }
+    private admissionOperation<T>(work: (epoch: number) => Promise<T>): Promise<T> {
+        if (this.snapshot.loggingOut || this.loginFlight || this.admissionFlight) return Promise.reject(new ApiError('账户请求处理中，请稍候。'));
+        const epoch = this.epoch;
+        const flight = work(epoch).finally(() => { if (this.admissionFlight === flight) this.admissionFlight = null; });
+        this.admissionFlight = flight;
+        return flight;
+    }
+    private checkAdmissionEpoch(epoch: number) {
+        if (epoch !== this.epoch || this.snapshot.loggingOut) throw new ApiError('登录状态已改变，请重新开始。', 401);
+    }
+    private acceptAdmission(data: Bundle | TwoFactor | SensitiveProof, epoch: number): AdmissionResult {
+        this.checkAdmissionEpoch(epoch);
+        if (data && 'require_2fa' in data && data.require_2fa === true && typeof data.flow_token === 'string' && data.flow_token.length > 0) return { require_2fa:true, flow_token:data.flow_token };
+        if (data && 'proof' in data && typeof data.proof === 'string' && data.proof && Number.isFinite(data.expires_at) && data.expires_at > Date.now()/1000) {
+            if (!this.snapshot.user) throw new ApiError('请重新登录后验证账户。',401);
+            return {proof:data.proof,expires_at:data.expires_at};
+        }
+        this.accept(data as Bundle, epoch);
+    }
+    discordStart(purpose: DiscordPurpose, origin = window.location.origin): Promise<string> {
+        return this.admissionOperation(async epoch => {
+            if (!['login','registration','fresh','password-reset'].includes(purpose)) throw new ApiError('授权操作无效。');
+            const path = `/api/momiao/auth/discord/${purpose}/start`;
+            const data = purpose === 'fresh' || purpose === 'password-reset'
+                ? await this.request<{authorization_url:string}>(path,'POST',{})
+                : await this.raw<{authorization_url:string}>(path,'POST',{});
+            this.checkAdmissionEpoch(epoch);
+            return validateDiscordAuthorization(data?.authorization_url,origin);
+        });
+    }
+    discordCallback(input: DiscordCallbackInput): Promise<AdmissionResult> {
+        return this.admissionOperation(async epoch => {
+            if (!input.code || !input.state || input.code.length + input.state.length > 8192) throw new ApiError('授权回调无效。');
+            const query = new URLSearchParams({code:input.code,state:input.state});
+            const data = await this.raw<Bundle | TwoFactor | SensitiveProof>(`/api/momiao/auth/discord/callback?${query}`, 'GET', undefined, this.headers());
+            return this.acceptAdmission(data,epoch);
+        });
+    }
+    admission2fa(flow_token: string, code: string): Promise<AdmissionResult> {
+        return this.admissionOperation(async epoch => this.acceptAdmission(await this.raw<Bundle | TwoFactor | SensitiveProof>('/api/momiao/auth/2fa','POST',{flow_token,code},this.headers()),epoch));
+    }
+    updatePassword(mode: 'set'|'change'|'reset', input: {password: string; old_password?: string; proof?: string}): Promise<void> {
+        return this.admissionOperation(async epoch => {
+            const user = this.snapshot.user;
+            if (!user || !['set','change','reset'].includes(mode)) throw new ApiError('请先登录。',401);
+            const body = mode === 'change' ? {password:input.password,old_password:input.old_password} : {password:input.password,proof:input.proof};
+            const data = await this.request<Omit<Bundle,'user'> & {has_password:boolean}>(`/api/momiao/account/password/${mode}`,'POST',body);
+            this.checkAdmissionEpoch(epoch);
+            if (data.has_password !== true) throw new ApiError('密码操作结果需要重新核对。',0,'',true);
+            this.accept({...data,user},epoch);
+        });
+    }
     logout(): Promise<void> {
         if (this.logoutFlight)
             return this.logoutFlight;
         const headers = this.headers();
-        const pending = [this.refreshFlight, this.loginFlight];
+        const pending = [this.refreshFlight, this.loginFlight, this.admissionFlight];
         this.clear();
         this.publish({ loggingOut: true });
         // Wait for any Set-Cookie rotation before revoking the cookie. Never restore stale state.

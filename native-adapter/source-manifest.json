@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "repository": "https://github.com/QuantumNous/new-api",
+    "commit": "f116414284162ad15d8925f7bca494c109b83e93",
+    "archive_sha256": "e7403fdb02a4b837207d6ad191998856c9da4b4b9d63935de6e1e7e8fad302ec"
+  },
+  "platform_base_commit": "da74dc4e8bca89f9fef38e519184db2ab6239c04",
+  "isolated_native_snapshot_commit": "c2f5d9ddf6a3c451335b00c70712a93ffb178e8c",
+  "patch": {
+    "path": "patches/0001-momiao-native-admission.patch",
+    "sha256": "a3c33db56d7adb2584193ee6f3e2a1e4a548545b20126d71946c13329de23a95",
+    "changed_files": 29,
+    "insertions": 2993,
+    "deletions": 1
+  },
+  "replay": {
+    "checked_and_applied": true,
+    "reverse_check_exit": 0,
+    "normalized_files_identical": 29,
+    "normalization": "UTF-8 with CRLF normalized to LF; native .gitattributes converts the SQL file to CRLF on Windows"
+  },
+  "files": [
+    {
+      "path": "cmd/momiao-admission-migrate/main.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "2a9987d611a2afe262c61597bf691035d66c3a49d5f54c20746ab067cecd0517"
+    },
+    {
+      "path": "common/json.go",
+      "before_sha256_lf_utf8": "83fb384ea9e42b6f0eb0e28cdc30768191c4cb41b0b02340f32ef3418fc9e6c3",
+      "after_sha256_lf_utf8": "6c5c5dfabf42f51873d94db7d2983d231bfd59930916cbe1b6921ba5eaab444a"
+    },
+    {
+      "path": "controller/momiao_account.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "dda3bf6f8c7237cbf68f6cee535cd68eab355d3e456bdc786ad0f1b02007a70a"
+    },
+    {
+      "path": "controller/momiao_account_test.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "6b3fa74df547ad451198d22e186af9e89c26c507bd34dabc3c5934a44eb9c302"
+    },
+    {
+      "path": "controller/momiao_auth.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "671cdc69d2addbfc825bd94e403a72b2e3b30cc56663075290c5a6339b716651"
+    },
+    {
+      "path": "controller/momiao_auth_test.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "4ac275fe1b9bdf9afc68c8213068d6483d010d11ff9028461878010d0c98b34a"
+    },
+    {
+      "path": "controller/momiao_browser_rotation_test.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "3196f288edb953702145e29cf9b5385bcc98696ddd7f6d7b1b8bd9bbae463ef2"
+    },
+    {
+      "path": "controller/momiao_input_test.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "bfdd1ac0368db65b7c34da0ca8f7185581c21b2e32ff75f2d24627a44ab2f9c0"
+    },
+    {
+      "path": "controller/momiao_twofa_test.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "4a3f2462d455b50a6e67a860a59403d7da195c49ee4ebe26917b063c3c53dde0"
+    },
+    {
+      "path": "controller/user.go",
+      "before_sha256_lf_utf8": "858e83a874c6eb141b8d1f1e130461bede733938094f755be8d73b3e38a2ad97",
+      "after_sha256_lf_utf8": "edcae02c7faf26f901a93852c4b4c8bfda77801150ae337a27217ca3d0677a1d"
+    },
+    {
+      "path": "main.go",
+      "before_sha256_lf_utf8": "99e2895a76f08d96cdeef444622884836fcdcd7c6ad83ddb90290dc1f0531965",
+      "after_sha256_lf_utf8": "0298b4b3c9ad652f90bd16a05aba683291d34b221c679e12210a390d804a66f7"
+    },
+    {
+      "path": "middleware/logger.go",
+      "before_sha256_lf_utf8": "168e080bd2ed1f0c595054ce9e2bc03be193117b428905109a0422f2d0b5572d",
+      "after_sha256_lf_utf8": "3c987e120185798ecfde086dc725369f1cd78e59a405399bcd930c669faa90bf"
+    },
+    {
+      "path": "middleware/momiao_logger_test.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "a8d3ca7a1a96fa0b1150150b6ffed53e5e488ce6bd46b532adc184c6b87e9b5e"
+    },
+    {
+      "path": "middleware/momiao_recovery.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "f213a909aad48f37d8322fce48773ca3e31f8eaab33e7f435108a4a79e32ab24"
+    },
+    {
+      "path": "model/auth_flow.go",
+      "before_sha256_lf_utf8": "49d4e8fcb86c8af571e00a1ed4b8b01cb8fea4a2f05aecc600322ec9b0e89363",
+      "after_sha256_lf_utf8": "8788519ed74d03f0bbe58719b1f58ec114db60b27bc36e33a70fef9392c8f51d"
+    },
+    {
+      "path": "model/momiao_admission.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "fec160720e376e0b654cd54abe2f3af9b965f7a947cbb57524f16f241435d750"
+    },
+    {
+      "path": "model/momiao_admission_test.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "0b9cfb4da9bca27529cbef7c999ce7a671db42193956a3e75d2a22fd88e65b92"
+    },
+    {
+      "path": "model/momiao_browser.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "a632a5dd84c7f5e46ca713689a98bb7976475e6f99ad7c67b896345272a6ffa5"
+    },
+    {
+      "path": "model/momiao_migrations/0001_admission.sql",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "c6f9f143fbb6eca4ab01c0a5f07e3897cac6ae0164f9c80922698018f2e18735"
+    },
+    {
+      "path": "model/momiao_password.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "3b9261acfa3c06654a85fd13ea3cb6f26eb94a5feae67b103a67653ecf990904"
+    },
+    {
+      "path": "model/momiao_password_test.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "73fb059026db79910456fc55173c7313cf0cb4de375c9e3d2fd917dbf5b4bbcf"
+    },
+    {
+      "path": "model/momiao_receipt_test.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "1563e22232f7d252ca7635833c71f63a04fc759c9c8bfada63369e85b4e39832"
+    },
+    {
+      "path": "router/api-router.go",
+      "before_sha256_lf_utf8": "6eca9eda5a692897ae0c57dfdded7aaca2fa2ea76f3932f27dd3a6d6e7d33ae8",
+      "after_sha256_lf_utf8": "9f65242614e52121e00eaa92aa0efa69356f3484d0365e464e297c12207194b7"
+    },
+    {
+      "path": "router/momiao_admission_mode_test.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "48dc61eadb8a308d215b353ce651240bfdda0e290cc28df0b79e4ea5a20e4d35"
+    },
+    {
+      "path": "service/momiao_discord.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "b48e8396eb16596582ad460ebd7b86115acba34040fbac3e21781cbc209aeb54"
+    },
+    {
+      "path": "service/momiao_discord_test.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "25d3fa05f7083ada820b8bafe123a6c4e60bfde95aa880c85bbfa033de82c375"
+    },
+    {
+      "path": "service/momiao_session.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "486997aebe61a1cf18fc64853103810039f7c5e57c587cf39bd14bfe45dc4e21"
+    },
+    {
+      "path": "setting/momiao_setting/config.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "6792a97212ba34be25b50281d9b9aa4f2dda72b44e3f9582368967c747a59de3"
+    },
+    {
+      "path": "setting/momiao_setting/config_test.go",
+      "before_sha256_lf_utf8": null,
+      "after_sha256_lf_utf8": "ccb9d67fdad51c5335874d0e4be10968ad7272f408e362cedfefb1bdb25f97d0"
+    }
+  ]
+}

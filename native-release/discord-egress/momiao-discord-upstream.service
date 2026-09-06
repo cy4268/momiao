@@ -1,0 +1,30 @@
+[Unit]
+Description=Fixed Discord TCP destination behind a private Unix socket
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=momiao-egress
+Group=momiao-egress
+RuntimeDirectory=momiao-discord
+RuntimeDirectoryMode=0700
+UMask=0077
+ExecStart=/usr/bin/socat -T 120 UNIX-LISTEN:/run/momiao-discord/upstream.sock,fork,max-children=16,mode=0600 TCP4:discord.com:443,connect-timeout=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryMax=128M
+TasksMax=64
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

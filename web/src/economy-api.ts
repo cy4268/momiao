@@ -1,6 +1,6 @@
 import { ApiError, type ApiClient } from './api';
 import { assets, amount as validAmount, integer, type Asset } from './wallet-api';
-export interface Transaction { id:string; user_id:string; biz_id:string; kind:'DAILY_REWARD'|'LOCAL_EXCHANGE'; status:'CONFIRMED'; from_asset:Asset|''; to_asset:Asset; amount_units:string; amount:string; created_at:string; confirmed_at:string }
+export interface Transaction { id:string; user_id:string; biz_id:string; kind:'DAILY_REWARD'|'LOCAL_EXCHANGE'|'INITIAL_GRANT_REGISTRATION'; status:'CONFIRMED'; from_asset:Asset|''; to_asset:Asset; amount_units:string; amount:string; created_at:string; confirmed_at:string }
 export interface Daily { user_id:string; business_date:string; timezone:'Asia/Shanghai'; next_reset_at:string; amount:'500'; amount_units:'250000000'; asset:'RESERVE_API_CREDIT'; policy_version:'1'; claimed:boolean; transaction_id:string|null }
 export interface TransactionPage { items:Transaction[]; has_more:boolean; next_after_id:string|null }
 export interface PendingOperation { kind:'DAILY'|'EXCHANGE'; key:string; from_asset?:Asset; amount?:string }
@@ -10,7 +10,9 @@ const timestamp=(v:unknown):v is string=>typeof v==='string' && /^\d{4}-\d\d-\d\
 const malformed=()=>new ApiError('交易响应异常，请核对交易结果后再操作。');
 export function parseTransaction(v:unknown,userID:string):Transaction {
  if(!record(v) || !uuid(v.id) || v.user_id!==userID || typeof v.biz_id!=='string' || !v.biz_id || v.status!=='CONFIRMED' || !integer(v.amount_units) || BigInt(v.amount_units)<=0n || !validAmount(v.amount,v.amount_units) || !timestamp(v.created_at) || !timestamp(v.confirmed_at) || !assets.includes(v.to_asset as Asset))throw malformed();
- if(v.kind==='DAILY_REWARD' ? v.from_asset!=='' || v.to_asset!=='RESERVE_API_CREDIT' || v.amount_units!=='250000000' : v.kind!=='LOCAL_EXCHANGE' || !assets.includes(v.from_asset as Asset) || v.from_asset===v.to_asset)throw malformed();
+ if(v.kind==='INITIAL_GRANT_REGISTRATION'){
+  if(v.from_asset!=='' || v.to_asset!=='RESERVE_API_CREDIT' || v.amount_units!=='500000000' || v.biz_id!==`initial_grant:registration:${userID}`)throw malformed();
+ }else if(v.kind==='DAILY_REWARD' ? v.from_asset!=='' || v.to_asset!=='RESERVE_API_CREDIT' || v.amount_units!=='250000000' : v.kind!=='LOCAL_EXCHANGE' || !assets.includes(v.from_asset as Asset) || v.from_asset===v.to_asset)throw malformed();
  return v as unknown as Transaction;
 }
 export function parseDaily(v:unknown,userID:string):Daily {

@@ -1,27 +1,53 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
-import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useOutletContext } from 'react-router-dom';
-import { api, ApiClient, type User, type UsageLog, type TwoFactor, errorText } from './api';
+import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
+import { api, ApiClient, type User, type UsageLog, errorText } from './api';
 import { Keys } from './Keys';
-import { Models, Playground } from './Models';
+import { Playground } from './Models';
+import { Catalog, CatalogDetailPage, APIAccess } from './Catalog';
+import { OpsCatalog } from './OpsCatalog';
+import type { CatalogLoginRequired } from './catalog-api';
 import { Channels } from './Channels';
 import { Wallet } from './Wallet';
 import { QuotaActivation } from './QuotaActivation';
 import { DiceExperience } from './DiceExperience';
 import { MasterProfile } from './MasterProfile';
 import { Home } from './Home';
+import { Announcements, AnnouncementDetail, AnnouncementEntry } from './Announcements';
+import { OpsAnnouncements } from './OpsAnnouncements';
 import { PersonalHub, MasterSummary, type MasterResource } from './PersonalHub';
 import { Rewards } from './Rewards';
 import { readProfile, profileError } from './profile-api';
 import { Alert, Brand, Crest, Empty, Loading, Pager, date, number, role, useResource } from './ui';
-export function App({ client = api }: { client?: ApiClient }) {
+import { Authentication, DiscordCallback, type CapturedCallback } from './Authentication';
+import { Account } from './Account';
+import { AccessGate, LoginRequired, PostAuthGate } from './PostAuthGate';
+import type { SensitiveProof } from './admission-api';
+const missingCallback:CapturedCallback={error:'授权回调已失效，请重新开始。'};
+export function App({ client = api, capturedCallback = missingCallback, onCatalogLoginRequired }: { client?: ApiClient; capturedCallback?:CapturedCallback; onCatalogLoginRequired?: CatalogLoginRequired }) {
     const session = useSyncExternalStore(client.subscribe, client.getSnapshot);
+    const navigate=useNavigate();const location=useLocation();
+    const [proof,setProof]=useState<{value:SensitiveProof;generation:number}>();
+    useEffect(()=>{if(proof&&(proof.generation!==client.getSessionGeneration()||!['/account','/oauth/discord'].includes(location.pathname)))setProof(undefined);},[session.user,client,location.pathname,proof]);
     useEffect(() => { void client.bootstrap(); }, [client]);
     const loading = <div className="session-loading"><Crest /><Loading /></div>;
-    return <Routes>
-        <Route path="/" element={<Home signedIn={!!session.user} />} />
-        <Route path="/login" element={!session.ready ? loading : session.user ? <Navigate to="/dashboard" replace /> : <Login client={client} />} />
+    const announcementSession = (session.user?.id || 'guest') + ':' + client.getSessionGeneration() + ':' + session.ready;
+    const routedSession=announcementSession+':'+location.pathname+location.search;
+    return <>{session.ready && !session.user && <AnnouncementEntry client={client} />}<Routes>
+        <Route path="/" element={<Home key={announcementSession} signedIn={!!session.user} client={client} />} />
+        <Route path="/announcements" element={<Announcements key={announcementSession} client={client} />} />
+        <Route path="/announcements/:id" element={<AnnouncementDetail key={announcementSession} client={client} />} />
+        <Route path="/models" element={<Catalog key={routedSession} client={client} />} />
+        <Route path="/models/*" element={<CatalogDetailPage key={routedSession} client={client} onLoginRequired={onCatalogLoginRequired} />} />
+        <Route path="/api/access" element={<APIAccess key={routedSession} client={client} onLoginRequired={onCatalogLoginRequired} />} />
+        <Route path="/ops/models" element={!session.ready ? loading : session.user ? <AccessGate key={routedSession} client={client} user={session.user} route="/ops/models"><OpsCatalog client={client} /></AccessGate> : <LoginRequired />} />
+        <Route path="/ops/announcements" element={!session.ready ? loading : session.user ? <AccessGate key={announcementSession+location.pathname} client={client} user={session.user} route="/ops/announcements"><OpsAnnouncements client={client} /></AccessGate> : <LoginRequired />} />
+        <Route path="/login" element={!session.ready ? loading : session.user ? <Navigate to="/welcome" replace /> : <Authentication client={client} mode="login" />} />
+        <Route path="/register" element={!session.ready ? loading : session.user ? <Navigate to="/welcome" replace /> : <Authentication client={client} mode="registration" />} />
+        <Route path="/oauth/discord" element={!session.ready?loading:<DiscordCallback client={client} captured={capturedCallback} onComplete={value=>{if(value){setProof({value,generation:client.getSessionGeneration()});navigate('/account',{replace:true});}else navigate('/welcome',{replace:true});}}/>}/>
+        <Route path="/welcome" element={!session.ready?loading:session.user?<PostAuthGate key={session.user.id+':'+client.getSessionGeneration()} client={client} user={session.user}/>:<Navigate to="/login" replace/>}/>
         <Route path="/sign-in" element={<Navigate to="/login" replace />} />
-        <Route element={!session.ready ? loading : session.user ? <Shell key={session.user.id + ':' + client.getSessionGeneration()} client={client} user={session.user} /> : <Navigate to="/login" replace />}>
+        <Route element={!session.ready ? loading : session.user ? <AccessGate key={routedSession} client={client} user={session.user} route={location.pathname+(location.pathname==='/keys'?location.search:'')}><Shell client={client} user={session.user} /></AccessGate> : <LoginRequired />}>
+            <Route path="/account" element={<Account key={session.user?.id+':'+client.getSessionGeneration()} client={client} proof={proof?.generation===client.getSessionGeneration()?proof.value:undefined} clearProof={()=>setProof(undefined)}/>}/>
             <Route path="/dashboard" element={<Dashboard client={client} user={session.user!} />} />
             <Route path="/me" element={<PersonalHub client={client} user={session.user!} />} />
             <Route path="/rewards" element={<Rewards client={client} user={session.user!} />} />
@@ -29,57 +55,28 @@ export function App({ client = api }: { client?: ApiClient }) {
             <Route path="/wallet/activate" element={session.user && <QuotaActivation key={session.user.id + ':' + client.getSessionGeneration()} client={client} userID={String(session.user.id)} />} />
             <Route path="/wallet" element={<Wallet client={client} user={session.user!} />} />
             <Route path="/master-profile" element={<ProfileRoute client={client} user={session.user!} />} />
-            <Route path="/models" element={<Models client={client} user={session.user!} />} />
             <Route path="/playground" element={<Playground client={client} user={session.user!} />} />
             <Route path="/admin/channels" element={<Channels client={client} user={session.user!} />} />
             <Route path="/keys" element={<Keys client={client} />} />
             <Route path="/logs" element={<Logs client={client} />} />
         </Route>
         <Route path="*" element={!session.ready ? loading : <Navigate to={session.user ? '/dashboard' : '/login'} replace />} />
-    </Routes>;
+    </Routes></>;
 }
 function ProfileRoute({ client, user }: { client: ApiClient; user: User }) {
     const master = useOutletContext<MasterResource>();
     return <MasterProfile client={client} user={user} onSaved={master.reload} />;
 }
-function Login({ client }: {
-    client: ApiClient;
-}) {
-    useEffect(() => { document.title = '登录 · momiao'; }, []);
-    const session = useSyncExternalStore(client.subscribe, client.getSnapshot);
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
-    const [code, setCode] = useState('');
-    const [twoFactor, setTwoFactor] = useState<TwoFactor | null>(null);
-    const [error, setError] = useState('');
-    const [busy, setBusy] = useState(false);
-    const lock = useRef(false);
-    async function submit(e: FormEvent) { e.preventDefault(); if (lock.current || session.loggingOut)
-        return; lock.current = true; setBusy(true); setError(''); try {
-        const next = twoFactor ? await client.verify2fa(twoFactor.flow_token, code.trim()) : await client.login(username.trim(), password);
-        setPassword('');
-        if (next)
-            setTwoFactor(next);
-    }
-    catch (e) {
-        setError(errorText(e));
-    }
-    finally {
-        lock.current = false;
-        setBusy(false);
-    } }
-    return <main className="login-layout"><section className="login-story"><a href="/" className="brand"><Crest /><span>momiao<small>CHALDEA PLATFORM</small></span></a><div className="login-title"><p className="eyebrow">YOUR PERSONAL COMMAND DECK</p><h1>Make room<br />for possibility<span>.</span></h1><p>每一次连接，<br />从你的指挥台开始。</p></div><div className="login-orbit"><Crest large/></div><div className="login-foot"><span>MOONLIT / CONNECTED</span><span>账户 · 密钥 · 调用记录</span></div></section><section className="login-entry"><div className="login-form"><p className="eyebrow">WELCOME ABOARD</p><h2>{twoFactor ? '验证你的身份' : '欢迎回来'}</h2><p className="subtitle">{twoFactor ? '输入验证器中的验证码或备用码，完成登录。' : '登录 momiao，管理你的 API 连接。'}</p>{session.notice && <Alert>{session.notice}{session.notice.includes('服务端退出未确认') && <button disabled={session.loggingOut} onClick={() => void client.logout().catch(() => { })}>重试退出</button>}</Alert>}<form onSubmit={submit}>{twoFactor ? <label>验证码或备用码<input autoFocus autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value)} required maxLength={64}/></label> : <><label>用户名<input autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required maxLength={128} placeholder="输入你的用户名"/></label><label>密码<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required maxLength={256} placeholder="输入账户密码"/></label></>}{error && <Alert>{error}</Alert>}<button className="primary login-submit" disabled={busy || session.loggingOut} type="submit">{session.loggingOut ? '正在退出…' : busy ? '正在验证…' : twoFactor ? '验证并登录' : '登录控制台'}<span aria-hidden="true">↗</span></button>{twoFactor && <button type="button" disabled={busy} onClick={() => { setTwoFactor(null); setCode(''); setError(''); }}>返回账户登录</button>}</form><div className="login-note"><span aria-hidden="true">◇</span><p>会话由安全 Cookie 续期。请勿在共享设备上保留登录状态。</p></div></div><footer>momiao <span> / </span> Chaldea Platform <span> / </span><a href="https://github.com/cy4268/momiao" target="_blank" rel="noopener noreferrer">源代码</a></footer></section></main>;
-}
 const pageTitles: Record<string, string> = {
     '/dashboard': '指挥台', '/me': '个人中心', '/rewards': '奖励中心', '/games/dice': '骰子体验',
-    '/master-profile': 'Master 资料', '/wallet/activate': '转入原生额度', '/wallet': '我的钱包',
+    '/master-profile': 'Master 资料', '/account': '账户与安全', '/wallet/activate': '转入原生额度', '/wallet': '我的钱包',
     '/models': '模型目录', '/playground': '文本测试', '/admin/channels': '渠道管理', '/keys': '密钥管理', '/logs': '调用记录',
 };
 function Shell({ client, user }: { client: ApiClient; user: User }) {
     const location = useLocation();
     const domain = ['/models', '/keys', '/logs', '/playground'].includes(location.pathname) ? 'models'
         : ['/wallet', '/wallet/activate', '/rewards'].includes(location.pathname) ? 'assets'
-        : ['/me', '/master-profile', '/admin/channels'].includes(location.pathname) ? 'my'
+        : ['/me', '/account', '/master-profile', '/admin/channels'].includes(location.pathname) ? 'my'
         : location.pathname === '/games/dice' ? 'experience' : 'home';
     const contextLinks = domain === 'models' ? [['/models', '模型目录'], ['/keys', '密钥管理'], ['/logs', '调用记录'], ['/playground', '文本测试']]
         : domain === 'assets' ? [['/wallet', '我的钱包'], ['/rewards', '奖励中心']]
@@ -103,7 +100,7 @@ function Shell({ client, user }: { client: ApiClient; user: User }) {
                 <Link to="/dashboard" aria-current={domain === 'home' ? 'page' : undefined}>指挥台</Link>
                 <Link to="/models" aria-current={domain === 'models' ? 'true' : undefined}>模型目录</Link>
                 <button disabled aria-label="娱乐（未开放）">娱乐<small>未开放</small></button>
-                <button disabled aria-label="公告（未开放）">公告<small>未开放</small></button>
+                <Link to="/announcements">公告</Link>
             </nav>
             <div className="portal-account"><Link className="asset-shortcut" to="/wallet" aria-label="资产快捷入口" aria-current={domain === 'assets' ? 'true' : undefined}><span aria-hidden="true">◇</span> 资产</Link><div className="account-wrap" ref={account} onKeyDown={e => { if (e.key === 'Escape' && menu) { setMenu(false); trigger.current?.focus(); } }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setMenu(false); }}>
             <button ref={trigger} className="account-button" aria-label="账户菜单" aria-expanded={menu} aria-controls="account-menu" onClick={() => setMenu(!menu)}><span className="avatar"><Crest /></span><span>{masterName}<small>Master 身份</small></span><span aria-hidden="true">⌄</span></button>

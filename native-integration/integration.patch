@@ -1,0 +1,383 @@
+diff --git a/controller/momiao_auth_test.go b/controller/momiao_auth_test.go
+index 9294697..603c63a 100644
+--- a/controller/momiao_auth_test.go
++++ b/controller/momiao_auth_test.go
+@@ -17,6 +17,7 @@ import (
+ 	"github.com/QuantumNous/new-api/service"
+ 	"github.com/QuantumNous/new-api/setting/momiao_setting"
+ 	"github.com/gin-gonic/gin"
++	"github.com/jackc/pgx/v5"
+ 	"github.com/pquerna/otp/totp"
+ 	"github.com/stretchr/testify/assert"
+ 	"github.com/stretchr/testify/require"
+@@ -50,8 +51,10 @@ func setupMomiaoHTTP(t *testing.T) (*MomiaoAuth, *gin.Engine) {
+ 	if dsn == "" {
+ 		t.Skip("requires isolated PostgreSQL via MOMIAO_TEST_POSTGRES_DSN")
+ 	}
+-	require.Contains(t, dsn, "host=127.0.0.1 ")
+-	require.Contains(t, dsn, "dbname=momiao_m2_test ")
++	parsed, parseErr := pgx.ParseConfig(dsn)
++	require.True(t, parseErr == nil, "invalid isolated PostgreSQL test configuration")
++	require.Equal(t, "127.0.0.1", parsed.Host)
++	require.True(t, parsed.Database == "momiao_m2_test" || strings.HasPrefix(parsed.Database, "native_integration_"), "test database must use an approved isolated prefix")
+ 	oldDB, oldLog, oldType, oldRedis, oldSecret, oldSecure := model.DB, model.LOG_DB, common.MainDatabaseType(), common.RedisEnabled, common.SessionSecret, common.SessionCookieSecure
+ 	db, err := gorm.Open(postgres.Open(dsn+" search_path=m2_controller_test,public"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+ 	require.NoError(t, err)
+diff --git a/internal/momiaocatalog/postgres_test.go b/internal/momiaocatalog/postgres_test.go
+index 1bee0b0..2204a75 100644
+--- a/internal/momiaocatalog/postgres_test.go
++++ b/internal/momiaocatalog/postgres_test.go
+@@ -25,7 +25,7 @@ func TestPostgresRealReadOnlyCatalogAndNativeSessionQuote(t *testing.T) {
+ 	u, err := url.Parse(dsn)
+ 	require.NoError(t, err)
+ 	require.Contains(t, []string{"localhost", "127.0.0.1", "::1"}, u.Hostname())
+-	require.True(t, strings.HasPrefix(strings.TrimPrefix(u.Path, "/"), "m3_catalog_"), "fixture database must use its own prefix")
++	require.True(t, strings.HasPrefix(strings.TrimPrefix(u.Path, "/"), "m3_catalog_") || strings.HasPrefix(strings.TrimPrefix(u.Path, "/"), "native_integration_"), "fixture database must use its own prefix")
+ 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+ 	require.NoError(t, err)
+ 	installFixture(t, db, common.DatabaseTypePostgreSQL)
+diff --git a/model/momiao_admission_test.go b/model/momiao_admission_test.go
+index bf6fc5c..f3c4916 100644
+--- a/model/momiao_admission_test.go
++++ b/model/momiao_admission_test.go
+@@ -11,6 +11,7 @@ import (
+ 
+ 	"github.com/QuantumNous/new-api/common"
+ 	"github.com/google/uuid"
++	"github.com/jackc/pgx/v5"
+ 	"github.com/stretchr/testify/assert"
+ 	"github.com/stretchr/testify/require"
+ 	"gorm.io/driver/postgres"
+@@ -24,8 +25,10 @@ func setupMomiaoPostgres(t *testing.T, migrate bool) *gorm.DB {
+ 	if dsn == "" {
+ 		t.Skip("requires isolated PostgreSQL via MOMIAO_TEST_POSTGRES_DSN")
+ 	}
+-	require.Contains(t, dsn, "host=127.0.0.1 ")
+-	require.Contains(t, dsn, "dbname=momiao_m2_test ")
++	parsed, parseErr := pgx.ParseConfig(dsn)
++	require.True(t, parseErr == nil, "invalid isolated PostgreSQL test configuration")
++	require.Equal(t, "127.0.0.1", parsed.Host)
++	require.True(t, parsed.Database == "momiao_m2_test" || strings.HasPrefix(parsed.Database, "native_integration_"), "test database must use an approved isolated prefix")
+ 	oldDB, oldLogDB, oldType := DB, LOG_DB, common.MainDatabaseType()
+ 	db, err := gorm.Open(postgres.Open(dsn+" search_path=m2_native_test,public"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+ 	require.NoError(t, err)
+diff --git a/router/api-router.go b/router/api-router.go
+index e45cf84..bb52c03 100644
+--- a/router/api-router.go
++++ b/router/api-router.go
+@@ -2,6 +2,7 @@ package router
+ 
+ import (
+ 	"github.com/QuantumNous/new-api/controller"
++	"github.com/QuantumNous/new-api/internal/momiaocatalog"
+ 	"github.com/QuantumNous/new-api/middleware"
+ 
+ 	// Import oauth package to register providers via init()
+@@ -23,6 +24,7 @@ func SetApiRouter(router *gin.Engine) {
+ 	if admission := controller.MomiaoAdmission(); admission != nil {
+ 		admission.RegisterRoutes(apiRouter, router)
+ 	}
++	momiaocatalog.Register(router, apiRouter)
+ 	anonymousRequestBodyLimit := middleware.AnonymousRequestBodyLimit()
+ 	{
+ 		apiRouter.GET("/setup", controller.GetSetup)
+diff --git a/router/momiao_integration_test.go b/router/momiao_integration_test.go
+new file mode 100644
+index 0000000..1800141
+--- /dev/null
++++ b/router/momiao_integration_test.go
+@@ -0,0 +1,294 @@
++package router
++
++import (
++	"context"
++	"fmt"
++	"io"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"net/http/httputil"
++	"net/url"
++	"os"
++	"path/filepath"
++	"runtime"
++	"strconv"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/controller"
++	"github.com/QuantumNous/new-api/i18n"
++	"github.com/QuantumNous/new-api/internal/momiaocatalog"
++	"github.com/QuantumNous/new-api/middleware"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/QuantumNous/new-api/setting/momiao_setting"
++	"github.com/QuantumNous/new-api/setting/ratio_setting"
++	"github.com/gin-gonic/gin"
++	"github.com/jackc/pgx/v5"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"gorm.io/driver/postgres"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++func TestMomiaoIntegratedRouteRegistrationKeepsBothCandidateSurfaces(t *testing.T) {
++	t.Setenv("MOMIAO_ADMISSION_ENABLED", "false")
++	require.NoError(t, controller.InitializeMomiaoAdmission())
++	gin.SetMode(gin.TestMode)
++	r := gin.New()
++	SetApiRouter(r)
++	routes := map[string]bool{}
++	for _, route := range r.Routes() {
++		routes[route.Method+" "+route.Path] = true
++	}
++	for _, route := range []string{"GET /internal/momiao/catalog", "GET /api/momiao/catalog/prices", "POST /api/user/login", "POST /api/user/login/2fa", "POST /api/user/register", "POST /api/user/auth/refresh", "POST /api/user/auth/logout"} {
++		assert.True(t, routes[route], route)
++	}
++	assert.False(t, routes["GET /internal/momiao/registrations"])
++}
++
++func TestMomiaoIntegratedFourSwitchesRealLinuxTransportAndSessionFences(t *testing.T) {
++	if runtime.GOOS != "linux" {
++		t.Skip("Linux startup permission acceptance runs in the Linux test binary")
++	}
++	gin.SetMode(gin.TestMode)
++	require.NoError(t, i18n.Init())
++	dsn := os.Getenv("MOMIAO_INTEGRATION_TEST_DSN")
++	require.NotEmpty(t, dsn, "explicit isolated integration DSN is required for this selected acceptance test")
++	parsed, err := pgx.ParseConfig(dsn)
++	require.True(t, err == nil, "invalid integration database configuration")
++	require.Equal(t, "127.0.0.1", parsed.Host)
++	require.True(t, strings.HasPrefix(parsed.Database, "native_integration_"))
++	db, err := gorm.Open(postgres.Open(dsn+" search_path=integration_router_test,public"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	require.NoError(t, err)
++	sqlDB, err := db.DB()
++	require.NoError(t, err)
++	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
++	require.NoError(t, db.Exec("DROP SCHEMA IF EXISTS momiao_admission CASCADE").Error)
++	require.NoError(t, db.Exec("DROP SCHEMA IF EXISTS integration_router_test CASCADE").Error)
++	require.NoError(t, db.Exec("CREATE SCHEMA integration_router_test").Error)
++	t.Cleanup(func() {
++		require.NoError(t, db.Exec("DROP SCHEMA IF EXISTS momiao_admission CASCADE").Error)
++		require.NoError(t, db.Exec("DROP SCHEMA IF EXISTS integration_router_test CASCADE").Error)
++	})
++	oldDB, oldLog, oldType := model.DB, model.LOG_DB, common.MainDatabaseType()
++	oldSecret, oldSecure, oldRedis, oldSetup := common.SessionSecret, common.SessionCookieSecure, common.RedisEnabled, constant.Setup
++	oldTrusted, oldCritical, oldGlobal, oldLogin := common.SessionCookieTrustedURLs, common.CriticalRateLimitEnable, common.GlobalApiRateLimitEnable, common.PasswordLoginEnabled
++	oldRatios, oldGroups := ratio_setting.ModelRatio2JSONString(), ratio_setting.GroupRatio2JSONString()
++	t.Cleanup(func() {
++		model.DB, model.LOG_DB = oldDB, oldLog
++		common.SetMainDatabaseType(oldType)
++		common.SessionSecret, common.SessionCookieSecure, common.RedisEnabled, constant.Setup = oldSecret, oldSecure, oldRedis, oldSetup
++		common.SessionCookieTrustedURLs, common.CriticalRateLimitEnable, common.GlobalApiRateLimitEnable, common.PasswordLoginEnabled = oldTrusted, oldCritical, oldGlobal, oldLogin
++		_ = ratio_setting.UpdateModelRatioByJSONString(oldRatios)
++		_ = ratio_setting.UpdateGroupRatioByJSONString(oldGroups)
++	})
++	model.DB, model.LOG_DB = db, db
++	common.SetMainDatabaseType(common.DatabaseTypePostgreSQL)
++	common.SessionSecret, common.SessionCookieSecure, common.RedisEnabled, constant.Setup = "synthetic-integration-session-secret", true, false, true
++	common.SessionCookieTrustedURLs = []string{"https://admission.test"}
++	common.CriticalRateLimitEnable = false
++	common.GlobalApiRateLimitEnable = false
++	common.PasswordLoginEnabled = true
++	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.AuthFlow{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.Log{}, &model.Ability{}, &model.Channel{}, &model.Model{}))
++	require.NoError(t, model.MigrateMomiaoAdmission(db))
++	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"integration/model":2}`))
++	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
++	require.NoError(t, db.Create(&model.Channel{Id: 1, Type: constant.ChannelTypeOpenAI, Status: 1, Key: "synthetic-no-upstream-calls"}).Error)
++	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "integration/model", ChannelId: 1, Enabled: true}).Error)
++	hash, err := common.Password2Hash("integration-password-123")
++	require.NoError(t, err)
++	pat := "synthetic-integration-pat"
++	user := model.User{Username: "integration-user", Password: hash, Group: "default", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1, AffCode: "integration", DiscordId: "876543210123456789", AccessToken: &pat}
++	require.NoError(t, db.Create(&user).Error)
++	session, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "integration")
++	require.NoError(t, err)
++	admissionReader, catalogReader := strings.Repeat("r", 64), strings.Repeat("a", 64)
++	require.NotEqual(t, admissionReader, catalogReader)
++	dir := t.TempDir()
++	admissionPath, catalogPath := filepath.Join(dir, "admission.json"), filepath.Join(dir, "catalog.conf")
++	cfg := momiao_setting.Config{ClientID: "123", ClientSecret: "synthetic-integration-oauth-secret", GuildID: "456", RoleID: "789", PublicOrigin: "https://admission.test", RedirectURI: "https://admission.test/oauth/discord", PolicyVersion: "integration-v1", ReaderKey: admissionReader}
++	configBytes, err := common.Marshal(cfg)
++	require.NoError(t, err)
++	require.NoError(t, os.WriteFile(admissionPath, configBytes, 0600))
++	t.Setenv("MOMIAO_ADMISSION_CONFIG_FILE", admissionPath)
++	t.Setenv("MOMIAO_CATALOG_CONFIG_FILE", catalogPath)
++	t.Cleanup(func() {
++		_ = os.Setenv("MOMIAO_ADMISSION_ENABLED", "false")
++		require.NoError(t, controller.InitializeMomiaoAdmission())
++	})
++	for _, admissionOn := range []bool{false, true} {
++		for _, catalogOn := range []bool{false, true} {
++			t.Run(fmt.Sprintf("admission_%t_catalog_%t", admissionOn, catalogOn), func(t *testing.T) {
++				t.Setenv("MOMIAO_ADMISSION_ENABLED", strconv.FormatBool(admissionOn))
++				require.NoError(t, os.WriteFile(catalogPath, []byte("enabled="+strconv.FormatBool(catalogOn)+"\nreader_secret="+catalogReader+"\n"), 0600))
++				require.NoError(t, controller.InitializeMomiaoAdmission())
++				assert.Equal(t, admissionOn, controller.MomiaoAdmission() != nil)
++				r := gin.New()
++				r.Use(middleware.I18n())
++				if admissionOn {
++					r.Use(middleware.MomiaoAuthRecovery())
++				}
++				SetApiRouter(r)
++				native := httptest.NewUnstartedServer(r)
++				require.NoError(t, momiaocatalog.ConfigureServer(native.Config))
++				native.Start()
++				t.Cleanup(native.Close)
++				socketDir, err := os.MkdirTemp("", "native-int-")
++				require.NoError(t, err)
++				t.Cleanup(func() { require.NoError(t, os.RemoveAll(socketDir)) })
++				socket := filepath.Join(socketDir, "proxy.sock")
++				listener, err := net.Listen("unix", socket)
++				require.NoError(t, err)
++				target, err := url.Parse(native.URL)
++				require.NoError(t, err)
++				proxy := &http.Server{Handler: httputil.NewSingleHostReverseProxy(target)}
++				go proxy.Serve(listener)
++				t.Cleanup(func() { _ = proxy.Close() })
++				transport := &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
++					return (&net.Dialer{}).DialContext(ctx, "unix", socket)
++				}}
++				t.Cleanup(transport.CloseIdleConnections)
++				client := &http.Client{Transport: transport, Timeout: 10 * time.Second}
++				for _, entry := range []struct {
++					path, key string
++					enabled   bool
++				}{{"/internal/momiao/registrations", admissionReader, admissionOn}, {"/internal/momiao/catalog", catalogReader, catalogOn}} {
++					for _, credential := range []string{"", admissionReader, catalogReader, session.AccessToken, pat} {
++						status, _, body := integrationRequest(t, client, "GET", entry.path, "", credential, nil)
++						if entry.enabled && credential == entry.key {
++							require.Equal(t, 200, status, string(body))
++							assert.Contains(t, string(body), `"success":true`)
++						} else {
++							assert.NotEqual(t, 200, status, "reader authority crossed boundary")
++						}
++					}
++				}
++				status, _, body := integrationRequest(t, client, "POST", "/api/momiao/auth/discord/login/start", "{}", "", nil)
++				if admissionOn {
++					assert.Equal(t, 200, status)
++					assert.Contains(t, string(body), "authorization_url")
++				} else {
++					assert.Equal(t, 404, status)
++				}
++				status, _, _ = integrationRequest(t, client, "POST", "/api/user/register", "{}", "", nil)
++				if admissionOn {
++					assert.Equal(t, 403, status)
++				} else {
++					assert.NotEqual(t, 403, status)
++					assert.NotEqual(t, 404, status)
++				}
++				status, _, body = integrationRequest(t, client, "GET", "/api/momiao/catalog/prices?model_id=integration%2Fmodel", "", session.AccessToken, nil)
++				if catalogOn {
++					require.Equal(t, 200, status, string(body))
++					assert.Contains(t, string(body), `"amount":"4"`)
++				} else {
++					assert.Equal(t, 404, status)
++				}
++				status, _, _ = integrationRequest(t, client, "GET", "/api/momiao/catalog/prices?model_id=integration%2Fmodel", "", pat, nil)
++				if catalogOn {
++					assert.Equal(t, 403, status)
++				} else {
++					assert.Equal(t, 404, status)
++				}
++				status, _, body = integrationRequest(t, client, "GET", "/api/user/self", "", session.AccessToken, nil)
++				require.Equal(t, 200, status, string(body))
++				if admissionOn && catalogOn {
++					integrationSessionFences(t, client, db, &user)
++				}
++			})
++		}
++	}
++	// These are actual Linux chmod/load checks, not Windows mode-bit emulation.
++	t.Setenv("MOMIAO_ADMISSION_ENABLED", "true")
++	require.NoError(t, os.Chmod(admissionPath, 0644))
++	assert.Error(t, controller.InitializeMomiaoAdmission())
++	require.NoError(t, os.Chmod(admissionPath, 0600))
++	require.NoError(t, controller.InitializeMomiaoAdmission())
++	require.NoError(t, os.Chmod(catalogPath, 0644))
++	assert.Error(t, momiaocatalog.ConfigureServer(&http.Server{}))
++	require.NoError(t, os.Chmod(catalogPath, 0600))
++	require.NoError(t, momiaocatalog.ConfigureServer(&http.Server{}))
++}
++
++func integrationRequest(t *testing.T, client *http.Client, method, path, body, token string, cookies []*http.Cookie) (int, []*http.Cookie, []byte) {
++	t.Helper()
++	req, err := http.NewRequest(method, "http://native.integration"+path, strings.NewReader(body))
++	require.NoError(t, err)
++	req.Header.Set("Origin", "https://admission.test")
++	req.Header.Set("Content-Type", "application/json")
++	req.Header.Set("X-Forwarded-For", "203.0.113.99")
++	if token != "" {
++		req.Header.Set("Authorization", "Bearer "+token)
++	}
++	for _, cookie := range cookies {
++		req.AddCookie(cookie)
++	}
++	resp, err := client.Do(req)
++	require.NoError(t, err)
++	defer resp.Body.Close()
++	data, err := io.ReadAll(resp.Body)
++	require.NoError(t, err)
++	return resp.StatusCode, resp.Cookies(), data
++}
++
++type integrationAuthResponse struct {
++	Success bool
++	Data    struct {
++		AccessToken  string `json:"access_token"`
++		FlowToken    string `json:"flow_token"`
++		RequireTwoFA bool   `json:"require_2fa"`
++	}
++}
++
++func integrationSessionFences(t *testing.T, client *http.Client, db *gorm.DB, user *model.User) {
++	t.Helper()
++	require.NoError(t, db.Create(&model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
++	backupCodes, err := common.GenerateBackupCodes()
++	require.NoError(t, err)
++	backupHash, err := common.Password2Hash(common.NormalizeBackupCode(backupCodes[0]))
++	require.NoError(t, err)
++	require.NoError(t, db.Create(&model.TwoFABackupCode{UserId: user.Id, CodeHash: backupHash}).Error)
++	status, _, body := integrationRequest(t, client, "POST", "/api/user/login", `{"username":"integration-user","password":"integration-password-123"}`, "", nil)
++	require.Equal(t, 200, status)
++	var challenge integrationAuthResponse
++	require.NoError(t, common.Unmarshal(body, &challenge))
++	require.True(t, challenge.Success)
++	require.True(t, challenge.Data.RequireTwoFA)
++	require.Empty(t, challenge.Data.AccessToken)
++	_, _, body = integrationRequest(t, client, "GET", "/api/momiao/catalog/prices?model_id=integration%2Fmodel", "", challenge.Data.FlowToken, nil)
++	assert.NotContains(t, string(body), `"success":true`)
++	invalid, _ := common.Marshal(map[string]string{"flow_token": challenge.Data.FlowToken, "code": "invalid-backup"})
++	_, _, body = integrationRequest(t, client, "POST", "/api/user/login/2fa", string(invalid), "", nil)
++	assert.Contains(t, string(body), `"success":false`)
++	verified, _ := common.Marshal(map[string]string{"flow_token": challenge.Data.FlowToken, "code": backupCodes[0]})
++	status, cookies, body := integrationRequest(t, client, "POST", "/api/user/login/2fa", string(verified), "", nil)
++	require.Equal(t, 200, status)
++	var authenticated integrationAuthResponse
++	require.NoError(t, common.Unmarshal(body, &authenticated))
++	require.True(t, authenticated.Success)
++	require.NotEmpty(t, authenticated.Data.AccessToken)
++	require.NotEmpty(t, cookies)
++	status, _, _ = integrationRequest(t, client, "GET", "/api/momiao/catalog/prices?model_id=integration%2Fmodel", "", authenticated.Data.AccessToken, nil)
++	require.Equal(t, 200, status)
++	status, refreshedCookies, body := integrationRequest(t, client, "POST", "/api/user/auth/refresh", "{}", "", cookies)
++	require.Equal(t, 200, status)
++	var refreshed integrationAuthResponse
++	require.NoError(t, common.Unmarshal(body, &refreshed))
++	require.True(t, refreshed.Success)
++	require.NotEmpty(t, refreshed.Data.AccessToken)
++	status, _, body = integrationRequest(t, client, "POST", "/api/user/auth/logout", "{}", refreshed.Data.AccessToken, refreshedCookies)
++	require.Equal(t, 200, status)
++	assert.Contains(t, string(body), `"success":true`)
++	for _, path := range []string{"/api/user/self", "/api/momiao/account", "/api/momiao/catalog/prices?model_id=integration%2Fmodel"} {
++		status, _, _ = integrationRequest(t, client, "GET", path, "", refreshed.Data.AccessToken, nil)
++		assert.Equal(t, 401, status, path)
++	}
++	_, _, body = integrationRequest(t, client, "POST", "/api/user/login/2fa", string(verified), "", nil)
++	assert.Contains(t, string(body), `"success":false`)
++}

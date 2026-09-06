@@ -1,10 +1,13 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react';
 import { ApiClient, ApiError, type Key, errorText } from './api';
 import { Alert, Empty, Loading, Modal, Pager, date, number, useResource } from './ui';
+import { Link, useLocation } from 'react-router-dom';
+import { catalogSelectionPath, selectedModel } from './catalog-api';
 const status = (key: Key) => ({ 1: '已启用', 2: '已停用', 3: '已过期', 4: '额度用尽' }[key.status] || '未知状态');
 export function Keys({ client }: {
     client: ApiClient;
 }) {
+    const modelID = selectedModel(useLocation().search);
     const [page, setPage] = useState(1);
     const resource = useResource(() => client.keys(page), [client, page]);
     const [dialog, setDialog] = useState<{
@@ -32,6 +35,7 @@ export function Keys({ client }: {
         reload();
     } }
     return <><header className="page-heading"><div><p className="eyebrow">ACCESS / API KEYS</p><h1>密钥管理</h1><p>为每个应用创建独立密钥，按需设置额度和有效期。</p></div><button className="primary" onClick={() => { setNotice(''); setDialog({ kind: 'create' }); }}>创建 API 密钥</button></header>
+ {modelID && <section className="panel"><p>已选择模型：<code>{modelID}</code></p><p className="hint">创建密钥需要你主动确认；模型选择不会替你创建或修改密钥。</p><Link className="text-link" to={catalogSelectionPath(modelID, false)}>继续查看 API 接入设置 →</Link></section>}
  {notice && <p className="notice" role="status">{notice}</p>}{error && <Alert>{error}</Alert>}
  <section className="panel"><div className="section-heading"><h2>我的密钥</h2><button disabled={resource.loading || busy} onClick={reload}>刷新列表</button></div><p className="hint">额度按原生单位显示，不代表平台 Reserve 或 API Credit。密钥默认隐藏。</p>
  {resource.loading ? <Loading /> : resource.error ? <><Alert>{resource.error}</Alert><button onClick={reload}>重新加载</button></> : resource.data && <>{resource.data.items.length === 0 ? <Empty title="还没有 API 密钥">点击“创建 API 密钥”，为你的第一个应用开启连接。</Empty> : <div className="table-wrap" tabIndex={0} role="region" aria-label="API 密钥列表"><table><thead><tr><th>名称 / 密钥</th><th>状态</th><th>额度（原生单位）</th><th>创建 / 到期</th><th>操作</th></tr></thead><tbody>{resource.data.items.map(key => <tr key={key.id}><td><strong>{key.name || '未命名密钥'}</strong><code className="masked">{key.key || '••••••••••••'}</code></td><td><span className={`badge ${key.status === 1 ? 'active' : ''}`}>{status(key)}</span></td><td><span>剩余 {key.unlimited_quota ? '不限额' : number(key.remain_quota)}</span><small>已用 {number(key.used_quota)}</small></td><td><time>{date(key.created_time)}</time><small>{date(key.expired_time)}</small></td><td><div className="row-actions"><button disabled={busy} onClick={() => setDialog({ kind: 'reveal', key })}>查看密钥</button><button disabled={busy} onClick={() => void toggle(key)}>{key.status === 1 ? '停用' : '启用'}</button><button className="quiet" disabled={busy} onClick={() => setDialog({ kind: 'delete', key })}>删除</button></div></td></tr>)}</tbody></table></div>}<Pager page={page} total={resource.data.total} size={resource.data.page_size} onChange={setPage} disabled={busy}/></>}

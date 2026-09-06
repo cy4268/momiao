@@ -1,0 +1,28 @@
+{
+  "native_repository": "https://github.com/QuantumNous/new-api",
+  "contract": "CONTRACT.md",
+  "native_revision": "f116414284162ad15d8925f7bca494c109b83e93",
+  "patch": {
+    "sha256": "289bb441d2249a745b38a2400f02ed9b7166dcd5819a9fefd13d437de992b108",
+    "file": "native-catalog.patch"
+  },
+  "application_base": "d1c0145c182a2e7989962b5be0147333ed8f79e5",
+  "dependency_changes": [],
+  "implementation": "internal/momiaocatalog",
+  "entry": "verify.ps1",
+  "public_group": "default",
+  "production_actions": [],
+  "database_migrations": [],
+  "default_enabled": false,
+  "status": "local_candidate_not_deployed",
+  "schema": "momiao.native-catalog-adapter.manifest.v1",
+  "new_routes": [
+    "/internal/momiao/catalog",
+    "/api/momiao/catalog/prices"
+  ],
+  "existing_source_hooks": [
+    "main.go",
+    "router/api-router.go"
+  ],
+  "local_source_snapshot_tree": "e228ab3450230dc3c644b6a5362930de1fd0384e"
+}

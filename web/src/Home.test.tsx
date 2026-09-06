@@ -15,7 +15,7 @@ it.each(['guest', 'failure'])('keeps / public after %s session verification', as
     render(<MemoryRouter initialEntries={['/']}><App client={client} /></MemoryRouter>);
     await waitFor(() => expect(client.getSnapshot().ready).toBe(true));
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('在月光下');
-    expect(fetcher.mock.calls.map(c => c[0])).toEqual(['/api/user/auth/refresh']);
+    expect(fetcher.mock.calls.filter(c => !c[0].startsWith('/platform/v1/announcements/') && !c[0].startsWith('/platform/v1/models?')).map(c => c[0])).toEqual(['/api/user/auth/refresh']);
     expect(screen.queryByLabelText('密码')).not.toBeInTheDocument();
 });
 it('enhances the same home for a signed-in user without loading personal business data', async () => {
@@ -23,7 +23,7 @@ it('enhances the same home for a signed-in user without loading personal busines
     render(<MemoryRouter initialEntries={['/']}><App client={client} /></MemoryRouter>);
     expect(await screen.findByRole('link', { name: '进入个人中心' })).toHaveAttribute('href', '/me');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('在月光下');
-    expect(fetcher.mock.calls.every(c => c[0].startsWith('/api/user/'))).toBe(true);
+    expect(fetcher.mock.calls.every(c => c[0].startsWith('/api/user/') || c[0] === '/platform/v1/announcements/current-home-banner' || c[0] === '/platform/v1/models?recommended=true&limit=3')).toBe(true);
     expect(screen.queryByText(/今日已领取|今日待领取|在线人数|热门榜|服务正常/)).not.toBeInTheDocument();
     expect(screen.getByText(/无资产骰子体验/)).toBeVisible();
 });
@@ -36,9 +36,12 @@ it('keeps the hero content usable if the decorative image fails', async () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('在月光下');
     expect(screen.getByRole('link', { name: '登录账户' })).toBeVisible();
 });
-it('does not open the native model directory to guests', async () => {
+it('opens the reviewed public catalog to guests without native group or model reads', async () => {
     const { client, fetcher } = fixtureClient(() => new Response(JSON.stringify({ success: false }), { status: 401 }));
     render(<MemoryRouter initialEntries={['/models']}><App client={client} /></MemoryRouter>);
-    await screen.findByLabelText('用户名');
-    expect(fetcher.mock.calls.some(c => c[0].includes('/models'))).toBe(false);
+    await waitFor(() => expect(client.getSnapshot().ready).toBe(true));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('找到合适的模型');
+    expect(fetcher.mock.calls.some(c => c[0] === '/platform/v1/models')).toBe(true);
+    expect(fetcher.mock.calls.some(c => c[0].includes('/api/user/models') || c[0].endsWith('/groups'))).toBe(false);
+    expect(screen.queryByLabelText('密码')).not.toBeInTheDocument();
 });

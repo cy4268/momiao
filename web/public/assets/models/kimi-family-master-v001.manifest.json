@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "persona_kimi_master",
+  "file": "kimi-family-master-v001.png",
+  "provenance": "WORKSPACE_PROVIDED",
+  "status": "REVIEW_PENDING",
+  "source": "E:\\Programs\\vps\\newapi改造计划\\最终版\\视觉参考\\assets\\personas\\kimi.png",
+  "acquisition": "Existing user project asset copied byte-for-byte on 2026-09-06; no generation, editing, conversion or source modification in this reuse batch.",
+  "rights": "Historical licensing, authorship and original-generation provenance not established by this reuse; no LICENSED or newly-original claim.",
+  "intended_use": "Shared Kimi family Model Card / Model Detail character layer; registry and Catalog integration pending.",
+  "format": "PNG",
+  "mode": "RGBA",
+  "width": 1024,
+  "height": 1536,
+  "bytes": 2632300,
+  "sha256": "658da9f399818b7e18eac93095db8a602211628a12c7bd8fa47275af200e23ab",
+  "validation": {
+    "png_verify": true,
+    "full_pixel_decode": true,
+    "source_copy_hash_equal": true,
+    "alpha_extrema": [
+      0,
+      254
+    ],
+    "transparent_pixels": 566977,
+    "nonzero_alpha_pixels": 1005887,
+    "alpha_bbox": [
+      0,
+      11,
+      1024,
+      1536
+    ]
+  },
+  "limitations": "1024x1536 source is below the recommended 2048x3072 master. Nonzero alpha reaches left/right/bottom canvas edges. Alpha edge, crop, compressed web delivery and Catalog browser review remain pending; not PRODUCTION_READY."
+}

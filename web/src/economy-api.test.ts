@@ -1,5 +1,10 @@
 import { expect,it } from 'vitest';
 import { amountUnits,parseDaily,parsePending,parseTransaction,parseTransactions } from './economy-api';
+it('accepts only the fixed registration issuance amount, owner and business identity',()=>{
+ const registration={...receiptFixture,kind:'INITIAL_GRANT_REGISTRATION',biz_id:'initial_grant:registration:1',amount:'1000',amount_units:'500000000'};
+ expect(parseTransaction(registration,'1').kind).toBe('INITIAL_GRANT_REGISTRATION');
+ for(const bad of [{...registration,amount_units:'250000000',amount:'500'},{...registration,biz_id:'initial_grant:registration:2'},{...registration,from_asset:'AVAILABLE_CHIPS'}])expect(()=>parseTransaction(bad,'1')).toThrow();
+});
 export const dailyFixture={user_id:'1',business_date:'2026-09-05',timezone:'Asia/Shanghai',next_reset_at:'2026-09-05T16:00:00Z',amount:'500',amount_units:'250000000',asset:'RESERVE_API_CREDIT',policy_version:'1',claimed:false,transaction_id:null};
 export const receiptFixture={id:'01990000-1111-7777-aaaa-000000000001',user_id:'1',biz_id:'daily:1:2026-09-05',kind:'DAILY_REWARD',status:'CONFIRMED',from_asset:'',to_asset:'RESERVE_API_CREDIT',amount_units:'250000000',amount:'500',created_at:'2026-09-05T12:00:00Z',confirmed_at:'2026-09-05T12:00:00Z'};
 it('keeps exact atomic arithmetic and rejects lossy or overflowing quantities',()=>{expect(amountUnits('0.000002')).toBe(1n);expect(amountUnits('18446744073709.551614')).toBe(9223372036854775807n);for(const v of ['0','0.000001','1e3','-1','NaN','18446744073709.551616'])expect(amountUnits(v)).toBeNull()});

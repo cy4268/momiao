@@ -1,3 +1,4 @@
+import { withReadyAccessGate } from './m1-test-fixtures';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
@@ -17,7 +18,7 @@ function setup(respond?: (path: string, init?: RequestInit) => Response | Promis
         if (p === '/platform/v1/master-profile') return ok(incomplete);
         return ok({ items: [], total: 0, page: 1, page_size: 10 });
     });
-    const client = new ApiClient(f);
+    const client = new ApiClient(withReadyAccessGate(f));
     return { f, client, ...render(<MemoryRouter initialEntries={['/master-profile']}><App client={client} /></MemoryRouter>) };
 }
 const writes = (f: ReturnType<typeof setup>['f']) => f.mock.calls.filter(([p, init]) => p.startsWith('/platform/v1/master-profile') && init?.method !== 'GET');

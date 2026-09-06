@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cy4268/momiao/internal/nativeself"
 	"io"
 	"log"
 	"mime"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -24,6 +26,10 @@ const (
 var browserRoutes = map[string]bool{
 	"/":                true,
 	"/login":           true,
+	"/register":        true,
+	"/oauth/discord":   true,
+	"/account":         true,
+	"/welcome":         true,
 	"/sign-in":         true,
 	"/dashboard":       true,
 	"/me":              true,
@@ -35,6 +41,8 @@ var browserRoutes = map[string]bool{
 	"/keys":            true,
 	"/logs":            true,
 	"/models":          true,
+	"/api/access":      true,
+	"/ops/models":      true,
 	"/playground":      true,
 	"/admin/channels":  true,
 }
@@ -76,6 +84,10 @@ func newServer(cfg config) *http.Server {
 func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	if cfg.WebDir == "" {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/platform/v1/admission/config" {
+				newAdmissionConfigHandler(false).ServeHTTP(w, r)
+				return
+			}
 			if strings.HasPrefix(r.URL.Path, "/platform/v1/master-profile") {
 				walletError(w, 503, "PROFILE_UNAVAILABLE")
 				return
@@ -97,6 +109,18 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		isRelay := strings.HasPrefix(r.URL.Path, "/v1/") || r.URL.Path == "/pg/chat/completions"
 		switch {
+		case path.Clean(r.URL.Path) == "/internal" || strings.HasPrefix(path.Clean(r.URL.Path), "/internal/"):
+			walletError(w, 404, "NOT_FOUND")
+		case r.URL.Path == "/platform/v1/models" || strings.HasPrefix(r.URL.Path, "/platform/v1/models/") || r.URL.Path == "/platform/v1/ops/models" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/models/"):
+			newCatalogHandler(cfg, transport).ServeHTTP(w, r)
+		case r.URL.Path == "/platform/v1/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/announcements/") || r.URL.Path == "/platform/v1/ops/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/announcements/"):
+			newAnnouncementHandler(cfg.PublicOrigin, cfg.announcements, transport).ServeHTTP(w, r)
+		case r.URL.Path == "/platform/v1/access-gate" || strings.HasPrefix(r.URL.Path, "/platform/v1/migration-notice"):
+			newAccessGateHandler(cfg.PublicOrigin, cfg.accessGate, cfg.accessDeclaration, transport).ServeHTTP(w, r)
+		case r.URL.Path == "/platform/v1/admission/config":
+			newAdmissionConfigHandler(cfg.AdmissionEnabled).ServeHTTP(w, r)
+		case r.URL.Path == "/platform/v1/admission" || strings.HasPrefix(r.URL.Path, "/platform/v1/admission/"):
+			newAdmissionHandler(cfg.PublicOrigin, cfg.admission, transport).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/native-quota" || strings.HasPrefix(r.URL.Path, "/platform/v1/quota-transfers"):
 			newQuotaHandler(cfg.PublicOrigin, cfg.transfers, cfg.nativeQuota, transport).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/wallet/exchange" || strings.HasPrefix(r.URL.Path, "/platform/v1/rewards/") || strings.HasPrefix(r.URL.Path, "/platform/v1/transactions"):
@@ -107,6 +131,8 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 			newWalletHandler(cfg.PublicOrigin, cfg.wallet, transport).ServeHTTP(w, r)
 		case r.URL.Path == "/healthz":
 			healthHandler().ServeHTTP(w, r)
+		case r.URL.Path == "/api/access":
+			serveWebFile(cfg.WebDir, w, r)
 		case strings.HasPrefix(r.URL.Path, "/api/") || isRelay:
 			if r.Header.Get("Upgrade") != "" || headerHasToken(r.Header.Get("Connection"), "upgrade") {
 				writeJSONError(w, http.StatusBadRequest, "unsupported protocol upgrade")
@@ -130,21 +156,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	})
 }
 
-func newNativeTransport(socket string) *http.Transport {
-	dialer := &net.Dialer{Timeout: 2 * time.Second, KeepAlive: 30 * time.Second}
-	return &http.Transport{
-		Proxy: nil,
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return dialer.DialContext(ctx, "unix", socket)
-		},
-		ForceAttemptHTTP2:     false,
-		MaxIdleConns:          16,
-		MaxIdleConnsPerHost:   16,
-		IdleConnTimeout:       60 * time.Second,
-		ExpectContinueTimeout: time.Second,
-	}
-}
-
+func newNativeTransport(socket string) *http.Transport { return nativeself.NewTransport(socket) }
 func newNativeProxy(transport http.RoundTripper) *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
 		Transport: transport,
@@ -170,7 +182,7 @@ func serveWebFile(root string, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if browserRoutes[r.URL.Path] || r.URL.Path == "/index.html" {
+	if browserRoutes[r.URL.Path] || announcementBrowserRoute(r.URL.Path) || catalogBrowserRoute(r.URL.EscapedPath()) || r.URL.Path == "/index.html" {
 		serveIndex(root, w, r)
 		return
 	}

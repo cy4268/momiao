@@ -1,0 +1,42 @@
+{
+  "status": "implemented_and_locally_verified_not_installed",
+  "based_on_app_commit": "afff90266aa5e1aaffa1eed26dba8ce4f3996e18",
+  "image_unchanged": "sha256:6d7062ca03efec8fd15cf78c1127f3442ff2c9b2a51558b6804489d082d50af7",
+  "implementation": "original socat loopback/Unix fixed-target pattern; new raw TCP endpoint, no TLS termination",
+  "direct_local_verification": {
+    "verified_discord_tls": true,
+    "zero_capabilities": true,
+    "namespace_low_port_threshold": 0,
+    "wrong_hostname_rejected": true,
+    "untrusted_certificate_rejected": true,
+    "connect_target_not_interpreted": true,
+    "upstream_absent_closed": true,
+    "unix_mode": "0600",
+    "fixed_target": "discord.com:443",
+    "external_network": false,
+    "real_oauth_calls": 0,
+    "client_server_separate_network_namespaces": true,
+    "sni_preserved": true,
+    "application_requests_reached_only_fixed_target": 1,
+    "namespace_guard_synthetic_cases": [
+      "ready",
+      "closed",
+      "closed"
+    ]
+  },
+  "local_runtime": "WSL Ubuntu26.04; unprivileged private user/mount/network namespaces; extracted socat1.8.1.1, no system package installation",
+  "unit_activation": "not installed or activated locally; ExecStart socat commands directly exercised",
+  "current_target_read_only_at": "2026-09-06T15:38:23.465107+08:00",
+  "current_target_zero_capability_suitable": true,
+  "current_target_proxy_variables": "HTTP(S)/ALL both case variants absent",
+  "current_guard_sha256": "37105a39ad6c1e5fd846fa8bb455054620273baae4a3fc2ad8303aa88fab3a38",
+  "production_writes": 0,
+  "real_oauth_calls": 0,
+  "production_changes": [
+    "transfer accepted image and inspect target engine identity",
+    "standalone native admission schema increment only; retain current data and quota journals",
+    "private independent admission/catalog configurations 0600 readable by UID65534; retain secure session settings",
+    "four fixed Discord transport units plus root-owned sync.py and exact native-service hosts mapping; no capabilities or proxy/network change",
+    "pair approved image reference with existing DB-only quota guard exact expectation; retain all original checks"
+  ]
+}

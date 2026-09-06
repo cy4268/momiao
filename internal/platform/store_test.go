@@ -397,9 +397,18 @@ func TestStoreIntegration(t *testing.T) {
 						if _, err = tx.Exec(ctx, "DROP TRIGGER daily_checkins_immutable ON rewards.daily_checkins"); err != nil {
 							t.Fatal(err)
 						}
+						// New registration dependents must not mask the particular
+						// M0 trigger under test. This transaction is always rolled
+						// back, restoring both guards and every removed fixture row.
+						if _, err = tx.Exec(ctx, "DROP TRIGGER registration_issuances_immutable ON rewards.registration_issuances; DROP TRIGGER registration_grants_no_remove ON rewards.registration_grants"); err != nil {
+							t.Fatal(err)
+						}
 						// Remove FK dependents for a real DELETE, so a constraint
 						// cannot mask a missing trigger. Other triggers are absent.
 						if op == "delete" && target.table != "platform_meta.mutation_idempotency_records" {
+							if _, err = tx.Exec(ctx, "DELETE FROM rewards.registration_issuances; DELETE FROM platform_meta.registration_grant_jobs; DELETE FROM rewards.registration_grants"); err != nil {
+								t.Fatal(err)
+							}
 							if _, err = tx.Exec(ctx, "DELETE FROM platform_meta.mutation_idempotency_records"); err != nil {
 								t.Fatal(err)
 							}

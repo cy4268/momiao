@@ -1,0 +1,1812 @@
+diff --git a/internal/momiaocatalog/bounds_test.go b/internal/momiaocatalog/bounds_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..aa711917a5a62db39815e4b2c436d895fb1ccb34
+--- /dev/null
++++ b/internal/momiaocatalog/bounds_test.go
+@@ -0,0 +1,123 @@
++package momiaocatalog
++
++import (
++	"context"
++	"fmt"
++	"net"
++	"net/http/httptest"
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++func TestTinyPositiveCacheWriteKeepsEveryDimensionPositive(t *testing.T) {
++	n := referenceInput()
++	n.ratio = 1e-25
++	p := projectPrice(n)
++	require.Equal(t, "reference", p.Status)
++	for _, d := range p.Dimensions {
++		require.NotNil(t, d.Amount)
++		assert.NotEqual(t, "0", *d.Amount, "tiny %s tariff became free", d.Kind)
++	}
++}
++
++func TestUnverifiedMixedChannelsAndQuotaUnitDoNotImplyGenericTariff(t *testing.T) {
++	endpoints, status, text, _ := publicEndpoints("plain/model", []int{constant.ChannelTypeAnthropic, 9999})
++	require.NotEmpty(t, endpoints)
++	assert.Equal(t, "partial_configured_subset_not_health", status)
++	assert.False(t, text, "unverified billing surface got text tariff")
++	old := common.QuotaPerUnit
++	t.Cleanup(func() { common.QuotaPerUnit = old })
++	common.QuotaPerUnit = 250000
++	p := projectPrice(referenceInput())
++	assert.Equal(t, "unquotable", p.Status)
++	assert.Empty(t, p.Dimensions)
++}
++
++func TestRealAddressClassificationNeverAcceptsPublicOrUnspecifiedEndpoints(t *testing.T) {
++	for _, address := range []string{"203.0.113.9", "8.8.8.8", "0.0.0.0", "::", "2001:4860:4860::8888"} {
++		assert.False(t, privateSocketAddress(&net.TCPAddr{IP: net.ParseIP(address)}), address)
++	}
++	for _, address := range []string{"127.0.0.1", "::1", "10.2.3.4", "172.17.0.2", "192.168.1.2", "fd00::1"} {
++		assert.True(t, privateSocketAddress(&net.TCPAddr{IP: net.ParseIP(address)}), address)
++	}
++	assert.False(t, privateSocketAddress(&net.UDPAddr{IP: net.ParseIP("127.0.0.1")}))
++}
++
++func TestModelLimitAndEmptySnapshotHaveDifferentOutcomes(t *testing.T) {
++	db := fixtureDB(t)
++	rows := make([]model.Ability, 1001)
++	for i := range rows {
++		rows[i] = model.Ability{Group: "default", Model: fmt.Sprintf("bounded-model-%04d", i), ChannelId: 1, Enabled: true}
++	}
++	require.NoError(t, db.CreateInBatches(rows, 100).Error)
++	_, err := catalogModels(context.Background(), "", []string{"default"}, "")
++	assert.ErrorIs(t, err, errSourceLimit)
++	require.NoError(t, db.Where("1 = 1").Delete(&model.Ability{}).Error)
++	groups, err := catalogModels(context.Background(), "", []string{"default"}, "")
++	require.NoError(t, err)
++	require.Len(t, groups, 1)
++	assert.Empty(t, groups[0])
++}
++
++func TestSourceLockContentionAndAmbiguousVisibilityFailClosed(t *testing.T) {
++	fixtureDB(t)
++	common.OptionMapRWMutex.Lock()
++	_, err := catalogModels(context.Background(), "", []string{"default"}, "")
++	common.OptionMapRWMutex.Unlock()
++	assert.ErrorIs(t, err, errSourceBusy)
++	_, err = nativeCatalogVisible("abc-model", []metadataRow{{ModelName: "abc", NameRule: model.NameRulePrefix, Status: 1}, {ModelName: "a", NameRule: model.NameRulePrefix, Status: 0}})
++	assert.ErrorIs(t, err, errSourceInconsistent)
++}
++
++func TestResponseLimitNeverReturnsTruncatedCompleteSuccess(t *testing.T) {
++	r := testRouter(t, true)
++	r.GET("/test-response-bound", func(c *gin.Context) { writeBoundedJSON(c, strings.Repeat("x", maxResponseBytes+1)) })
++	w := httptest.NewRecorder()
++	r.ServeHTTP(w, httptest.NewRequest("GET", "/test-response-bound", nil))
++	assert.Equal(t, 503, w.Code)
++	assert.NotContains(t, w.Body.String(), `"complete":true`)
++	assert.NotContains(t, w.Body.String(), `"success":true`)
++}
++
++func TestUnknownModeIsNotEchoedAsRawConfiguration(t *testing.T) {
++	n := referenceInput()
++	n.mode = "internal-setting-not-for-public-display"
++	p := projectPrice(n)
++	assert.Equal(t, "unknown", p.Mode)
++	assert.Equal(t, "unsupported_billing_mode", p.Reason)
++}
++
++func TestMetadataAbilityAndGroupBoundsFailInsteadOfTruncating(t *testing.T) {
++	t.Run("metadata", func(t *testing.T) {
++		db := fixtureDB(t)
++		rows := make([]model.Model, 2001)
++		for i := range rows {
++			rows[i] = model.Model{ModelName: fmt.Sprintf("metadata-%04d", i), Status: 1}
++		}
++		require.NoError(t, db.CreateInBatches(rows, 100).Error)
++		_, err := catalogModels(context.Background(), "", []string{"default"}, "")
++		assert.ErrorIs(t, err, errSourceLimit)
++	})
++	t.Run("abilities", func(t *testing.T) {
++		db := fixtureDB(t)
++		rows := make([]model.Ability, 20001)
++		for i := range rows {
++			rows[i] = model.Ability{Group: "default", Model: "plain/model", ChannelId: i + 10, Enabled: true}
++		}
++		require.NoError(t, db.CreateInBatches(rows, 100).Error)
++		_, err := catalogModels(context.Background(), "", []string{"default"}, "")
++		assert.ErrorIs(t, err, errSourceLimit)
++	})
++	t.Run("groups", func(t *testing.T) {
++		fixtureDB(t)
++		_, err := catalogModels(context.Background(), "", make([]string, 33), "")
++		assert.ErrorIs(t, err, errSourceLimit)
++	})
++}
+diff --git a/internal/momiaocatalog/config.go b/internal/momiaocatalog/config.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..a7e16ca8c509346b1629433d97eb421128d2e255
+--- /dev/null
++++ b/internal/momiaocatalog/config.go
+@@ -0,0 +1,88 @@
++package momiaocatalog
++
++import (
++	"encoding/hex"
++	"errors"
++	"io"
++	"os"
++	"path/filepath"
++	"runtime"
++	"strings"
++)
++
++type config struct {
++	enabled bool
++	secret  string
++}
++
++// The file is deliberately separate from native options and login credentials.
++// On Windows, deployment must enforce its ACL; Unix mode bits are checked here.
++func loadConfig(path string) (config, error) {
++	var cfg config
++	if path == "" {
++		return cfg, nil
++	}
++	invalid := errors.New("invalid or unrestricted momiao catalog configuration")
++	if !filepath.IsAbs(path) {
++		return cfg, invalid
++	}
++	info, err := os.Lstat(path)
++	if err != nil || !info.Mode().IsRegular() || info.Size() > 4096 {
++		return cfg, invalid
++	}
++	if runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0 {
++		return cfg, invalid
++	}
++	resolved, err := filepath.EvalSymlinks(path)
++	if err != nil || filepath.Clean(resolved) != filepath.Clean(path) {
++		return cfg, invalid
++	}
++	f, err := os.Open(path)
++	if err != nil {
++		return cfg, invalid
++	}
++	defer f.Close()
++	opened, err := f.Stat()
++	if err != nil || !os.SameFile(info, opened) {
++		return cfg, invalid
++	}
++	data, err := io.ReadAll(io.LimitReader(f, 4097))
++	if err != nil || len(data) > 4096 {
++		return cfg, invalid
++	}
++	seen := make(map[string]bool, 3)
++	for _, line := range strings.Split(string(data), "\n") {
++		line = strings.TrimSpace(line)
++		if line == "" || strings.HasPrefix(line, "#") {
++			continue
++		}
++		key, value, ok := strings.Cut(line, "=")
++		if !ok || seen[key] {
++			return config{}, invalid
++		}
++		seen[key] = true
++		switch key {
++		case "enabled":
++			if value != "true" && value != "false" {
++				return config{}, invalid
++			}
++			cfg.enabled = value == "true"
++		case "reader_secret":
++			decoded, err := hex.DecodeString(value)
++			if err != nil || len(decoded) != 32 {
++				return config{}, invalid
++			}
++			cfg.secret = value
++		case "public_group":
++			if value != "default" {
++				return config{}, invalid
++			}
++		default:
++			return config{}, invalid
++		}
++	}
++	if !seen["enabled"] || (cfg.enabled && cfg.secret == "") {
++		return config{}, invalid
++	}
++	return cfg, nil
++}
+diff --git a/internal/momiaocatalog/config_test.go b/internal/momiaocatalog/config_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..0469abe9fc1d4a74c4f2a544eb512d2b16dfe572
+--- /dev/null
++++ b/internal/momiaocatalog/config_test.go
+@@ -0,0 +1,62 @@
++package momiaocatalog
++
++import (
++	"os"
++	"path/filepath"
++	"runtime"
++	"strings"
++	"testing"
++
++	"github.com/stretchr/testify/require"
++)
++
++func TestConfigIsExplicitRestrictedAndDefaultOff(t *testing.T) {
++	cfg, err := loadConfig("")
++	if err != nil || cfg.enabled {
++		require.FailNowf(t, "contract assertion", "unset config should be disabled: %v", err)
++	}
++	path := filepath.Join(t.TempDir(), "reader.conf")
++	valid := "enabled=true\npublic_group=default\nreader_secret=" + strings.Repeat("a", 64) + "\n"
++	if err := os.WriteFile(path, []byte(valid), 0600); err != nil {
++		require.NoError(t, err)
++	}
++	cfg, err = loadConfig(path)
++	if err != nil || !cfg.enabled || cfg.secret != strings.Repeat("a", 64) {
++		require.FailNowf(t, "contract assertion", "restricted explicit config did not enable provider: %v", err)
++	}
++	for name, content := range map[string]string{
++		"unknown_field":   valid + "root_token=unrelated\n",
++		"duplicate_field": valid + "enabled=false\n",
++		"private_group":   strings.Replace(valid, "default", "internal", 1),
++		"missing_secret":  "enabled=true\n",
++		"invalid_bool":    "enabled=yes\n",
++		"oversized":       strings.Repeat("x", 4097),
++		"invalid_secret":  strings.Replace(valid, strings.Repeat("a", 64), "short", 1),
++	} {
++		t.Run(name, func(t *testing.T) {
++			if err := os.WriteFile(path, []byte(content), 0600); err != nil {
++				require.NoError(t, err)
++			}
++			if _, err := loadConfig(path); err == nil {
++				require.FailNow(t, "invalid configuration was accepted")
++			}
++		})
++	}
++	if _, err := loadConfig("relative.conf"); err == nil {
++		require.FailNow(t, "relative config path accepted")
++	}
++	if _, err := loadConfig(path + ".missing"); err == nil {
++		require.FailNow(t, "missing explicit config accepted")
++	}
++	if runtime.GOOS != "windows" {
++		if err := os.WriteFile(path, []byte(valid), 0600); err != nil {
++			require.NoError(t, err)
++		}
++		if err := os.Chmod(path, 0644); err != nil {
++			require.NoError(t, err)
++		}
++		if _, err := loadConfig(path); err == nil {
++			require.FailNow(t, "world-readable secret accepted")
++		}
++	}
++}
+diff --git a/internal/momiaocatalog/http.go b/internal/momiaocatalog/http.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..19b0e165ba03083c572da6a3491bd9fa859ad493
+--- /dev/null
++++ b/internal/momiaocatalog/http.go
+@@ -0,0 +1,247 @@
++package momiaocatalog
++
++import (
++	"context"
++	"crypto/sha256"
++	"crypto/subtle"
++	"encoding/hex"
++	"encoding/json"
++	"net"
++	"net/http"
++	"net/url"
++	"os"
++	"strconv"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/middleware"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/gin-gonic/gin"
++)
++
++const maxResponseBytes = 2 << 20
++const schemaVersion = "momiao.native-catalog.v1"
++
++type connectionKey struct{}
++type connectionState struct {
++	config  config
++	private bool
++}
++
++// ConfigureServer runs once before Serve. Preserve an existing hook and trust
++// only actual socket endpoints, never HTTP headers or Request.RemoteAddr.
++// A Unix-to-loopback TCP proxy still requires the independent reader credential.
++func ConfigureServer(server *http.Server) error {
++	cfg, err := loadConfig(os.Getenv("MOMIAO_CATALOG_CONFIG_FILE"))
++	if err != nil {
++		return err
++	}
++	previous := server.ConnContext
++	server.ConnContext = func(ctx context.Context, conn net.Conn) context.Context {
++		if previous != nil {
++			ctx = previous(ctx, conn)
++		}
++		return context.WithValue(ctx, connectionKey{}, connectionState{config: cfg, private: privateSocketAddress(conn.LocalAddr()) && privateSocketAddress(conn.RemoteAddr())})
++	}
++	return nil
++}
++
++func privateSocketAddress(address net.Addr) bool {
++	switch addr := address.(type) {
++	case *net.UnixAddr:
++		return addr.Net == "unix"
++	case *net.TCPAddr:
++		return addr.IP.IsLoopback() || addr.IP.IsPrivate()
++	default:
++		return false
++	}
++}
++
++func Register(router *gin.Engine, api *gin.RouterGroup) {
++	router.GET("/internal/momiao/catalog", catalogEnabled, privateCatalog)
++	api.GET("/momiao/catalog/prices", catalogEnabled, middleware.UserAuth(), personalPrices)
++}
++
++func catalogEnabled(c *gin.Context) {
++	c.Header("Cache-Control", "no-store")
++	c.Header("X-Content-Type-Options", "nosniff")
++	c.Header("Vary", "Authorization")
++	// Keep credential/configuration-bearing panics out of the outer native
++	// recovery logger. Never stringify the panic, headers, URI or expression.
++	defer func() {
++		if recover() != nil {
++			catalogError(c, http.StatusServiceUnavailable, "CATALOG_INTERNAL_ERROR")
++		}
++	}()
++	state, ok := c.Request.Context().Value(connectionKey{}).(connectionState)
++	if !ok || !state.config.enabled {
++		catalogError(c, http.StatusNotFound, "NOT_FOUND")
++		return
++	}
++	if len(c.Request.Header.Values("Authorization")) > 1 || len(c.Request.Header.Values("New-Api-User")) > 1 {
++		catalogError(c, http.StatusUnauthorized, "AUTH_HEADER_AMBIGUOUS")
++		return
++	}
++	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
++	defer cancel()
++	c.Request = c.Request.WithContext(ctx)
++	c.Next()
++}
++
++type catalogData struct {
++	Schema           string         `json:"schema"`
++	Basis            string         `json:"basis"`
++	BillingAuthority string         `json:"billing_authority"`
++	Notices          []string       `json:"notices"`
++	Models           []CatalogModel `json:"models"`
++}
++type snapshotEnvelope struct {
++	Success    bool            `json:"success"`
++	Complete   bool            `json:"complete"`
++	ObservedAt string          `json:"observed_at"`
++	Hash       string          `json:"content_hash"`
++	Data       json.RawMessage `json:"data"`
++}
++
++func privateCatalog(c *gin.Context) {
++	state, _ := c.Request.Context().Value(connectionKey{}).(connectionState)
++	if !state.private {
++		catalogError(c, http.StatusForbidden, "PRIVATE_TRANSPORT_REQUIRED")
++		return
++	}
++	auth := c.Request.Header.Values("Authorization")
++	if len(auth) != 1 || subtle.ConstantTimeCompare([]byte(auth[0]), []byte("Bearer "+state.config.secret)) != 1 {
++		catalogError(c, http.StatusUnauthorized, "READER_AUTH_REQUIRED")
++		return
++	}
++	if c.Request.URL.RawQuery != "" || c.Request.URL.ForceQuery {
++		catalogError(c, http.StatusBadRequest, "INVALID_QUERY")
++		return
++	}
++	groups, err := catalogModels(c.Request.Context(), "", []string{"default"}, "")
++	if err != nil {
++		catalogError(c, http.StatusServiceUnavailable, "CATALOG_SOURCE_UNAVAILABLE")
++		return
++	}
++	data, err := common.Marshal(catalogData{Schema: schemaVersion, Basis: "public_default_reference", BillingAuthority: "native_settlement",
++		Notices: []string{"configuration_not_call_health", "absence_is_not_retirement", "unpublished_models_require_platform_review", "extra_fees_and_integer_quota_rounding_not_included", "API_Credit_is_native_USD_denominated_accounting_unit_not_currency_conversion"}, Models: groups[0]})
++	if err != nil {
++		catalogError(c, http.StatusServiceUnavailable, "CATALOG_ENCODING_FAILED")
++		return
++	}
++	hash := sha256.Sum256(data)
++	writeBoundedJSON(c, snapshotEnvelope{Success: true, Complete: true, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano), Hash: "sha256:" + hex.EncodeToString(hash[:]), Data: data})
++}
++
++type personalQuote struct {
++	Candidate            int    `json:"candidate"`
++	EnabledConfiguration bool   `json:"enabled_configuration"`
++	NativeCatalogVisible bool   `json:"native_catalog_visible"`
++	Price                *Price `json:"price"`
++	Reason               string `json:"reason,omitempty"`
++}
++
++func personalPrices(c *gin.Context) {
++	identity, ok := middleware.GetSessionAuthIdentity(c)
++	if !ok {
++		catalogError(c, http.StatusForbidden, "SESSION_REQUIRED")
++		return
++	}
++	claimed := c.Request.Header.Values("New-Api-User")
++	if len(claimed) > 1 || (len(claimed) == 1 && claimed[0] != strconv.Itoa(identity.UserID)) {
++		catalogError(c, http.StatusBadRequest, "IDENTITY_MISMATCH")
++		return
++	}
++	if len(c.Request.URL.RawQuery) > 1024 {
++		catalogError(c, http.StatusBadRequest, "INVALID_QUERY")
++		return
++	}
++	query, err := url.ParseQuery(c.Request.URL.RawQuery)
++	if err != nil || len(query["model_id"]) != 1 || !validModelID(query.Get("model_id")) {
++		catalogError(c, http.StatusBadRequest, "INVALID_QUERY")
++		return
++	}
++	for key, values := range query {
++		if (key != "model_id" && key != "group") || len(values) != 1 || values[0] == "" {
++			catalogError(c, http.StatusBadRequest, "INVALID_QUERY")
++			return
++		}
++	}
++	userGroup := c.GetString("group")
++	group := query.Get("group")
++	basis := "current_user_group_reference_not_token_selection"
++	if group == "" {
++		group = userGroup
++	} else {
++		basis = "requested_eligible_group_reference_not_token_selection"
++	}
++	if !common.OptionMapRWMutex.TryRLock() {
++		catalogError(c, http.StatusServiceUnavailable, "CATALOG_SOURCE_UNAVAILABLE")
++		return
++	}
++	defer common.OptionMapRWMutex.RUnlock()
++	if _, ok := service.GetUserUsableGroups(userGroup)[group]; !ok {
++		catalogError(c, http.StatusForbidden, "GROUP_NOT_AVAILABLE")
++		return
++	}
++	groups := []string{group}
++	if group == "auto" {
++		groups = service.GetUserAutoGroup(userGroup)
++		basis = "eligible_auto_candidates_not_selected"
++	} else if !service.IsUserSelectableGroup(userGroup, group) {
++		catalogError(c, http.StatusForbidden, "GROUP_NOT_AVAILABLE")
++		return
++	}
++	if len(groups) == 0 {
++		catalogError(c, http.StatusUnprocessableEntity, "NO_ELIGIBLE_CANDIDATES")
++		return
++	}
++	if len(groups) > maxGroups {
++		catalogError(c, http.StatusServiceUnavailable, "CATALOG_SOURCE_LIMIT")
++		return
++	}
++	models, err := catalogModelsLocked(c.Request.Context(), userGroup, groups, query.Get("model_id"))
++	if err != nil {
++		catalogError(c, http.StatusServiceUnavailable, "CATALOG_SOURCE_UNAVAILABLE")
++		return
++	}
++	quotes := make([]personalQuote, len(groups))
++	for i, items := range models {
++		q := personalQuote{Candidate: i + 1, Reason: "model_not_enabled_in_candidate"}
++		if len(items) == 1 {
++			p := items[0].Price
++			p.GroupMultiplier = nil // do not publish personal group configuration.
++			q.EnabledConfiguration = items[0].EnabledConfiguration
++			q.NativeCatalogVisible = items[0].NativeCatalogVisible
++			q.Price = &p
++			q.Reason = ""
++		}
++		quotes[i] = q
++	}
++	writeBoundedJSON(c, struct {
++		Success          bool            `json:"success"`
++		Schema           string          `json:"schema"`
++		ObservedAt       string          `json:"observed_at"`
++		ModelID          string          `json:"model_id"`
++		Basis            string          `json:"basis"`
++		BillingAuthority string          `json:"billing_authority"`
++		Quotes           []personalQuote `json:"quotes"`
++	}{true, schemaVersion, time.Now().UTC().Format(time.RFC3339Nano), query.Get("model_id"), basis, "native_settlement", quotes})
++}
++
++func writeBoundedJSON(c *gin.Context, value any) {
++	data, err := common.Marshal(value)
++	if err != nil || len(data) > maxResponseBytes {
++		catalogError(c, http.StatusServiceUnavailable, "CATALOG_RESPONSE_LIMIT")
++		return
++	}
++	if c.Request.Context().Err() != nil {
++		catalogError(c, http.StatusServiceUnavailable, "CATALOG_TIMEOUT")
++		return
++	}
++	c.Data(http.StatusOK, "application/json; charset=utf-8", data)
++}
++
++func catalogError(c *gin.Context, status int, code string) {
++	c.AbortWithStatusJSON(status, gin.H{"success": false, "complete": false, "code": code})
++}
+diff --git a/internal/momiaocatalog/http_test.go b/internal/momiaocatalog/http_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..b5d9bf49bc9e7f0fe9628df06bfa485a4d63632e
+--- /dev/null
++++ b/internal/momiaocatalog/http_test.go
+@@ -0,0 +1,383 @@
++package momiaocatalog
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"io"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"net/http/httputil"
++	"net/url"
++	"os"
++	"path/filepath"
++	"strconv"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/QuantumNous/new-api/setting"
++	"github.com/QuantumNous/new-api/setting/ratio_setting"
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"gorm.io/gorm"
++)
++
++const testReaderSecret = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
++
++func testRouter(t *testing.T, enabled bool) *gin.Engine {
++	t.Helper()
++	gin.SetMode(gin.TestMode)
++	path := filepath.Join(t.TempDir(), "reader.conf")
++	if err := os.WriteFile(path, []byte("enabled="+strconv.FormatBool(enabled)+"\nreader_secret="+testReaderSecret+"\n"), 0600); err != nil {
++		require.NoError(t, err)
++	}
++	t.Setenv("MOMIAO_CATALOG_CONFIG_FILE", path)
++	r := gin.New()
++	Register(r, r.Group("/api"))
++	return r
++}
++
++func testHTTPServer(t *testing.T, enabled bool) *httptest.Server {
++	t.Helper()
++	r := testRouter(t, enabled)
++	s := httptest.NewUnstartedServer(r)
++	if err := ConfigureServer(s.Config); err != nil {
++		require.NoError(t, err)
++	}
++	s.Start()
++	t.Cleanup(s.Close)
++	return s
++}
++
++func getBody(t *testing.T, client *http.Client, target, token string) (int, http.Header, []byte) {
++	t.Helper()
++	req, err := http.NewRequest(http.MethodGet, target, nil)
++	if err != nil {
++		require.NoError(t, err)
++	}
++	if token != "" {
++		req.Header.Set("Authorization", "Bearer "+token)
++	}
++	resp, err := client.Do(req)
++	if err != nil {
++		require.NoError(t, err)
++	}
++	defer resp.Body.Close()
++	body, err := io.ReadAll(resp.Body)
++	if err != nil {
++		require.NoError(t, err)
++	}
++	return resp.StatusCode, resp.Header, body
++}
++
++func TestPrivateCatalogRequiresRealConnectionAndIndependentBearer(t *testing.T) {
++	fixtureDB(t)
++	s := testHTTPServer(t, true)
++	for _, tt := range []struct {
++		path, token string
++		status      int
++	}{
++		{"/internal/momiao/catalog", "", 401},
++		{"/internal/momiao/catalog", "wrong", 401},
++		{"/internal/momiao/catalog", testReaderSecret, 200},
++		{"/internal/momiao/catalog?group=staff-only", testReaderSecret, 400},
++		{"/internal/momiao/catalog?", testReaderSecret, 400},
++		{"/api/internal/momiao/catalog", testReaderSecret, 404},
++		{"/api/../internal/momiao/catalog", testReaderSecret, 404},
++	} {
++		status, headers, body := getBody(t, s.Client(), s.URL+tt.path, tt.token)
++		if status != tt.status {
++			assert.Failf(t, "contract assertion", "%s: got %d want %d: %s", tt.path, status, tt.status, body)
++		}
++		if status == 200 && headers.Get("Cache-Control") != "no-store" {
++			assert.Fail(t, "snapshot response is cacheable")
++		}
++	}
++	// A forged RemoteAddr or forwarded header is not a server ConnContext proof.
++	r := testRouter(t, true)
++	req := httptest.NewRequest(http.MethodGet, "/internal/momiao/catalog", nil)
++	req.RemoteAddr = "127.0.0.1:12345"
++	req.Header.Set("Authorization", "Bearer "+testReaderSecret)
++	req.Header.Set("X-Forwarded-For", "127.0.0.1")
++	w := httptest.NewRecorder()
++	r.ServeHTTP(w, req)
++	if w.Code == 200 {
++		require.FailNow(t, "forged request metadata bypassed real-connection check")
++	}
++	// Forwarded headers cannot change the real peer classification in either direction.
++	req, _ = http.NewRequest(http.MethodGet, s.URL+"/internal/momiao/catalog", nil)
++	req.Header.Set("Authorization", "Bearer "+testReaderSecret)
++	req.Header.Set("Forwarded", "for=203.0.113.9")
++	req.Header.Set("X-Forwarded-For", "203.0.113.9")
++	resp, err := s.Client().Do(req)
++	if err != nil {
++		require.NoError(t, err)
++	}
++	resp.Body.Close()
++	if resp.StatusCode != 200 {
++		assert.Failf(t, "contract assertion", "trusted-proxy metadata incorrectly replaced real loopback peer: %d", resp.StatusCode)
++	}
++	req, _ = http.NewRequest(http.MethodGet, s.URL+"/internal/momiao/catalog", nil)
++	req.Header.Add("Authorization", "Bearer "+testReaderSecret)
++	req.Header.Add("Authorization", "Bearer "+testReaderSecret)
++	resp, err = s.Client().Do(req)
++	if err != nil {
++		require.NoError(t, err)
++	}
++	resp.Body.Close()
++	if resp.StatusCode != 401 {
++		assert.Failf(t, "contract assertion", "duplicate private auth headers accepted: %d", resp.StatusCode)
++	}
++}
++
++func TestDisabledCatalogDoesNotActivateFromRequestOrSecretAlone(t *testing.T) {
++	s := testHTTPServer(t, false)
++	for _, path := range []string{"/internal/momiao/catalog", "/api/momiao/catalog/prices?model_id=plain%2Fmodel"} {
++		status, _, _ := getBody(t, s.Client(), s.URL+path, testReaderSecret)
++		if status != 404 {
++			assert.Failf(t, "contract assertion", "disabled route returned %d", status)
++		}
++	}
++}
++
++func TestSnapshotHashTracksContentNotFetchTimeAndErrorsNeverSayComplete(t *testing.T) {
++	db := fixtureDB(t)
++	s := testHTTPServer(t, true)
++	read := func() string {
++		status, _, body := getBody(t, s.Client(), s.URL+"/internal/momiao/catalog", testReaderSecret)
++		if status != 200 {
++			require.FailNowf(t, "contract assertion", "read failed: %d %s", status, body)
++		}
++		var env struct {
++			Success, Complete bool
++			ObservedAt        string          `json:"observed_at"`
++			Hash              string          `json:"content_hash"`
++			Data              json.RawMessage `json:"data"`
++		}
++		if err := common.Unmarshal(body, &env); err != nil {
++			require.NoError(t, err)
++		}
++		if !env.Success || !env.Complete || len(env.Data) == 0 {
++			require.FailNowf(t, "contract assertion", "invalid envelope: %s", body)
++		}
++		if _, err := time.Parse(time.RFC3339Nano, env.ObservedAt); err != nil {
++			require.NoError(t, err)
++		}
++		hash := sha256.Sum256(env.Data)
++		if env.Hash != "sha256:"+hex.EncodeToString(hash[:]) {
++			require.FailNowf(t, "contract assertion", "hash is not canonical content integrity: %s", body)
++		}
++		return env.Hash
++	}
++	one, two := read(), read()
++	if one != two {
++		require.FailNow(t, "fetch timestamp or map order changed content hash")
++	}
++	if err := ratio_setting.UpdateModelRatioByJSONString(`{"plain/model":4}`); err != nil {
++		require.NoError(t, err)
++	}
++	if one == read() {
++		require.FailNow(t, "native price change did not change content hash")
++	}
++	if err := db.Migrator().DropTable(&model.Ability{}); err != nil {
++		require.NoError(t, err)
++	}
++	status, _, body := getBody(t, s.Client(), s.URL+"/internal/momiao/catalog", testReaderSecret)
++	if status != 503 || strings.Contains(string(body), `"success":true`) || strings.Contains(string(body), `"complete":true`) || strings.Contains(string(body), "abilities") {
++		require.FailNowf(t, "contract assertion", "source error disguised or exposed SQL: %d %s", status, body)
++	}
++}
++
++func createSession(t *testing.T, group string) (string, int) {
++	t.Helper()
++	u := model.User{Username: "catalog-session", Password: "not-a-real-password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: group, AuthVersion: 1, AffCode: "catalog-session"}
++	if err := model.DB.Create(&u).Error; err != nil {
++		require.NoError(t, err)
++	}
++	bundle, err := service.CreateLoginSession(u.Id, "password", "127.0.0.1", "catalog-fixture")
++	if err != nil {
++		require.NoError(t, err)
++	}
++	return bundle.AccessToken, u.Id
++}
++
++func TestPersonalQuotesRequireNativeSessionAndNeverRevealInternalGroups(t *testing.T) {
++	db := fixtureDB(t)
++	oldUsable, oldAuto := setting.UserUsableGroups2JSONString(), setting.AutoGroups2JsonString()
++	t.Cleanup(func() {
++		_ = setting.UpdateUserUsableGroupsByJSONString(oldUsable)
++		_ = setting.UpdateAutoGroupsByJsonString(oldAuto)
++	})
++	if err := setting.UpdateUserUsableGroupsByJSONString(`{"default":"normal","vip":"members","auto":"auto"}`); err != nil {
++		require.NoError(t, err)
++	}
++	if err := setting.UpdateAutoGroupsByJsonString(`["default","vip","staff-only"]`); err != nil {
++		require.NoError(t, err)
++	}
++	if err := db.Create(&model.Ability{Group: "vip", Model: "plain/model", ChannelId: 1, Enabled: true}).Error; err != nil {
++		require.NoError(t, err)
++	}
++	token, userID := createSession(t, "vip")
++	s := testHTTPServer(t, true)
++	base := s.URL + "/api/momiao/catalog/prices?model_id=plain%2Fmodel"
++	for _, tt := range []struct {
++		suffix, token string
++		status        int
++	}{
++		{"", "", 401}, {"", testReaderSecret, 401}, {"&group=staff-only", token, 403}, {"&user_id=999", token, 400},
++		{"&group=default&group=vip", token, 400}, {"&group=", token, 400}, {"&group=default", token, 200}, {"&group=auto", token, 200}, {"", token, 200},
++	} {
++		status, headers, body := getBody(t, s.Client(), base+tt.suffix, tt.token)
++		if status != tt.status {
++			assert.Failf(t, "contract assertion", "personal %s: got %d want %d: %s", tt.suffix, status, tt.status, body)
++		}
++		if status == 200 {
++			if headers.Get("Cache-Control") != "no-store" {
++				assert.Fail(t, "personal quote cacheable")
++			}
++			for _, private := range []string{"staff-only", `"vip"`, `"default"`, `"user_id"`, `"group_ratio"`} {
++				if strings.Contains(string(body), private) {
++					assert.Failf(t, "contract assertion", "private group/identity details leaked: %s", body)
++				}
++			}
++		}
++	}
++	status, _, body := getBody(t, s.Client(), base+"&group=default", token)
++	if status != 200 || !strings.Contains(string(body), `"amount":"2"`) {
++		require.FailNowf(t, "contract assertion", "personal special ratio incorrect: %d %s", status, body)
++	}
++	_, _, body = getBody(t, s.Client(), base+"&group=auto", token)
++	if !strings.Contains(string(body), `"basis":"eligible_auto_candidates_not_selected"`) || !strings.Contains(string(body), `"candidate":2`) {
++		require.FailNowf(t, "contract assertion", "auto was reduced to a fake selected price: %s", body)
++	}
++	pat := "synthetic-personal-access-token"
++	if err := db.Model(&model.User{}).Where("id = ?", userID).Update("access_token", pat).Error; err != nil {
++		require.NoError(t, err)
++	}
++	status, _, _ = getBody(t, s.Client(), base, pat)
++	if status != 403 {
++		require.FailNowf(t, "contract assertion", "PAT is not a browser session: status %d", status)
++	}
++	req, _ := http.NewRequest(http.MethodGet, base, nil)
++	req.Header.Set("Authorization", "Bearer "+token)
++	req.Header.Set("New-Api-User", "999")
++	resp, err := s.Client().Do(req)
++	if err != nil {
++		require.NoError(t, err)
++	}
++	resp.Body.Close()
++	if resp.StatusCode != 400 {
++		assert.Failf(t, "contract assertion", "mismatched claimed identity was not rejected: %d", resp.StatusCode)
++	}
++}
++
++func TestRealUnixProxyToLoopbackTCPAndNativeUnixListener(t *testing.T) {
++	fixtureDB(t)
++	native := testHTTPServer(t, true)
++	dir, err := os.MkdirTemp("", "m3-unix-")
++	if err != nil {
++		require.NoError(t, err)
++	}
++	t.Cleanup(func() { _ = os.RemoveAll(dir) })
++	target, _ := url.Parse(native.URL)
++	for _, direct := range []bool{false, true} {
++		path := filepath.Join(dir, "proxy.sock")
++		if direct {
++			path = filepath.Join(dir, "direct.sock")
++		}
++		listener, err := net.Listen("unix", path)
++		if err != nil {
++			require.FailNowf(t, "contract assertion", "real Unix transport unavailable: %v", err)
++		}
++		var handler http.Handler = httputil.NewSingleHostReverseProxy(target)
++		if direct {
++			handler = testRouter(t, true)
++		}
++		srv := &http.Server{Handler: handler}
++		if direct {
++			if err := ConfigureServer(srv); err != nil {
++				require.NoError(t, err)
++			}
++		}
++		go srv.Serve(listener)
++		t.Cleanup(func() { _ = srv.Close() })
++		transport := &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
++			return (&net.Dialer{}).DialContext(ctx, "unix", path)
++		}}
++		t.Cleanup(transport.CloseIdleConnections)
++		client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
++		status, _, body := getBody(t, client, "http://unix/internal/momiao/catalog", testReaderSecret)
++		if status != 200 {
++			require.FailNowf(t, "contract assertion", "real Unix/direct=%v chain failed: %d %s", direct, status, body)
++		}
++		status, _, _ = getBody(t, client, "http://unix/internal/momiao/catalog", "")
++		if status != 401 {
++			require.FailNowf(t, "contract assertion", "loopback proxy bypassed bearer: %d", status)
++		}
++	}
++}
++
++func TestCatalogPanicIsLocallyRedactedBeforeGlobalNativeRecovery(t *testing.T) {
++	db := fixtureDB(t)
++	token, _ := createSession(t, "vip")
++	_ = testRouter(t, true) // restricted config fixture
++	var logs bytes.Buffer
++	r := gin.New()
++	r.Use(gin.RecoveryWithWriter(&logs))
++	Register(r, r.Group("/api"))
++	s := httptest.NewUnstartedServer(r)
++	require.NoError(t, ConfigureServer(s.Config))
++	s.Start()
++	t.Cleanup(s.Close)
++	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("catalog:synthetic_panic", func(*gorm.DB) { panic("synthetic-secret-expression-never-log") }))
++	for _, tt := range []struct{ path, token string }{
++		{"/internal/momiao/catalog", testReaderSecret},
++		{"/api/momiao/catalog/prices?model_id=plain%2Fmodel&group=default", token},
++	} {
++		req, err := http.NewRequest(http.MethodGet, s.URL+tt.path, nil)
++		require.NoError(t, err)
++		req.Header.Set("Authorization", "Bearer "+tt.token)
++		req.Header.Set("Cookie", "private-cookie=synthetic-cookie-never-log")
++		resp, err := s.Client().Do(req)
++		require.NoError(t, err)
++		body, err := io.ReadAll(resp.Body)
++		require.NoError(t, err)
++		resp.Body.Close()
++		assert.Equal(t, 503, resp.StatusCode)
++		assert.Equal(t, "no-store", resp.Header.Get("Cache-Control"))
++		assert.Contains(t, string(body), "CATALOG_INTERNAL_ERROR")
++		assert.NotContains(t, string(body), "synthetic-secret")
++		assert.NotContains(t, string(body), tt.token)
++	}
++	assert.Empty(t, logs.String(), "catalog panic escaped into native request/panic logging")
++}
++
++func TestPersonalDuplicateAuthHeadersAreRejectedBeforeNativeUserAuth(t *testing.T) {
++	fixtureDB(t)
++	token, userID := createSession(t, "vip")
++	s := testHTTPServer(t, true)
++	for _, header := range []string{"Authorization", "New-Api-User"} {
++		req, err := http.NewRequest(http.MethodGet, s.URL+"/api/momiao/catalog/prices?model_id=plain%2Fmodel", nil)
++		require.NoError(t, err)
++		req.Header.Set("Authorization", "Bearer "+token)
++		if header == "Authorization" {
++			req.Header.Add(header, "Bearer "+testReaderSecret)
++		} else {
++			req.Header.Add(header, strconv.Itoa(userID))
++			req.Header.Add(header, strconv.Itoa(userID))
++		}
++		resp, err := s.Client().Do(req)
++		require.NoError(t, err)
++		defer resp.Body.Close()
++		assert.Equal(t, 401, resp.StatusCode)
++		assert.Equal(t, "no-store", resp.Header.Get("Cache-Control"))
++	}
++}
+diff --git a/internal/momiaocatalog/postgres_test.go b/internal/momiaocatalog/postgres_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..1bee0b0c54138f1336699cb813c84963ec75c9eb
+--- /dev/null
++++ b/internal/momiaocatalog/postgres_test.go
+@@ -0,0 +1,65 @@
++package momiaocatalog
++
++import (
++	"net/url"
++	"os"
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"gorm.io/driver/postgres"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++// Run only against a freshly created m3_catalog_* database. The bootstrap DSN
++// lives in an environment variable, not a flag, checked-in file or test output.
++func TestPostgresRealReadOnlyCatalogAndNativeSessionQuote(t *testing.T) {
++	dsn := os.Getenv("MOMIAO_CATALOG_TEST_DSN")
++	if dsn == "" {
++		t.Skip("isolated PostgreSQL fixture DSN not supplied")
++	}
++	u, err := url.Parse(dsn)
++	require.NoError(t, err)
++	require.Contains(t, []string{"localhost", "127.0.0.1", "::1"}, u.Hostname())
++	require.True(t, strings.HasPrefix(strings.TrimPrefix(u.Path, "/"), "m3_catalog_"), "fixture database must use its own prefix")
++	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	require.NoError(t, err)
++	installFixture(t, db, common.DatabaseTypePostgreSQL)
++	token, _ := createSession(t, "vip")
++	// Every subsequent query, including the native auth chain, uses a real
++	// PostgreSQL connection with server-enforced read-only transactions.
++	ro := *u
++	q := ro.Query()
++	q.Set("default_transaction_read_only", "on")
++	ro.RawQuery = q.Encode()
++	readDB, err := gorm.Open(postgres.Open(ro.String()), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	require.NoError(t, err)
++	t.Cleanup(func() { raw, _ := readDB.DB(); _ = raw.Close() })
++	model.DB = readDB
++	var readOnly string
++	require.NoError(t, readDB.Raw("SHOW transaction_read_only").Scan(&readOnly).Error)
++	require.Equal(t, "on", readOnly)
++	s := testHTTPServer(t, true)
++	status, headers, body := getBody(t, s.Client(), s.URL+"/internal/momiao/catalog", testReaderSecret)
++	require.Equal(t, 200, status)
++	assert.Equal(t, "no-store", headers.Get("Cache-Control"))
++	var snap snapshotEnvelope
++	require.NoError(t, common.Unmarshal(body, &snap))
++	assert.True(t, snap.Complete)
++	var data catalogData
++	require.NoError(t, common.Unmarshal(snap.Data, &data))
++	assert.Len(t, data.Models, 7)
++	if path := os.Getenv("MOMIAO_CATALOG_TEST_SNAPSHOT_FILE"); path != "" {
++		require.NoError(t, os.WriteFile(path, body, 0600))
++	}
++	status, _, body = getBody(t, s.Client(), s.URL+"/api/momiao/catalog/prices?model_id=plain%2Fmodel&group=default", token)
++	require.Equal(t, 200, status)
++	assert.Contains(t, string(body), `"amount":"2"`)
++	assert.NotContains(t, string(body), `"vip"`)
++	// Native source reads succeed while an actual write is rejected by PostgreSQL.
++	assert.Error(t, readDB.Model(&model.User{}).Where("username = ?", "catalog-session").Update("quota", 999).Error)
++}
+diff --git a/internal/momiaocatalog/price.go b/internal/momiaocatalog/price.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..35c9011145b67b8b664b6a3d72711061817120ba
+--- /dev/null
++++ b/internal/momiaocatalog/price.go
+@@ -0,0 +1,158 @@
++package momiaocatalog
++
++import (
++	"math"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/pkg/billingexpr"
++	"github.com/shopspring/decimal"
++)
++
++type Dimension struct {
++	Kind      string  `json:"kind"`
++	Unit      string  `json:"unit"`
++	Amount    *string `json:"amount"`
++	Source    string  `json:"source"`
++	Condition string  `json:"condition"`
++	Support   string  `json:"support"`
++}
++
++type Price struct {
++	Mode            string      `json:"mode"`
++	Configured      bool        `json:"configured"`
++	Status          string      `json:"status"`
++	Reason          string      `json:"reason,omitempty"`
++	GroupMultiplier *string     `json:"group_multiplier"`
++	Dimensions      []Dimension `json:"dimensions"`
++	Unquoted        []string    `json:"unquoted_dimensions"`
++}
++
++type nativePrice struct {
++	mode, expr                                                                                 string
++	ratio, completion, cache, write, group, price                                              float64
++	ratioConfigured, cacheConfigured, writeConfigured, groupConfigured, usePrice, text, claude bool
++}
++
++// These are reference tariffs, not a replacement for native settlement. Limits
++// bound this explanation format; they do not grant or restrict spending rights.
++func projectPrice(n nativePrice) Price {
++	p := Price{Mode: n.mode, Status: "unquotable", Dimensions: []Dimension{},
++		Unquoted: []string{"image", "audio", "tools", "request_adjustments"}}
++	if n.mode == "tiered_expr" {
++		expr := strings.TrimSpace(n.expr)
++		p.Configured = expr != ""
++		switch {
++		case expr == "":
++			p.Reason = "expression_missing"
++		case len(expr) > 4096:
++			p.Reason = "expression_too_large"
++		default:
++			// Compile only: no RunExpr/SmokeTest, request probes or paid calls.
++			if _, err := billingexpr.CompileFromCache(expr); err != nil {
++				p.Reason = "expression_invalid"
++			} else {
++				p.Reason = "expression_requires_usage"
++			}
++		}
++		return p
++	}
++	if n.mode != "ratio" {
++		p.Mode = "unknown"
++		p.Reason = "unsupported_billing_mode"
++		return p
++	}
++	p.Configured = n.ratioConfigured || n.usePrice
++	if n.usePrice {
++		p.Mode = "per_request"
++	}
++	if common.QuotaPerUnit != 500000 {
++		p.Reason = "unsupported_quota_unit"
++		return p
++	}
++	if !p.Configured {
++		p.Reason = "price_not_configured"
++		return p
++	}
++	if !n.groupConfigured {
++		p.Reason = "group_price_not_configured"
++		return p
++	}
++	numbers := []float64{n.group}
++	if n.usePrice {
++		numbers = append(numbers, n.price)
++	} else {
++		numbers = append(numbers, n.ratio, n.completion, n.cache, n.write)
++	}
++	for _, v := range numbers {
++		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 1e12 {
++			p.Reason = "invalid_numeric_configuration"
++			return p
++		}
++	}
++	if !n.text {
++		p.Reason = "unsupported_billing_surface"
++		return p
++	}
++	g := decimal.NewFromFloat(n.group)
++	gText := g.String()
++	p.GroupMultiplier = &gText
++	if n.usePrice {
++		amount := decimal.NewFromFloat(n.price).Mul(g)
++		if amount.GreaterThan(decimal.NewFromInt(1_000_000_000_000)) {
++			p.Reason = "invalid_numeric_configuration"
++			return p
++		}
++		value := amount.String()
++		p.Status = "conditional"
++		p.Dimensions = []Dimension{{Kind: "text_request_base", Unit: "API_Credit_per_request", Amount: &value, Source: "native_effective", Condition: "plain_text_request_without_extra_multipliers_or_tool_fees", Support: "not_asserted"}}
++		return p
++	}
++	base := decimal.NewFromInt(2).Mul(decimal.NewFromFloat(n.ratio)).Mul(g)
++	dims := []struct {
++		kind              string
++		amount            decimal.Decimal
++		source, condition string
++	}{
++		{"input", base, "native_effective", "uncached_plain_text_tokens"},
++		{"output", base.Mul(decimal.NewFromFloat(n.completion)), "native_effective", "plain_text_output_tokens"},
++		{"cache_read", base.Mul(decimal.NewFromFloat(n.cache)), "native_effective", "only_if_native_reports_billable_cache_read_tokens"},
++	}
++	if !n.cacheConfigured {
++		dims[2].source = "native_default"
++	}
++	writeSource := "native_effective"
++	if !n.writeConfigured {
++		writeSource = "native_default"
++	}
++	write := base.Mul(decimal.NewFromFloat(n.write))
++	if n.claude {
++		dims = append(dims, struct {
++			kind              string
++			amount            decimal.Decimal
++			source, condition string
++		}{"cache_write_5m", write, writeSource, "only_if_native_reports_anthropic_5m_cache_write_tokens"},
++			struct {
++				kind              string
++				amount            decimal.Decimal
++				source, condition string
++			}{"cache_write_1h", write.Mul(decimal.New(16, -1)), writeSource, "only_if_native_reports_anthropic_1h_cache_write_tokens"})
++	} else {
++		dims = append(dims, struct {
++			kind              string
++			amount            decimal.Decimal
++			source, condition string
++		}{"cache_write", write, writeSource, "only_if_native_reports_billable_generic_cache_write_tokens"})
++	}
++	for _, d := range dims {
++		if d.amount.GreaterThan(decimal.NewFromInt(1_000_000_000_000)) {
++			p.Dimensions = []Dimension{}
++			p.Reason = "invalid_numeric_configuration"
++			return p
++		}
++		value := d.amount.String()
++		p.Dimensions = append(p.Dimensions, Dimension{Kind: d.kind, Unit: "API_Credit_per_1M_tokens", Amount: &value, Source: d.source, Condition: d.condition, Support: "not_asserted"})
++	}
++	p.Status = "reference"
++	return p
++}
+diff --git a/internal/momiaocatalog/price_test.go b/internal/momiaocatalog/price_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..ae540324fe1c69a39515bdd940d5bee8071e67a6
+--- /dev/null
++++ b/internal/momiaocatalog/price_test.go
+@@ -0,0 +1,128 @@
++package momiaocatalog
++
++import (
++	"math"
++	"testing"
++
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++func referenceInput() nativePrice {
++	return nativePrice{mode: "ratio", ratio: 2, ratioConfigured: true, completion: 3, cache: .1, cacheConfigured: true, write: 1.25, writeConfigured: true, group: 1.5, groupConfigured: true, text: true, claude: true}
++}
++
++func TestPricesKeepIndependentDimensionsAndExactUnits(t *testing.T) {
++	p := projectPrice(referenceInput())
++	if p.Status != "reference" || !p.Configured {
++		require.FailNowf(t, "contract assertion", "configured native ratio was not quoted: %+v", p)
++	}
++	amounts := map[string]string{}
++	for _, d := range p.Dimensions {
++		if d.Amount != nil {
++			amounts[d.Kind] = *d.Amount
++		}
++		if d.Unit != "API_Credit_per_1M_tokens" {
++			assert.Failf(t, "contract assertion", "unexpected token unit: %+v", d)
++		}
++	}
++	for k, want := range map[string]string{"input": "6", "output": "18", "cache_read": "0.6", "cache_write_5m": "7.5", "cache_write_1h": "12"} {
++		if amounts[k] != want {
++			assert.Failf(t, "contract assertion", "%s: got %q, want %q", k, amounts[k], want)
++		}
++	}
++}
++
++func TestMissingZeroTinyAndInvalidPricesNeverBecomeFakeFree(t *testing.T) {
++	for _, tt := range []struct {
++		name       string
++		modify     func(*nativePrice)
++		wantStatus string
++		wantInput  string
++		reason     string
++	}{
++		{"fallback37.5", func(n *nativePrice) { n.ratio = 37.5; n.ratioConfigured = false }, "unquotable", "", "price_not_configured"},
++		{"explicit_zero", func(n *nativePrice) { n.ratio = 0 }, "reference", "0", ""},
++		{"tiny", func(n *nativePrice) { n.ratio = 1e-20; n.group = 1 }, "reference", "0.00000000000000000002", ""},
++		{"negative", func(n *nativePrice) { n.ratio = -2 }, "unquotable", "", "invalid_numeric_configuration"},
++		{"nan", func(n *nativePrice) { n.completion = math.NaN() }, "unquotable", "", "invalid_numeric_configuration"},
++		{"infinity", func(n *nativePrice) { n.group = math.Inf(1) }, "unquotable", "", "invalid_numeric_configuration"},
++		{"overflow", func(n *nativePrice) { n.ratio = math.MaxFloat64 }, "unquotable", "", "invalid_numeric_configuration"},
++		{"missing_group", func(n *nativePrice) { n.groupConfigured = false }, "unquotable", "", "group_price_not_configured"},
++		{"unknown_mode", func(n *nativePrice) { n.mode = "future_mode" }, "unquotable", "", "unsupported_billing_mode"},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			n := referenceInput()
++			tt.modify(&n)
++			p := projectPrice(n)
++			if p.Status != tt.wantStatus {
++				require.FailNowf(t, "contract assertion", "status=%s, want=%s: %+v", p.Status, tt.wantStatus, p)
++			}
++			if tt.reason != "" {
++				if p.Reason != tt.reason || len(p.Dimensions) != 0 {
++					require.FailNowf(t, "contract assertion", "invalid config yielded rates: %+v", p)
++				}
++				return
++			}
++			if len(p.Dimensions) == 0 || p.Dimensions[0].Amount == nil || *p.Dimensions[0].Amount != tt.wantInput {
++				require.FailNowf(t, "contract assertion", "wrong exact input amount: %+v", p)
++			}
++		})
++	}
++}
++
++func TestExpressionModeWinsWithoutExecutingOrExposingExpression(t *testing.T) {
++	for _, tt := range []struct {
++		expr string
++		want string
++	}{
++		{"", "expression_missing"},
++		{"p +", "expression_invalid"},
++		{"p * 3 + c * 5", "expression_requires_usage"},
++		{"1 / 0", "expression_requires_usage"}, // compile success is not a runtime-valid price claim
++		{"header(\"x-private-secret\") == \"sensitive\" ? p * 2 : c", "expression_requires_usage"},
++	} {
++		n := referenceInput()
++		n.mode = "tiered_expr"
++		n.expr = tt.expr
++		n.usePrice = true
++		n.price = 10
++		p := projectPrice(n)
++		if p.Mode != "tiered_expr" || p.Status != "unquotable" || p.Reason != tt.want || len(p.Dimensions) != 0 {
++			assert.Failf(t, "contract assertion", "expr mode fell back to ratio/price: %+v", p)
++		}
++	}
++}
++
++func TestDefaultsDescribeBillingConditionNotCapability(t *testing.T) {
++	n := referenceInput()
++	n.cache = 1
++	n.cacheConfigured = false
++	n.writeConfigured = false
++	p := projectPrice(n)
++	if len(p.Dimensions) != 5 {
++		require.FailNowf(t, "contract assertion", "missing conditional dimensions: %+v", p)
++	}
++	for _, d := range p.Dimensions {
++		if d.Kind == "cache_read" || d.Kind == "cache_write_5m" || d.Kind == "cache_write_1h" {
++			if d.Source != "native_default" || d.Condition == "" || d.Support != "not_asserted" {
++				assert.Failf(t, "contract assertion", "default implied cache support: %+v", d)
++			}
++		}
++	}
++}
++
++func TestPerRequestIsTextScopedAndDoesNotPriceImageOrAudioRequests(t *testing.T) {
++	n := referenceInput()
++	n.usePrice = true
++	n.price = .2
++	p := projectPrice(n)
++	if p.Status != "conditional" || len(p.Dimensions) != 1 || p.Dimensions[0].Amount == nil || *p.Dimensions[0].Amount != "0.3" || p.Dimensions[0].Kind != "text_request_base" || p.Dimensions[0].Condition == "" {
++		require.FailNowf(t, "contract assertion", "bad scoped request quote: %+v", p)
++	}
++	n.text = false
++	p = projectPrice(n)
++	if p.Status != "unquotable" || len(p.Dimensions) != 0 {
++		require.FailNowf(t, "contract assertion", "unverified billing surface got a generic request price: %+v", p)
++	}
++}
+diff --git a/internal/momiaocatalog/source.go b/internal/momiaocatalog/source.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..fd5e98f3d107a44b54c4be583ee3f6e7b8390e36
+--- /dev/null
++++ b/internal/momiaocatalog/source.go
+@@ -0,0 +1,267 @@
++package momiaocatalog
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"sort"
++	"strings"
++	"unicode"
++	"unicode/utf8"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/setting/billing_setting"
++	"github.com/QuantumNous/new-api/setting/ratio_setting"
++	"gorm.io/gorm/clause"
++)
++
++const (
++	maxModels    = 1000
++	maxAbilities = 20000
++	maxMetadata  = 2000
++	maxGroups    = 32
++)
++
++var (
++	errSource             = errors.New("SOURCE_UNAVAILABLE")
++	errSourceLimit        = errors.New("SOURCE_LIMIT")
++	errSourceBusy         = errors.New("SOURCE_BUSY")
++	errSourceInconsistent = errors.New("SOURCE_INCONSISTENT")
++)
++
++type Endpoint struct {
++	Kind   string `json:"kind"`
++	Path   string `json:"path"`
++	Method string `json:"method"`
++}
++type CatalogModel struct {
++	ModelID              string     `json:"model_id"`
++	EnabledConfiguration bool       `json:"enabled_configuration"`
++	NativeCatalogVisible bool       `json:"native_catalog_visible"`
++	EndpointStatus       string     `json:"endpoint_status"`
++	Endpoints            []Endpoint `json:"endpoints"`
++	Price                Price      `json:"price"`
++}
++
++type abilityRow struct {
++	Model, GroupName           string
++	ChannelType, ChannelStatus *int
++}
++type metadataRow struct {
++	ModelName        string
++	Status, NameRule int
++}
++
++func validModelID(id string) bool {
++	return id != "" && len(id) <= 255 && utf8.ValidString(id) && strings.TrimSpace(id) == id && !strings.ContainsFunc(id, unicode.IsControl)
++}
++
++// catalogModels reads only the columns required by this projection. A bounded
++// repeatable-read transaction avoids mixing ability/metadata generations. Native
++// option updates hold OptionMapRWMutex; TryRLock avoids an unbounded lock wait.
++func catalogModels(ctx context.Context, userGroup string, groups []string, filter string) ([][]CatalogModel, error) {
++	if model.DB == nil || ctx.Err() != nil {
++		return nil, errSource
++	}
++	if len(groups) == 0 || len(groups) > maxGroups {
++		return nil, errSourceLimit
++	}
++	if !common.OptionMapRWMutex.TryRLock() {
++		return nil, errSourceBusy
++	}
++	defer common.OptionMapRWMutex.RUnlock()
++	return catalogModelsLocked(ctx, userGroup, groups, filter)
++}
++
++// Caller holds the native option read lock through permission selection and
++// projection so a settings update cannot splice two permission generations.
++func catalogModelsLocked(ctx context.Context, userGroup string, groups []string, filter string) ([][]CatalogModel, error) {
++	if model.DB == nil || ctx.Err() != nil {
++		return nil, errSource
++	}
++	if len(groups) == 0 || len(groups) > maxGroups {
++		return nil, errSourceLimit
++	}
++	tx := model.DB.WithContext(ctx).Begin(&sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
++	if tx.Error != nil {
++		return nil, errSource
++	}
++	defer tx.Rollback()
++	values := make([]any, len(groups))
++	for i, g := range groups {
++		values[i] = g
++	}
++	groupColumn := clause.Column{Table: "abilities", Name: "group"}
++	q := tx.Model(&model.Ability{}).
++		Select("abilities.model, "+tx.Statement.Quote(groupColumn)+" AS group_name, channels.type AS channel_type, channels.status AS channel_status").
++		Joins("LEFT JOIN channels ON channels.id = abilities.channel_id").
++		Where(clause.IN{Column: groupColumn, Values: values}).Where("abilities.enabled = ?", true)
++	if filter != "" {
++		q = q.Where("abilities.model = ?", filter)
++	}
++	var rows []abilityRow
++	if err := q.Limit(maxAbilities + 1).Scan(&rows).Error; err != nil {
++		return nil, errSource
++	}
++	if len(rows) > maxAbilities {
++		return nil, errSourceLimit
++	}
++	var metadata []metadataRow
++	if err := tx.Model(&model.Model{}).Select("model_name, status, name_rule").Limit(maxMetadata + 1).Find(&metadata).Error; err != nil {
++		return nil, errSource
++	}
++	if len(metadata) > maxMetadata {
++		return nil, errSourceLimit
++	}
++	if err := tx.Commit().Error; err != nil {
++		return nil, errSource
++	}
++	byGroup := make(map[string]map[string][]int, len(groups))
++	for _, g := range groups {
++		byGroup[g] = make(map[string][]int)
++	}
++	for _, row := range rows {
++		if ctx.Err() != nil {
++			return nil, errSource
++		}
++		if !validModelID(row.Model) || row.ChannelType == nil || row.ChannelStatus == nil || *row.ChannelStatus != common.ChannelStatusEnabled {
++			return nil, errSourceInconsistent
++		}
++		models, ok := byGroup[row.GroupName]
++		if !ok {
++			return nil, errSourceInconsistent
++		}
++		models[row.Model] = append(models[row.Model], *row.ChannelType)
++		if len(models) > maxModels {
++			return nil, errSourceLimit
++		}
++	}
++	ratioMap := ratio_setting.GetModelRatioCopy()
++	groupRatios := ratio_setting.GetGroupRatioCopy()
++	result := make([][]CatalogModel, len(groups))
++	for i, group := range groups {
++		result[i] = []CatalogModel{}
++		g, groupConfigured := groupRatios[group]
++		if userGroup != "" {
++			if special, ok := ratio_setting.GetGroupGroupRatio(userGroup, group); ok {
++				g = special
++			}
++		}
++		ids := make([]string, 0, len(byGroup[group]))
++		for id := range byGroup[group] {
++			ids = append(ids, id)
++		}
++		sort.Strings(ids)
++		for _, id := range ids {
++			if ctx.Err() != nil {
++				return nil, errSource
++			}
++			visible, err := nativeCatalogVisible(id, metadata)
++			if err != nil {
++				return nil, err
++			}
++			ep, epStatus, text, claude := publicEndpoints(id, byGroup[group][id])
++			r, _, matched := ratio_setting.GetModelRatio(id)
++			_, ratioConfigured := ratioMap[matched]
++			price, usePrice := ratio_setting.GetModelPrice(id, false)
++			cache, cacheConfigured := ratio_setting.GetCacheRatio(id)
++			write, writeConfigured := ratio_setting.GetCreateCacheRatio(id)
++			expr, _ := billing_setting.GetBillingExpr(id)
++			p := projectPrice(nativePrice{mode: billing_setting.GetBillingMode(id), expr: expr, ratio: r, ratioConfigured: ratioConfigured,
++				completion: ratio_setting.GetCompletionRatio(id), cache: cache, cacheConfigured: cacheConfigured, write: write, writeConfigured: writeConfigured,
++				group: g, groupConfigured: groupConfigured, price: price, usePrice: usePrice, text: text, claude: claude})
++			if !visible {
++				p.Status = "unquotable"
++				p.Reason = "native_catalog_hidden"
++				p.Dimensions = []Dimension{}
++			}
++			result[i] = append(result[i], CatalogModel{ModelID: id, EnabledConfiguration: true, NativeCatalogVisible: visible, EndpointStatus: epStatus, Endpoints: ep, Price: p})
++		}
++	}
++	return result, nil
++}
++
++// Match native pricing precedence, but reject ambiguous same-priority rules
++// instead of depending on an unspecified database row order.
++func nativeCatalogVisible(id string, metadata []metadataRow) (bool, error) {
++	for _, rule := range []int{model.NameRuleExact, model.NameRulePrefix, model.NameRuleSuffix, model.NameRuleContains} {
++		found, visible := false, true
++		for _, m := range metadata {
++			if m.NameRule != rule {
++				continue
++			}
++			match := m.ModelName == id
++			switch rule {
++			case model.NameRulePrefix:
++				match = strings.HasPrefix(id, m.ModelName)
++			case model.NameRuleSuffix:
++				match = strings.HasSuffix(id, m.ModelName)
++			case model.NameRuleContains:
++				match = strings.Contains(id, m.ModelName)
++			}
++			if !match {
++				continue
++			}
++			v := m.Status == 1
++			if found && visible != v {
++				return false, errSourceInconsistent
++			}
++			found, visible = true, v
++		}
++		if found {
++			return visible, nil
++		}
++	}
++	return true, nil
++}
++
++// Custom model endpoint overrides and unverified channel types are not copied.
++// Only the current portal's verified /v1 text/image paths are advertised, and
++// image/audio/request-dependent prices remain outside the reference tariff.
++func publicEndpoints(id string, channels []int) ([]Endpoint, string, bool, bool) {
++	seen := map[constant.EndpointType]bool{}
++	text, claude, partial := false, false, false
++	for _, channelType := range channels {
++		switch channelType {
++		case constant.ChannelTypeOpenAI, constant.ChannelTypeAzure, constant.ChannelTypeAnthropic, constant.ChannelTypeAws,
++			constant.ChannelTypeOpenRouter, constant.ChannelTypeGemini, constant.ChannelTypeVertexAi, constant.ChannelTypeXai,
++			constant.ChannelTypeNewAPI, constant.ChannelTypeSub2API, constant.ChannelTypeCodex:
++		default:
++			partial = true
++			continue
++		}
++		for _, kind := range common.GetEndpointTypesByChannelType(channelType, id) {
++			switch kind {
++			case constant.EndpointTypeOpenAI, constant.EndpointTypeOpenAIResponse, constant.EndpointTypeAnthropic:
++				seen[kind] = true
++				text = true
++				if kind == constant.EndpointTypeAnthropic {
++					claude = true
++				}
++			case constant.EndpointTypeImageGeneration:
++				seen[kind] = true
++			default:
++				partial = true
++			}
++		}
++	}
++	endpoints := []Endpoint{}
++	for kind := range seen {
++		if info, ok := common.GetDefaultEndpointInfo(kind); ok {
++			endpoints = append(endpoints, Endpoint{Kind: string(kind), Path: info.Path, Method: info.Method})
++		}
++	}
++	sort.Slice(endpoints, func(i, j int) bool { return endpoints[i].Kind < endpoints[j].Kind })
++	status := "configured_subset_not_health"
++	if len(endpoints) == 0 {
++		status = "unverified"
++	} else if partial {
++		status = "partial_configured_subset_not_health"
++	}
++	if common.IsImageGenerationModel(id) || partial {
++		text = false
++	}
++	return endpoints, status, text, claude
++}
+diff --git a/internal/momiaocatalog/source_test.go b/internal/momiaocatalog/source_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..b747a8ec647c00946b62936a60059865a4e11499
+--- /dev/null
++++ b/internal/momiaocatalog/source_test.go
+@@ -0,0 +1,189 @@
++package momiaocatalog
++
++import (
++	"context"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/setting/billing_setting"
++	settingconfig "github.com/QuantumNous/new-api/setting/config"
++	"github.com/QuantumNous/new-api/setting/ratio_setting"
++	"github.com/glebarez/sqlite"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++func fixtureDB(t *testing.T) *gorm.DB {
++	t.Helper()
++	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "native.db")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	if err != nil {
++		require.NoError(t, err)
++	}
++	return installFixture(t, db, common.DatabaseTypeSQLite)
++}
++
++func installFixture(t *testing.T, db *gorm.DB, dbType common.DatabaseType) *gorm.DB {
++	t.Helper()
++	oldDB, oldType, oldRedis, oldSecret := model.DB, common.MainDatabaseType(), common.RedisEnabled, common.SessionSecret
++	if err := db.AutoMigrate(&model.Ability{}, &model.Channel{}, &model.Model{}, &model.User{}, &model.UserSession{}); err != nil {
++		require.NoError(t, err)
++	}
++	model.DB = db
++	common.SetMainDatabaseType(dbType)
++	common.RedisEnabled = false
++	common.SessionSecret = "synthetic-catalog-session-test-secret"
++	t.Cleanup(func() {
++		model.DB = oldDB
++		common.SetMainDatabaseType(oldType)
++		common.RedisEnabled = oldRedis
++		common.SessionSecret = oldSecret
++		sqlDB, _ := db.DB()
++		_ = sqlDB.Close()
++	})
++	oldRatio := ratio_setting.ModelRatio2JSONString()
++	oldPrice := ratio_setting.ModelPrice2JSONString()
++	oldCompletion := ratio_setting.CompletionRatio2JSONString()
++	oldCache := ratio_setting.CacheRatio2JSONString()
++	oldWrite := ratio_setting.CreateCacheRatio2JSONString()
++	oldGroup := ratio_setting.GroupRatio2JSONString()
++	oldSpecial := ratio_setting.GroupGroupRatio2JSONString()
++	bcfg := settingconfig.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
++	oldBilling := *bcfg
++	t.Cleanup(func() {
++		_ = ratio_setting.UpdateModelRatioByJSONString(oldRatio)
++		_ = ratio_setting.UpdateModelPriceByJSONString(oldPrice)
++		_ = ratio_setting.UpdateCompletionRatioByJSONString(oldCompletion)
++		_ = ratio_setting.UpdateCacheRatioByJSONString(oldCache)
++		_ = ratio_setting.UpdateCreateCacheRatioByJSONString(oldWrite)
++		_ = ratio_setting.UpdateGroupRatioByJSONString(oldGroup)
++		_ = ratio_setting.UpdateGroupGroupRatioByJSONString(oldSpecial)
++		*bcfg = oldBilling
++	})
++	for _, update := range []struct {
++		f     func(string) error
++		value string
++	}{
++		{ratio_setting.UpdateModelRatioByJSONString, `{"plain/model":2,"free-model":0,"gpt-4o-2024-05-13":1}`},
++		{ratio_setting.UpdateModelPriceByJSONString, `{"request-model":0.2}`},
++		{ratio_setting.UpdateCompletionRatioByJSONString, `{"plain/model":3,"gpt-4o-2024-05-13":99}`},
++		{ratio_setting.UpdateCacheRatioByJSONString, `{"plain/model":0.1}`},
++		{ratio_setting.UpdateCreateCacheRatioByJSONString, `{"plain/model":1.25}`},
++		{ratio_setting.UpdateGroupRatioByJSONString, `{"default":2,"vip":3,"staff-only":7}`},
++		{ratio_setting.UpdateGroupGroupRatioByJSONString, `{"vip":{"default":0.5}}`},
++	} {
++		if err := update.f(update.value); err != nil {
++			require.NoError(t, err)
++		}
++	}
++	*bcfg = billing_setting.BillingSetting{BillingMode: map[string]string{"expr-missing": "tiered_expr", "expr-invalid": "tiered_expr"}, BillingExpr: map[string]string{"expr-invalid": "p +"}}
++	secretURL := "https://internal-channel.invalid/private"
++	channels := []model.Channel{{Id: 1, Type: constant.ChannelTypeAnthropic, Status: 1, Key: "synthetic-upstream-key", Name: "DO_NOT_EXPOSE_CHANNEL", BaseURL: &secretURL}, {Id: 2, Type: constant.ChannelTypeCodex, Status: 1, Key: "internal-key", Name: "INTERNAL_ONLY"}}
++	if err := db.Create(&channels).Error; err != nil {
++		require.NoError(t, err)
++	}
++	for _, id := range []string{"plain/model", "missing-price", "free-model", "request-model", "expr-missing", "expr-invalid", "gpt-4o-2024-05-13"} {
++		if err := db.Create(&model.Ability{Group: "default", Model: id, ChannelId: 1, Enabled: true}).Error; err != nil {
++			require.NoError(t, err)
++		}
++	}
++	for _, a := range []model.Ability{{Group: "staff-only", Model: "internal-only", ChannelId: 2, Enabled: true}, {Group: "staff-only", Model: "plain/model", ChannelId: 2, Enabled: true}, {Group: "all", Model: "all-only", ChannelId: 1, Enabled: true}} {
++		if err := db.Create(&a).Error; err != nil {
++			require.NoError(t, err)
++		}
++	}
++	if err := db.Create(&model.Model{ModelName: "plain/model", Status: 1, VendorID: 123, Description: "HIDDEN_VENDOR_DESCRIPTION", Endpoints: `{"private":{"path":"https://internal-endpoint.invalid/secret","method":"GET"}}`}).Error; err != nil {
++		require.NoError(t, err)
++	}
++	return db
++}
++
++func TestSourceUsesRealDefaultAbilitiesAndNeverGlobalPricingProjection(t *testing.T) {
++	fixtureDB(t)
++	groups, err := catalogModels(context.Background(), "", []string{"default"}, "")
++	if err != nil {
++		require.NoError(t, err)
++	}
++	if len(groups) != 1 || len(groups[0]) != 7 {
++		require.FailNowf(t, "contract assertion", "source included non-default/all models or lost entries: %+v", groups)
++	}
++	data, err := common.Marshal(groups)
++	if err != nil {
++		require.NoError(t, err)
++	}
++	for _, hidden := range []string{"staff-only", "internal-only", "all-only", "INTERNAL_ONLY", "DO_NOT_EXPOSE", "HIDDEN_VENDOR", "internal-channel", "internal-endpoint", "synthetic-upstream-key", "vendor_id", "enable_groups", "billing_expr"} {
++		if strings.Contains(string(data), hidden) {
++			assert.Failf(t, "contract assertion", "private native data leaked: %s", hidden)
++		}
++	}
++	for _, m := range groups[0] {
++		switch m.ModelID {
++		case "missing-price":
++			if m.Price.Configured || m.Price.Status != "unquotable" {
++				assert.Failf(t, "contract assertion", "native 37.5 fallback became configured quote: %+v", m)
++			}
++		case "free-model":
++			if m.Price.Dimensions[0].Amount == nil || *m.Price.Dimensions[0].Amount != "0" {
++				assert.Failf(t, "contract assertion", "explicit free rate lost: %+v", m)
++			}
++		case "expr-missing":
++			if m.Price.Mode != "tiered_expr" || m.Price.Reason != "expression_missing" {
++				assert.Failf(t, "contract assertion", "missing expression hidden: %+v", m)
++			}
++		case "expr-invalid":
++			if m.Price.Reason != "expression_invalid" {
++				assert.Failf(t, "contract assertion", "invalid expression hidden: %+v", m)
++			}
++		case "gpt-4o-2024-05-13":
++			if *m.Price.Dimensions[1].Amount != "12" {
++				assert.Failf(t, "contract assertion", "ignored native hardcoded completion override: %+v", m.Price)
++			}
++		case "plain/model":
++			if *m.Price.Dimensions[0].Amount != "8" {
++				assert.Failf(t, "contract assertion", "public base inherited user discount: %+v", m.Price)
++			}
++			for _, ep := range m.Endpoints {
++				if ep.Path == "/v1/responses" {
++					assert.Fail(t, "endpoint from an internal group leaked")
++				}
++			}
++		}
++	}
++}
++
++func TestNativeSpecialGroupRatioReplacesRatherThanMultipliesBase(t *testing.T) {
++	fixtureDB(t)
++	groups, err := catalogModels(context.Background(), "vip", []string{"default"}, "plain/model")
++	if err != nil || len(groups) != 1 || len(groups[0]) != 1 {
++		require.FailNowf(t, "contract assertion", "quote lookup failed: %v", err)
++	}
++	if got := *groups[0][0].Price.Dimensions[0].Amount; got != "2" {
++		require.FailNowf(t, "contract assertion", "discount multiplied twice: got %s, want 2", got)
++	}
++}
++
++func TestMissingTablesDanglingChannelsAndCanceledReadsFailClosed(t *testing.T) {
++	db := fixtureDB(t)
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	if _, err := catalogModels(ctx, "", []string{"default"}, ""); err == nil {
++		assert.Fail(t, "canceled source read succeeded")
++	}
++	if err := db.Create(&model.Ability{Group: "default", Model: "dangling", ChannelId: 999, Enabled: true}).Error; err != nil {
++		require.NoError(t, err)
++	}
++	if _, err := catalogModels(context.Background(), "", []string{"default"}, ""); err == nil {
++		assert.Fail(t, "dangling channel silently omitted")
++	}
++	if err := db.Migrator().DropTable(&model.Ability{}); err != nil {
++		require.NoError(t, err)
++	}
++	if _, err := catalogModels(context.Background(), "", []string{"default"}, ""); err == nil {
++		assert.Fail(t, "missing source table emitted complete empty success")
++	}
++}
+diff --git a/main.go b/main.go
+index 742d155158761efdff81248b89bcba3e608b823d..ea4a14e3dafec3fc4a3fb0215638bd857dd51087 100644
+--- a/main.go
++++ b/main.go
+@@ -19,6 +19,7 @@ import (
+ 	"github.com/QuantumNous/new-api/constant"
+ 	"github.com/QuantumNous/new-api/controller"
+ 	"github.com/QuantumNous/new-api/i18n"
++	"github.com/QuantumNous/new-api/internal/momiaocatalog"
+ 	"github.com/QuantumNous/new-api/logger"
+ 	"github.com/QuantumNous/new-api/middleware"
+ 	"github.com/QuantumNous/new-api/model"
+@@ -208,6 +209,9 @@ func main() {
+ 		Addr:    ":" + port,
+ 		Handler: server,
+ 	}
++	if err := momiaocatalog.ConfigureServer(srv); err != nil {
++		common.FatalLog("catalog configuration: " + err.Error())
++	}
+ 
+ 	go func() {
+ 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+diff --git a/router/api-router.go b/router/api-router.go
+index 31c595e00db24007280a0cf48039f96f9dd31781..9720c77fb2c76bf4ab549ebd3a8cbe93c1ba3cc2 100644
+--- a/router/api-router.go
++++ b/router/api-router.go
+@@ -2,6 +2,7 @@ package router
+ 
+ import (
+ 	"github.com/QuantumNous/new-api/controller"
++	"github.com/QuantumNous/new-api/internal/momiaocatalog"
+ 	"github.com/QuantumNous/new-api/middleware"
+ 
+ 	// Import oauth package to register providers via init()
+@@ -17,6 +18,7 @@ func SetApiRouter(router *gin.Engine) {
+ 	apiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
+ 	apiRouter.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
+ 	apiRouter.Use(middleware.GlobalAPIRateLimit())
++	momiaocatalog.Register(router, apiRouter)
+ 	anonymousRequestBodyLimit := middleware.AnonymousRequestBodyLimit()
+ 	{
+ 		apiRouter.GET("/setup", controller.GetSetup)

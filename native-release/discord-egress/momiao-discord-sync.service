@@ -1,0 +1,8 @@
+[Unit]
+Description=Reconcile fixed Discord bridge with the verified native namespace
+After=chaldea-preview-sync.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /opt/momiao-discord/sync.py
+TimeoutStartSec=45

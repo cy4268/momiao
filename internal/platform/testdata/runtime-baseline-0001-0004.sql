@@ -1,0 +1,25 @@
+-- Exact effective 1-4 runtime column grants observed read-only at 09/06/2026 17:10:02. -- Source snapshot SHA256: af212689322d8ef7c0533d71c116369079096fc1a22cc24a59c64b8f79cbc90a
+GRANT USAGE ON SCHEMA identity TO :"runtime_role";
+GRANT USAGE ON SCHEMA economy TO :"runtime_role";
+GRANT USAGE ON SCHEMA rewards TO :"runtime_role";
+GRANT USAGE ON SCHEMA platform_meta TO :"runtime_role";
+GRANT SELECT(biz_id,biz_type,confirmed_at,created_at,newapi_user_id,operation_type,request_hash,status,transaction_id,updated_at) ON economy.asset_transactions TO :"runtime_role";
+GRANT INSERT(biz_id,biz_type,confirmed_at,created_at,newapi_user_id,operation_type,request_hash,status,transaction_id,updated_at) ON economy.asset_transactions TO :"runtime_role";
+GRANT SELECT(amount_units,created_at,native_after,native_before,newapi_user_id,reason,request_key_hash,status,transfer_id,updated_at) ON economy.quota_transfers TO :"runtime_role";
+GRANT INSERT(amount_units,created_at,native_after,native_before,newapi_user_id,reason,request_key_hash,status,transfer_id,updated_at) ON economy.quota_transfers TO :"runtime_role";
+GRANT UPDATE(native_after,native_before,reason,status,updated_at) ON economy.quota_transfers TO :"runtime_role";
+GRANT SELECT(asset_type,balance_units,ledger_seq,newapi_user_id,updated_at,version) ON economy.wallet_balances TO :"runtime_role";
+GRANT INSERT(asset_type,newapi_user_id) ON economy.wallet_balances TO :"runtime_role";
+GRANT UPDATE(balance_units,ledger_seq,updated_at,version) ON economy.wallet_balances TO :"runtime_role";
+GRANT SELECT(asset_type,balance_after_units,balance_before_units,biz_id,biz_type,created_at,delta_units,entry_type,ledger_entry_id,ledger_seq,leg_no,metadata,newapi_user_id,transaction_id,wallet_version) ON economy.wallet_ledger TO :"runtime_role";
+GRANT INSERT(asset_type,balance_after_units,balance_before_units,biz_id,biz_type,created_at,delta_units,entry_type,ledger_entry_id,ledger_seq,leg_no,metadata,newapi_user_id,transaction_id,wallet_version) ON economy.wallet_ledger TO :"runtime_role";
+GRANT SELECT(created_at,first_seen_at,migration_batch_id,newapi_user_id,security_epoch) ON identity.account_refs TO :"runtime_role";
+GRANT INSERT(newapi_user_id) ON identity.account_refs TO :"runtime_role";
+GRANT INSERT(display_name,newapi_user_id,normalized_name,profile_version) ON identity.master_profile_name_history TO :"runtime_role";
+GRANT SELECT(avatar_id,display_name,newapi_user_id,nickname_changed_at,profile_version) ON identity.master_profiles TO :"runtime_role";
+GRANT INSERT(avatar_id,display_name,newapi_user_id,normalized_name) ON identity.master_profiles TO :"runtime_role";
+GRANT UPDATE(display_name,nickname_changed_at,normalized_name,profile_version,updated_at) ON identity.master_profiles TO :"runtime_role";
+GRANT SELECT(created_at,idempotency_record_id,key_hash,newapi_user_id,request_hash,resource_id,resource_type,scope) ON platform_meta.mutation_idempotency_records TO :"runtime_role";
+GRANT INSERT(created_at,idempotency_record_id,key_hash,newapi_user_id,request_hash,resource_id,resource_type,scope) ON platform_meta.mutation_idempotency_records TO :"runtime_role";
+GRANT SELECT(amount_units,asset_type,checkin_date,created_at,newapi_user_id,policy_version,transaction_id) ON rewards.daily_checkins TO :"runtime_role";
+GRANT INSERT(amount_units,asset_type,checkin_date,created_at,newapi_user_id,policy_version,transaction_id) ON rewards.daily_checkins TO :"runtime_role";

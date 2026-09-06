@@ -1,0 +1,37 @@
+{
+  "schema": "momiao.native-release-inputs.v1",
+  "status": "locally_built_and_container_validated_not_deployed",
+  "base_image": "calciumion/new-api@sha256:54a0b10924aa75fa5b5947208b820ced66b6ef4b445b35f122b31d80676aba2b",
+  "application_input": "9520310d6d75feb0c30c70aaafe835e83b8ccff2",
+  "native_revision": "f116414284162ad15d8925f7bca494c109b83e93",
+  "native_tree": "3c15a618fa7a528c06da92de7dbf2f2c843a9162",
+  "platform": "linux/amd64",
+  "compiler": "go1.27.1",
+  "frontend": {
+    "index_sha256": "52b85e1baa5d23ae08554c2aeb350d83e7eee333825f5ff844aff643e99bdaab",
+    "reuse": "already reviewed complete assets embedded in exact native binary",
+    "files": 221,
+    "bytes": 57415911,
+    "tool": "Bun 1.4.2",
+    "lock_sha256": "ab3dc08dbd0c6bcf3407951ba3d808568af745a7dd4833f2cdbf868f6b11165b"
+  },
+  "context_files": [
+    {
+      "path": "Dockerfile",
+      "bytes": 599,
+      "sha256": "acb72d92ae07f0e47ec6eb54326d0f6ad8cacc84819f066b09a80df12a109e24"
+    },
+    {
+      "path": "momiao-admission-migrate",
+      "bytes": 43342897,
+      "sha256": "f2ae036113f5fc794ef9c712623d0f846ee40434df6ce10cc1001275812a502a"
+    },
+    {
+      "path": "new-api",
+      "bytes": 117854368,
+      "sha256": "76463aae3a51b54577c000e0c4d62ca4d6cc46d5e7c166868553d7db8d3adb1c"
+    }
+  ],
+  "native_commit": "1b19c300b46e025724016420454fe188992ce504",
+  "build_vcs_modified": false
+}

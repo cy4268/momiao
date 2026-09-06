@@ -1,0 +1,25 @@
+{
+  "schema": "momiao.model-personas.v1",
+  "assets": [
+    {
+      "asset_id": "persona_kimi_master",
+      "domain": "models",
+      "scene": "model-card-and-detail",
+      "character": "Kimi family persona",
+      "skin": "selected-design-v1",
+      "role": "model-family",
+      "version": "v001",
+      "source": "WORKSPACE_PROVIDED",
+      "src": "/assets/models/kimi-family-web-v001.webp",
+      "fallback": "/assets/models/kimi-family-normalized-v001.png",
+      "focal_point": [0.5, 0.5],
+      "safe_area": 0.05,
+      "alpha": true,
+      "status": "PRODUCTION_READY",
+      "rights_status": "LICENSED_OR_APPROVED",
+      "rights_note": "Project owner approved reuse in this project. Historical license, authorship and original-generation provenance are not asserted. Original workspace source and its acquisition manifest are preserved unchanged; delivery derivatives retain the selected character design.",
+      "review_date": "2026-09-06",
+      "prompt_archive_id": "workspace-kimi-selected-design-v1"
+    }
+  ]
+}

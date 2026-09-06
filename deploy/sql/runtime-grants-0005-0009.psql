@@ -1,0 +1,107 @@
+-- Incremental platform-only grants. Retain the separately reviewed 0001-0004 grants.
+-- psql -X; trusted parameters: schema_owner, runtime_role, apply_grants=true.
+-- No connection secret, role creation, ownership transfer or native users access.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+  \set apply_grants false
+\endif
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+SELECT EXISTS (
+ SELECT 1 FROM pg_catalog.pg_roles r, pg_catalog.pg_roles o
+ WHERE r.rolname=:'runtime_role' AND o.rolname=current_user AND NOT o.rolcanlogin AND NOT o.rolsuper
+  AND r.rolcanlogin AND NOT r.rolsuper AND NOT r.rolcreatedb AND NOT r.rolcreaterole
+  AND NOT r.rolreplication AND NOT r.rolbypassrls
+  AND NOT pg_catalog.pg_has_role(r.oid,o.oid,'MEMBER')
+  AND NOT pg_catalog.has_function_privilege(r.oid,
+   'ops.bootstrap_super_admin(text,bigint,text,text,boolean,uuid,uuid,uuid)','EXECUTE')
+) AS runtime_role_ok \gset
+\if :runtime_role_ok
+\else
+ DO $$BEGIN RAISE EXCEPTION 'runtime role separation or bootstrap denial is invalid'; END;$$;
+\endif
+
+-- 0005: announcements_store.go and announcements_public.go, including job workers.
+GRANT USAGE ON SCHEMA content,ops,catalog TO :"runtime_role";
+GRANT SELECT ON ops.admin_principals,ops.admin_principal_scopes TO :"runtime_role";
+-- SELECT FOR UPDATE needs an UPDATE column. This does not grant role/status/scope writes.
+GRANT UPDATE(updated_at) ON ops.admin_principals TO :"runtime_role";
+GRANT SELECT ON content.placement_guards TO :"runtime_role";
+-- Lock only in application SQL; the existing immutable trigger rejects actual UPDATE.
+GRANT UPDATE(guard_key) ON content.placement_guards TO :"runtime_role";
+GRANT SELECT ON content.announcements TO :"runtime_role";
+GRANT INSERT(announcement_id,canonical_key) ON content.announcements TO :"runtime_role";
+GRANT UPDATE(canonical_key,current_content_version,notification_revision,version,state,publish_at,visible_from,visible_until,first_published_at,withdrawn_at,expired_reason,updated_at) ON content.announcements TO :"runtime_role";
+GRANT SELECT ON content.announcement_revisions TO :"runtime_role";
+GRANT INSERT(announcement_id,content_version,title,type,visibility,body_markdown,sanitized_html,body_markdown_hash,sanitized_html_hash,sanitizer_policy_version,created_by) ON content.announcement_revisions TO :"runtime_role";
+GRANT SELECT ON content.notification_revisions TO :"runtime_role";
+GRANT INSERT(announcement_id,notification_revision,created_by,reason) ON content.notification_revisions TO :"runtime_role";
+GRANT SELECT,INSERT,DELETE ON content.announcement_placements TO :"runtime_role";
+GRANT SELECT ON content.acknowledgement_entries TO :"runtime_role";
+GRANT INSERT(announcement_id,content_version,manual_order,display_name,external_link,acknowledgement_note,group_name,anonymous,consent_attested) ON content.acknowledgement_entries TO :"runtime_role";
+GRANT SELECT ON content.announcement_reads TO :"runtime_role";
+GRANT INSERT(newapi_user_id,announcement_id,notification_revision) ON content.announcement_reads TO :"runtime_role";
+GRANT SELECT ON content.announcement_jobs TO :"runtime_role";
+GRANT INSERT(job_key,announcement_id,kind,content_version,notification_revision,due_at) ON content.announcement_jobs TO :"runtime_role";
+GRANT UPDATE(content_version,notification_revision,due_at,status,finished_at) ON content.announcement_jobs TO :"runtime_role";
+GRANT SELECT ON ops.announcement_previews TO :"runtime_role";
+GRANT INSERT(preview_id,newapi_user_id,authz_epoch,command_hash,impact,expires_at) ON ops.announcement_previews TO :"runtime_role";
+GRANT SELECT ON ops.admin_operations TO :"runtime_role";
+-- model_id is the 0007 extension; 0008's trigger rejects forged bootstrap audit.
+GRANT INSERT(operation_id,actor_kind,newapi_user_id,action,announcement_id,model_id,request_hash,details,result) ON ops.admin_operations TO :"runtime_role";
+-- No media-assets grants: the current storage SQL does not use that table.
+
+-- 0006: admission.go receipt ingestion/recovery and deferred issuance checks.
+-- Provisional v0 INSERT and InitializeProfile's ON CONFLICT upsert extend 0002.
+GRANT INSERT(profile_version) ON identity.master_profiles TO :"runtime_role";
+GRANT UPDATE(avatar_id) ON identity.master_profiles TO :"runtime_role";
+GRANT SELECT(normalized_name) ON identity.master_profiles TO :"runtime_role";
+GRANT SELECT ON identity.native_registration_inbox TO :"runtime_role";
+GRANT INSERT(ordinal,operation_id,native_user_id,discord_subject,source,policy_version,native_created_at) ON identity.native_registration_inbox TO :"runtime_role";
+GRANT SELECT ON platform_meta.registration_cursor TO :"runtime_role";
+GRANT UPDATE(ordinal,source_available,last_attempt_at,last_success_at) ON platform_meta.registration_cursor TO :"runtime_role";
+GRANT SELECT ON rewards.registration_grants TO :"runtime_role";
+GRANT INSERT(claim_id,newapi_user_id,claim_kind,source_ordinal,biz_id) ON rewards.registration_grants TO :"runtime_role";
+GRANT UPDATE(status,transaction_id,confirmed_at) ON rewards.registration_grants TO :"runtime_role";
+GRANT SELECT ON platform_meta.registration_grant_jobs TO :"runtime_role";
+GRANT INSERT(claim_id) ON platform_meta.registration_grant_jobs TO :"runtime_role";
+GRANT UPDATE(status,attempts,next_attempt_at,last_error_code,updated_at) ON platform_meta.registration_grant_jobs TO :"runtime_role";
+GRANT SELECT ON rewards.registration_issuances TO :"runtime_role";
+GRANT INSERT(claim_id,newapi_user_id,biz_id,direction,amount_units,asset_type,policy_version,transaction_id,ledger_entry_id) ON rewards.registration_issuances TO :"runtime_role";
+
+-- 0007: catalog_sync.go, catalog_ops.go and their read projections.
+-- Storage SQL was read-only inspected in the in-progress M3c checkout; recheck its final SHA.
+GRANT SELECT ON catalog.model_catalog_metadata TO :"runtime_role";
+GRANT INSERT(model_id) ON catalog.model_catalog_metadata TO :"runtime_role";
+GRANT UPDATE(display_name,family,summary,context_length,metadata,metadata_version,updated_at) ON catalog.model_catalog_metadata TO :"runtime_role";
+GRANT SELECT ON catalog.model_catalog_publication TO :"runtime_role";
+GRANT INSERT(model_id) ON catalog.model_catalog_publication TO :"runtime_role";
+GRANT UPDATE(publication_state,recommended,sort_order,published_at,retired_at,version,updated_at) ON catalog.model_catalog_publication TO :"runtime_role";
+GRANT SELECT ON catalog.model_sync_snapshots TO :"runtime_role";
+GRANT INSERT(sync_snapshot_id,source_identity,source_hash,observed_model_count,status,observed_at,source_models) ON catalog.model_sync_snapshots TO :"runtime_role";
+GRANT SELECT ON catalog.model_sync_attempts TO :"runtime_role";
+GRANT INSERT(attempt_id,trigger_kind,status,source_snapshot_id,failure_code,observed_at,verified_at) ON catalog.model_sync_attempts TO :"runtime_role";
+GRANT SELECT ON catalog.model_sync_state TO :"runtime_role";
+GRANT UPDATE(source_snapshot_id,last_attempt_id,last_verified_at,last_observed_at,version) ON catalog.model_sync_state TO :"runtime_role";
+GRANT SELECT ON catalog.model_availability_mappings TO :"runtime_role";
+GRANT INSERT(model_id,availability_state,source_snapshot_id,observed_at,last_seen_at,source_facts) ON catalog.model_availability_mappings TO :"runtime_role";
+GRANT UPDATE(availability_state,source_snapshot_id,observed_at,last_seen_at,source_facts) ON catalog.model_availability_mappings TO :"runtime_role";
+GRANT SELECT ON catalog.historical_model_identity TO :"runtime_role";
+GRANT INSERT(historical_identity_id,model_id,display_name_snapshot,family_snapshot,effective_from) ON catalog.historical_model_identity TO :"runtime_role";
+GRANT UPDATE(effective_until) ON catalog.historical_model_identity TO :"runtime_role";
+GRANT INSERT(model_id,metadata_version,content,created_by) ON catalog.model_metadata_revisions TO :"runtime_role";
+GRANT SELECT ON ops.model_previews TO :"runtime_role";
+GRANT INSERT(preview_id,newapi_user_id,authz_epoch,command_hash,source_hash,impact,expires_at) ON ops.model_previews TO :"runtime_role";
+
+-- 0008: deliberately no runtime grant on bootstrap functions, access_control_guards,
+-- bootstrap_closure or admin_role_history. Use the separate deployment-only template.
+-- 0009: migration_notice.go reads facts and inserts only the user/version ACK key.
+GRANT SELECT ON identity.migration_notice_versions,identity.migration_notice_requirements,identity.migration_notice_acknowledgements TO :"runtime_role";
+GRANT INSERT(newapi_user_id,version) ON identity.migration_notice_acknowledgements TO :"runtime_role";
+-- No sequence grants: 0005-0009 use application UUIDs and explicit keys, not sequences.
+COMMIT;
+\else
+ \echo 'No grants applied. Review roles, final schema/application SHA and set apply_grants=true explicitly.'
+\endif

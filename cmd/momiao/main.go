@@ -40,8 +40,46 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		defer store.Close()
 		cfg.wallet = store
 		cfg.profile = store
+		cfg.accessGate = store
 		cfg.economy = store
 		cfg.transfers = store
+		cfg.announcements = store
+		cfg.catalog = store
+		if cfg.CatalogReaderKeyFile != "" {
+			key, err := readCatalogKey(cfg.CatalogReaderKeyFile)
+			if err != nil {
+				return errors.New("catalog startup failed")
+			}
+			transport := newNativeTransport(cfg.NewAPISocket)
+			defer transport.CloseIdleConnections()
+			cfg.catalogSource = nativeCatalogReader{transport: transport, key: key}.Read
+			catalogCtx, stopCatalog := context.WithCancel(ctx)
+			catalogDone := make(chan struct{})
+			go func() {
+				defer close(catalogDone)
+				runCatalogWorker(catalogCtx, cfg.CatalogSyncInterval, func(ctx context.Context) (platform.CatalogSyncResult, error) {
+					return store.SyncCatalog(ctx, cfg.catalogSource)
+				})
+			}()
+			defer func() { stopCatalog(); <-catalogDone }()
+		}
+		announcementCtx, stopAnnouncements := context.WithCancel(ctx)
+		announcementsDone := make(chan struct{})
+		go func() { defer close(announcementsDone); runAnnouncementWorker(announcementCtx, store) }()
+		defer func() { stopAnnouncements(); <-announcementsDone }()
+		if cfg.AdmissionEnabled {
+			key, err := readRegistrationReaderKey(cfg.RegistrationReaderKeyFile)
+			if err != nil {
+				return errors.New("admission startup failed")
+			}
+			cfg.admission = store
+			transport := newNativeTransport(cfg.NewAPISocket)
+			defer transport.CloseIdleConnections()
+			workerCtx, cancel := context.WithCancel(ctx)
+			done := make(chan struct{})
+			go func() { defer close(done); runAdmissionWorker(workerCtx, store, transport, key) }()
+			defer func() { cancel(); <-done }()
+		}
 		if cfg.NativeQuotaDSNFile != "" {
 			dsn, err := readWalletDSN(cfg.NativeQuotaDSNFile)
 			if err != nil {

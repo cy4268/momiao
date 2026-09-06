@@ -1,0 +1,9 @@
+{
+  "services": {
+    "newapi": {
+      "extra_hosts": {
+        "discord.com": "127.0.0.1"
+      }
+    }
+  }
+}

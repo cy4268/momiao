@@ -1,0 +1,35 @@
+{
+  "expected_hostname": "REQUIRED_TARGET_HOSTNAME",
+  "release_id": "REQUIRED_YYYYMMDDTHHMMSSZ-native6d7062",
+  "image_archive": "REQUIRED_PRIVATE_ABSOLUTE_IMAGE_TAR",
+  "image_archive_sha256": "REQUIRED_ARCHIVE_SHA256",
+  "loaded_image_id": "sha256:6d7062ca03efec8fd15cf78c1127f3442ff2c9b2a51558b6804489d082d50af7",
+  "migration_dsn_file": "REQUIRED_PRIVATE_NATIVE_OWNER_DSN_FILE",
+  "admission_config_file": "REQUIRED_PRIVATE_DISCORD_CONFIG_FILE",
+  "catalog_config_file": "REQUIRED_PRIVATE_CATALOG_CONFIG_FILE",
+  "approve_secure_cookie_settings": false,
+  "approve_native_schema_increment": false,
+  "ack_database_history_preserved": false,
+  "enable_admission": false,
+  "enable_catalog": false,
+  "expected_old": {
+    "container_id": "REQUIRED_CURRENT_NATIVE_CONTAINER_ID",
+    "image_reference": "calciumion/new-api@sha256:54a0b10924aa75fa5b5947208b820ced66b6ef4b445b35f122b31d80676aba2b",
+    "image_id": "sha256:54a0b10924aa75fa5b5947208b820ced66b6ef4b445b35f122b31d80676aba2b",
+    "compose_sha256": "REQUIRED_CURRENT_COMPOSE_SHA256",
+    "native_env_sha256": "REQUIRED_CURRENT_NATIVE_ENV_SHA256",
+    "http_guard_sha256": "62be67325b2b43f18359676da40d8be51a37b62b77dfc7d7a1fffe873170dbdd",
+    "quota_guard_sha256": "37105a39ad6c1e5fd846fa8bb455054620273baae4a3fc2ad8303aa88fab3a38",
+    "protected_containers": {}
+  },
+  "database_backups": {
+    "native": {
+      "path": "REQUIRED_PRIVATE_NATIVE_BACKUP",
+      "sha256": "REQUIRED_BACKUP_SHA256"
+    },
+    "platform": {
+      "path": "REQUIRED_PRIVATE_PLATFORM_BACKUP",
+      "sha256": "REQUIRED_BACKUP_SHA256"
+    }
+  }
+}

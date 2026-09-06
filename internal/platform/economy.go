@@ -65,7 +65,7 @@ func (s *Store) Transactions(ctx context.Context, user int64, after string) ([]T
 		return nil, ErrInvalidPage
 	}
 	// The fixed first-leg projection avoids returning credential/idempotency hashes.
-	query := transactionSelect + " WHERE t.newapi_user_id=$1 AND t.operation_type IN ('DAILY_REWARD','LOCAL_EXCHANGE')"
+	query := transactionSelect + " WHERE t.newapi_user_id=$1 AND t.operation_type IN ('DAILY_REWARD','LOCAL_EXCHANGE','INITIAL_GRANT_REGISTRATION')"
 	args := []any{user}
 	if after != "" {
 		query += " AND t.transaction_id<$2"

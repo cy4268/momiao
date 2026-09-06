@@ -16,6 +16,7 @@ export function PersonalHub({ client, user }: { client: ApiClient; user: User })
     const master = useOutletContext<MasterResource>();
     return <div className="personal-hub"><header className="page-heading"><div><p className="eyebrow">MY / PERSONAL HUB</p><h1>个人中心</h1><p>你的 Master 身份，以及常用的个人入口。</p></div></header>
         <MasterSummary master={master} />
+        <Link className="button" to="/account">账户与安全</Link>
         <section className="native-account" aria-label="原生登录账户"><div><p className="eyebrow">LOGIN ACCOUNT</p><h2>原生登录身份</h2><p>{user.display_name} · {user.username}</p><small>{role(user.role)} · Master 昵称不作为登录用户名。</small></div><button onClick={() => void client.logout().catch(() => {})}>退出登录</button></section>
         <div className="hub-sections"><section className="panel hub-group"><p className="eyebrow">RESERVE & REWARDS</p><h2>奖励与资产</h2><HubLink to="/rewards" title="每日奖励" detail="查看领取状态，领取每日固定 500 Reserve。" /><HubLink to="/wallet" title="钱包与账本" detail="核对本地资产、兑换与交易回执。" /><HubLink to="/wallet/activate" title="激活 API 额度" detail="主动将 Reserve 转入原生可用额度。" /></section>
             <section className="panel hub-group"><p className="eyebrow">MODELS & CONNECTIONS</p><h2>API 工作空间</h2><HubLink to="/keys" title="管理 API 密钥" detail="为不同应用建立与管理独立连接。" /><HubLink to="/logs" title="个人调用记录" detail="查看模型调用和真实额度消耗。" /><HubLink to="/playground" title="单轮文本测试" detail="选择账户可用模型后，按需发起测试。" /><HubLink to="/models" title="浏览可用模型" detail="查看当前账户与分组可用的模型。" /></section>

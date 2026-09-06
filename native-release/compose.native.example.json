@@ -1,0 +1,31 @@
+{
+  "services": {
+    "newapi": {
+      "image": "${MOMIAO_NATIVE_IMAGE:?set the reviewed immutable image reference}",
+      "user": "65534:65534",
+      "environment": {
+        "REDIS_CONN_STRING": "",
+        "BATCH_UPDATE_ENABLED": "false",
+        "MOMIAO_ADMISSION_ENABLED": "${MOMIAO_ADMISSION_ENABLED:-false}",
+        "MOMIAO_ADMISSION_CONFIG_FILE": "/run/secrets/momiao-admission.json",
+        "MOMIAO_CATALOG_CONFIG_FILE": "/run/secrets/momiao-catalog.conf"
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "${MOMIAO_ADMISSION_CONFIG_HOST:?set private admission file path}",
+          "target": "/run/secrets/momiao-admission.json",
+          "read_only": true,
+          "bind": { "create_host_path": false }
+        },
+        {
+          "type": "bind",
+          "source": "${MOMIAO_CATALOG_CONFIG_HOST:?set private catalog file path}",
+          "target": "/run/secrets/momiao-catalog.conf",
+          "read_only": true,
+          "bind": { "create_host_path": false }
+        }
+      ]
+    }
+  }
+}

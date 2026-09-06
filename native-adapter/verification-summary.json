@@ -1,0 +1,100 @@
+{
+  "logs": [
+    {
+      "log": "replay-affected-native-regression-v2.log",
+      "exit_codes": [
+        "EXIT_CODE=0"
+      ],
+      "top_level_pass": 365,
+      "top_level_fail": 0,
+      "top_level_skip": 2,
+      "momiao_pass": 35,
+      "momiao_skip": 0
+    },
+    {
+      "log": "replay-service-auth-regression.log",
+      "exit_codes": [
+        "EXIT_CODE=0"
+      ],
+      "top_level_pass": 14,
+      "top_level_fail": 0,
+      "top_level_skip": 0,
+      "momiao_pass": 2,
+      "momiao_skip": 0
+    },
+    {
+      "log": "service-native-regression.log",
+      "exit_codes": [
+        "EXIT_CODE=1"
+      ],
+      "top_level_pass": 181,
+      "top_level_fail": 2,
+      "top_level_skip": 0,
+      "momiao_pass": 2,
+      "momiao_skip": 0
+    },
+    {
+      "log": "service-unmodified-baseline.log",
+      "exit_codes": [
+        "EXIT_CODE=1"
+      ],
+      "top_level_pass": 179,
+      "top_level_fail": 2,
+      "top_level_skip": 0,
+      "momiao_pass": 0,
+      "momiao_skip": 0
+    },
+    {
+      "log": "replay-binary-postgres-v2.log",
+      "exit_codes": [
+        "EXIT_CODE=0"
+      ],
+      "top_level_pass": 15,
+      "top_level_fail": 0,
+      "top_level_skip": 0,
+      "momiao_pass": 15,
+      "momiao_skip": 0
+    },
+    {
+      "log": "replay-build.log",
+      "exit_codes": [
+        "EXIT_CODE=0",
+        "EXIT_CODE=0",
+        "EXIT_CODE=0",
+        "EXIT_CODE=0"
+      ],
+      "top_level_pass": 0,
+      "top_level_fail": 0,
+      "top_level_skip": 0,
+      "momiao_pass": 0,
+      "momiao_skip": 0
+    }
+  ],
+  "artifacts": [
+    {
+      "file": "momiao-admission-migrate-linux-amd64",
+      "bytes": 43342769,
+      "sha256": "4dc510f8c61be0087ee5acfda7290b7000f81f43d1f5a4f8756b4cc76617dbe4"
+    },
+    {
+      "file": "momiao-admission-migrate-windows-amd64.exe",
+      "bytes": 43902976,
+      "sha256": "cbdbff264625d035b919488aea2c9281139229ccd661715714127ebe2797baf0"
+    },
+    {
+      "file": "momiao-controller-linux-amd64.test",
+      "bytes": 72458809,
+      "sha256": "2222ea5a66d1322a68e98625af416020133405f52dd4a8e1fe32ef3157f8b410"
+    },
+    {
+      "file": "momiao-controller-windows-amd64.test.exe",
+      "bytes": 74060288,
+      "sha256": "a2b3a158b082342c095c9fb59d0671240bfbe2259c8391c7f06ba55a9b040764"
+    }
+  ],
+  "real_database": "PostgreSQL 18.6 on dedicated localhost momiao_m2_test",
+  "go": "go1.27.1",
+  "os": "windows/amd64",
+  "m2_test_functions": 37,
+  "external_discord": "synthetic fixed-endpoint HTTP transport; no real provider login claimed"
+}

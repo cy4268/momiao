@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "asset_family": "royal-observatory-auth-characters",
+  "version": "v001",
+  "status": "GENERATED_REVIEW_PENDING",
+  "base_commit": "d1c0145c182a2e7989962b5be0147333ed8f79e5",
+  "generation": {
+    "tool": "built-in image_gen.imagegen",
+    "calls": 2,
+    "date": "2026-09-06",
+    "postprocessing": "None; generated PNGs copied byte-for-byte, original alpha and C2PA provenance retained."
+  },
+  "design_sources": [
+    {
+      "file": "Chaldea_Platform_Art_Direction_v0.4_FINAL.md",
+      "sections": [
+        "8.2 Login",
+        "8.3 Registration",
+        "22.2 Character Master"
+      ],
+      "decisions": [
+        "AD-FRZ-124",
+        "AD-FRZ-125",
+        "AD-FRZ-127",
+        "AD-FRZ-517",
+        "AD-FRZ-518",
+        "AD-FRZ-520"
+      ]
+    },
+    {
+      "file": "Chaldea_Platform_Model_Persona_Image_Prompts_WORKING_v0.6.md",
+      "sections": [
+        "0. File boundary",
+        "1. Allowed character prompt content",
+        "2. Excluded scene/UI content"
+      ],
+      "note": "This archive explicitly excludes non-Model-Persona Fate servants; it contains no adopted Saber/Mash prompt. Actual auth-character prompts are independently recorded below."
+    }
+  ],
+  "style_reference": {
+    "file": "assets/home/bg-royal-observatory-v001.webp",
+    "role": "Viewed for ivory/azure daylight harmony only; not provided as an edit target and not baked into character pixels."
+  },
+  "integration": {
+    "layer": "character",
+    "background_baked": false,
+    "ui_baked": false,
+    "desktop_layout": "scene 7 / auth panel 5",
+    "crop_coordinates": "normalized source coordinates [left, top, right, bottom]; advisory and pending integrated browser review"
+  },
+  "limitations": [
+    "The built-in tool returned 1024x1536 rather than requested/recommended 2048x3072; retain as design masters, not PRODUCTION_READY.",
+    "Source silhouettes are intact but top/bottom alpha margins are about 1%, below the requested 7-8% and recommended 5%; preserve contain framing or add layout padding.",
+    "Unmodified PNGs are 1.92 MB and 1.29 MB, above first-screen compressed-media targets; delivery derivative optimization is outside this batch.",
+    "Generated-image character/composition review and PNG/alpha validation completed; no actual authentication-page integration or responsive/performance/rights acceptance was performed.",
+    "The tool's source preview shows RGB glow outside the silhouette, but sampled exterior pixels carry zero alpha; transparent PNG must be rendered using its alpha.",
+    "Local file browser alpha preview was blocked by URL policy; no alternate browser/server mechanism was attempted."
+  ],
+  "assets": [
+    {
+      "id": "artoria-saber-login-idle",
+      "file": "artoria-saber-login-idle-v001.png",
+      "character": "Artoria Saber",
+      "role": "Login",
+      "presence": "P3",
+      "asset_role": "idle_master",
+      "width": 1024,
+      "height": 1536,
+      "format": "PNG",
+      "mode": "RGBA",
+      "bytes": 1919110,
+      "sha256": "05a7c3f0291525f9061003127cefc8b5b9644d8a4080857f4738b3744fdb8194",
+      "generation_output": "exec-f1adbc7a-d80a-4d8c-8dca-156cb2f07c98.png",
+      "prompt": "Use case: stylized-concept.\nAsset type: one transparent, full-body idle character master for a polished Chinese fantasy web platform's Login page, P3 character presence. Create ONLY Artoria Pendragon (Saber), recognizable canonical character identity, depicted as an adult woman, calm, earnest and reassuring, in her fully clothed classic royal-blue and silver armored knight dress.\nSubject: blonde hair with neat braided bun, small upward ahoge and blue hair ribbon, clear green eyes, composed friendly closed-mouth smile. Silver breastplate and articulated gauntlets over a royal-blue long-sleeved dress, layered ankle-length blue-and-ivory skirt, armored boots. No exposed midriff, no cleavage, no sexualized styling. A sheathed blue-and-gold knightly sword rests upright close to her left side, held gently with one gauntleted hand; the other hand relaxed near her waist. Restrained upright three-quarter pose, head gently turned toward the viewer, shoulders subtly oriented to the viewer's right toward the separate authentication panel. Only one character.\nStyle/medium: premium detailed Japanese anime game key-art, elegant precise linework, painterly cloth folds and polished but restrained silver-metal rendering, not photorealism, not chibi, not flat vector. Harmonize with a bright Royal Observatory art direction: ivory-white, royal azure, moonlit soft blue; warm soft daylight on face and cool pale-blue edge light. Restrained highlights, excellent readable silhouette, graceful natural adult proportions.\nComposition/framing: portrait 2:3, request 2048x3072 pixels; full body from ahoge to boot soles, complete sword and every finger. Entire silhouette centered, feet on the same implied horizontal ground level, 7-8 percent clear transparent margins around head, hair, dress, hands, sword and feet. Narrow relaxed silhouette suitable for reuse as full-body, three-quarter, waist-up and mobile head/shoulder crops. No wide outstretched arms, no dynamic combat or wind-blown cape.\nBackground: genuinely transparent PNG RGBA alpha. Every pixel outside the character and carried sword must be transparent; do not render a white, gray, black or checkerboard background. No ground plane or cast shadow, no buildings, no window, no moon, no sky, no scenery, no floating particles, no frame, no glow cloud. Character alone with clean antialiased transparent edges.\nText: none. Absolutely no UI, buttons, form fields, labels, logos, watermarks, signatures or written symbols. Do not combine character and background into one illustration.",
+      "validation": {
+        "png_decode": true,
+        "alpha_extrema": [
+          0,
+          254
+        ],
+        "transparent_pixels": 967450,
+        "nonzero_alpha_pixels": 605414,
+        "alpha_bbox": [
+          118,
+          17,
+          912,
+          1521
+        ],
+        "silhouette_clipped": false,
+        "visual_review": "Recognizable blonde/green-eyed Saber, blue/silver full knight dress, sheathed upright sword, complete hair/boots/sword; generated output inspected once."
+      },
+      "desktop_focal_point": [
+        0.5,
+        0.37
+      ],
+      "mobile_focal_point": [
+        0.5,
+        0.18
+      ],
+      "desktop_crop_safe": [
+        0.1,
+        0,
+        0.9,
+        1
+      ],
+      "mobile_crop_safe": [
+        0.24,
+        0,
+        0.84,
+        0.61
+      ]
+    },
+    {
+      "id": "mash-registration-idle",
+      "file": "mash-registration-idle-v001.png",
+      "character": "Mash Kyrielight",
+      "role": "Registration",
+      "presence": "P2-P3",
+      "asset_role": "idle_master",
+      "width": 1024,
+      "height": 1536,
+      "format": "PNG",
+      "mode": "RGBA",
+      "bytes": 1294414,
+      "sha256": "29b5689f22ddd2591746d95a5b824865adce22e24a6726665c2194aac2b3b8d7",
+      "generation_output": "exec-ac884b69-f6f7-4d6b-8e76-91fcbe69dc81.png",
+      "prompt": "Use case: stylized-concept.\nAsset type: one transparent, full-body idle character master for a polished Chinese fantasy web platform's Registration page, P2-P3 friendly guide presence. Create ONLY Mash Kyrielight, recognizable character identity, depicted as an adult woman in modest fully clothed Chaldea staff attire, warm and dependable rather than combat-ready.\nSubject: short softly layered lavender-pink bob with the long asymmetric fringe partly covering one eye, gentle violet eyes, delicate thin dark glasses and a small earnest welcoming smile. Wear a crisp ivory-white long-sleeved Chaldea command jacket with a tall neat collar, navy/black inset side panels and cuffs, restrained pale-violet piping, an opaque charcoal knee-length skirt, fully opaque black tights and practical low-heeled dark ankle boots. No exposed midriff, no cleavage, no bare thighs, no sexualized styling. Hands naturally held together at waist height in a relaxed welcoming pose, all fingers anatomically plausible. No tablet, no screen, no clipboard or text, no enormous shield. Relaxed upright three-quarter stance, shoulders gently oriented to the viewer's right toward a separate registration panel, head turned warmly toward the viewer. Only one character.\nStyle/medium: premium detailed Japanese anime game key-art, elegant precise linework, painterly fabric shading and neat materials, not photorealism, not chibi, not flat vector. Match the Saber character asset's visual family and a bright Royal Observatory: clean ivory and charcoal attire with pale lavender accents, warm soft daylight on face and cool pale-blue edge light. Restrained highlights, readable silhouette, graceful natural adult proportions.\nComposition/framing: portrait 2:3, request 2048x3072 pixels; full body from hair to boot soles, every hand and finger inside the canvas. Entire silhouette centered, feet on the same implied horizontal ground level, 7-8 percent clear transparent margins around head, hair, hands, skirt and feet. Narrow relaxed silhouette suitable for reuse as full-body, three-quarter, waist-up and mobile head/shoulder crops. No wide outstretched arms, no dynamic action.\nBackground: genuinely transparent PNG RGBA alpha. Every pixel outside the character must be transparent; do not render a white, gray, black or checkerboard background. No ground plane or cast shadow, no buildings, no window, no moon, no sky, no scenery, no floating particles, no frame, no glow cloud. Character alone with clean antialiased transparent edges.\nText: none. Absolutely no UI, buttons, form fields, labels, logos, watermarks, signatures or written symbols. Do not combine character and background into one illustration.",
+      "validation": {
+        "png_decode": true,
+        "alpha_extrema": [
+          0,
+          254
+        ],
+        "transparent_pixels": 1259505,
+        "nonzero_alpha_pixels": 313359,
+        "alpha_bbox": [
+          65,
+          12,
+          962,
+          1520
+        ],
+        "silhouette_clipped": false,
+        "visual_review": "Recognizable lavender asymmetrical bob/glasses, modest white command jacket and dark knee-length skirt/tights, gently clasped hands, complete hair/boots; generated output inspected once."
+      },
+      "desktop_focal_point": [
+        0.51,
+        0.35
+      ],
+      "mobile_focal_point": [
+        0.51,
+        0.16
+      ],
+      "desktop_crop_safe": [
+        0.05,
+        0,
+        0.95,
+        1
+      ],
+      "mobile_crop_safe": [
+        0.3,
+        0,
+        0.7,
+        0.61
+      ]
+    }
+  ]
+}

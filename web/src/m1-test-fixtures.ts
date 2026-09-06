@@ -10,10 +10,20 @@ export const wallet = { initialized: true, user_id: '1', scope: 'LOCAL_WALLETS_O
 export const ok = (data?: unknown) => new Response(JSON.stringify({ success: true, data }));
 export const failed = () => new Response(JSON.stringify({ success: false, message: 'fixture unavailable' }), { status: 503 });
 export const bundle = { access_token: 'fixture-only', access_expires_at: 9999999999, user, session: { sid: 'fixture-session' } };
+// Older feature tests start AFTER a synthetic approved Gate. Actual gate
+// ordering/failure tests use an unwrapped ApiClient in PostAuthGate.test.tsx.
+export function withReadyAccessGate(fetcher:(path:string,init?:RequestInit)=>Promise<Response>){
+ return async(path:string,init?:RequestInit)=>path.startsWith('/platform/v1/access-gate?')
+  ?ok({user_id:new Headers(init?.headers).get('New-Api-User'),route:new URLSearchParams(path.split('?')[1]).get('route'),stage:'READY'})
+  :fetcher(path,init);
+}
 export function fixtureClient(respond?: (path: string, init?: RequestInit) => Response | Promise<Response> | undefined) {
     const fetcher = vi.fn(async (path: string, init?: RequestInit) => {
         const response = respond?.(path, init);
         if (response) return response;
+        // M1 regressions run with admission explicitly disabled. M2b fixtures
+        // exercise enabled admission and its initialization contracts separately.
+        if (path === '/platform/v1/admission/config') return ok({enabled:false,registration_enabled:false,eligibility:'注册暂未开放'});
         if (path.includes('/auth/refresh') || path === '/api/user/login') return ok(bundle);
         if (path === '/api/user/self') return ok(user);
         if (path === '/platform/v1/master-profile') return ok(profile);
@@ -23,5 +33,5 @@ export function fixtureClient(respond?: (path: string, init?: RequestInit) => Re
         if (path.startsWith('/platform/v1/wallet/ledger')) return ok({ items: [], has_more: false, next_after_seq: null });
         return ok({ items: [], total: 0, page: 1, page_size: 10 });
     });
-    return { client: new ApiClient(fetcher), fetcher };
+    return { client: new ApiClient(withReadyAccessGate(fetcher)), fetcher };
 }

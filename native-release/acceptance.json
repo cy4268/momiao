@@ -1,0 +1,40 @@
+{
+  "status": "local_container_validation_passed_not_deployed",
+  "image": "sha256:6d7062ca03efec8fd15cf78c1127f3442ff2c9b2a51558b6804489d082d50af7",
+  "platform": "linux/amd64",
+  "uid_gid": "65534:65534",
+  "native_head": "1b19c300b46e025724016420454fe188992ce504",
+  "native_tree": "3c15a618fa7a528c06da92de7dbf2f2c843a9162",
+  "clean_vcs": true,
+  "root_assets_and_binary_hashes": {
+    "case": "root-assets-identity",
+    "status": 200,
+    "asset_sha256": "d72abc8f01e16fc1a013d82cc549f080d83e0767f960b5279745bb5be10140c0",
+    "uid": 65534,
+    "config_mount_readonly": true,
+    "network": "own isolated namespace; loopback only",
+    "ports": [],
+    "binary_hashes": [
+      "76463aae3a51b54577c000e0c4d62ca4d6cc46d5e7c166868553d7db8d3adb1c  /new-api",
+      "f2ae036113f5fc794ef9c712623d0f846ee40434df6ce10cc1001275812a502a  /usr/local/bin/momiao-admission-migrate"
+    ]
+  },
+  "four_switches": "off/off, off/on, on/off, on/on passed; disabled admission preserves upstream SPA fallback rather than reader JSON",
+  "reader_credentials": "independent; cross-reader denied",
+  "config_permissions": "UID65534:65534 0600 read-only mount accepted; each 0644 and root-owned admission 0600 rejected",
+  "migration": "new disposable PostgreSQL only: check exit1 -> apply exit0 -> check exit0",
+  "normal_shutdown": "4 cases exit0, no OOM, elapsed 0.50-0.56s",
+  "production_commands": 0,
+  "existing_local_containers": "3 states and StartedAt/FinishedAt unchanged",
+  "cleanup": "all batch containers and synthetic volume removed",
+  "not_rerun": "historical Go/frontend/full session and 2FA suites; no real OAuth provider calls",
+  "existing_audits": "original guard7pass; portal reader exclusion13pass; synthetic boundaries, not current production",
+  "production_gap": [
+    "load exact image and inspect target engine identity",
+    "review current guard; pair exact image expectation and preserve all DB-only/health/namespace checks",
+    "apply standalone native admission increment with schema-owner; preserve quota/platform schemas",
+    "two independent private configs 0600 readable by actual UID65534, secure session settings",
+    "fixed-destination discord.com:443 egress retaining end-to-end TLS and isolated network; real callback integration acceptance"
+  ],
+  "production_snapshot": "historical only 2026-09-06T02:43:46.755533+08:00; current production not queried"
+}

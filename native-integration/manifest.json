@@ -1,0 +1,42 @@
+{
+  "schema": "momiao.native-integration.manifest.v1",
+  "status": "local_candidate_not_deployed",
+  "native_revision": "f116414284162ad15d8925f7bca494c109b83e93",
+  "source_snapshot_tree": "e228ab3450230dc3c644b6a5362930de1fd0384e",
+  "official_archive_sha256": "e7403fdb02a4b837207d6ad191998856c9da4b4b9d63935de6e1e7e8fad302ec",
+  "application_base": "d1c0145c182a2e7989962b5be0147333ed8f79e5",
+  "reviewed_application_inputs": {
+    "admission": "733be2ec7b94b21924f1014484d700a922ac8fb7",
+    "catalog": "26604b681af246f0d98223f543e52d5b36c0f70c"
+  },
+  "integrated_tree": "3c15a618fa7a528c06da92de7dbf2f2c843a9162",
+  "entry": "replay.ps1",
+  "patches": [
+    {
+      "path": "../native-adapter/patches/0001-momiao-native-admission.patch",
+      "sha256": "a3c33db56d7adb2584193ee6f3e2a1e4a548545b20126d71946c13329de23a95",
+      "exclude": null
+    },
+    {
+      "path": "../native-catalog-adapter/native-catalog.patch",
+      "sha256": "289bb441d2249a745b38a2400f02ed9b7166dcd5819a9fefd13d437de992b108",
+      "exclude": "router/api-router.go"
+    },
+    {
+      "path": "integration.patch",
+      "sha256": "75bde147147f624259652a16840a2dcb15de29d68f5ad9dc26f108ffa5007ff4",
+      "exclude": null
+    }
+  ],
+  "integration_production_files": [
+    "router/api-router.go"
+  ],
+  "integration_test_files": [
+    "controller/momiao_auth_test.go",
+    "internal/momiaocatalog/postgres_test.go",
+    "model/momiao_admission_test.go",
+    "router/momiao_integration_test.go"
+  ],
+  "dependency_changes": [],
+  "production_actions": []
+}
