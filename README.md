@@ -1,5 +1,12 @@
 # momiao
 
+## Current source
+
+The current source includes the platform session/BFF integration, model portal, wallet and game services, operations UI, simplified illustrated homepage, and isolated Native login UI. Runtime configuration and operational records are deliberately not stored here. Earlier feature notes below describe historical milestones, not the current deployment status or a claim that every acceptance case passed.
+
+Build the Platform with `go build ./cmd/momiao`. In `web`, install from `package-lock.json` and run `npm run build`; the committed non-secret `web/.env.production` selects opaque sessions. See [Native source integration](native-source/README.md) to reconstruct and build the matching Native backend/authentication UI from source. No compiled binaries, images, data or credentials are included. Public illustrations under `web/public` are application assets, not runtime records.
+
+
 一个从实际可用功能开始生长的开源 AI 平台。从 **登录 → 模型 → 在线测试 → 调用记录** 建立真实连接，并管理自己的 API 密钥和上游渠道，而不是静态页面或演示数据。
 
 ## 当前功能

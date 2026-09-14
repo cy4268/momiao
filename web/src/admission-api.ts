@@ -1,10 +1,10 @@
 import { ApiError, type ApiClient, type TwoFactor } from './api';
 
 export type DiscordPurpose = 'login' | 'registration' | 'fresh' | 'password-reset';
-export interface DiscordCallbackInput { code: string; state: string }
-export interface SensitiveProof { proof: string; expires_at: number }
+export type DiscordCallbackInput = { code: string; state: string } | { error: 'access_denied'; error_description?: string; state: string };
+export interface SensitiveProof { proof?: string; purpose?: 'PASSWORD_SET' | 'PASSWORD_RESET'; expires_at: number }
 export type AdmissionResult = TwoFactor | SensitiveProof | void;
-export interface NativeAccount { id: number; username: string; has_password: boolean; discord_connected: boolean; two_fa_enabled: boolean }
+export interface NativeAccount { id: number; username: string; has_password: boolean; discord_connected: boolean; two_fa_enabled?: boolean }
 export interface AdmissionConfig { enabled: boolean; registration_enabled: boolean; eligibility: string }
 export interface AdmissionStatus { user_id:string; source:'UNVERIFIED'|'NEW_DISCORD_REGISTRATION'; grant_status:'PENDING_SOURCE'|'PENDING'|'RECOVERING'|'CONFIRMED'; amount_units:string; transaction_id:string|null; source_available:boolean }
 export async function readAdmission(client: ApiClient):Promise<AdmissionStatus> {
@@ -18,7 +18,10 @@ export function captureDiscordCallback(location: Pick<Location,'pathname'|'searc
     const query = location.search;
     history.replaceState(null, '', '/oauth/discord');
     const p = new URLSearchParams(query);
-    if (p.has('error')) throw new ApiError('Discord 授权未完成。可以返回登录或注册页面重新开始。', 403, 'DISCORD_DENIED');
+    if (p.has('error')) {
+        if (query.length > 8192 || p.get('error') !== 'access_denied' || !p.get('state') || [...p.keys()].some(k => !['error','error_description','state'].includes(k) || p.getAll(k).length !== 1) || (p.get('error_description') || '').length > 2048) throw new ApiError('授权回调无效，请重新开始。',400,'CALLBACK_INVALID');
+        return { error: 'access_denied', state: p.get('state')!, ...(p.has('error_description') ? { error_description: p.get('error_description')! } : {}) };
+    }
     if (query.length > 8192 || [...p.keys()].some(k => !['code','state'].includes(k)) || p.getAll('code').length!==1 || p.getAll('state').length!==1 || !p.get('code') || !p.get('state')) throw new ApiError('授权回调无效或已失效，请重新开始。', 400, 'CALLBACK_INVALID');
     return {code:p.get('code')!, state:p.get('state')!};
 }
@@ -30,16 +33,19 @@ export function validateDiscordAuthorization(value: unknown, origin: string): st
     try { u = new URL(value); } catch { throw fail(); }
     const p = u.searchParams;
     if (u.origin !== 'https://discord.com' || u.pathname !== '/oauth2/authorize' || u.username || u.password || u.hash || p.get('redirect_uri') !== origin + '/oauth/discord' || p.get('response_type') !== 'code' || !/^[1-9][0-9]{16,19}$/.test(p.get('client_id') || '') || !p.get('state')) throw fail();
-    if ([...p.keys()].some(k => !['client_id','redirect_uri','response_type','scope','state'].includes(k) || p.getAll(k).length!==1)) throw fail();
+    if ([...p.keys()].some(k => !['client_id','redirect_uri','response_type','scope','state','prompt'].includes(k) || p.getAll(k).length!==1)) throw fail();
+    if (p.has('prompt') && p.get('prompt') !== 'consent') throw fail();
     const scopes = (p.get('scope') || '').split(' ');
     if (!scopes.includes('identify') || scopes.some(s => !['identify','guilds.members.read'].includes(s))) throw fail();
     return u.href;
 }
 
 export async function readNativeAccount(client: ApiClient): Promise<NativeAccount> {
-    const data = await client.request<NativeAccount>('/api/momiao/account');
-    if (!data || data.id !== client.getSnapshot().user?.id || typeof data.username !== 'string' || ['has_password','discord_connected','two_fa_enabled'].some(k => typeof data[k as keyof NativeAccount] !== 'boolean')) throw new ApiError('账户状态暂时无法核对，请重新加载。');
-    return data;
+    const opaque = client.getSessionMode() === 'opaque';
+    const data = await client.request<NativeAccount & { discord_linked?: boolean }>(opaque ? '/api/v1/account' : '/api/momiao/account');
+    const connected = opaque ? data?.discord_linked : data?.discord_connected;
+    if (!data || !Number.isSafeInteger(data.id) || data.id !== client.getSnapshot().user?.id || typeof data.username !== 'string' || typeof data.has_password !== 'boolean' || typeof connected !== 'boolean' || data.two_fa_enabled !== undefined && typeof data.two_fa_enabled !== 'boolean') throw new ApiError('账户状态暂时无法核对，请重新加载。');
+    return { id: data.id, username: data.username, has_password: data.has_password, discord_connected: connected, two_fa_enabled: data.two_fa_enabled };
 }
 
 const messages: Record<string,string> = {

@@ -11,6 +11,7 @@ coverage*
 .cache/
 node_modules/
 /web/dist/
+/native-auth-web/
 /web/coverage/
 /web/test-results/
 /web/playwright-report/
@@ -56,6 +57,12 @@ screenshots/
 # Reviewed public M1 media. Private screenshots remain ignored.
 !/web/public/assets/home/*.webp
 !/web/public/assets/home/*.avif
+# Exact public character and approved Kimi delivery assets used by this app.
+!/web/public/assets/characters/artoria-saber-login-idle-v001.png
+!/web/public/assets/characters/mash-registration-idle-v001.png
+!/web/public/assets/models/kimi-family-master-v001.png
+!/web/public/assets/models/kimi-family-normalized-v001.png
+!/web/public/assets/models/kimi-family-web-v001.webp
 
 # Editor and OS state
 .idea/
@@ -66,3 +73,12 @@ Thumbs.db
 # Embedded platform migrations are reviewed source
 !/internal/platform/migrations/*.sql
 !/internal/platform/native_quota.sql
+!/backup/synthetic-20260906/restrict-native-role.sql
+!/backup/templates/archive-health.sql
+
+# Reviewed source-only build setting and public homepage illustration.
+!/web/.env.production
+!/web/public/assets/home/chaldea-moonlit-palace.png
+
+# Existing synthetic runtime-grant test source, never a database dump.
+!/internal/platform/testdata/runtime-auth-binding-0018.sql

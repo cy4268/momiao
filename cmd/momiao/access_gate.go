@@ -90,10 +90,27 @@ type accessGateView struct {
 	Notice *platform.MigrationNotice `json:"migration_notice,omitempty"`
 }
 
+func walletTransactionBrowserRoute(route string) bool {
+	return strings.HasPrefix(route, "/wallet/transactions/") && platform.ValidOperationKey(strings.TrimPrefix(route, "/wallet/transactions/"))
+}
+
 // Same navigation-only boundary as normalizeRouteIntent in post-auth-intent.ts.
 // Extend these explicit route policies when a new implemented route is added;
 // never accept a URL, write body, arbitrary query or credential as an intent.
 func gateRouteDomain(route string) string {
+	if opsBrowserPermission(route)!="" { return "OPERATIONS" }
+	if route == "/logs?purpose=ROLEPLAY" {
+		return "API"
+	}
+	if walletTransactionBrowserRoute(route) {
+		return "ASSETS"
+	}
+	if pokerBrowserRoute(route) {
+		return "EXPERIENCE"
+	}
+	if gameBrowserRoute(route) {
+		return "EXPERIENCE"
+	}
 	if strings.Contains(route, "#") {
 		return ""
 	}
@@ -113,9 +130,9 @@ func gateRouteDomain(route string) string {
 		return "API"
 	}
 	switch route {
-	case "/dashboard":
+	case "/dashboard", "/rankings":
 		return "COMMUNITY"
-	case "/me", "/account", "/master-profile":
+	case "/me", "/account", "/account/security", "/master-profile":
 		return "ACCOUNT"
 	case "/models", "/api/access", "/keys", "/logs", "/playground":
 		return "API"
@@ -128,7 +145,7 @@ func gateRouteDomain(route string) string {
 	}
 	return ""
 }
-func newAccessGateHandler(origin string, store accessGateStore, declaration *accessDeclaration, transport http.RoundTripper) http.Handler {
+func newAccessGateHandler(origin string, store accessGateStore, declaration *accessDeclaration, transport http.RoundTripper, pokerWired bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gate := r.URL.Path == "/platform/v1/access-gate"
 		ack := r.URL.Path == "/platform/v1/migration-notice/acknowledge"
@@ -255,6 +272,13 @@ func newAccessGateHandler(origin string, store accessGateStore, declaration *acc
 			send("MIGRATION_UNVERIFIED")
 			return
 		}
+		if permission:=opsBrowserPermission(route);permission!=""&&route!="/ops/announcements"&&route!="/ops/models" {
+			opsStore, ok := store.(interface { RequireOpsPermission(context.Context,int64,int64,string)(platform.OpsPrincipal,error) })
+			if !ok { send("ROLE_UNVERIFIED"); return }
+			_, err = opsStore.RequireOpsPermission(ctx,account.ID,0,permission)
+			if errors.Is(err,platform.ErrOpsForbidden) { send("ROLE_DENIED"); return }
+			if err!=nil { send("ROLE_UNVERIFIED"); return }
+		}
 		if route == "/ops/announcements" {
 			_, err = store.AnnouncementAuthority(ctx, account.ID)
 			if errors.Is(err, platform.ErrAnnouncementForbidden) {
@@ -286,6 +310,10 @@ func newAccessGateHandler(origin string, store accessGateStore, declaration *acc
 				send("ROLE_DENIED")
 				return
 			}
+		}
+		if pokerBrowserRoute(route) && !pokerWired {
+			send("RESOURCE_UNAVAILABLE")
+			return
 		}
 		resource := ""
 		if declaration != nil {

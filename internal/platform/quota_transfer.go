@@ -86,6 +86,11 @@ func (s *Store) CreateQuotaTransfer(ctx context.Context, user int64, key string,
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return QuotaTransfer{}, err
 	}
+	if pending, err := unresolvedAPIChips(ctx, tx, user); err != nil {
+		return QuotaTransfer{}, err
+	} else if pending {
+		return QuotaTransfer{}, ErrTransferPending
+	}
 	var pending bool
 	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM economy.quota_transfers WHERE newapi_user_id=$1 AND status IN ('PENDING','NEEDS_REVIEW'))`, user).Scan(&pending); err != nil {
 		return QuotaTransfer{}, err
@@ -110,51 +115,111 @@ func (s *Store) CreateQuotaTransfer(ctx context.Context, user int64, key string,
 
 // ProcessQuotaTransfer performs one durable job, independent of browser lifetime.
 // ponytail: one worker with SKIP LOCKED; add throughput only when measured demand needs it.
-func (s *Store) ProcessQuotaTransfer(ctx context.Context, native *NativeQuota) (bool, error) {
+func (s *Store) ProcessQuotaTransfer(ctx context.Context, native NativeQuotaOperator) (bool, error) {
+	if native == nil {
+		return false, ErrNativeQuotaDependency
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return false, err
 	}
 	defer rollback(tx)
-	v, err := scanTransfer(tx.QueryRow(ctx, `SELECT `+transferColumns+` FROM economy.quota_transfers WHERE status='PENDING' ORDER BY created_at,transfer_id FOR UPDATE SKIP LOCKED LIMIT 1`))
+	v, err := scanTransfer(tx.QueryRow(ctx, `SELECT `+transferColumns+` FROM economy.quota_transfers WHERE status='PENDING' ORDER BY created_at,transfer_id LIMIT 1`))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	receipt, err := native.Credit(ctx, v.ID, v.UserID, v.AmountUnits)
+	if err = lockIdentity(ctx, tx, "quota-transfer-user", v.UserID); err != nil {
+		return true, err
+	}
+	v, err = scanTransfer(tx.QueryRow(ctx, `SELECT `+transferColumns+` FROM economy.quota_transfers WHERE transfer_id=$1 FOR UPDATE`, v.ID))
 	if err != nil {
 		return true, err
+	}
+	if v.Status != "PENDING" {
+		return false, tx.Commit(ctx)
+	}
+	if pending, e := unresolvedAPIChips(ctx, tx, v.UserID); e != nil {
+		return true, e
+	} else if pending {
+		return true, ErrTransferPending
+	}
+	_, err = settleQuotaTransfer(ctx, tx, native, v)
+	if err != nil {
+		return true, err
+	}
+	return true, tx.Commit(ctx)
+}
+
+// ProcessQuotaTransferByID lets the Native request-time hook finish the exact
+// durable transfer it just created. The background worker uses the same effect
+// function and remains the recovery owner after timeouts or process exits.
+func (s *Store) ProcessQuotaTransferByID(ctx context.Context, native NativeQuotaOperator, id string, user int64) (QuotaTransfer, error) {
+	if native == nil || !ValidOperationKey(id) || !validateQuotaUser(user) {
+		return QuotaTransfer{}, ErrInvalidMutation
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return QuotaTransfer{}, err
+	}
+	defer rollback(tx)
+	if err = lockIdentity(ctx, tx, "quota-transfer-user", user); err != nil {
+		return QuotaTransfer{}, err
+	}
+	v, err := scanTransfer(tx.QueryRow(ctx, `SELECT `+transferColumns+` FROM economy.quota_transfers WHERE transfer_id=$1 AND newapi_user_id=$2 FOR UPDATE`, id, user))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return QuotaTransfer{}, ErrInvalidMutation
+	}
+	if err != nil {
+		return QuotaTransfer{}, err
+	}
+	if v.Status != "PENDING" {
+		return v, tx.Commit(ctx)
+	}
+	if pending, e := unresolvedAPIChips(ctx, tx, user); e != nil {
+		return QuotaTransfer{}, e
+	} else if pending {
+		return QuotaTransfer{}, ErrTransferPending
+	}
+	v, err = settleQuotaTransfer(ctx, tx, native, v)
+	if err != nil {
+		return QuotaTransfer{}, err
+	}
+	return v, tx.Commit(ctx)
+}
+
+func settleQuotaTransfer(ctx context.Context, tx pgx.Tx, native NativeQuotaOperator, v QuotaTransfer) (QuotaTransfer, error) {
+	receipt, err := native.Credit(ctx, v.ID, v.UserID, v.AmountUnits)
+	if err != nil {
+		return QuotaTransfer{}, err
 	} // Unknown target outcome stays PENDING; never replace its operation ID.
 	status, reason := "CONFIRMED", ""
 	if receipt.Result != "APPLIED" {
 		switch receipt.Result {
 		case "ACCOUNT_RESTRICTED", "SOURCE_INCOMPATIBLE", "BALANCE_OVERFLOW":
 		default:
-			return true, errors.New("unrecognized native outcome")
+			return QuotaTransfer{}, errors.New("unrecognized native outcome")
 		}
 		status, reason = "REFUNDED", receipt.Result
 		sub, e := tx.Begin(ctx)
 		if e != nil {
-			return true, e
+			return QuotaTransfer{}, e
 		}
 		_, e = applyInTx(ctx, sub, Mutation{UserID: v.UserID, Asset: ReserveAPICredit, DeltaUnits: v.AmountUnits, BizType: "NATIVE_QUOTA_TRANSFER", BizID: v.ID + ":refund", EntryType: "RESERVE_TO_ACTIVE_REFUND", IdempotencyKey: "quota:" + v.ID + ":refund"})
 		if e != nil {
 			rollback(sub)
 			if !errors.Is(e, ErrBalanceOverflow) {
-				return true, e
+				return QuotaTransfer{}, e
 			}
 			status, reason = "NEEDS_REVIEW", "REFUND_BALANCE_OVERFLOW"
 		} else if e = sub.Commit(ctx); e != nil {
-			return true, e
+			return QuotaTransfer{}, e
 		}
 	} else if receipt.Before == nil || receipt.After == nil || *receipt.Before < 0 || *receipt.After-*receipt.Before != v.AmountUnits {
-		return true, errors.New("invalid native receipt")
+		return QuotaTransfer{}, errors.New("invalid native receipt")
 	}
-	_, err = tx.Exec(ctx, `UPDATE economy.quota_transfers SET status=$2,reason=$3,native_before=$4,native_after=$5,updated_at=clock_timestamp() WHERE transfer_id=$1`, v.ID, status, reason, receipt.Before, receipt.After)
-	if err != nil {
-		return true, err
-	}
-	return true, tx.Commit(ctx)
+	v, err = scanTransfer(tx.QueryRow(ctx, `UPDATE economy.quota_transfers SET status=$2,reason=$3,native_before=$4,native_after=$5,updated_at=clock_timestamp() WHERE transfer_id=$1 RETURNING `+transferColumns, v.ID, status, reason, receipt.Before, receipt.After))
+	return v, err
 }

@@ -15,7 +15,7 @@ func walletConfig(cfg *config, lookup func(string) (string, bool)) error {
 	if !ds && !orig {
 		return nil
 	}
-	if !ds || !orig || dsn == "" || origin == "" || cfg.WebDir == "" || cfg.NewAPISocket == "" {
+	if !ds || !orig || dsn == "" || origin == "" || cfg.WebDir == "" && cfg.ProcessRole != "poker" || cfg.NewAPISocket == "" {
 		return errors.New("wallet configuration requires DSN file, public origin and complete portal")
 	}
 	if !filepath.IsAbs(dsn) {

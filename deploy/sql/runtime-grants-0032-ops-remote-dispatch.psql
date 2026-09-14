@@ -1,0 +1,55 @@
+-- Durable remote Operations outbox grants. Apply only after migration 0032,
+-- with the migration membership window closed.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+ \set apply_grants false
+\endif
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+SELECT current_database()=:'database_name'
+ AND (SELECT datdba FROM pg_catalog.pg_database WHERE datname=current_database())=
+     (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user)
+ AND current_user=:'schema_owner'
+ AND (SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN(
+  :'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role'))=5
+ AND NOT EXISTS(
+  SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname IN(
+   :'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role')
+  AND (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls
+   OR (r.rolname=:'schema_owner' AND r.rolcanlogin)
+   OR (r.rolname<>:'schema_owner' AND (NOT r.rolcanlogin OR r.rolinherit))
+   OR EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member=r.oid OR m.roleid=r.oid)))
+ AND NOT EXISTS(
+  SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+  WHERE (n.nspname,c.relname)=('ops','remote_dispatches')
+  AND c.relowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user))
+ AND NOT EXISTS(
+  SELECT 1 FROM pg_catalog.pg_proc f JOIN pg_catalog.pg_namespace n ON n.oid=f.pronamespace
+  WHERE (n.nspname,f.proname) IN (
+   ('ops','guard_remote_dispatch_update'),('ops','runtime_jobs_read'))
+  AND f.proowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user))
+ AS ops_remote_dispatch_roles_ok \gset
+\if :ops_remote_dispatch_roles_ok
+\else
+ DO $$BEGIN RAISE EXCEPTION 'Ops remote dispatch role separation failed'; END$$;
+\endif
+
+REVOKE ALL ON ops.remote_dispatches
+ FROM PUBLIC,:"platform_runtime_role",:"poker_runtime_role",:"history_reader_role",:"history_worker_role";
+REVOKE ALL ON FUNCTION ops.guard_remote_dispatch_update(),ops.runtime_jobs_read()
+ FROM PUBLIC,:"platform_runtime_role",:"poker_runtime_role",:"history_reader_role",:"history_worker_role";
+
+GRANT USAGE ON SCHEMA ops TO :"platform_runtime_role";
+GRANT SELECT ON ops.remote_dispatches TO :"platform_runtime_role";
+GRANT INSERT(operation_id,operation_type,command_payload,command_hash,state,next_attempt_at,created_at,updated_at)
+ ON ops.remote_dispatches TO :"platform_runtime_role";
+GRANT UPDATE(state,attempt_count,next_attempt_at,claim_token,lease_expires_at,failure_code,
+ receipt_payload,receipt_hash,updated_at,settled_at)
+ ON ops.remote_dispatches TO :"platform_runtime_role";
+GRANT EXECUTE ON FUNCTION ops.runtime_jobs_read() TO :"platform_runtime_role";
+COMMIT;
+\else
+ \echo 'No grants applied; supply reviewed roles and apply_grants=true.'
+\endif

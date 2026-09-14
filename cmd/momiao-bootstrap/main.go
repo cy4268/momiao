@@ -28,7 +28,7 @@ import (
 // A development binary with no explicit build identity fails closed.
 var releaseBuild string
 
-const nativeSourceTree = "3c15a618fa7a528c06da92de7dbf2f2c843a9162"
+const nativeSourceTree = "0623dc9c7a88e10fde98ec605c3016786a05520d"
 
 type options struct {
 	environment   string

@@ -1,0 +1,2 @@
+-- Run as schema owner after 0015. Runtime cannot change outcomes or activate configs.
+GRANT SELECT,INSERT ON games.slot_results,games.slot_line_results TO :"runtime_role";

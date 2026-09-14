@@ -1,0 +1,83 @@
+-- O01 typed Operations authority. Apply only after migration 0028.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+ \set apply_grants false
+\endif
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+SELECT current_database()=:'database_name'
+ AND (SELECT datdba FROM pg_catalog.pg_database WHERE datname=current_database())=
+     (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user)
+ AND current_user=:'schema_owner'
+ AND (SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN(
+  :'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role'))=5
+ AND NOT EXISTS(
+  SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname IN(
+   :'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role')
+  AND (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls
+   OR (r.rolname=:'schema_owner' AND r.rolcanlogin)
+   OR (r.rolname<>:'schema_owner' AND (NOT r.rolcanlogin OR r.rolinherit))
+   OR EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member=r.oid OR m.roleid=r.oid)))
+ AND NOT EXISTS(
+  SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+  WHERE (n.nspname,c.relname) IN (
+   ('ops','admin_principals'),('ops','admin_principal_scopes'),('ops','admin_role_history'),
+   ('ops','access_control_guards'),('ops','admin_operations'),('ops','admin_operation_events'),
+   ('audit','audit_events'))
+  AND c.relowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user))
+ AND NOT EXISTS(
+  SELECT 1 FROM pg_catalog.pg_proc f JOIN pg_catalog.pg_namespace n ON n.oid=f.pronamespace
+  WHERE (n.nspname,f.proname) IN (
+   ('ops','guard_admin_operation_update'),('audit','reject_audit_change'))
+  AND f.proowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user))
+ AS ops_authorization_roles_ok \gset
+\if :ops_authorization_roles_ok
+\else
+ DO $$BEGIN RAISE EXCEPTION 'Ops authorization role separation failed'; END$$;
+\endif
+
+REVOKE ALL ON ops.admin_operation_events,audit.audit_events,ops.access_control_guards
+ FROM PUBLIC, :"platform_runtime_role", :"poker_runtime_role", :"history_reader_role", :"history_worker_role";
+REVOKE ALL ON FUNCTION ops.guard_admin_operation_update(),audit.reject_audit_change()
+ FROM PUBLIC, :"platform_runtime_role", :"poker_runtime_role", :"history_reader_role", :"history_worker_role";
+
+GRANT USAGE ON SCHEMA ops,audit TO :"platform_runtime_role";
+GRANT SELECT ON ops.admin_principals,ops.admin_principal_scopes,ops.admin_role_history,
+ ops.admin_operations,ops.admin_operation_events,audit.audit_events TO :"platform_runtime_role";
+
+-- The guard row is locked before any access-control target; its immutable
+-- trigger rejects actual changes.
+GRANT SELECT,UPDATE(guard_key) ON ops.access_control_guards TO :"platform_runtime_role";
+
+GRANT INSERT(admin_principal_id,newapi_user_id,base_role,status,created_by,updated_by)
+ ON ops.admin_principals TO :"platform_runtime_role";
+GRANT UPDATE(base_role,status,updated_by,disabled_at,disabled_by,updated_at)
+ ON ops.admin_principals TO :"platform_runtime_role";
+GRANT INSERT(admin_principal_id,scope),DELETE
+ ON ops.admin_principal_scopes TO :"platform_runtime_role";
+GRANT INSERT(role_history_id,admin_principal_id,newapi_user_id,action,previous_role,next_role,
+ previous_status,next_status,authz_epoch,actor_kind,actor_newapi_user_id,operation_id,created_at)
+ ON ops.admin_role_history TO :"platform_runtime_role";
+
+GRANT INSERT(operation_id,actor_kind,newapi_user_id,action,request_hash,details,result,
+ operation_type,actor_role_snapshot,actor_scopes_snapshot,actor_authz_epoch_snapshot,
+ required_permission,risk_level,target_type,target_id,target_version_snapshot,input_schema_version,
+ input_payload,input_hash,environment,impact_schema_version,impact_preview,impact_hash,
+ confirmation_mode,requires_fresh_auth,state,state_version,request_id,created_at,updated_at)
+ ON ops.admin_operations TO :"platform_runtime_role";
+GRANT UPDATE(confirmation_challenge_hash,fresh_renewal_hash,fresh_renewal_expires_at,
+ fresh_auth_verified_at,state,failure_code,state_version,
+ authorized_at,executing_at,completed_at,related_business_id,result,updated_at)
+ ON ops.admin_operations TO :"platform_runtime_role";
+GRANT INSERT(event_id,operation_id,state,substate,state_version,failure_code,safe_details,occurred_at)
+ ON ops.admin_operation_events TO :"platform_runtime_role";
+GRANT INSERT(audit_id,actor_newapi_user_id,actor_role,actor_scopes_snapshot,action,target_type,
+ target_id,before_snapshot,after_snapshot,reason,operation_id,result,related_business_id,
+ request_id,environment,occurred_at)
+ ON audit.audit_events TO :"platform_runtime_role";
+COMMIT;
+\else
+ \echo 'No grants applied; supply reviewed roles and apply_grants=true.'
+\endif

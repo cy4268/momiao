@@ -1,0 +1,59 @@
+-- Run LAST after the accepted aggregate and Lobby forward grants, before runtime pools open.
+-- Exact application-role cleanup only; no History roles, grants, data or schema changes.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+ \set apply_grants false
+\endif
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+SET LOCAL lock_timeout='1s';
+SET LOCAL statement_timeout='5s';
+SELECT EXISTS(
+ SELECT 1 FROM pg_catalog.pg_roles o,pg_catalog.pg_roles a,pg_catalog.pg_roles p
+ WHERE o.rolname=current_user AND o.rolname=:'schema_owner' AND NOT o.rolcanlogin AND NOT o.rolsuper
+ AND a.rolname=:'platform_runtime_role' AND p.rolname=:'poker_runtime_role'
+ AND a.oid<>p.oid AND a.oid<>o.oid AND p.oid<>o.oid AND a.rolcanlogin AND p.rolcanlogin
+ AND NOT a.rolsuper AND NOT a.rolcreatedb AND NOT a.rolcreaterole AND NOT a.rolreplication AND NOT a.rolbypassrls
+ AND NOT p.rolsuper AND NOT p.rolcreatedb AND NOT p.rolcreaterole AND NOT p.rolreplication AND NOT p.rolbypassrls
+ AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member IN(a.oid,p.oid))
+ AND EXISTS(SELECT 1 FROM pg_catalog.pg_database d WHERE d.datname=current_database() AND d.datdba=o.oid)
+ AND (SELECT count(*)=4 AND bool_and(c.relowner=o.oid) FROM pg_catalog.pg_class c WHERE c.oid IN(
+  'games.history_display_snapshots'::regclass,'games.history_index'::regclass,
+  'games.history_ingestion_cursors'::regclass,'games.history_source_rows'::regclass))
+ AND (SELECT count(*)=3 AND bool_and(f.proowner=o.oid) FROM pg_catalog.pg_proc f WHERE f.oid IN(
+  'games.history_capture_display()'::regprocedure,'games.history_ingest_batch(text,integer)'::regprocedure,
+  'games.history_list(bigint,jsonb)'::regprocedure))
+) AND current_database()=:'database_name' AS application_history_roles_ok \gset
+\if :application_history_roles_ok
+\else
+ DO $$BEGIN RAISE EXCEPTION 'Application History role/database separation failed'; END$$;
+\endif
+REVOKE ALL ON games.history_display_snapshots,games.history_index,
+ games.history_ingestion_cursors,games.history_source_rows
+ FROM :"platform_runtime_role",:"poker_runtime_role" RESTRICT;
+REVOKE ALL ON FUNCTION games.history_capture_display(),games.history_ingest_batch(text,integer),
+ games.history_list(bigint,jsonb) FROM :"platform_runtime_role",:"poker_runtime_role" RESTRICT;
+SELECT NOT EXISTS(
+ SELECT 1 FROM pg_catalog.pg_roles r,pg_catalog.pg_class c
+ WHERE r.rolname IN(:'platform_runtime_role',:'poker_runtime_role') AND c.oid IN(
+  'games.history_display_snapshots'::regclass,'games.history_index'::regclass,
+  'games.history_ingestion_cursors'::regclass,'games.history_source_rows'::regclass)
+ AND (pg_catalog.has_any_column_privilege(r.oid,c.oid,'SELECT,INSERT,UPDATE,REFERENCES')
+  OR pg_catalog.has_table_privilege(r.oid,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN'))
+) AND NOT EXISTS(
+ SELECT 1 FROM pg_catalog.pg_roles r,pg_catalog.pg_proc f
+ WHERE r.rolname IN(:'platform_runtime_role',:'poker_runtime_role') AND f.oid IN(
+  'games.history_capture_display()'::regprocedure,'games.history_ingest_batch(text,integer)'::regprocedure,
+  'games.history_list(bigint,jsonb)'::regprocedure)
+ AND pg_catalog.has_function_privilege(r.oid,f.oid,'EXECUTE')
+) AS application_history_denied \gset
+\if :application_history_denied
+\else
+ DO $$BEGIN RAISE EXCEPTION 'Application History effective privilege boundary failed'; END$$;
+\endif
+COMMIT;
+\else
+ \echo 'No grants changed; review application roles and set apply_grants=true.'
+\endif

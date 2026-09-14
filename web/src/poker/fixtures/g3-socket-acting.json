@@ -1,0 +1,168 @@
+{
+  "table_id": "01a07725-0bda-7969-bcd3-ebdc4deaeee4",
+  "name": "Actual PG Redis control",
+  "lifecycle_state": "IN_HAND",
+  "table_version": "10",
+  "max_seats": 2,
+  "small_blind_units": "2500000",
+  "big_blind_units": "5000000",
+  "settings_locked": true,
+  "server_now": "2026-09-06T22:35:12.796893+08:00",
+  "seats": [
+    {
+      "seat_no": 1,
+      "display_name": "Synthetic 910001",
+      "state": "ACTIVE",
+      "is_self": false,
+      "connected": true,
+      "stack_units": "195000000",
+      "street_committed_units": "5000000",
+      "total_committed_units": "5000000",
+      "is_folded": false,
+      "is_all_in": false,
+      "hole_card_count": 2,
+      "hole_cards_released": false,
+      "sit_out_next_hand": false,
+      "leave_after_hand": false,
+      "pending_top_up_units": "0"
+    },
+    {
+      "seat_no": 2,
+      "display_name": "Synthetic 910002",
+      "state": "ACTIVE",
+      "is_self": true,
+      "connected": true,
+      "stack_units": "197500000",
+      "street_committed_units": "2500000",
+      "total_committed_units": "2500000",
+      "is_folded": false,
+      "is_all_in": false,
+      "hole_card_count": 2,
+      "hole_cards": [
+        32,
+        13
+      ],
+      "hole_cards_released": false,
+      "sit_out_next_hand": false,
+      "leave_after_hand": false,
+      "pending_top_up_units": "0"
+    }
+  ],
+  "hand": {
+    "hand_id": "01a07725-0fd7-71ae-b642-930473d34cba",
+    "hand_version": "8",
+    "street": "PREFLOP",
+    "button_seat": 2,
+    "actor_seat": 2,
+    "board_cards": [],
+    "pot_units": "7500000",
+    "pots": [],
+    "action_sequence": "1",
+    "action_deadline_at": "2026-09-06T14:35:42.733884Z",
+    "recovering": false,
+    "server_seed_hash": "351d3ec5baa3ce74fcf95f8e6da499bf915f5d9006e67b6c0dd2da2baebee224",
+    "deck_hash": "143e348b3cab1dca4a51d58a869fa5420f85ff2ebb899788f4d7a419e518c15e"
+  },
+  "viewer": {
+    "control": {
+      "connection_id": "01a077250c257d52bb5238efe088f61a",
+      "session_id": "01a07725-0c15-7e6c-b8dc-acedcae68238",
+      "mode": "CONTROLLER",
+      "control_epoch": "2"
+    },
+    "session_id": "01a07725-0c15-7e6c-b8dc-acedcae68238",
+    "seat_no": 2,
+    "control_epoch": "2",
+    "can_act": true,
+    "can_top_up": true,
+    "can_leave": true,
+    "can_resume": false,
+    "can_sit_out": true,
+    "can_start": false,
+    "top_up_min_units": "500000",
+    "top_up_max_units": "302500000",
+    "legal": {
+      "actions": [
+        "FOLD",
+        "CALL",
+        "RAISE",
+        "ALL_IN"
+      ],
+      "to_call_units": "2500000",
+      "call_applied_units": "2500000",
+      "minimum_bet_units": "5000000",
+      "minimum_raise_to_units": "10000000",
+      "maximum_raise_to_units": "200000000",
+      "raise_rights": true,
+      "shortcuts": [
+        {
+          "name": "Min",
+          "action_type": "RAISE",
+          "target_to_units": "10000000"
+        },
+        {
+          "name": "1/2 Pot",
+          "action_type": "RAISE",
+          "target_to_units": "10000000"
+        },
+        {
+          "name": "2/3 Pot",
+          "action_type": "RAISE",
+          "target_to_units": "11500000"
+        },
+        {
+          "name": "Pot",
+          "action_type": "RAISE",
+          "target_to_units": "15000000"
+        },
+        {
+          "name": "All-in",
+          "action_type": "ALL_IN",
+          "target_to_units": "200000000"
+        }
+      ]
+    }
+  },
+  "timeline": {
+    "hand_id": "01a07725-0fd7-71ae-b642-930473d34cba",
+    "last_sequence": "8",
+    "truncated": false,
+    "events": [
+      {
+        "sequence": "1",
+        "hand_version": "1",
+        "type": "HAND_COMMITTED",
+        "street": "PREFLOP",
+        "occurred_at": "2026-09-06T14:35:12.733884Z"
+      },
+      {
+        "sequence": "2",
+        "hand_version": "2",
+        "type": "POST_SB",
+        "street": "PREFLOP",
+        "seat_no": 2,
+        "delta_units": "2500000",
+        "to_units": "2500000",
+        "occurred_at": "2026-09-06T14:35:12.733884Z"
+      },
+      {
+        "sequence": "3",
+        "hand_version": "3",
+        "type": "POST_BB",
+        "street": "PREFLOP",
+        "seat_no": 1,
+        "delta_units": "5000000",
+        "to_units": "5000000",
+        "occurred_at": "2026-09-06T14:35:12.733884Z"
+      },
+      {
+        "sequence": "8",
+        "hand_version": "8",
+        "type": "ACTOR_CHANGED",
+        "street": "PREFLOP",
+        "seat_no": 2,
+        "occurred_at": "2026-09-06T14:35:12.733884Z"
+      }
+    ]
+  }
+}

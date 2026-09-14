@@ -1,0 +1,43 @@
+-- Reviewed grant aggregation after the real contiguous 0001-0018 migrations.
+-- Run psql -X with schema_owner, platform_runtime_role, poker_runtime_role and
+-- apply_grants=true. This creates no roles, schema, migration rows or secrets.
+-- The 0001-0004 file is the accepted effective-column snapshot, not broad grants.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+ \set apply_grants false
+\endif
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_roles a,pg_catalog.pg_roles p,pg_catalog.pg_roles o
+ WHERE a.rolname=:'platform_runtime_role' AND p.rolname=:'poker_runtime_role'
+ AND o.rolname=current_user AND NOT o.rolcanlogin AND NOT o.rolsuper
+ AND a.oid<>p.oid AND a.rolcanlogin AND p.rolcanlogin
+ AND NOT a.rolsuper AND NOT a.rolcreatedb AND NOT a.rolcreaterole AND NOT a.rolreplication AND NOT a.rolbypassrls
+ AND NOT p.rolsuper AND NOT p.rolcreatedb AND NOT p.rolcreaterole AND NOT p.rolreplication AND NOT p.rolbypassrls
+ AND NOT pg_catalog.pg_has_role(a.oid,o.oid,'MEMBER') AND NOT pg_catalog.pg_has_role(p.oid,o.oid,'MEMBER')
+ AND NOT pg_catalog.pg_has_role(a.oid,p.oid,'MEMBER') AND NOT pg_catalog.pg_has_role(p.oid,a.oid,'MEMBER')) AS application_roles_ok \gset
+\if :application_roles_ok
+\else
+ DO $$BEGIN RAISE EXCEPTION 'Application runtime role separation failed';END$$;
+\endif
+SELECT current_database() AS application_database \gset
+GRANT CONNECT ON DATABASE :"application_database" TO :"platform_runtime_role",:"poker_runtime_role";
+\set runtime_role :platform_runtime_role
+\ir ../../internal/platform/testdata/runtime-baseline-0001-0004.sql
+\ir runtime-grants-0010-games.psql
+\ir runtime-grants-0015-slot.psql
+\ir runtime-grants-0016-blackjack.psql
+COMMIT;
+
+-- These accepted scripts retain their own explicit owner transaction/gates.
+\ir runtime-grants-0005-0009.psql
+\ir runtime-grants-0018-poker-auth.psql
+\set runtime_role :poker_runtime_role
+\ir runtime-grants-0013-poker.psql
+\ir runtime-grants-0017-poker.psql
+\ir runtime-grants-0022-poker-access.psql
+\else
+ \echo 'No grants applied; review roles and set apply_grants=true.'
+\endif

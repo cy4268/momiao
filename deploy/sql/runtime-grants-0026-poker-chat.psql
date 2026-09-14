@@ -1,0 +1,57 @@
+-- Incremental Poker runtime grants for migration 0026. Apply after the
+-- migration and before the Poker runtime pool opens. No ownership changes.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+ \set apply_grants false
+\endif
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+SELECT current_database()=:'database_name'
+ AND (SELECT datdba FROM pg_catalog.pg_database WHERE datname=current_database())=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user)
+ AND current_user=:'schema_owner'
+ AND (SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN(:'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role'))=5
+ AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname IN(:'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role')
+  AND (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls
+   OR (r.rolname=:'schema_owner' AND r.rolcanlogin)
+   OR (r.rolname<>:'schema_owner' AND (NOT r.rolcanlogin OR r.rolinherit))
+   OR EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member=r.oid OR m.roleid=r.oid)))
+ AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_class c WHERE c.oid IN(
+  'poker.chat_members'::regclass,'poker.chat_messages'::regclass,'poker.chat_mutes'::regclass,
+  'poker.tables'::regclass,'identity.master_profiles'::regclass)
+  AND c.relowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user))
+ AS poker_chat_roles_ok \gset
+\if :poker_chat_roles_ok
+\else
+ DO $$BEGIN RAISE EXCEPTION 'Poker chat role separation failed'; END$$;
+\endif
+
+REVOKE ALL ON poker.chat_members,poker.chat_messages,poker.chat_mutes
+ FROM PUBLIC,:"platform_runtime_role",:"poker_runtime_role",:"history_reader_role",:"history_worker_role";
+REVOKE ALL(table_id,newapi_user_id,member_id,display_name_snapshot,avatar_id_snapshot,created_at)
+ ON poker.chat_members FROM PUBLIC,:"platform_runtime_role",:"poker_runtime_role",:"history_reader_role",:"history_worker_role";
+REVOKE ALL(table_id,message_sequence,message_id,sender_member_id,kind,body,created_at)
+ ON poker.chat_messages FROM PUBLIC,:"platform_runtime_role",:"poker_runtime_role",:"history_reader_role",:"history_worker_role";
+REVOKE ALL(table_id,target_newapi_user_id,muted_by_newapi_user_id,created_at)
+ ON poker.chat_mutes FROM PUBLIC,:"platform_runtime_role",:"poker_runtime_role",:"history_reader_role",:"history_worker_role";
+REVOKE UPDATE(chat_sequence) ON poker.tables
+ FROM PUBLIC,:"platform_runtime_role",:"poker_runtime_role",:"history_reader_role",:"history_worker_role";
+
+GRANT USAGE ON SCHEMA poker,identity TO :"poker_runtime_role";
+GRANT SELECT(table_id,newapi_user_id,member_id,display_name_snapshot,avatar_id_snapshot)
+ ON poker.chat_members TO :"poker_runtime_role";
+GRANT INSERT(table_id,newapi_user_id,member_id,display_name_snapshot,avatar_id_snapshot)
+ ON poker.chat_members TO :"poker_runtime_role";
+GRANT SELECT(table_id,message_sequence,message_id,sender_member_id,kind,body,created_at)
+ ON poker.chat_messages TO :"poker_runtime_role";
+GRANT INSERT(table_id,message_sequence,message_id,sender_member_id,kind,body,created_at)
+ ON poker.chat_messages TO :"poker_runtime_role";
+GRANT SELECT(table_id,target_newapi_user_id) ON poker.chat_mutes TO :"poker_runtime_role";
+GRANT INSERT(table_id,target_newapi_user_id,muted_by_newapi_user_id) ON poker.chat_mutes TO :"poker_runtime_role";
+GRANT UPDATE(chat_sequence) ON poker.tables TO :"poker_runtime_role";
+GRANT SELECT(avatar_id) ON identity.master_profiles TO :"poker_runtime_role";
+COMMIT;
+\else
+ \echo 'No grants applied; supply reviewed roles and apply_grants=true.'
+\endif

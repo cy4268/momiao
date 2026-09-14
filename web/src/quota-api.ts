@@ -10,8 +10,12 @@ const uuid=(v:unknown):v is string=>typeof v==='string' && /^[0-9a-f]{8}-[0-9a-f
 const timestamp=(v:unknown)=>typeof v==='string' && /^\d{4}-\d\d-\d\dT.+Z$/.test(v) && Number.isFinite(Date.parse(v));
 const malformed=()=>new ApiError('划转响应待核对，请保留原请求编号。');
 export function parseNativeQuota(v:unknown,userID:string):NativeQuota {
- if(!record(v) || v.user_id!==userID || !amount(v.amount,v.raw_quota) || typeof v.enabled!=='boolean')throw malformed();
- return v as unknown as NativeQuota;
+ if(!record(v) || v.user_id!==userID || !amount(v.amount,v.raw_quota))throw malformed();
+ if('account_enabled' in v){
+  if(typeof v.account_enabled!=='boolean' || v.result!=='APPLIED' || !timestamp(v.observed_at) || BigInt(v.raw_quota as string)>2147483647n || ('enabled' in v && v.enabled!==v.account_enabled))throw malformed();
+  return {user_id:userID,raw_quota:v.raw_quota as string,amount:v.amount as string,enabled:v.account_enabled};
+ }
+ if(typeof v.enabled!=='boolean')throw malformed();return v as unknown as NativeQuota;
 }
 export function parseTransfer(v:unknown,userID:string):Transfer {
  if(!record(v) || !uuid(v.id) || v.user_id!==userID || !integer(v.amount_units) || BigInt(v.amount_units)<=0n || BigInt(v.amount_units)>maxNativeUnits || !amount(v.amount,v.amount_units) || !['PENDING','CONFIRMED','REFUNDED','NEEDS_REVIEW'].includes(String(v.status)) || typeof v.reason!=='string' || !timestamp(v.created_at) || !timestamp(v.updated_at) || (v.native_before!==null && !integer(v.native_before,true)) || (v.native_after!==null && !integer(v.native_after,true)))throw malformed();

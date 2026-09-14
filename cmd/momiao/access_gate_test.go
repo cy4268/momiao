@@ -47,9 +47,22 @@ func TestAccessGateCatalogRoutesAndScope(t *testing.T) {
 	for _, tc := range []struct{ stage, want string }{{"models-denied", "ROLE_DENIED"}, {"allowed", "READY"}} {
 		store := &gateFixture{stage: tc.stage}
 		w := httptest.NewRecorder()
-		newAccessGateHandler("https://example.test", store, &accessDeclaration{Resources: map[string]string{"OPERATIONS": "AVAILABLE"}}, transport).ServeHTTP(w, announcementReq("GET", "/platform/v1/access-gate?route="+url.QueryEscape("/ops/models"), ""))
+		newAccessGateHandler("https://example.test", store, &accessDeclaration{Resources: map[string]string{"OPERATIONS": "AVAILABLE"}}, transport, false).ServeHTTP(w, announcementReq("GET", "/platform/v1/access-gate?route="+url.QueryEscape("/ops/models"), ""))
 		if w.Code != 200 || !strings.Contains(w.Body.String(), `"stage":"`+tc.want+`"`) || strings.Join(store.calls, ",") != "master,migration,models-role" {
 			t.Errorf("models scope/order lost: %d %s %v", w.Code, w.Body.String(), store.calls)
+		}
+	}
+}
+
+func TestAccessGateCanonicalAccountRoute(t *testing.T) {
+	for _, route := range []string{"/account", "/account/security"} {
+		if gateRouteDomain(route) != "ACCOUNT" {
+			t.Errorf("account navigation rejected: %s", route)
+		}
+	}
+	for _, route := range []string{"/account/security/", "/Account/security", "/account/security?next=/wallet", "/account//security"} {
+		if gateRouteDomain(route) != "" {
+			t.Errorf("non-canonical account navigation accepted: %s", route)
 		}
 	}
 }
@@ -118,7 +131,7 @@ func TestMigrationNoticeHTTPWriteBoundary(t *testing.T) {
 			r.Header.Set("Origin", tc.origin)
 			r.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
-			newAccessGateHandler("https://example.test", store, nil, transport).ServeHTTP(w, r)
+			newAccessGateHandler("https://example.test", store, nil, transport, false).ServeHTTP(w, r)
 			if w.Code != tc.want {
 				t.Fatalf("got %d %s", w.Code, w.Body.String())
 			}
@@ -157,7 +170,7 @@ func TestAccessGateOrderAndMissingDeclaration(t *testing.T) {
 			if tc.stage == "AVAILABLE" || tc.stage == "MAINTENANCE" {
 				declaration = &accessDeclaration{Resources: map[string]string{"OPERATIONS": tc.stage}}
 			}
-			newAccessGateHandler("https://example.test", store, declaration, transport).ServeHTTP(w, r)
+			newAccessGateHandler("https://example.test", store, declaration, transport, false).ServeHTTP(w, r)
 			var result struct {
 				Data struct {
 					Stage string `json:"stage"`

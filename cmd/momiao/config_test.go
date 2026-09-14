@@ -109,6 +109,31 @@ func TestPortalConfigAcceptanceAndRejection(t *testing.T) {
 	}
 	absSocket := filepath.Join(t.TempDir(), "portal.sock")
 	upstreamSocket := filepath.Join(t.TempDir(), "newapi.sock")
+	nativeAuthDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(nativeAuthDir, "index.html"), []byte("native auth"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	completeNativeAuth := map[string]string{
+		"MOMIAO_WEB_DIR":                          webDir,
+		"MOMIAO_NATIVE_AUTH_WEB_DIR":              nativeAuthDir,
+		"MOMIAO_NEWAPI_SOCKET":                    upstreamSocket,
+		"MOMIAO_WALLET_DSN_FILE":                  filepath.Join(t.TempDir(), "wallet.dsn"),
+		"MOMIAO_PUBLIC_ORIGIN":                    "https://portal.example",
+		"MOMIAO_SESSION_ENABLED":                  "true",
+		"MOMIAO_SESSION_DSN_FILE":                 filepath.Join(t.TempDir(), "session.dsn"),
+		"MOMIAO_SESSION_REDIS_CONFIG_FILE":        filepath.Join(t.TempDir(), "redis.json"),
+		"MOMIAO_SESSION_READER_KEY_FILE":          filepath.Join(t.TempDir(), "reader.key"),
+		"MOMIAO_SESSION_OPS_KEY_FILE":             filepath.Join(t.TempDir(), "ops.key"),
+		"MOMIAO_SESSION_SEAL_KEY_FILE":            filepath.Join(t.TempDir(), "session.key"),
+		"MOMIAO_SESSION_CREDENTIAL_SEAL_KEY_FILE": filepath.Join(t.TempDir(), "credential.key"),
+		"MOMIAO_SESSION_OPS_SOCKET":               filepath.Join(t.TempDir(), "ops.sock"),
+		"MOMIAO_SESSION_ENVIRONMENT":              "TEST",
+	}
+	nativeAuthSameBuild := make(map[string]string, len(completeNativeAuth))
+	for key, value := range completeNativeAuth {
+		nativeAuthSameBuild[key] = value
+	}
+	nativeAuthSameBuild["MOMIAO_NATIVE_AUTH_WEB_DIR"] = webDir
 
 	for _, tc := range []struct {
 		name string
@@ -118,6 +143,9 @@ func TestPortalConfigAcceptanceAndRejection(t *testing.T) {
 		{"web with fixed upstream", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, true},
 		{"unix listener", map[string]string{"MOMIAO_LISTEN_SOCKET": absSocket}, true},
 		{"complete production shape", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_LISTEN_SOCKET": absSocket, "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, true},
+		{"native auth with opaque session", completeNativeAuth, true},
+		{"native auth without opaque session", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_NATIVE_AUTH_WEB_DIR": nativeAuthDir, "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, false},
+		{"native auth cannot share portal build", nativeAuthSameBuild, false},
 		{"empty web", map[string]string{"MOMIAO_WEB_DIR": ""}, false},
 		{"empty listener socket", map[string]string{"MOMIAO_LISTEN_SOCKET": ""}, false},
 		{"empty upstream socket", map[string]string{"MOMIAO_NEWAPI_SOCKET": ""}, false},

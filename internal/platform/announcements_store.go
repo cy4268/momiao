@@ -50,43 +50,7 @@ func announcementAuthority(ctx context.Context, q announcementQuerier, userID in
 	return opsDomainAuthority(ctx, q, userID, lock, "ANNOUNCEMENTS", "announcements")
 }
 func opsDomainAuthority(ctx context.Context, q announcementQuerier, userID int64, lock bool, domainScope, permissionPrefix string) (AnnouncementPrincipal, error) {
-	p := AnnouncementPrincipal{UserID: userID, Permissions: []string{}}
-	query := `SELECT p.base_role,p.status,p.authz_epoch,p.admin_principal_id::text FROM ops.admin_principals p WHERE p.newapi_user_id=$1`
-	if lock {
-		query += " FOR UPDATE OF p"
-	}
-	var status string
-	var principalID string
-	var scope bool
-	err := q.QueryRow(ctx, query, userID).Scan(&p.Role, &status, &p.Epoch, &principalID)
-	if errors.Is(err, pgx.ErrNoRows) || status != "ACTIVE" && err == nil {
-		return p, ErrAnnouncementForbidden
-	}
-	if err != nil {
-		return p, err
-	}
-	// A lock-waiting READ COMMITTED statement can return the new principal tuple
-	// with an old subquery snapshot. Read scopes in a NEW statement after the lock;
-	// scope changes themselves serialize on this principal through the DB trigger.
-	if p.Role == "OPERATOR" {
-		if err = q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM ops.admin_principal_scopes WHERE admin_principal_id=$1 AND scope=$2)`, principalID, domainScope).Scan(&scope); err != nil {
-			return p, err
-		}
-	}
-	switch p.Role {
-	case "SUPER_ADMIN":
-		p.Permissions = []string{permissionPrefix + ".read", permissionPrefix + ".write", permissionPrefix + ".publish"}
-	case "AUDITOR":
-		p.Permissions = []string{permissionPrefix + ".read"}
-	case "OPERATOR":
-		if scope {
-			p.Permissions = []string{permissionPrefix + ".read", permissionPrefix + ".write", permissionPrefix + ".publish"}
-		}
-	}
-	if len(p.Permissions) == 0 {
-		return p, ErrAnnouncementForbidden
-	}
-	return p, nil
+	return legacyOpsDomainAuthority(ctx, q, userID, lock, domainScope, permissionPrefix)
 }
 func (s *Store) AnnouncementAuthority(ctx context.Context, userID int64) (AnnouncementPrincipal, error) {
 	return announcementAuthority(ctx, s.pool, userID, false)

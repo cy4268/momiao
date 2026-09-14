@@ -29,32 +29,39 @@ func shanghaiDay(at time.Time) (string, time.Time) {
 }
 
 type Transaction struct {
-	ID          string    `json:"id"`
-	UserID      int64     `json:"user_id,string"`
-	BizID       string    `json:"biz_id"`
-	Kind        string    `json:"kind"`
-	Status      string    `json:"status"`
-	FromAsset   Asset     `json:"from_asset"`
-	ToAsset     Asset     `json:"to_asset"`
-	AmountUnits int64     `json:"amount_units,string"`
-	Amount      string    `json:"amount"`
-	CreatedAt   time.Time `json:"created_at"`
-	ConfirmedAt time.Time `json:"confirmed_at"`
+	ReserveDebitUnits *int64    `json:"reserve_debit_units,string,omitempty"`
+	ActiveDebitUnits  *int64    `json:"active_debit_units,string,omitempty"`
+	ChipsCreditUnits  *int64    `json:"chips_credit_units,string,omitempty"`
+	Reason            string    `json:"reason,omitempty"`
+	ID                string    `json:"id"`
+	UserID            int64     `json:"user_id,string"`
+	BizID             string    `json:"biz_id"`
+	Kind              string    `json:"kind"`
+	Status            string    `json:"status"`
+	FromAsset         Asset     `json:"from_asset"`
+	ToAsset           Asset     `json:"to_asset"`
+	AmountUnits       int64     `json:"amount_units,string"`
+	Amount            string    `json:"amount"`
+	CreatedAt         time.Time `json:"created_at"`
+	ConfirmedAt       time.Time `json:"confirmed_at,omitzero"`
 }
 
 const transactionSelect = `SELECT t.transaction_id::text,t.newapi_user_id,t.biz_id,t.operation_type,t.status,
  CASE WHEN l2.ledger_entry_id IS NULL THEN '' ELSE l.asset_type END,
- coalesce(l2.asset_type,l.asset_type),abs(l.delta_units),t.created_at,t.confirmed_at
+ coalesce(l2.asset_type,l.asset_type),abs(l.delta_units),t.created_at,t.confirmed_at,NULL::bigint,NULL::bigint,NULL::bigint,''::text
  FROM economy.asset_transactions t
  JOIN economy.wallet_ledger l ON l.transaction_id=t.transaction_id AND l.leg_no=1
  LEFT JOIN economy.wallet_ledger l2 ON l2.transaction_id=t.transaction_id AND l2.leg_no=2 `
 
 func scanTransaction(row pgx.Row) (Transaction, error) {
 	var t Transaction
-	err := row.Scan(&t.ID, &t.UserID, &t.BizID, &t.Kind, &t.Status, &t.FromAsset, &t.ToAsset, &t.AmountUnits, &t.CreatedAt, &t.ConfirmedAt)
+	var confirmed *time.Time
+	err := row.Scan(&t.ID, &t.UserID, &t.BizID, &t.Kind, &t.Status, &t.FromAsset, &t.ToAsset, &t.AmountUnits, &t.CreatedAt, &confirmed, &t.ReserveDebitUnits, &t.ActiveDebitUnits, &t.ChipsCreditUnits, &t.Reason)
 	t.Amount = FormatAmount(t.AmountUnits)
 	t.CreatedAt = t.CreatedAt.UTC()
-	t.ConfirmedAt = t.ConfirmedAt.UTC()
+	if confirmed != nil {
+		t.ConfirmedAt = confirmed.UTC()
+	}
 	return t, err
 }
 func transactionInTx(ctx context.Context, tx pgx.Tx, user int64, id string) (Transaction, error) {
@@ -64,14 +71,18 @@ func (s *Store) Transactions(ctx context.Context, user int64, after string) ([]T
 	if user <= 0 || (after != "" && !ValidOperationKey(after)) {
 		return nil, ErrInvalidPage
 	}
-	// The fixed first-leg projection avoids returning credential/idempotency hashes.
-	query := transactionSelect + " WHERE t.newapi_user_id=$1 AND t.operation_type IN ('DAILY_REWARD','LOCAL_EXCHANGE','INITIAL_GRANT_REGISTRATION')"
+	// Combine whole receipts in one snapshot; local source legs are not exchanges.
+	query := `SELECT * FROM (` + transactionSelect + ` WHERE t.newapi_user_id=$1 AND t.operation_type IN ('DAILY_REWARD','HOURLY_REWARD','RELIEF_REWARD','LOCAL_EXCHANGE','INITIAL_GRANT_REGISTRATION')
+ UNION ALL SELECT exchange_id::text,newapi_user_id,'api-chips:'||exchange_id::text,'API_CHIPS_EXCHANGE',status,
+ 'RESERVE_API_CREDIT','AVAILABLE_CHIPS',requested_units,created_at,confirmed_at,
+ reserve_debit_units,active_debit_units,chips_credit_units,reason FROM economy.api_chips_exchanges WHERE newapi_user_id=$1
+ ) AS receipt(id,user_id,biz_id,kind,status,from_asset,to_asset,amount_units,created_at,confirmed_at,reserve_debit_units,active_debit_units,chips_credit_units,reason)`
 	args := []any{user}
 	if after != "" {
-		query += " AND t.transaction_id<$2"
+		query += " WHERE id<$2"
 		args = append(args, after)
 	}
-	rows, err := s.pool.Query(ctx, query+" ORDER BY t.transaction_id DESC LIMIT 21", args...)
+	rows, err := s.pool.Query(ctx, query+" ORDER BY id DESC LIMIT 21", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -88,12 +99,37 @@ func (s *Store) Transactions(ctx context.Context, user int64, after string) ([]T
 }
 
 func operationScope(kind string) string {
-	if kind == "DAILY" {
+	if kind == "DAILY" || kind == "HOURLY" || kind == "RELIEF" {
 		return "wallet.apply.v1"
 	}
 	return "wallet.exchange.v1"
 }
+
+func operationKindMatches(kind, operationType string) bool {
+	switch kind {
+	case "DAILY":
+		return operationType == "DAILY_REWARD"
+	case "HOURLY":
+		return operationType == "HOURLY_REWARD"
+	case "RELIEF":
+		return operationType == "RELIEF_REWARD"
+	case "EXCHANGE":
+		return operationType == "LOCAL_EXCHANGE"
+	default:
+		return false
+	}
+}
+
+func validOperationKind(kind string) bool {
+	return kind == "DAILY" || kind == "HOURLY" || kind == "RELIEF" || kind == "EXCHANGE"
+}
 func findOperation(ctx context.Context, tx pgx.Tx, user int64, kind, key string) (*Transaction, error) {
+	if kind == "EXCHANGE" {
+		prior, err := findAPIChipsExchange(ctx, tx, user, key)
+		if err != nil || prior != nil {
+			return prior, err
+		}
+	}
 	hash := sha256.Sum256([]byte(key))
 	var id string
 	err := tx.QueryRow(ctx, `SELECT l.transaction_id::text FROM platform_meta.mutation_idempotency_records i JOIN economy.wallet_ledger l ON l.ledger_entry_id=i.resource_id WHERE i.newapi_user_id=$1 AND i.scope=$2 AND i.key_hash=$3`, user, operationScope(kind), hash[:]).Scan(&id)
@@ -107,13 +143,13 @@ func findOperation(ctx context.Context, tx pgx.Tx, user int64, kind, key string)
 	if err != nil {
 		return nil, err
 	}
-	if (kind == "DAILY" && t.Kind != "DAILY_REWARD") || (kind == "EXCHANGE" && t.Kind != "LOCAL_EXCHANGE") {
+	if !operationKindMatches(kind, t.Kind) {
 		return nil, ErrIdempotencyConflict
 	}
 	return &t, nil
 }
 func (s *Store) FindOperation(ctx context.Context, user int64, kind, key string) (*Transaction, error) {
-	if user <= 0 || !ValidOperationKey(key) || (kind != "DAILY" && kind != "EXCHANGE") {
+	if user <= 0 || !ValidOperationKey(key) || !validOperationKind(kind) {
 		return nil, ErrInvalidMutation
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
@@ -129,16 +165,17 @@ func (s *Store) FindOperation(ctx context.Context, user int64, kind, key string)
 }
 
 type Daily struct {
-	UserID        int64     `json:"user_id,string"`
-	BusinessDate  string    `json:"business_date"`
-	Timezone      string    `json:"timezone"`
-	NextResetAt   time.Time `json:"next_reset_at"`
-	Amount        string    `json:"amount"`
-	AmountUnits   int64     `json:"amount_units,string"`
-	Asset         Asset     `json:"asset"`
-	PolicyVersion string    `json:"policy_version"`
-	Claimed       bool      `json:"claimed"`
-	TransactionID *string   `json:"transaction_id"`
+	UserID            int64     `json:"user_id,string"`
+	BusinessDate      string    `json:"business_date"`
+	Timezone          string    `json:"timezone"`
+	NextResetAt       time.Time `json:"next_reset_at"`
+	Amount            string    `json:"amount"`
+	AmountUnits       int64     `json:"amount_units,string"`
+	Asset             Asset     `json:"asset"`
+	PolicyVersion     string    `json:"policy_version"`
+	Claimed           bool      `json:"claimed"`
+	TransactionID     *string   `json:"transaction_id"`
+	MaintenanceActive bool      `json:"maintenance_active"`
 }
 
 func (s *Store) ReadDaily(ctx context.Context, user int64) (Daily, error) {
@@ -148,10 +185,15 @@ func (s *Store) ReadDaily(ctx context.Context, user int64) (Daily, error) {
 	// Use one statement snapshot and database clock, never a browser date.
 	var now time.Time
 	var id *string
+	var maintenanceActive bool
 	err := s.pool.QueryRow(ctx, `WITH d AS MATERIALIZED (SELECT clock_timestamp() AS at)
- SELECT d.at,c.transaction_id::text FROM d LEFT JOIN rewards.daily_checkins c ON c.newapi_user_id=$1 AND c.checkin_date=(d.at AT TIME ZONE 'Asia/Shanghai')::date`, user).Scan(&now, &id)
+	 SELECT d.at,c.transaction_id::text,
+	 ops.is_maintenance_scope_active('CHALDEA_USER_WRITES') OR ops.is_maintenance_scope_active('REWARDS')
+	 FROM d LEFT JOIN rewards.daily_checkins c ON c.newapi_user_id=$1 AND c.checkin_date=(d.at AT TIME ZONE 'Asia/Shanghai')::date`, user).Scan(&now, &id, &maintenanceActive)
 	day, next := shanghaiDay(now)
-	return Daily{user, day, "Asia/Shanghai", next, "500", DailyAmount, ReserveAPICredit, "1", id != nil, id}, err
+	return Daily{UserID: user, BusinessDate: day, Timezone: "Asia/Shanghai", NextResetAt: next,
+		Amount: "500", AmountUnits: DailyAmount, Asset: ReserveAPICredit, PolicyVersion: "1",
+		Claimed: id != nil, TransactionID: id, MaintenanceActive: maintenanceActive}, err
 }
 func (s *Store) ClaimDaily(ctx context.Context, user int64, key string) (Transaction, error) {
 	if user <= 0 || !ValidOperationKey(key) {
@@ -172,6 +214,9 @@ func (s *Store) ClaimDaily(ctx context.Context, user int64, key string) (Transac
 	}
 	if prior != nil {
 		return *prior, tx.Commit(ctx)
+	}
+	if err = RequireNoMaintenance(ctx, tx, "CHALDEA_USER_WRITES", "REWARDS"); err != nil {
+		return Transaction{}, err
 	}
 	var now time.Time
 	if err = tx.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&now); err != nil {
@@ -195,6 +240,12 @@ func (s *Store) ClaimDaily(ctx context.Context, user int64, key string) (Transac
 }
 
 func (s *Store) Exchange(ctx context.Context, user int64, key string, from Asset, amount int64) (Transaction, error) {
+	return s.exchange(ctx, nil, user, key, from, amount)
+}
+func (service *EconomyService) Exchange(ctx context.Context, user int64, key string, from Asset, amount int64) (Transaction, error) {
+	return service.Store.exchange(ctx, service.assets.native, user, key, from, amount)
+}
+func (s *Store) exchange(ctx context.Context, native NativeQuotaOperator, user int64, key string, from Asset, amount int64) (Transaction, error) {
 	if user <= 0 || !ValidOperationKey(key) || !validAsset(from) || amount <= 0 {
 		return Transaction{}, ErrInvalidMutation
 	}
@@ -223,6 +274,12 @@ func (s *Store) Exchange(ctx context.Context, user int64, key string, from Asset
 		}
 		return *prior, tx.Commit(ctx)
 	}
+	if err = RequireNoMaintenance(ctx, tx, "CHALDEA_USER_WRITES", "WALLET_EXCHANGE"); err != nil {
+		return Transaction{}, err
+	}
+	if err = lockIdentity(ctx, tx, "quota-transfer-user", user); err != nil {
+		return Transaction{}, err
+	}
 	// Both directions take the same row lock order; the two legs share one commit.
 	rows, err := tx.Query(ctx, "SELECT newapi_user_id,asset_type,balance_units,ledger_seq,version FROM economy.wallet_balances WHERE newapi_user_id=$1 ORDER BY asset_type FOR UPDATE", user)
 	if err != nil {
@@ -246,6 +303,13 @@ func (s *Store) Exchange(ctx context.Context, user int64, key string, from Asset
 		return Transaction{}, ErrWalletNotFound
 	}
 	if wallets[from].BalanceUnits < amount {
+		if from == ReserveAPICredit && native != nil {
+			result, err := acceptAPIChipsExchange(ctx, tx, native, user, key, amount, wallets)
+			if err != nil {
+				return Transaction{}, err
+			}
+			return result, tx.Commit(ctx)
+		}
 		return Transaction{}, ErrInsufficientBalance
 	}
 	if wallets[to].BalanceUnits > math.MaxInt64-amount {

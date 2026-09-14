@@ -30,6 +30,7 @@ type Profile struct {
 	DisplayName       string          `json:"display_name"`
 	AvatarID          string          `json:"avatar_id"`
 	ProfileVersion    int64           `json:"profile_version,string"`
+	RenameRequired    bool            `json:"-"`
 	NicknameChangedAt *time.Time      `json:"nickname_changed_at"`
 	NextRenameAt      *time.Time      `json:"next_rename_at"`
 	SuggestedName     string          `json:"suggested_name"`
@@ -59,11 +60,11 @@ func profileView(p Profile) Profile {
 	return p
 }
 
-const profileColumns = "newapi_user_id,display_name,avatar_id,profile_version,nickname_changed_at"
+const profileColumns = "newapi_user_id,display_name,avatar_id,profile_version,rename_required,nickname_changed_at"
 
 func scanProfile(row pgx.Row) (Profile, error) {
 	var p Profile
-	err := row.Scan(&p.UserID, &p.DisplayName, &p.AvatarID, &p.ProfileVersion, &p.NicknameChangedAt)
+	err := row.Scan(&p.UserID, &p.DisplayName, &p.AvatarID, &p.ProfileVersion, &p.RenameRequired, &p.NicknameChangedAt)
 	if err != nil {
 		return Profile{}, err
 	}
@@ -131,11 +132,14 @@ func (s *Store) InitializeProfile(ctx context.Context, userID, expected int64, d
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return Profile{}, err
 	}
+	if err = RequireNoMaintenance(ctx, tx, "CHALDEA_USER_WRITES"); err != nil {
+		return Profile{}, err
+	}
 	if _, err = tx.Exec(ctx, "INSERT INTO identity.account_refs(newapi_user_id) VALUES($1) ON CONFLICT DO NOTHING", userID); err != nil {
 		return Profile{}, err
 	}
 	p, err := scanProfile(tx.QueryRow(ctx, `INSERT INTO identity.master_profiles(newapi_user_id,display_name,normalized_name,avatar_id) VALUES($1,$2,$3,$4)
- ON CONFLICT(newapi_user_id) DO UPDATE SET display_name=EXCLUDED.display_name,normalized_name=EXCLUDED.normalized_name,avatar_id=EXCLUDED.avatar_id,profile_version=1,updated_at=now()
+ ON CONFLICT(newapi_user_id) DO UPDATE SET display_name=EXCLUDED.display_name,normalized_name=EXCLUDED.normalized_name,avatar_id=EXCLUDED.avatar_id,profile_version=1,rename_required=false,updated_at=now()
  WHERE identity.master_profiles.profile_version=0 RETURNING `+profileColumns, userID, display, normalized, avatar))
 	if err != nil {
 		return Profile{}, profileDBError(err)
@@ -194,14 +198,17 @@ func (s *Store) UpdateProfile(ctx context.Context, userID int64, patch ProfilePa
 	if p.ProfileVersion == math.MaxInt64 {
 		return Profile{}, ErrInvalidProfile
 	}
+	if err = RequireNoMaintenance(ctx, tx, "CHALDEA_USER_WRITES"); err != nil {
+		return Profile{}, err
+	}
 	var now time.Time
 	if err = tx.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&now); err != nil {
 		return Profile{}, err
 	}
-	if p.NextRenameAt != nil && now.Before(*p.NextRenameAt) {
+	if !p.RenameRequired && p.NextRenameAt != nil && now.Before(*p.NextRenameAt) {
 		return Profile{}, ErrRenameCooldown
 	}
-	p, err = scanProfile(tx.QueryRow(ctx, `UPDATE identity.master_profiles SET display_name=$2,normalized_name=$3,profile_version=profile_version+1,nickname_changed_at=$4,updated_at=$4 WHERE newapi_user_id=$1 RETURNING `+profileColumns, userID, display, normalized, now))
+	p, err = scanProfile(tx.QueryRow(ctx, `UPDATE identity.master_profiles SET display_name=$2,normalized_name=$3,profile_version=profile_version+1,rename_required=false,nickname_changed_at=$4,updated_at=$4 WHERE newapi_user_id=$1 RETURNING `+profileColumns, userID, display, normalized, now))
 	if err != nil {
 		return Profile{}, profileDBError(err)
 	}

@@ -1,0 +1,48 @@
+-- Apply after 0028 grants with the migration membership window already closed.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+ \set apply_grants false
+\endif
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+SELECT current_database()=:'database_name'
+ AND (SELECT datdba FROM pg_catalog.pg_database WHERE datname=current_database())=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user)
+ AND current_user=:'schema_owner'
+ AND (SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN(:'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role'))=5
+ AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname IN(:'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role')
+  AND (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls
+   OR (r.rolname=:'schema_owner' AND r.rolcanlogin)
+   OR (r.rolname<>:'schema_owner' AND (NOT r.rolcanlogin OR r.rolinherit))
+   OR EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member=r.oid OR m.roleid=r.oid)))
+ AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname='ops' AND c.relname IN('maintenance_windows','maintenance_window_scopes','maintenance_scope_guards','maintenance_events','maintenance_jobs','critical_notice_state','health_snapshots') AND c.relowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user))
+ AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_proc f JOIN pg_catalog.pg_namespace n ON n.oid=f.pronamespace
+  WHERE n.nspname='ops' AND f.proname IN('runtime_jobs_read','lock_write_scopes') AND f.proowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user))
+ AS ops_runtime_roles_ok \gset
+\if :ops_runtime_roles_ok
+\else
+ DO $$BEGIN RAISE EXCEPTION 'Ops runtime role separation failed'; END$$;
+\endif
+REVOKE ALL ON ops.maintenance_events,ops.maintenance_jobs,ops.critical_notice_state FROM PUBLIC, :"platform_runtime_role", :"poker_runtime_role", :"history_reader_role", :"history_worker_role";
+REVOKE ALL ON FUNCTION ops.runtime_jobs_read(),ops.lock_write_scopes(text[]) FROM PUBLIC, :"platform_runtime_role", :"poker_runtime_role", :"history_reader_role", :"history_worker_role";
+GRANT USAGE ON SCHEMA ops TO :"platform_runtime_role";
+GRANT SELECT,INSERT ON ops.maintenance_windows,ops.maintenance_window_scopes,ops.maintenance_events TO :"platform_runtime_role";
+GRANT SELECT,INSERT ON ops.maintenance_jobs TO :"platform_runtime_role";
+GRANT SELECT,INSERT ON ops.critical_notice_state TO :"platform_runtime_role";
+REVOKE ALL ON ops.health_snapshots FROM PUBLIC, :"platform_runtime_role", :"poker_runtime_role", :"history_reader_role", :"history_worker_role";
+GRANT SELECT,INSERT ON ops.health_snapshots TO :"platform_runtime_role";
+GRANT UPDATE(snapshot,observed_at,stale_after) ON ops.health_snapshots TO :"platform_runtime_role";
+GRANT UPDATE(status,updated_at) ON ops.maintenance_jobs TO :"platform_runtime_role";
+GRANT UPDATE(state,state_version,activated_at,activated_by,ended_at,ended_by) ON ops.maintenance_windows TO :"platform_runtime_role";
+-- UPDATE privilege is necessary for FOR UPDATE; the immutable trigger rejects
+-- any actual update to the fixed guard catalog.
+GRANT SELECT,UPDATE ON ops.maintenance_scope_guards TO :"platform_runtime_role";
+GRANT EXECUTE ON FUNCTION ops.runtime_jobs_read(),ops.lock_write_scopes(text[]),ops.is_maintenance_scope_active(text) TO :"platform_runtime_role";
+COMMIT;
+\else
+ \echo 'No grants applied; supply reviewed roles and apply_grants=true.'
+\endif
+
+

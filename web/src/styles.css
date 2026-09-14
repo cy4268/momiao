@@ -1228,3 +1228,12 @@ td time {
   .dice-result { font-size: 15px; }
   .dice-history .section-heading { align-items: flex-start; flex-wrap: wrap; gap: 12px; }
 }
+
+/* Conditional service impact surface, separate from announcement promotions. */
+.critical-notice{position:relative;z-index:40;padding:14px max(20px,calc((100vw - 1240px)/2));background:#fff2da;border-bottom:1px solid #c78d42;color:#4b3216;font-size:14px}
+.critical-notice>div+div{border-top:1px solid #e8cfab;margin-top:12px;padding-top:12px}
+.critical-notice strong{font-weight:750;letter-spacing:.04em}
+.critical-notice p{margin:5px 0;line-height:1.6}
+.critical-notice a{margin-left:18px;text-decoration:underline;text-underline-offset:3px}
+.critical-notice span{font-size:12px}
+@media(max-width:600px){.critical-notice{padding:12px 16px}.critical-notice a{display:block;margin:6px 0 0}}

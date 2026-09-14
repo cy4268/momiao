@@ -20,6 +20,17 @@ type AdmissionStatus struct {
 	SourceAvailable bool    `json:"source_available"`
 }
 
+// AccountRefExists is a read-only authority check. Discord credentials and
+// browser-provided identifiers never create or select a platform account.
+func (s *Store) AccountRefExists(ctx context.Context, user int64) (bool, error) {
+	if s == nil || s.pool == nil || ctx == nil || user <= 0 {
+		return false, ErrInvalidProfile
+	}
+	var exists bool
+	err := s.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM identity.account_refs WHERE newapi_user_id=$1)", user).Scan(&exists)
+	return exists, err
+}
+
 func (s *Store) EnsureProvisionalProfile(ctx context.Context, user int64) (Profile, error) {
 	if user <= 0 {
 		return Profile{}, ErrInvalidProfile

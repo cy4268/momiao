@@ -16,6 +16,31 @@ type economyFake struct {
 	units int64
 	calls int
 }
+type asyncEconomyFake struct {
+	economyFake
+	status string
+}
+
+func (s *asyncEconomyFake) Exchange(_ context.Context, user int64, _ string, _ platform.Asset, _ int64) (platform.Transaction, error) {
+	return platform.Transaction{UserID: user, Kind: "API_CHIPS_EXCHANGE", Status: s.status}, nil
+}
+func TestEconomyAsyncExchangeHTTPReceipt(t *testing.T) {
+	tr := walletTransport(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"data":{"id":9007199254740993,"status":1}}`))}, nil
+	})
+	for _, tc := range []struct {
+		status string
+		code   int
+	}{{"PENDING", 202}, {"SOURCE_DEBITED", 202}, {"COMPENSATING", 202}, {"CONFIRMED", 200}, {"COMPENSATED", 200}, {"FAILED_NO_EFFECT", 200}, {"NEEDS_REVIEW", 200}} {
+		r := walletReq("POST", "/platform/v1/wallet/exchange", `{"idempotency_key":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","from_asset":"RESERVE_API_CREDIT","amount":"0.0002"}`)
+		r.Header.Set("Origin", "https://wallet.example")
+		w := httptest.NewRecorder()
+		newEconomyHandler("https://wallet.example", &asyncEconomyFake{status: tc.status}, tr).ServeHTTP(w, r)
+		if w.Code != tc.code || !strings.Contains(w.Body.String(), `"status":"`+tc.status+`"`) {
+			t.Fatalf("%s: %d %s", tc.status, w.Code, w.Body.String())
+		}
+	}
+}
 
 func (s *economyFake) Exchange(_ context.Context, u int64, k string, a platform.Asset, n int64) (platform.Transaction, error) {
 	s.user = u

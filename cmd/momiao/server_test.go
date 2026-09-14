@@ -86,6 +86,32 @@ func TestServerHasBoundedHTTPTimeouts(t *testing.T) {
 	}
 }
 
+func TestUnownedPlatformAPINeverReachesNative(t *testing.T) {
+	for _, webDir := range []string{"", t.TempDir()} {
+		for _, enabled := range []bool{false, true} {
+			cfg := config{WebDir: webDir}
+			cfg.Session.Enabled = enabled
+			calls := 0
+			handler := newPortalHandler(cfg, roundTripFunc(func(*http.Request) (*http.Response, error) {
+				calls++
+				return nil, errors.New("unowned Platform route reached Native")
+			}))
+			for _, route := range []string{"/api/v1", "/api/v1/not-owned", "/api/v1/not-owned?source=browser"} {
+				for _, method := range []string{http.MethodGet, http.MethodPost} {
+					response := httptest.NewRecorder()
+					handler.ServeHTTP(response, httptest.NewRequest(method, route, nil))
+					if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), "NOT_FOUND") {
+						t.Fatalf("web=%t session=%t %s %s: status=%d body=%q", webDir != "", enabled, method, route, response.Code, response.Body.String())
+					}
+				}
+			}
+			if calls != 0 {
+				t.Fatalf("unowned Platform routes made %d Native calls", calls)
+			}
+		}
+	}
+}
+
 func TestPortalServesOnlyApprovedSPAAndCompiledFiles(t *testing.T) {
 	webDir := t.TempDir()
 	assetsDir := filepath.Join(webDir, "assets")
@@ -116,7 +142,7 @@ func TestPortalServesOnlyApprovedSPAAndCompiledFiles(t *testing.T) {
 	}
 
 	handler := newPortalHandler(config{WebDir: webDir, NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, nil)
-	for _, route := range []string{"/", "/login", "/sign-in", "/dashboard", "/keys", "/logs", "/games/dice", "/wallet/activate"} {
+	for _, route := range []string{"/", "/login", "/sign-in", "/dashboard", "/keys", "/logs", "/games/dice", "/wallet/activate", "/history/rounds/11111111-1111-4111-8111-111111111111", "/history/sessions/11111111-1111-4111-8111-111111111111", "/history/hands/11111111-1111-4111-8111-111111111111", "/wallet/transactions/11111111-1111-4111-8111-111111111111"} {
 		t.Run("shell "+route, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))
@@ -176,6 +202,48 @@ func TestPortalServesOnlyApprovedSPAAndCompiledFiles(t *testing.T) {
 	}
 	if got := asset.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
 		t.Fatalf("fingerprinted asset cache policy=%q", got)
+	}
+
+	nativeAuthDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(nativeAuthDir, "static", "js"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nativeAuthDir, "index.html"), []byte(`<!doctype html><head><link href="/logo.png"></head><body>native auth</body>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nativeAuthDir, "static", "js", "auth-12345678.js"), []byte("export default 'auth'"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nativeAuthDir, ".env"), []byte("SECRET=leak"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nativeHandler := newPortalHandler(config{WebDir: webDir, NativeAuthWebDir: nativeAuthDir, NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, nil)
+	for _, route := range []string{"/sign-in", "/sign-up", "/otp"} {
+		response := httptest.NewRecorder()
+		nativeHandler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "native auth") || !strings.Contains(response.Body.String(), `<meta name="chaldea-auth-ui" content="opaque-v1">`) || !strings.Contains(response.Body.String(), `href="/native-auth/logo.png"`) {
+			t.Fatalf("Native auth shell %s: status=%d body=%q", route, response.Code, response.Body.String())
+		}
+	}
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{"/native-auth/static/js/auth-12345678.js", http.StatusOK},
+		{"/native-auth/.env", http.StatusNotFound},
+		{"/native-auth/index.html", http.StatusNotFound},
+		{"/native-auth/pay-card.png", http.StatusNotFound},
+	} {
+		response := httptest.NewRecorder()
+		nativeHandler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.path, nil))
+		if response.Code != tc.want {
+			t.Fatalf("Native auth asset %s: status=%d, want %d", tc.path, response.Code, tc.want)
+		}
+	}
+	callback := httptest.NewRecorder()
+	nativeHandler.ServeHTTP(callback, httptest.NewRequest(http.MethodGet, "/oauth/discord?code=fixture&state="+strings.Repeat("s", 43), nil))
+	if callback.Code != http.StatusOK || !strings.Contains(callback.Body.String(), "portal") || strings.Contains(callback.Body.String(), "chaldea-auth-ui") {
+		t.Fatalf("unowned Discord callback did not retain Platform shell: status=%d body=%q", callback.Code, callback.Body.String())
 	}
 }
 

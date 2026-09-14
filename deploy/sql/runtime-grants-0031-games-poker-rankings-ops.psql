@@ -1,0 +1,58 @@
+-- Incremental typed Games/Poker/Rankings Ops grants. Apply only after migration
+-- 0031, with the migration membership window closed.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+ \set apply_grants false
+\endif
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+SELECT current_database()=:'database_name'
+ AND (SELECT datdba FROM pg_catalog.pg_database WHERE datname=current_database())=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user)
+ AND current_user=:'schema_owner'
+ AND (SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN(:'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role'))=5
+ AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname IN(:'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role')
+  AND (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls
+   OR (r.rolname=:'schema_owner' AND r.rolcanlogin)
+   OR (r.rolname<>:'schema_owner' AND (NOT r.rolcanlogin OR r.rolinherit))
+   OR EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member=r.oid OR m.roleid=r.oid)))
+ AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+ WHERE (n.nspname,c.relname) IN(
+   ('games','game_registry'),('games','game_config_versions'),('games','game_validation_artifacts'),
+   ('poker','chat_moderation_events'),('poker','admin_operations'),
+   ('rankings','published_pointers'),('rankings','publication_events'),('rankings','rebuild_jobs'))
+  AND c.relowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user))
+ AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_proc f JOIN pg_catalog.pg_namespace n ON n.oid=f.pronamespace
+  WHERE n.nspname='games' AND f.proname='ops_activity_read' AND f.pronargs=0
+   AND f.proowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user))
+ AS ops_domain_roles_ok \gset
+\if :ops_domain_roles_ok
+\else
+ DO $$BEGIN RAISE EXCEPTION 'Ops domain role separation failed'; END$$;
+\endif
+
+REVOKE ALL ON poker.chat_moderation_events,poker.admin_operations
+ FROM PUBLIC,:"platform_runtime_role",:"poker_runtime_role",:"history_reader_role",:"history_worker_role";
+GRANT SELECT,INSERT ON poker.chat_moderation_events,poker.admin_operations TO :"poker_runtime_role";
+
+REVOKE ALL ON rankings.published_pointers,rankings.publication_events,rankings.rebuild_jobs
+ FROM PUBLIC,:"platform_runtime_role",:"poker_runtime_role",:"history_reader_role",:"history_worker_role";
+GRANT SELECT,INSERT ON rankings.publication_events,rankings.rebuild_jobs TO :"platform_runtime_role";
+GRANT SELECT,INSERT ON rankings.published_pointers TO :"platform_runtime_role";
+GRANT UPDATE(aggregate_hash) ON rankings.snapshots TO :"platform_runtime_role";
+GRANT UPDATE(snapshot_id,version,published_at) ON rankings.published_pointers TO :"platform_runtime_role";
+GRANT UPDATE(status,shadow_snapshot_id,attempts,failure_code,updated_at) ON rankings.rebuild_jobs TO :"platform_runtime_role";
+
+-- Existing 0010 grants already cover direct-play runtime reads. Operations add
+-- only the columns needed by the typed registry/config lifecycle.
+GRANT SELECT,INSERT ON games.game_config_versions, games.game_validation_artifacts TO :"platform_runtime_role";
+GRANT EXECUTE ON FUNCTION games.ops_activity_read() TO :"platform_runtime_role";
+GRANT UPDATE(title,sort_order,publication_state,configured_runtime_state,active_config_version_id,version,updated_at)
+ ON games.game_registry TO :"platform_runtime_role";
+GRANT UPDATE(config_schema_version,ruleset_version,algorithm_version,config_payload,canonical_payload,config_hash,resource_versions,
+ status,validated_at,previewed_at,activated_at,superseded_at) ON games.game_config_versions TO :"platform_runtime_role";
+COMMIT;
+\else
+ \echo 'No grants applied; supply reviewed roles and apply_grants=true.'
+\endif

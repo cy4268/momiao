@@ -1,0 +1,94 @@
+-- Dedicated read-only authority identity for the separate Poker process.
+-- Required variables: schema_owner, poker_authority_role, database_name.
+-- This file creates no role and runs no migration. Default is review-only.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+  \set apply_grants false
+\endif
+
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+
+SELECT current_database() = :'database_name' AND EXISTS (
+  SELECT 1
+  FROM pg_catalog.pg_database d
+  JOIN pg_catalog.pg_roles o ON o.oid = d.datdba
+  JOIN pg_catalog.pg_roles a ON a.rolname = :'poker_authority_role'
+  WHERE d.datname = current_database()
+    AND o.rolname = current_user
+    AND o.rolname = :'schema_owner'
+    AND NOT o.rolcanlogin
+    AND a.oid <> o.oid
+    AND a.rolcanlogin
+    AND NOT a.rolinherit
+    AND NOT a.rolsuper
+    AND NOT a.rolcreatedb
+    AND NOT a.rolcreaterole
+    AND NOT a.rolreplication
+    AND NOT a.rolbypassrls
+    AND NOT EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_auth_members membership
+      WHERE membership.member = a.oid OR membership.roleid = a.oid
+    )
+) AS poker_authority_role_ok \gset
+
+\if :poker_authority_role_ok
+\else
+  DO $$BEGIN RAISE EXCEPTION 'Poker authority reader role separation failed'; END$$;
+\endif
+
+-- Remove object-level privileges and the only permitted column grants so a
+-- rerun is idempotent. Any other direct column ACL is rejected below.
+REVOKE ALL PRIVILEGES ON DATABASE :"database_name" FROM :"poker_authority_role";
+REVOKE ALL PRIVILEGES ON SCHEMA identity,economy,rewards,games,poker,
+  platform_meta,content,catalog,rankings,ops,audit FROM :"poker_authority_role";
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA identity,economy,rewards,games,poker,
+  platform_meta,content,catalog,rankings,ops,audit FROM :"poker_authority_role";
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA identity,economy,rewards,games,poker,
+  platform_meta,content,catalog,rankings,ops,audit FROM :"poker_authority_role";
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA identity,economy,rewards,games,poker,
+  platform_meta,content,catalog,rankings,ops,audit FROM :"poker_authority_role";
+REVOKE SELECT(newapi_user_id,security_epoch,security_epoch_changed_at)
+  ON identity.account_refs FROM :"poker_authority_role";
+REVOKE SELECT(session_id_hash,newapi_user_id,session_version,native_auth_version,
+  security_epoch_snapshot,native_created_at)
+  ON identity.native_session_bindings FROM :"poker_authority_role";
+
+SELECT NOT EXISTS (
+  SELECT 1
+  FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid
+  CROSS JOIN LATERAL pg_catalog.aclexplode(
+    NULLIF(a.attacl, '{}'::pg_catalog.aclitem[])
+  ) x
+  JOIN pg_catalog.pg_roles authority ON authority.oid = x.grantee
+  WHERE authority.rolname = :'poker_authority_role'
+    AND n.nspname IN (
+      'identity','economy','rewards','games','poker','platform_meta',
+      'content','catalog','rankings','ops','audit'
+    )
+    AND a.attnum > 0
+    AND NOT a.attisdropped
+) AS poker_authority_columns_clean \gset
+
+\if :poker_authority_columns_clean
+\else
+  DO $$BEGIN RAISE EXCEPTION 'Poker authority reader has an unexpected column ACL'; END$$;
+\endif
+
+GRANT CONNECT ON DATABASE :"database_name" TO :"poker_authority_role";
+GRANT USAGE ON SCHEMA identity TO :"poker_authority_role";
+GRANT SELECT(newapi_user_id,security_epoch,security_epoch_changed_at)
+  ON identity.account_refs TO :"poker_authority_role";
+GRANT SELECT(session_id_hash,newapi_user_id,session_version,native_auth_version,
+  security_epoch_snapshot,native_created_at)
+  ON identity.native_session_bindings TO :"poker_authority_role";
+
+COMMIT;
+\else
+  \echo 'No grants applied; supply the dedicated Poker authority reader role and apply_grants=true.'
+\endif

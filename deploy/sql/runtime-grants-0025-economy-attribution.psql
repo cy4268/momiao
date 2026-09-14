@@ -1,0 +1,118 @@
+-- Incremental platform grants for migration 0025. Apply after the migration
+-- and before the platform runtime pool opens. No roles or ownership change.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+ \set apply_grants false
+\endif
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+SELECT current_database()=:'database_name'
+ AND (SELECT datdba FROM pg_catalog.pg_database WHERE datname=current_database())=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user)
+ AND current_user=:'schema_owner'
+ AND (SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN(:'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role'))=5
+ AND NOT EXISTS(
+  SELECT 1 FROM pg_catalog.pg_roles r
+  WHERE r.rolname IN(:'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role')
+   AND (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls
+    OR (r.rolname=:'schema_owner' AND r.rolcanlogin)
+    OR (r.rolname<>:'schema_owner' AND (NOT r.rolcanlogin OR r.rolinherit))
+    OR EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member=r.oid OR m.roleid=r.oid))
+ )
+ AND NOT EXISTS(
+  SELECT 1 FROM pg_catalog.pg_class c
+  WHERE c.oid IN(
+   'economy.api_key_purposes'::regclass,
+   'economy.api_key_purpose_events'::regclass,
+   'platform_meta.api_key_purpose_outbox'::regclass,
+   'economy.request_attributions'::regclass,
+   'platform_meta.attribution_checkpoints'::regclass,
+   'rewards.hourly_claims'::regclass,
+   'rewards.relief_claims'::regclass,
+   'economy.active_quota_refill_plans'::regclass
+  ) AND c.relowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user)
+ )
+ AND NOT EXISTS(
+  SELECT 1 FROM pg_catalog.pg_proc f
+ WHERE f.oid IN(
+   'economy.unified_poker_assets_read(bigint)'::regprocedure,
+   'economy.guard_quota_transfer()'::regprocedure
+  ) AND f.proowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user)
+ )
+ AND EXISTS(
+  SELECT 1 FROM pg_catalog.pg_proc f
+  WHERE f.oid='economy.unified_poker_assets_read(bigint)'::regprocedure
+   AND f.prosecdef AND f.provolatile='s'
+   AND coalesce(f.proconfig,'{}'::text[]) @> ARRAY['search_path=pg_catalog']
+ )
+ AND NOT EXISTS(
+  SELECT 1 FROM pg_catalog.pg_roles r
+  CROSS JOIN pg_catalog.pg_class c
+  WHERE r.rolname=:'platform_runtime_role'
+   AND c.oid IN('poker.sessions'::regclass,'poker.hands'::regclass,
+    'poker.hand_participants'::regclass,'poker.recovery_state'::regclass)
+   AND (pg_catalog.has_any_column_privilege(r.oid,c.oid,'SELECT')
+    OR pg_catalog.has_table_privilege(r.oid,c.oid,
+     CASE WHEN pg_catalog.current_setting('server_version_num')::integer >= 170000
+      THEN 'DELETE,TRUNCATE,TRIGGER,MAINTAIN'
+      ELSE 'DELETE,TRUNCATE,TRIGGER' END))
+ ) AS economy_attribution_roles_ok \gset
+\if :economy_attribution_roles_ok
+\else
+ DO $$BEGIN RAISE EXCEPTION 'Economy/attribution role separation failed'; END$$;
+\endif
+
+REVOKE ALL ON economy.api_key_purposes,economy.api_key_purpose_events,
+ platform_meta.api_key_purpose_outbox,economy.request_attributions,
+ platform_meta.attribution_checkpoints,rewards.hourly_claims,rewards.relief_claims,
+ economy.active_quota_refill_plans
+ FROM PUBLIC,:"platform_runtime_role",:"poker_runtime_role",:"history_reader_role",:"history_worker_role";
+REVOKE ALL ON FUNCTION economy.unified_poker_assets_read(bigint),economy.guard_quota_transfer()
+ FROM PUBLIC,:"platform_runtime_role",:"poker_runtime_role",:"history_reader_role",:"history_worker_role";
+
+GRANT USAGE ON SCHEMA economy,rewards,platform_meta TO :"platform_runtime_role";
+
+GRANT SELECT ON economy.api_key_purposes,economy.api_key_purpose_events,
+ platform_meta.api_key_purpose_outbox TO :"platform_runtime_role";
+GRANT INSERT(token_id,newapi_user_id,purpose,version,effective_at)
+ ON economy.api_key_purposes TO :"platform_runtime_role";
+GRANT UPDATE(purpose,version,effective_at,updated_at)
+ ON economy.api_key_purposes TO :"platform_runtime_role";
+GRANT INSERT(operation_id,newapi_user_id,token_id,expected_version,version,purpose,effective_at)
+ ON economy.api_key_purpose_events TO :"platform_runtime_role";
+GRANT INSERT(operation_id,newapi_user_id,token_id)
+ ON platform_meta.api_key_purpose_outbox TO :"platform_runtime_role";
+GRANT UPDATE(status,attempt_count,next_attempt_at,last_error_code,synced_at,updated_at)
+ ON platform_meta.api_key_purpose_outbox TO :"platform_runtime_role";
+
+GRANT SELECT ON economy.request_attributions,platform_meta.attribution_checkpoints
+ TO :"platform_runtime_role";
+GRANT INSERT(source_instance_id,source_event_id,logical_request_id,newapi_user_id,token_id,
+ key_purpose_snapshot,purpose_version_snapshot,request_model_id_snapshot,request_model_name_snapshot,
+ request_kind,entered_model_flow,provider_attempt_count,final_status,error_category,charged_raw_quota,
+ requested_at,completed_at)
+ ON economy.request_attributions TO :"platform_runtime_role";
+GRANT INSERT(source_instance_id,last_error_code,fully_caught_up)
+ ON platform_meta.attribution_checkpoints TO :"platform_runtime_role";
+GRANT UPDATE(last_cursor,last_success_at,source_observed_at,fully_caught_up,last_error_code,updated_at)
+ ON platform_meta.attribution_checkpoints TO :"platform_runtime_role";
+
+GRANT SELECT ON rewards.hourly_claims,rewards.relief_claims,economy.active_quota_refill_plans
+ TO :"platform_runtime_role";
+GRANT INSERT(newapi_user_id,reward_hour,business_date,policy_version,amount_units,asset_type,transaction_id)
+ ON rewards.hourly_claims TO :"platform_runtime_role";
+GRANT INSERT(relief_claim_id,newapi_user_id,policy_version,total_assets_units,active_quota_units,
+ reserve_units,available_chips_units,poker_stack_units,poker_pot_units,quota_transfer_in_flight_units,
+ assets_observed_at,native_observed_at,amount_units,asset_type,transaction_id,claimed_at,cooldown_until)
+ ON rewards.relief_claims TO :"platform_runtime_role";
+GRANT INSERT(transfer_id,newapi_user_id,request_id_hash,required_raw_quota,observed_active_raw_quota,
+ low_watermark,target_watermark,max_active_buffer,desired_active_raw_quota,refill_raw_quota)
+ ON economy.active_quota_refill_plans TO :"platform_runtime_role";
+
+-- This SECURITY DEFINER aggregate is the platform's sole Poker asset read.
+GRANT EXECUTE ON FUNCTION economy.unified_poker_assets_read(bigint) TO :"platform_runtime_role";
+COMMIT;
+\else
+ \echo 'No grants applied; supply reviewed roles and apply_grants=true.'
+\endif

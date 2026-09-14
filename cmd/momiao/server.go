@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cy4268/momiao/internal/bffauth"
 	"github.com/cy4268/momiao/internal/nativeself"
 	"io"
 	"log"
@@ -24,27 +26,31 @@ const (
 )
 
 var browserRoutes = map[string]bool{
-	"/":                true,
-	"/login":           true,
-	"/register":        true,
-	"/oauth/discord":   true,
-	"/account":         true,
-	"/welcome":         true,
-	"/sign-in":         true,
-	"/dashboard":       true,
-	"/me":              true,
-	"/rewards":         true,
-	"/wallet":          true,
-	"/wallet/activate": true,
-	"/master-profile":  true,
-	"/games/dice":      true,
-	"/keys":            true,
-	"/logs":            true,
-	"/models":          true,
-	"/api/access":      true,
-	"/ops/models":      true,
-	"/playground":      true,
-	"/admin/channels":  true,
+	"/":                 true,
+	"/login":            true,
+	"/register":         true,
+	"/oauth/discord":    true,
+	"/account":          true,
+	"/account/security": true,
+	"/welcome":          true,
+	"/sign-in":          true,
+	"/sign-up":          true,
+	"/otp":              true,
+	"/dashboard":        true,
+	"/me":               true,
+	"/rewards":          true,
+	"/wallet":           true,
+	"/wallet/activate":  true,
+	"/master-profile":   true,
+	"/games/dice":       true,
+	"/keys":             true,
+	"/logs":             true,
+	"/models":           true,
+	"/rankings":         true,
+	"/api/access":       true,
+	"/ops/models":       true,
+	"/playground":       true,
+	"/admin/channels":   true,
 }
 
 func healthHandler() http.Handler {
@@ -82,8 +88,42 @@ func newServer(cfg config) *http.Server {
 }
 
 func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
+	if cfg.RecoveryLock {
+		return newRecoveryLockedHandler(cfg)
+	}
+	if cfg.maintenanceNotices == nil {
+		cfg.maintenanceNotices = newMaintenanceNoticesHandler(nil, "")
+	}
 	if cfg.WebDir == "" {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/v1/maintenance/notices" {
+				cfg.maintenanceNotices.ServeHTTP(w, r)
+				return
+			}
+			if opsAPIRoute(r.URL.Path) {
+				serveOpsRoute(cfg.ops, w, r)
+				return
+			}
+			if r.URL.Path == "/readyz" {
+				newReadinessHandler(cfg.readiness).ServeHTTP(w, r)
+				return
+			}
+			if r.URL.Path == "/api/v1/rankings" {
+				newRankingsHandler(cfg.rankings, false).ServeHTTP(w, r)
+				return
+			}
+			if historyAPIRoute(r.URL.Path) {
+				cfg.history.ServeHTTP(w, r)
+				return
+			}
+			if sessionAPIRoute(r.URL.Path) {
+				serveSessionRoute(cfg.sessionAuth, w, r)
+				return
+			}
+			if pokerAPIRoute(r.URL.Path) {
+				servePokerRoute(domainHandler(cfg, cfg.poker), w, r)
+				return
+			}
 			if r.URL.Path == "/platform/v1/admission/config" {
 				newAdmissionConfigHandler(false).ServeHTTP(w, r)
 				return
@@ -96,43 +136,94 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				walletError(w, 503, "WALLET_UNAVAILABLE")
 				return
 			}
+			if r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/") {
+				walletError(w, 404, "NOT_FOUND")
+				return
+			}
 			healthHandler().ServeHTTP(w, r)
 		})
 	}
 	if root, err := filepath.EvalSymlinks(cfg.WebDir); err == nil {
 		cfg.WebDir = root
 	}
+	if root, err := filepath.EvalSymlinks(cfg.NativeAuthWebDir); cfg.NativeAuthWebDir != "" && err == nil {
+		cfg.NativeAuthWebDir = root
+	}
 	if transport == nil {
 		transport = newNativeTransport(cfg.NewAPISocket)
 	}
 	proxy := newNativeProxy(transport)
+	readPoker := cfg.pokerCatalogRuntime
+	if !cfg.Poker.Enabled || cfg.poker == nil {
+		readPoker = nil
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		isRelay := strings.HasPrefix(r.URL.Path, "/v1/") || r.URL.Path == "/pg/chat/completions"
 		switch {
+		case opsAPIRoute(r.URL.Path):
+			serveOpsRoute(cfg.ops, w, r)
+		case r.URL.Path == "/api/v1/maintenance/notices":
+			cfg.maintenanceNotices.ServeHTTP(w, r)
+		case r.URL.Path == "/readyz":
+			newReadinessHandler(cfg.readiness).ServeHTTP(w, r)
+		case r.URL.Path == "/api/v1/rankings":
+			newRankingsHandler(cfg.rankings, false).ServeHTTP(w, r)
+		case r.URL.Path == "/api/v1/rankings/me":
+			domainHandler(cfg, newRankingsHandler(cfg.rankings, true)).ServeHTTP(w, r)
+		case r.URL.Path == "/api/v1/usage/rp":
+			domainHandler(cfg, newRPUsageHandler(cfg)).ServeHTTP(w, r)
+		case r.URL.Path == "/platform/v1/key-purposes" || strings.HasPrefix(r.URL.Path, "/platform/v1/key-purposes/"):
+			domainHandler(cfg, newKeyPurposeHandler(cfg.PublicOrigin, cfg.keyPurposes, cfg.nativePurposes, transport)).ServeHTTP(w, r)
+		case historyAPIRoute(r.URL.Path):
+			cfg.history.ServeHTTP(w, r)
+		case sessionAPIRoute(r.URL.Path):
+			serveSessionRoute(cfg.sessionAuth, w, r)
+		case cfg.Session.Enabled && legacyNativeBrowserAuthRoute(r.URL.Path):
+			sessionError(w, bffauth.Fault{Status: http.StatusNotFound, Code: "AUTH_ROUTE_NOT_FOUND"})
+		case cfg.Session.Enabled && strings.HasPrefix(r.URL.Path, nativeTokenWritePath) && (r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete):
+			domainHandler(cfg, newNativeTokenWriteProjectionHandler(transport)).ServeHTTP(w, r)
+		case cfg.Session.Enabled && r.URL.Path == nativeLogProjectionPath:
+			domainHandler(cfg, newNativeLogProjectionHandler(transport)).ServeHTTP(w, r)
+		case cfg.Session.Enabled && r.Method == http.MethodGet && r.URL.Path == nativeTokenListPath:
+			domainHandler(cfg, newNativeTokenListProjectionHandler(transport)).ServeHTTP(w, r)
+		case cfg.Session.Enabled && (r.URL.Path == nativeWorkspaceGroupsPath || r.URL.Path == nativeWorkspaceModelsPath):
+			domainHandler(cfg, newNativeWorkspaceProjectionHandler(transport)).ServeHTTP(w, r)
+		case cfg.Session.Enabled && r.URL.Path == "/api/user/self":
+			domainHandler(cfg, newNativeSelfProjectionHandler(transport)).ServeHTTP(w, r)
+		case pokerAPIRoute(r.URL.Path):
+			servePokerRoute(domainHandler(cfg, cfg.poker), w, r)
+		case r.URL.Path == "/api/v1/games" || strings.HasPrefix(r.URL.Path, "/api/v1/games/") || r.URL.Path == "/api/v1/game-rounds" || strings.HasPrefix(r.URL.Path, "/api/v1/game-rounds/"):
+			domainHandler(cfg, newGameHandler(cfg.PublicOrigin, cfg.games, transport, readPoker)).ServeHTTP(w, r)
 		case path.Clean(r.URL.Path) == "/internal" || strings.HasPrefix(path.Clean(r.URL.Path), "/internal/"):
 			walletError(w, 404, "NOT_FOUND")
 		case r.URL.Path == "/platform/v1/models" || strings.HasPrefix(r.URL.Path, "/platform/v1/models/") || r.URL.Path == "/platform/v1/ops/models" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/models/"):
-			newCatalogHandler(cfg, transport).ServeHTTP(w, r)
+			domainHandler(cfg, newCatalogHandler(cfg, transport)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/announcements/") || r.URL.Path == "/platform/v1/ops/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/announcements/"):
-			newAnnouncementHandler(cfg.PublicOrigin, cfg.announcements, transport).ServeHTTP(w, r)
+			domainHandler(cfg, newAnnouncementHandler(cfg.PublicOrigin, cfg.announcements, transport)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/access-gate" || strings.HasPrefix(r.URL.Path, "/platform/v1/migration-notice"):
-			newAccessGateHandler(cfg.PublicOrigin, cfg.accessGate, cfg.accessDeclaration, transport).ServeHTTP(w, r)
+			domainHandler(cfg, newAccessGateHandler(cfg.PublicOrigin, cfg.accessGate, cfg.accessDeclaration, transport, cfg.Poker.Enabled && cfg.poker != nil)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/admission/config":
 			newAdmissionConfigHandler(cfg.AdmissionEnabled).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/admission" || strings.HasPrefix(r.URL.Path, "/platform/v1/admission/"):
-			newAdmissionHandler(cfg.PublicOrigin, cfg.admission, transport).ServeHTTP(w, r)
+			domainHandler(cfg, newAdmissionHandler(cfg.PublicOrigin, cfg.admission, transport)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/native-quota" || strings.HasPrefix(r.URL.Path, "/platform/v1/quota-transfers"):
-			newQuotaHandler(cfg.PublicOrigin, cfg.transfers, cfg.nativeQuota, transport).ServeHTTP(w, r)
+			domainHandler(cfg, newQuotaHandler(cfg.PublicOrigin, cfg.transfers, cfg.nativeQuota, transport)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/wallet/exchange" || strings.HasPrefix(r.URL.Path, "/platform/v1/rewards/") || strings.HasPrefix(r.URL.Path, "/platform/v1/transactions"):
-			newEconomyHandler(cfg.PublicOrigin, cfg.economy, transport).ServeHTTP(w, r)
+			domainHandler(cfg, newEconomyHandler(cfg.PublicOrigin, cfg.economy, transport)).ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/platform/v1/master-profile"):
-			newProfileHandler(cfg.PublicOrigin, cfg.profile, transport).ServeHTTP(w, r)
+			domainHandler(cfg, newProfileHandler(cfg.PublicOrigin, cfg.profile, transport)).ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/platform/v1/"):
-			newWalletHandler(cfg.PublicOrigin, cfg.wallet, transport).ServeHTTP(w, r)
+			domainHandler(cfg, newWalletHandler(cfg.PublicOrigin, cfg.wallet, transport)).ServeHTTP(w, r)
 		case r.URL.Path == "/healthz":
 			healthHandler().ServeHTTP(w, r)
+		case nativeAuthBrowserRoute(cfg, r):
+			serveNativeAuthIndex(cfg.NativeAuthWebDir, w, r)
+		case cfg.NativeAuthWebDir != "" && strings.HasPrefix(r.URL.Path, "/native-auth/"):
+			serveNativeAuthAsset(cfg.NativeAuthWebDir, w, r)
 		case r.URL.Path == "/api/access":
 			serveWebFile(cfg.WebDir, w, r)
+		case r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/"):
+			walletError(w, 404, "NOT_FOUND")
 		case strings.HasPrefix(r.URL.Path, "/api/") || isRelay:
 			if r.Header.Get("Upgrade") != "" || headerHasToken(r.Header.Get("Connection"), "upgrade") {
 				writeJSONError(w, http.StatusBadRequest, "unsupported protocol upgrade")
@@ -154,6 +245,116 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 			serveWebFile(cfg.WebDir, w, r)
 		}
 	})
+}
+
+func nativeAuthBrowserRoute(cfg config, r *http.Request) bool {
+	if cfg.NativeAuthWebDir == "" || r == nil {
+		return false
+	}
+	switch r.URL.Path {
+	case "/sign-in", "/sign-up", "/otp":
+		return true
+	case "/oauth/discord":
+		return cfg.sessionBridge != nil && cfg.sessionBridge.OwnsNativeUICallback(r)
+	}
+	return false
+}
+
+func serveNativeAuthIndex(root string, w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	file, err := os.Open(filepath.Join(root, "index.html"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 1<<20 {
+		http.NotFound(w, r)
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, 1<<20+1))
+	if err != nil || len(raw) > 1<<20 || bytes.Count(raw, []byte("</head>")) != 1 {
+		http.NotFound(w, r)
+		return
+	}
+	marker := []byte("<meta name=\"chaldea-auth-ui\" content=\"opaque-v1\">\n</head>")
+	raw = bytes.Replace(raw, []byte("</head>"), marker, 1)
+	raw = bytes.Replace(raw, []byte("href=\"/logo.png\""), []byte("href=\"/native-auth/logo.png\""), 1)
+	setIndexHeaders(w)
+	http.ServeContent(w, r, "index.html", info.ModTime(), bytes.NewReader(raw))
+}
+
+func serveNativeAuthAsset(root string, w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	relative := strings.TrimPrefix(r.URL.Path, "/native-auth/")
+	if relative != "logo.png" && relative != "favicon.ico" && !strings.HasPrefix(relative, "static/") || !safeAssetPath("/"+relative) {
+		http.NotFound(w, r)
+		return
+	}
+	name := filepath.Join(root, filepath.FromSlash(relative))
+	resolved, err := filepath.EvalSymlinks(name)
+	if err != nil || !pathWithin(root, resolved) {
+		http.NotFound(w, r)
+		return
+	}
+	file, err := os.Open(resolved)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if contentType := mime.TypeByExtension(filepath.Ext(resolved)); contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	if fingerprinted(filepath.Base(resolved)) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+	}
+	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+}
+
+func serveSessionRoute(handler http.Handler, w http.ResponseWriter, r *http.Request) {
+	if handler == nil {
+		sessionError(w, bffauth.Fault{Status: http.StatusServiceUnavailable, Code: "SESSION_UNAVAILABLE"})
+		return
+	}
+	handler.ServeHTTP(w, r)
+}
+
+func serveOpsRoute(handler http.Handler, w http.ResponseWriter, r *http.Request) {
+	if handler == nil {
+		walletError(w, http.StatusServiceUnavailable, "OPS_UNAVAILABLE")
+		return
+	}
+	handler.ServeHTTP(w, r)
+}
+
+func pokerAPIRoute(path string) bool {
+	return path == "/api/v1/poker" || strings.HasPrefix(path, "/api/v1/poker/") || path == "/ws/poker"
+}
+
+func servePokerRoute(handler http.Handler, w http.ResponseWriter, r *http.Request) {
+	if handler == nil {
+		walletError(w, http.StatusServiceUnavailable, "POKER_UNAVAILABLE")
+		return
+	}
+	handler.ServeHTTP(w, r)
 }
 
 func newNativeTransport(socket string) *http.Transport { return nativeself.NewTransport(socket) }
@@ -182,7 +383,7 @@ func serveWebFile(root string, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if browserRoutes[r.URL.Path] || announcementBrowserRoute(r.URL.Path) || catalogBrowserRoute(r.URL.EscapedPath()) || r.URL.Path == "/index.html" {
+	if browserRoutes[r.URL.Path] || opsBrowserPermission(r.URL.EscapedPath()) != "" || gameBrowserRoute(r.URL.EscapedPath()) || walletTransactionBrowserRoute(r.URL.EscapedPath()) || pokerBrowserRoute(r.URL.EscapedPath()) && r.URL.RawQuery == "" && !r.URL.ForceQuery && r.URL.Fragment == "" || announcementBrowserRoute(r.URL.Path) || catalogBrowserRoute(r.URL.EscapedPath()) || r.URL.Path == "/index.html" {
 		serveIndex(root, w, r)
 		return
 	}
@@ -231,13 +432,17 @@ func serveIndex(root string, w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	setIndexHeaders(w)
+	http.ServeContent(w, r, "index.html", info.ModTime(), file)
+}
+
+func setIndexHeaders(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'")
-	http.ServeContent(w, r, "index.html", info.ModTime(), file)
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'")
 }
 
 func safeAssetPath(name string) bool {

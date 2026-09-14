@@ -1,0 +1,115 @@
+{
+  "table_id": "01a076ce-50d6-7b02-a32f-1ba398d830b8",
+  "name": "Cohort resume",
+  "lifecycle_state": "IN_HAND",
+  "table_version": "7",
+  "max_seats": 3,
+  "small_blind_units": "2500000",
+  "big_blind_units": "5000000",
+  "settings_locked": true,
+  "server_now": "2026-09-06T21:00:27.802139+08:00",
+  "seats": [
+    {
+      "seat_no": 1,
+      "display_name": "Synthetic 910001",
+      "state": "ACTIVE",
+      "is_self": false,
+      "connected": true,
+      "stack_units": "195000000",
+      "street_committed_units": "5000000",
+      "total_committed_units": "5000000",
+      "is_folded": false,
+      "is_all_in": false,
+      "hole_card_count": 2,
+      "hole_cards_released": false,
+      "sit_out_next_hand": false,
+      "leave_after_hand": false,
+      "pending_top_up_units": "0"
+    },
+    {
+      "seat_no": 2,
+      "display_name": "Synthetic 910002",
+      "state": "ACTIVE",
+      "is_self": false,
+      "connected": true,
+      "stack_units": "197500000",
+      "street_committed_units": "2500000",
+      "total_committed_units": "2500000",
+      "is_folded": false,
+      "is_all_in": false,
+      "hole_card_count": 2,
+      "hole_cards_released": false,
+      "sit_out_next_hand": false,
+      "leave_after_hand": false,
+      "pending_top_up_units": "0"
+    }
+  ],
+  "hand": {
+    "hand_id": "01a076ce-5109-7e89-bce4-37b065603bbd",
+    "hand_version": "8",
+    "street": "PREFLOP",
+    "button_seat": 2,
+    "actor_seat": 2,
+    "board_cards": [],
+    "pot_units": "7500000",
+    "pots": [],
+    "action_sequence": "1",
+    "action_deadline_at": "2026-09-06T13:00:57.791538Z",
+    "recovering": false,
+    "server_seed_hash": "8612bcea6cb34826ce70fff9a742fd46670f8fa607c34bdc1a482ae911193f9a",
+    "deck_hash": "e064e8caf7cc810eba47b24ecfcddfaf1a7c69d92c168f1b001c9d0c673f8bf0"
+  },
+  "viewer": {
+    "control_epoch": "0",
+    "can_act": false,
+    "can_top_up": false,
+    "can_leave": false,
+    "can_resume": false,
+    "can_sit_out": false,
+    "can_start": false,
+    "top_up_min_units": "0",
+    "top_up_max_units": "0"
+  },
+  "timeline": {
+    "hand_id": "01a076ce-5109-7e89-bce4-37b065603bbd",
+    "last_sequence": "8",
+    "truncated": false,
+    "events": [
+      {
+        "sequence": "1",
+        "hand_version": "1",
+        "type": "HAND_COMMITTED",
+        "street": "PREFLOP",
+        "occurred_at": "2026-09-06T13:00:27.791538Z"
+      },
+      {
+        "sequence": "2",
+        "hand_version": "2",
+        "type": "POST_SB",
+        "street": "PREFLOP",
+        "seat_no": 2,
+        "delta_units": "2500000",
+        "to_units": "2500000",
+        "occurred_at": "2026-09-06T13:00:27.791538Z"
+      },
+      {
+        "sequence": "3",
+        "hand_version": "3",
+        "type": "POST_BB",
+        "street": "PREFLOP",
+        "seat_no": 1,
+        "delta_units": "5000000",
+        "to_units": "5000000",
+        "occurred_at": "2026-09-06T13:00:27.791538Z"
+      },
+      {
+        "sequence": "8",
+        "hand_version": "8",
+        "type": "ACTOR_CHANGED",
+        "street": "PREFLOP",
+        "seat_no": 2,
+        "occurred_at": "2026-09-06T13:00:27.791538Z"
+      }
+    ]
+  }
+}

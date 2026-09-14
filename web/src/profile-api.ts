@@ -32,6 +32,7 @@ const errors: Record<string, string> = {
     NICKNAME_RESERVED: '昵称属于保留名称，请选择其他昵称。',
     INVALID_NICKNAME: '昵称格式未通过校验。请使用 1–24 个字符的文字、数字及允许的分隔符，不含表情或隐藏字符。',
     RENAME_COOLDOWN: '改名冷却尚未结束，请刷新资料查看下次可改名时间，以服务端校验为准。',
+    MAINTENANCE_ACTIVE: '资料修改正在维护中，请稍后再试；已有资料仍可查看。',
     STALE_RESOURCE_VERSION: '资料版本已更新，正在读取最新资料。请核对后重新编辑，不会自动重放本次修改。',
     INVALID_AVATAR: '头像选项已失效，请刷新资料后使用系统默认头像。',
     PROFILE_UNAVAILABLE: '资料服务暂不可用，请稍后刷新资料；其他门户功能仍可使用。',

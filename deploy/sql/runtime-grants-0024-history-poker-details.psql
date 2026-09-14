@@ -1,0 +1,66 @@
+-- Only the owned Session capability; Poker still has no generic Wallet EXECUTE.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+ \set apply_grants false
+\endif
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+SELECT current_database()=:'database_name' AND EXISTS(
+ SELECT 1 FROM pg_catalog.pg_database d JOIN pg_catalog.pg_roles o ON o.oid=d.datdba
+ WHERE d.datname=current_database() AND o.rolname=current_user AND o.rolname=:'schema_owner'
+  AND NOT o.rolcanlogin
+) AND (SELECT count(*) FROM pg_catalog.pg_roles
+ WHERE rolname IN(:'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role'))=5
+AND NOT EXISTS(
+ SELECT 1 FROM pg_catalog.pg_roles r
+ WHERE r.rolname IN(:'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role')
+  AND (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls
+   OR (r.rolname<>:'schema_owner' AND (NOT r.rolcanlogin OR r.rolinherit))
+   OR EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member=r.oid OR m.roleid=r.oid))
+) AND NOT EXISTS(
+ SELECT 1 FROM pg_catalog.pg_proc f CROSS JOIN LATERAL pg_catalog.aclexplode(coalesce(f.proacl,pg_catalog.acldefault('f',f.proowner))) a
+ WHERE f.oid='poker.history_funding_transactions(bigint,uuid,uuid[])'::regprocedure
+  AND (f.proowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=:'schema_owner')
+   OR a.grantee NOT IN(f.proowner,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=:'poker_runtime_role'))
+   OR (a.grantee<>f.proowner AND a.is_grantable))
+) AND NOT EXISTS(
+ SELECT 1 FROM pg_catalog.pg_roles r CROSS JOIN pg_catalog.pg_proc f
+ WHERE r.rolname IN(:'poker_runtime_role',:'history_reader_role',:'history_worker_role')
+  AND f.oid='economy.history_transaction_read(bigint,uuid)'::regprocedure
+  AND pg_catalog.has_function_privilege(r.oid,f.oid,'EXECUTE')
+) AND NOT EXISTS(
+ SELECT 1 FROM pg_catalog.pg_roles r CROSS JOIN pg_catalog.pg_namespace n
+ WHERE r.rolname IN(:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role')
+  AND n.nspname IN('games','poker','economy','identity','public') AND pg_catalog.has_schema_privilege(r.oid,n.oid,'CREATE')
+) AND NOT EXISTS(
+ SELECT 1 FROM pg_catalog.pg_roles r CROSS JOIN pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+ WHERE r.rolname=:'poker_runtime_role' AND n.nspname='economy' AND c.relkind IN('r','p','v','m','f')
+  AND (pg_catalog.has_any_column_privilege(r.oid,c.oid,'SELECT,INSERT,UPDATE,REFERENCES')
+   OR pg_catalog.has_table_privilege(r.oid,c.oid,'DELETE,TRUNCATE,TRIGGER'))
+) AND NOT EXISTS(
+ SELECT 1 FROM pg_catalog.pg_roles r CROSS JOIN pg_catalog.pg_proc f
+ WHERE r.rolname IN(:'platform_runtime_role',:'poker_runtime_role')
+  AND f.oid IN('games.history_ingest_batch(text,integer)'::regprocedure,'games.history_list(bigint,jsonb)'::regprocedure,
+   'games.history_capture_display()'::regprocedure) AND pg_catalog.has_function_privilege(r.oid,f.oid,'EXECUTE')
+) AND NOT EXISTS(
+ SELECT 1 FROM pg_catalog.pg_roles r CROSS JOIN pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+ WHERE r.rolname IN(:'platform_runtime_role',:'poker_runtime_role') AND n.nspname='games'
+  AND c.relname IN('history_display_snapshots','history_index','history_ingestion_cursors','history_source_rows')
+  AND (pg_catalog.has_any_column_privilege(r.oid,c.oid,'SELECT,INSERT,UPDATE,REFERENCES')
+   OR pg_catalog.has_table_privilege(r.oid,c.oid,'DELETE,TRUNCATE,TRIGGER'))
+) AND NOT EXISTS(
+ SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname IN(:'history_reader_role',:'history_worker_role')
+  AND pg_catalog.has_function_privilege(r.oid,'games.history_record_snapshot(bigint,text,uuid)','EXECUTE')
+) AS poker_history_roles_ok \gset
+\if :poker_history_roles_ok
+\else
+ DO $$BEGIN RAISE EXCEPTION 'Poker history role separation or prior convergence failed'; END$$;
+\endif
+REVOKE ALL ON FUNCTION poker.history_funding_transactions(bigint,uuid,uuid[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION poker.history_funding_transactions(bigint,uuid,uuid[]) TO :"poker_runtime_role";
+COMMIT;
+\else
+ \echo 'No grants applied; supply reviewed roles and apply_grants=true.'
+\endif

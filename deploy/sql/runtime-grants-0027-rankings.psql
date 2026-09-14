@@ -1,0 +1,35 @@
+-- Public snapshots are aggregated by the portal; no raw Poker/History grant.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+ \set apply_grants false
+\endif
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+SELECT current_database()=:'database_name'
+ AND (SELECT datdba FROM pg_catalog.pg_database WHERE datname=current_database())=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user)
+ AND current_user=:'schema_owner'
+ AND (SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN(:'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role'))=5
+ AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname IN(:'schema_owner',:'platform_runtime_role',:'poker_runtime_role',:'history_reader_role',:'history_worker_role')
+  AND (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls
+   OR (r.rolname=:'schema_owner' AND r.rolcanlogin)
+   OR (r.rolname<>:'schema_owner' AND (NOT r.rolcanlogin OR r.rolinherit))
+   OR EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member=r.oid OR m.roleid=r.oid)))
+ AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='rankings' AND c.relowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user))
+ AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_proc f JOIN pg_catalog.pg_namespace n ON n.oid=f.pronamespace WHERE n.nspname='rankings' AND f.proowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user))
+ AS rankings_roles_ok \gset
+\if :rankings_roles_ok
+\else
+ DO $$BEGIN RAISE EXCEPTION 'Rankings role separation failed'; END$$;
+\endif
+REVOKE ALL ON SCHEMA rankings FROM PUBLIC, :"platform_runtime_role", :"poker_runtime_role", :"history_reader_role", :"history_worker_role";
+REVOKE ALL ON ALL TABLES IN SCHEMA rankings FROM PUBLIC, :"platform_runtime_role", :"poker_runtime_role", :"history_reader_role", :"history_worker_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA rankings FROM PUBLIC, :"platform_runtime_role", :"poker_runtime_role", :"history_reader_role", :"history_worker_role";
+GRANT USAGE ON SCHEMA rankings TO :"platform_runtime_role";
+GRANT SELECT,INSERT ON rankings.snapshots,rankings.entries TO :"platform_runtime_role";
+GRANT EXECUTE ON FUNCTION rankings.build_game_entries(uuid),rankings.build_rp_entries(uuid,uuid) TO :"platform_runtime_role";
+COMMIT;
+\else
+ \echo 'No grants applied; supply reviewed roles and apply_grants=true.'
+\endif

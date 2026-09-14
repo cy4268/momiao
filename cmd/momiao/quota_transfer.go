@@ -141,7 +141,7 @@ func newQuotaHandler(origin string, store quotaTransferStore, native nativeQuota
 }
 
 // The bounded background worker owns recovery, not the request or browser.
-func runQuotaWorker(ctx context.Context, store *platform.Store, native *platform.NativeQuota) {
+func runQuotaWorker(ctx context.Context, store *platform.Store, native platform.NativeQuotaOperator) {
 	for {
 		if ctx.Err() != nil {
 			return
@@ -149,7 +149,10 @@ func runQuotaWorker(ctx context.Context, store *platform.Store, native *platform
 		call, cancel := context.WithTimeout(ctx, 5*time.Second)
 		worked, err := store.ProcessQuotaTransfer(call, native)
 		cancel()
-		if worked && err == nil {
+		call, cancel = context.WithTimeout(ctx, 5*time.Second)
+		exchanged, exchangeErr := store.ProcessAPIChipsExchange(call, native)
+		cancel()
+		if (worked || exchanged) && err == nil && exchangeErr == nil {
 			continue
 		}
 		timer := time.NewTimer(2 * time.Second)

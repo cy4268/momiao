@@ -1,0 +1,14 @@
+-- Apply as migration owner after 0010/0011, with a quoted psql runtime_role.
+-- No schema creation, configuration writes, seed-key access, result rewrites,
+-- deletes, or owner membership are given to the application role.
+GRANT USAGE ON SCHEMA games TO :"runtime_role";
+GRANT SELECT ON ALL TABLES IN SCHEMA games TO :"runtime_role";
+GRANT INSERT ON games.client_seed_preferences,games.fairness_nonce_cursors,games.fairness_commitments,games.game_rounds,games.dice_results,games.scratch_results,games.scratch_cells,games.summon_results,games.summon_draws,games.supply_events TO :"runtime_role";
+GRANT UPDATE(client_seed,version) ON games.client_seed_preferences TO :"runtime_role";
+GRANT UPDATE(next_nonce,exhausted) ON games.fairness_nonce_cursors TO :"runtime_role";
+GRANT UPDATE(state,revealed_server_seed) ON games.fairness_commitments TO :"runtime_role";
+GRANT UPDATE(presentation_completed_at) ON games.scratch_results TO :"runtime_role";
+-- Row locking requires UPDATE privilege on at least one column. Metadata and
+-- active pointers themselves remain outside the runtime role's write scope.
+GRANT UPDATE(updated_at) ON games.runtime_gate,games.game_registry TO :"runtime_role";
+GRANT SELECT,INSERT ON games.round_actions TO :"runtime_role";

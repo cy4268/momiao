@@ -23,7 +23,10 @@ describe('native admission session boundary',()=>{
  });
  it('blocks overlapping login and admission completions',async()=>{
   const late=deferred(); const f=vi.fn().mockReturnValue(late.promise); const c=new ApiClient(f);
-  const first=c.admission2fa('synthetic-flow','123456'); await expect(c.login('a','b')).rejects.toThrow(); await expect(c.admission2fa('synthetic-flow','123456')).rejects.toThrow();
+  const first=c.admission2fa('synthetic-flow','123456');
+  const blockedLogin=c.login('a','b'); const blockedAdmission=c.admission2fa('synthetic-flow','123456');
+  expect(blockedLogin).toBeInstanceOf(Promise); expect(blockedAdmission).toBeInstanceOf(Promise);
+  await expect(blockedLogin).rejects.toThrow(); await expect(blockedAdmission).rejects.toThrow();
   late.resolve(ok(bundle)); await first; expect(f).toHaveBeenCalledTimes(1);
  });
  it('updates the native password session while retaining verified user identity',async()=>{
@@ -48,8 +51,8 @@ describe('callback capture and authorized destination',()=>{
   const history={replaceState:vi.fn()}; expect(()=>captureDiscordCallback({pathname:'/oauth/discord',search,hash:''},history)).toThrow(); expect(history.replaceState).toHaveBeenCalledTimes(1);
  });
  it('allows only the actual Discord authorize endpoint and same-origin callback',()=>{
-  const url='https://discord.com/oauth2/authorize?client_id=123456789012345678&redirect_uri=https%3A%2F%2Fportal.example%2Foauth%2Fdiscord&response_type=code&scope=identify&state=synthetic-state';
+  const url='https://discord.com/oauth2/authorize?client_id=123456789012345678&redirect_uri=https%3A%2F%2Fportal.example%2Foauth%2Fdiscord&response_type=code&scope=identify&state=synthetic-state&prompt=consent';
   expect(validateDiscordAuthorization(url,'https://portal.example')).toBe(url);
-  for(const bad of [url.replace('discord.com','discord.com.evil.example'),url.replace('/oauth2/authorize','/invite'),url.replace('portal.example','other.example'),'javascript:alert(1)']) expect(()=>validateDiscordAuthorization(bad,'https://portal.example')).toThrow();
+  for(const bad of [url.replace('discord.com','discord.com.evil.example'),url.replace('/oauth2/authorize','/invite'),url.replace('portal.example','other.example'),'javascript:alert(1)',url.replace('prompt=consent','prompt=none'),url+'&prompt=consent']) expect(()=>validateDiscordAuthorization(bad,'https://portal.example')).toThrow();
  });
 });

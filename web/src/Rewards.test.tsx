@@ -25,6 +25,32 @@ it('claims fixed Shanghai-day rewards only on click, refreshes confirmed status,
     fireEvent.click(nav('我的钱包'));
     expect(await screen.findByRole('button', { name: '今日已领取' })).toBeDisabled();
 });
+it('blocks all reward claims during notice-free maintenance and resumes only after a status refresh', async () => {
+    let maintenance = true;
+    const { client, fetcher } = fixtureClient(p => {
+        if (p === '/platform/v1/rewards/daily') return ok({ ...daily, maintenance_active: maintenance });
+        if (p === '/platform/v1/rewards/relief') return ok({ user_id: '1', amount: '300', amount_units: '150000000', asset: 'RESERVE_API_CREDIT', policy_version: '1', threshold: '10', threshold_units: '5000000', current_total_assets: '0', current_total_assets_units: '0', assets_observed_at: '2026-09-06T00:00:00Z', eligible: true, cooldown_seconds: '14400', next_eligible_at: null, last_transaction_id: null, accumulation: false });
+        if (p === '/api/v1/maintenance/notices') return ok({ items: [] });
+    });
+    await client.bootstrap();
+    render(<MemoryRouter initialEntries={['/rewards']}><App client={client} /></MemoryRouter>);
+    expect(await screen.findByRole('alert')).toHaveTextContent('奖励维护中');
+    expect(screen.queryByRole('status', { name: '维护与服务影响' })).not.toBeInTheDocument();
+    const claims = [
+        await screen.findByRole('button', { name: '领取今日 500 额度' }),
+        await screen.findByRole('button', { name: '领取本小时 100 额度' }),
+        await screen.findByRole('button', { name: '领取 300 救济额度' }),
+    ];
+    claims.forEach(button => { expect(button).toBeDisabled(); fireEvent.click(button); });
+    expect(fetcher.mock.calls.filter(([path, init]) => path.includes('/rewards/') && init?.method === 'POST')).toHaveLength(0);
+    maintenance = false;
+    fireEvent.click(screen.getByRole('button', { name: '重新读取维护状态' }));
+    await waitFor(() => expect(screen.queryByText(/奖励维护中/)).not.toBeInTheDocument());
+    for (const name of ['领取今日 500 额度', '领取本小时 100 额度', '领取 300 救济额度']) {
+        expect(await screen.findByRole('button', { name })).toBeEnabled();
+    }
+    expect(fetcher.mock.calls.filter(([path, init]) => path.includes('/rewards/') && init?.method === 'POST')).toHaveLength(0);
+});
 it('keeps a lost daily request locked from rewards to wallet, reconciles its key without another POST', async () => {
     const { client, fetcher } = fixtureClient(p => {
         if (p.endsWith('/daily/claim')) throw new TypeError('lost');

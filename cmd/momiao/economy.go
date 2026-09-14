@@ -22,6 +22,16 @@ type economyStore interface {
 	FindOperation(context.Context, int64, string, string) (*platform.Transaction, error)
 }
 
+type hourlyRewardStore interface {
+	ReadHourlyReward(context.Context, int64) (platform.HourlyReward, error)
+	ClaimHourlyReward(context.Context, int64, string) (platform.Transaction, error)
+}
+
+type reliefRewardStore interface {
+	ReadReliefReward(context.Context, int64) (platform.ReliefReward, error)
+	ClaimReliefReward(context.Context, int64, string) (platform.Transaction, error)
+}
+
 func decodeStringFields(body io.Reader, fields ...string) (map[string]string, error) {
 	allowed := map[string]bool{}
 	for _, field := range fields {
@@ -101,16 +111,20 @@ func newEconomyHandler(origin string, store economyStore, transport http.RoundTr
 		}
 		path := r.URL.Path
 		exchange := path == "/platform/v1/wallet/exchange"
-		claim := path == "/platform/v1/rewards/daily/claim"
+		dailyClaim := path == "/platform/v1/rewards/daily/claim"
+		hourlyClaim := path == "/platform/v1/rewards/hourly/claim"
+		reliefClaim := path == "/platform/v1/rewards/relief/claim"
 		daily := path == "/platform/v1/rewards/daily"
+		hourly := path == "/platform/v1/rewards/hourly"
+		relief := path == "/platform/v1/rewards/relief"
 		list := path == "/platform/v1/transactions"
 		lookup := path == "/platform/v1/transactions/by-key"
-		if !exchange && !claim && !daily && !list && !lookup {
+		if !exchange && !dailyClaim && !hourlyClaim && !reliefClaim && !daily && !hourly && !relief && !list && !lookup {
 			walletError(w, 404, "NOT_FOUND")
 			return
 		}
 		method := "GET"
-		if exchange || claim {
+		if exchange || dailyClaim || hourlyClaim || reliefClaim {
 			method = "POST"
 		}
 		if r.Method != method {
@@ -152,11 +166,39 @@ func newEconomyHandler(origin string, store economyStore, transport http.RoundTr
 					return
 				}
 				result, err = store.Exchange(ctx, user, body["idempotency_key"], platform.Asset(body["from_asset"]), amount)
-			} else {
+			} else if dailyClaim {
 				result, err = store.ClaimDaily(ctx, user, body["idempotency_key"])
+			} else if hourlyClaim {
+				rewards, ok := store.(hourlyRewardStore)
+				if !ok {
+					walletError(w, http.StatusServiceUnavailable, "REWARDS_UNAVAILABLE")
+					return
+				}
+				result, err = rewards.ClaimHourlyReward(ctx, user, body["idempotency_key"])
+			} else {
+				rewards, ok := store.(reliefRewardStore)
+				if !ok {
+					walletError(w, http.StatusServiceUnavailable, "REWARDS_UNAVAILABLE")
+					return
+				}
+				result, err = rewards.ClaimReliefReward(ctx, user, body["idempotency_key"])
 			}
 		} else if daily {
 			result, err = store.ReadDaily(ctx, user)
+		} else if hourly {
+			rewards, ok := store.(hourlyRewardStore)
+			if !ok {
+				walletError(w, http.StatusServiceUnavailable, "REWARDS_UNAVAILABLE")
+				return
+			}
+			result, err = rewards.ReadHourlyReward(ctx, user)
+		} else if relief {
+			rewards, ok := store.(reliefRewardStore)
+			if !ok {
+				walletError(w, http.StatusServiceUnavailable, "REWARDS_UNAVAILABLE")
+				return
+			}
+			result, err = rewards.ReadReliefReward(ctx, user)
 		} else if lookup {
 			result, err = store.FindOperation(ctx, user, q.Get("kind"), q.Get("key"))
 		} else {
@@ -180,10 +222,20 @@ func newEconomyHandler(origin string, store economyStore, transport http.RoundTr
 		if err != nil {
 			status, code := 503, "ECONOMY_UNAVAILABLE"
 			switch {
+			case errors.Is(err, platform.ErrMaintenanceActive):
+				status, code = http.StatusServiceUnavailable, "MAINTENANCE_ACTIVE"
+			case errors.Is(err, platform.ErrHourlyDailyLimit):
+				status, code = http.StatusConflict, "HOURLY_DAILY_LIMIT"
+			case errors.Is(err, platform.ErrReliefCooldown):
+				status, code = http.StatusConflict, "RELIEF_COOLDOWN"
+			case errors.Is(err, platform.ErrReliefIneligible):
+				status, code = http.StatusConflict, "RELIEF_NOT_ELIGIBLE"
 			case errors.Is(err, platform.ErrInsufficientBalance):
 				status, code = 409, "INSUFFICIENT_BALANCE"
 			case errors.Is(err, platform.ErrIdempotencyConflict):
 				status, code = 409, "IDEMPOTENCY_CONFLICT"
+			case errors.Is(err, platform.ErrTransferPending):
+				status, code = 409, "TRANSFER_PENDING"
 			case errors.Is(err, platform.ErrWalletNotFound):
 				status, code = 409, "WALLET_NOT_INITIALIZED"
 			case errors.Is(err, platform.ErrBalanceOverflow):
@@ -192,6 +244,13 @@ func newEconomyHandler(origin string, store economyStore, transport http.RoundTr
 				status, code = 400, "INVALID_REQUEST"
 			}
 			walletError(w, status, code)
+			return
+		}
+		if receipt, ok := result.(platform.Transaction); ok && exchange && receipt.Kind == "API_CHIPS_EXCHANGE" && (receipt.Status == "PENDING" || receipt.Status == "SOURCE_DEBITED" || receipt.Status == "COMPENSATING") {
+			walletJSON(w, http.StatusAccepted, struct {
+				Success bool `json:"success"`
+				Data    any  `json:"data"`
+			}{true, result})
 			return
 		}
 		walletSuccess(w, result)

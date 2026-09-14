@@ -157,8 +157,10 @@ func (s *Store) runAnnouncementJob(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	defer rollback(tx)
+	if _, err = tx.Exec(ctx, `SELECT ops.lock_write_scopes(ARRAY['ANNOUNCEMENTS_SCHEDULING'])`); err != nil { return false, err }
 	var key, id string
-	err = tx.QueryRow(ctx, `SELECT job_key,announcement_id::text FROM content.announcement_jobs WHERE status='PENDING' AND due_at<=now() ORDER BY due_at,job_key LIMIT 1`).Scan(&key, &id)
+	err = tx.QueryRow(ctx, `SELECT job_key,announcement_id::text FROM content.announcement_jobs WHERE status='PENDING' AND due_at<=now()
+ AND (kind<>'PUBLISH' OR NOT ops.is_maintenance_scope_active('ANNOUNCEMENTS_SCHEDULING')) ORDER BY due_at,job_key LIMIT 1`).Scan(&key, &id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

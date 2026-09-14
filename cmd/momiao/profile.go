@@ -148,6 +148,8 @@ func decodeProfileRequest(body io.Reader, initialize bool) (platform.ProfilePatc
 func writeProfileError(w http.ResponseWriter, err error) {
 	status, code := 503, "PROFILE_UNAVAILABLE"
 	switch {
+	case errors.Is(err, platform.ErrMaintenanceActive):
+		status, code = 503, "MAINTENANCE_ACTIVE"
 	case errors.Is(err, platform.ErrNicknameTaken):
 		status, code = 409, "NICKNAME_TAKEN"
 	case errors.Is(err, platform.ErrStaleProfileVersion):

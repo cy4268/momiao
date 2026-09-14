@@ -17,6 +17,20 @@ import (
 var migrations embed.FS
 var ErrMigrationMismatch = errors.New("migration version or checksum mismatch")
 
+// EmbeddedMigrationChecksums lets explicit deployment tooling compare the full
+// registry to this executable's actual source, including every new migration.
+// It reads embedded bytes only and never opens a database or applies a change.
+func EmbeddedMigrationChecksums() (map[int64]string,error) {
+	files,err:=fs.Glob(migrations,"migrations/*.sql");if err!=nil||len(files)==0{return nil,ErrMigrationMismatch}
+	out:=make(map[int64]string,len(files))
+	for i,file:=range files{
+		name:=strings.TrimPrefix(file,"migrations/");version,err:=strconv.ParseInt(strings.SplitN(name,"_",2)[0],10,64)
+		if err!=nil||version!=int64(i+1){return nil,ErrMigrationMismatch}
+		data,err:=migrations.ReadFile(file);if err!=nil{return nil,err};out[version]=fmt.Sprintf("%x",sha256.Sum256(data))
+	}
+	return out,nil
+}
+
 // Migrate is an explicit administration operation. One transaction and a fixed
 // advisory lock protect the migration registry and all pending schema changes.
 // Runtime startup must not call this method or use the database-owner role.

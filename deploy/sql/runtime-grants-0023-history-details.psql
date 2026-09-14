@@ -1,0 +1,51 @@
+-- Apply AFTER the accepted current-21 application convergence and migration 0023.
+-- H1a reader/worker remain separate; no direct history or Poker Economy access.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+ \set apply_grants false
+\endif
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+SELECT EXISTS(
+ SELECT 1 FROM pg_catalog.pg_roles o,pg_catalog.pg_roles a,pg_catalog.pg_roles p
+ WHERE o.rolname=current_user AND o.rolname=:'schema_owner' AND NOT o.rolcanlogin AND NOT o.rolsuper
+  AND a.rolname=:'platform_runtime_role' AND p.rolname=:'poker_runtime_role' AND a.oid<>p.oid
+  AND a.rolname NOT IN(:'history_reader_role',:'history_worker_role') AND p.rolname NOT IN(:'history_reader_role',:'history_worker_role')
+  AND a.rolcanlogin AND p.rolcanlogin AND NOT a.rolsuper AND NOT p.rolsuper
+  AND NOT a.rolcreatedb AND NOT p.rolcreatedb AND NOT a.rolcreaterole AND NOT p.rolcreaterole
+  AND NOT a.rolreplication AND NOT p.rolreplication AND NOT a.rolbypassrls AND NOT p.rolbypassrls
+  AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members WHERE member IN(a.oid,p.oid))
+  AND NOT pg_catalog.has_function_privilege(p.oid,'economy.history_transaction_read(bigint,uuid)','EXECUTE')
+  AND (SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN(:'history_reader_role',:'history_worker_role'))=2
+  AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles h CROSS JOIN pg_catalog.pg_proc f
+   WHERE h.rolname IN(:'history_reader_role',:'history_worker_role')
+    AND f.oid IN('games.history_record_snapshot(bigint,text,uuid)'::regprocedure,'economy.history_transaction_read(bigint,uuid)'::regprocedure)
+    AND pg_catalog.has_function_privilege(h.oid,f.oid,'EXECUTE'))
+  AND EXISTS(SELECT 1 FROM pg_catalog.pg_database d WHERE d.datname=current_database() AND d.datdba=o.oid)
+  AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_namespace n WHERE n.nspname IN('games','poker','economy','identity','public')
+   AND (pg_catalog.has_schema_privilege(a.oid,n.oid,'CREATE') OR pg_catalog.has_schema_privilege(p.oid,n.oid,'CREATE')))
+  AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_proc f WHERE f.oid IN('games.history_capture_display()'::regprocedure,
+   'games.history_ingest_batch(text,integer)'::regprocedure,'games.history_list(bigint,jsonb)'::regprocedure)
+   AND (pg_catalog.has_function_privilege(a.oid,f.oid,'EXECUTE') OR pg_catalog.has_function_privilege(p.oid,f.oid,'EXECUTE')))
+  AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+   WHERE n.nspname='games' AND c.relname IN('history_display_snapshots','history_index','history_ingestion_cursors','history_source_rows')
+    AND (pg_catalog.has_any_column_privilege(a.oid,c.oid,'SELECT,INSERT,UPDATE,REFERENCES') OR pg_catalog.has_any_column_privilege(p.oid,c.oid,'SELECT,INSERT,UPDATE,REFERENCES')
+     OR pg_catalog.has_table_privilege(a.oid,c.oid,'DELETE,TRUNCATE,TRIGGER') OR pg_catalog.has_table_privilege(p.oid,c.oid,'DELETE,TRUNCATE,TRIGGER')))
+  AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+   WHERE n.nspname='economy' AND c.relkind IN('r','p','v','m','f') AND (pg_catalog.has_any_column_privilege(p.oid,c.oid,'SELECT,INSERT,UPDATE,REFERENCES')
+    OR pg_catalog.has_table_privilege(p.oid,c.oid,'DELETE,TRUNCATE,TRIGGER')))
+) AND current_database()=:'database_name' AS history_detail_roles_ok \gset
+\if :history_detail_roles_ok
+\else
+ DO $$BEGIN RAISE EXCEPTION 'History detail role separation or prior application convergence failed'; END$$;
+\endif
+REVOKE ALL ON FUNCTION games.history_record_snapshot(bigint,text,uuid),economy.history_transaction_read(bigint,uuid) FROM PUBLIC;
+GRANT USAGE ON SCHEMA games TO :"platform_runtime_role",:"poker_runtime_role";
+GRANT EXECUTE ON FUNCTION games.history_record_snapshot(bigint,text,uuid) TO :"platform_runtime_role",:"poker_runtime_role";
+GRANT EXECUTE ON FUNCTION economy.history_transaction_read(bigint,uuid) TO :"platform_runtime_role";
+COMMIT;
+\else
+ \echo 'No grants applied; supply reviewed application roles and apply_grants=true.'
+\endif

@@ -1,0 +1,60 @@
+-- Additive S1 grants. This file neither creates a role nor runs migrations.
+-- Required variables: schema_owner, runtime_role. Default is review-only.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+  \set apply_grants false
+\endif
+
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+
+SELECT EXISTS (
+  SELECT 1
+  FROM pg_catalog.pg_roles runtime, pg_catalog.pg_roles owner
+  WHERE runtime.rolname = :'runtime_role'
+    AND owner.rolname = current_user
+    AND runtime.rolcanlogin
+    AND NOT runtime.rolinherit
+    AND NOT runtime.rolsuper
+    AND NOT runtime.rolcreatedb
+    AND NOT runtime.rolcreaterole
+    AND NOT runtime.rolreplication
+    AND NOT runtime.rolbypassrls
+    AND NOT owner.rolcanlogin
+    AND NOT owner.rolsuper
+    AND NOT pg_catalog.pg_has_role(runtime.oid, owner.oid, 'MEMBER')
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_auth_members memberships
+      WHERE memberships.member = runtime.oid
+    )
+) AS session_role_ok \gset
+
+\if :session_role_ok
+\else
+  DO $$BEGIN RAISE EXCEPTION 'Session runtime role separation failed'; END$$;
+\endif
+
+GRANT USAGE ON SCHEMA identity TO :"runtime_role";
+GRANT SELECT(newapi_user_id,security_epoch,security_epoch_changed_at)
+  ON identity.account_refs TO :"runtime_role";
+GRANT SELECT(session_id_hash,newapi_user_id,session_version,native_auth_version,
+  security_epoch_snapshot,native_created_at)
+  ON identity.native_session_bindings TO :"runtime_role";
+GRANT INSERT(session_id_hash,newapi_user_id,session_version,native_auth_version,
+  security_epoch_snapshot,native_created_at)
+  ON identity.native_session_bindings TO :"runtime_role";
+GRANT UPDATE(session_version,native_auth_version)
+  ON identity.native_session_bindings TO :"runtime_role";
+-- Fresh checks the current operator status and authorization epoch.
+GRANT USAGE ON SCHEMA ops TO :"runtime_role";
+GRANT SELECT(newapi_user_id,status,authz_epoch)
+  ON ops.admin_principals TO :"runtime_role";
+COMMIT;
+\else
+  \echo 'No grants applied; review exact roles and set apply_grants=true.'
+\endif
+
+-- Redis is configured separately. Its ACL must allow only the bounded command
+-- set used by go-redis plus chaldea:session:* and chaldea:bff:* keys.
