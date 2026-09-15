@@ -71,7 +71,7 @@ export function ExtraNotice({ controls, failure, message }: { controls: DirectEx
 }
 
 const paylineRows = [[1,1,1,1,1],[0,0,0,0,0],[2,2,2,2,2],[0,1,2,1,0],[2,1,0,1,2],[0,0,1,2,2],[2,2,1,0,0],[1,0,0,0,1],[1,2,2,2,1],[2,1,1,1,0]];
-const publicPaytable: [SlotSymbol, number, number, number][] = [['L1',4,15,50],['L2',8,25,80],['L3',10,40,150],['M1',15,60,250],['M2',25,100,500],['H1',50,250,1000],['H2',100,500,2500],['W',125,1000,5000]];
+const publicPaytable: [SlotSymbol, number, number, number][] = [['L1',4,15,50],['L2',10,25,80],['L3',10,40,175],['M1',15,60,250],['M2',25,100,500],['H1',50,250,1000],['H2',115,500,2500],['W',125,1000,5000]];
 const paths: Record<SlotSymbol, string> = {
     L1: 'M18 4 29 18 18 32 7 18Z M18 10V26 M12 18H24',
     L2: 'M7 9H29V27H7Z M18 4V32 M4 18H32',
@@ -114,6 +114,6 @@ export function SlotGame(props: SlotGameProps) {
             </aside>
         </div>
         {result && <div className={`extra-result is-${result.result_class.toLowerCase()}`} role="status" aria-label="本局结算"><strong>{resultNames[result.result_detail]}</strong><dl><div><dt>本局总下注</dt><dd>{formatChipUnits(result.total_wager_units)}</dd></div><div><dt>总派彩（含返还）</dt><dd>{formatChipUnits(result.total_payout_units)}</dd></div><div><dt>净变化 · 筹码</dt><dd>{formatChipUnits(result.net_change_units, true)}</dd></div></dl></div>}
-        <div className="extra-utilities"><details><summary>奖表与固定规则</summary><p>从左向右至少 3 连；Wild 替代普通符号或按自身奖表，只支付同线最高解释。倍数基于每线下注，不叠加同线 3 / 4 / 5 连。</p><table><caption>slot-paytable-v1 · 总派彩倍数</caption><thead><tr><th>符号</th><th>3 连</th><th>4 连</th><th>5 连</th></tr></thead><tbody>{publicPaytable.map(([symbol, ...values]) => <tr key={symbol}><th>{symbol}</th>{values.map((value, i) => <td key={i}>{value}×</td>)}</tr>)}</tbody></table><p>slot-strips-v1 / slot-paylines-v1。完整卷轴、配置及数学验证记录请查看公平详情。</p></details><div className="extra-links">{props.onFairness && <button type="button" onClick={props.onFairness}>公平详情</button>}{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div>{props.roundID && <p className="extra-round-id">Round · {props.roundID}</p>}</div>
+        <div className="extra-utilities"><details><summary>奖表与固定规则</summary><p>从左向右至少 3 连；Wild 替代普通符号或按自身奖表，只支付同线最高解释。倍数基于每线下注，不叠加同线 3 / 4 / 5 连。</p><table><caption>slot-paytable-v2 · 总派彩倍数</caption><thead><tr><th>符号</th><th>3 连</th><th>4 连</th><th>5 连</th></tr></thead><tbody>{publicPaytable.map(([symbol, ...values]) => <tr key={symbol}><th>{symbol}</th>{values.map((value, i) => <td key={i}>{value}×</td>)}</tr>)}</tbody></table><p>slot-strips-v1 / slot-paylines-v1。完整卷轴、配置及数学验证记录请查看公平详情。</p></details><div className="extra-links">{props.onFairness && <button type="button" onClick={props.onFairness}>公平详情</button>}{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div>{props.roundID && <p className="extra-round-id">Round · {props.roundID}</p>}</div>
     </section>;
 }

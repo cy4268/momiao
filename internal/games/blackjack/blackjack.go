@@ -105,6 +105,7 @@ type State struct {
 	AutoResolveAt      time.Time
 	TotalStakeUnits    int64
 	TotalPayoutUnits   int64
+	FairReturnUnits    int64
 	NetChangeUnits     int64
 	Class              string
 }
@@ -522,6 +523,7 @@ type Projection struct {
 	AutoResolveAt      time.Time    `json:"auto_resolve_at"`
 	TotalStakeUnits    int64        `json:"total_stake_units,string"`
 	TotalPayoutUnits   int64        `json:"total_payout_units,string"`
+	FairReturnUnits    int64        `json:"fair_return_units,string"`
 	NetChangeUnits     int64        `json:"net_change_units,string"`
 	Class              string       `json:"result_class,omitempty"`
 }
@@ -529,7 +531,7 @@ type Projection struct {
 // PublicView is an independent safe snapshot. Amounts and round_version use
 // decimal JSON strings. The service adds its common round/fairness projection.
 func PublicView(s State, availableUnits int64) Projection {
-	p := Projection{Phase: s.Phase, Version: s.Version, ActiveHandID: s.ActiveHandID, DealerRevealed: s.DealerRevealed, LegalActions: LegalActions(s, availableUnits), LastPlayerActionAt: s.LastPlayerActionAt, AutoResolveAt: s.AutoResolveAt, TotalStakeUnits: s.TotalStakeUnits, TotalPayoutUnits: s.TotalPayoutUnits, NetChangeUnits: s.NetChangeUnits, Class: s.Class}
+	p := Projection{Phase: s.Phase, Version: s.Version, ActiveHandID: s.ActiveHandID, DealerRevealed: s.DealerRevealed, LegalActions: LegalActions(s, availableUnits), LastPlayerActionAt: s.LastPlayerActionAt, AutoResolveAt: s.AutoResolveAt, TotalStakeUnits: s.TotalStakeUnits, TotalPayoutUnits: s.TotalPayoutUnits, FairReturnUnits: s.FairReturnUnits, NetChangeUnits: s.NetChangeUnits, Class: s.Class}
 	for _, h := range s.Hands {
 		ph := PublicHand{ID: h.ID, Index: h.Index, StakeUnits: h.StakeUnits, Status: h.Status, Value: h.Value, Natural: h.Natural, Result: h.Result, PayoutUnits: h.PayoutUnits, NetChangeUnits: h.NetChangeUnits}
 		for _, c := range h.Cards {

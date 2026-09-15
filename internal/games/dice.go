@@ -66,7 +66,11 @@ func RollDice(seed []byte, r FairRound, c Config, choice DiceSide) (DiceResult, 
 		}
 		dice[i] = uint8(n + 1)
 	}
-	return EvaluateDice(dice, choice)
+	result, err := EvaluateDice(dice, choice)
+	if err == nil && result.Triple && c.binding.RulesetVersion == "dice-rules-v2" {
+		result.Reward = reward(1, 1)
+	}
+	return result, err
 }
 
 // EvaluateDice classifies already specified faces for auditing and enumeration.

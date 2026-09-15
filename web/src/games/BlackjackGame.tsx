@@ -14,7 +14,7 @@ export interface BlackjackProjectionDTO {
     phase: 'PLAYER_TURN' | 'SETTLED'; round_version: string; active_hand_id: string; hands: BlackjackHandDTO[];
     dealer_cards: number[]; dealer_revealed: boolean; dealer_total?: BlackjackValueDTO;
     legal_actions: BlackjackActionType[] | null; last_player_action_at: string; auto_resolve_at: string;
-    total_stake_units: string; total_payout_units: string; net_change_units: string; result_class?: 'LOSS' | 'BREAK_EVEN' | 'WIN';
+    total_stake_units: string; total_payout_units: string; fair_return_units?: string; net_change_units: string; result_class?: 'LOSS' | 'BREAK_EVEN' | 'WIN';
 }
 export interface BlackjackCommand { hand_id: string; action_type: BlackjackActionType; expected_round_version: string }
 export interface BlackjackGameProps extends DirectExtraControls {
@@ -73,7 +73,7 @@ export function BlackjackGame(props: BlackjackGameProps) {
                 {s?.phase === 'PLAYER_TURN' && <p className="extra-deadline">长期未操作处理时间<br /><time dateTime={s.auto_resolve_at}>{new Date(s.auto_resolve_at).toLocaleString('zh-CN', { hour12: false })}</time><small>最后一次成功行动后 24 小时，由服务端处理；这里没有短促决策倒计时。</small></p>}
             </aside>
         </div>
-        {s?.phase === 'SETTLED' && <div className={`extra-result is-${s.result_class?.toLowerCase() || 'loss'}`} role="status" aria-label="本局结算"><strong>{s.result_class === 'WIN' ? '净盈利' : s.result_class === 'BREAK_EVEN' ? '回本' : '净亏损'}</strong><dl><div><dt>总下注</dt><dd>{formatChipUnits(s.total_stake_units)}</dd></div><div><dt>总派彩（含返还）</dt><dd>{formatChipUnits(s.total_payout_units)}</dd></div><div><dt>整局净变化 · 筹码</dt><dd>{formatChipUnits(s.net_change_units, true)}</dd></div></dl></div>}
-        <div className="extra-utilities"><details><summary>六副牌与固定规则</summary><p>每局重新确定六副牌牌序；美式暗牌与预检查；庄家软 17 停牌（S17）。原始未分牌的两张 Natural Blackjack 支付 3:2；分牌后的 21 为普通 21。</p><p>允许任意两张加倍、分牌后加倍（DAS）、同点值分牌及非 A 再分，最多 4 手。分 A 后每手仅补一张并自动完成。无保险、投降、边注或策略提示。RTP 需依已验证规则与参考策略报告，不在这里填写估计百分比。</p></details><div className="extra-links">{props.onFairness && <button type="button" onClick={props.onFairness}>公平详情</button>}{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div>{props.roundID && <p className="extra-round-id">Round · {props.roundID} · v{s?.round_version || '—'}</p>}</div>
+        {s?.phase === 'SETTLED' && <div className={`extra-result is-${s.result_class?.toLowerCase() || 'loss'}`} role="status" aria-label="本局结算"><strong>{s.result_class === 'WIN' ? '净盈利' : s.result_class === 'BREAK_EVEN' ? '回本' : '净亏损'}</strong><dl><div><dt>总下注</dt><dd>{formatChipUnits(s.total_stake_units)}</dd></div><div><dt>公平返还</dt><dd>{formatChipUnits(s.fair_return_units || '0')}</dd></div><div><dt>总派彩（含返还）</dt><dd>{formatChipUnits(s.total_payout_units)}</dd></div><div><dt>整局净变化 · 筹码</dt><dd>{formatChipUnits(s.net_change_units, true)}</dd></div></dl></div>}
+        <div className="extra-utilities"><details><summary>六副牌与固定规则</summary><p>每局重新确定六副牌牌序；美式暗牌与预检查；庄家软 17 停牌（S17）。原始未分牌的两张 Natural Blackjack 支付 3:2；分牌后的 21 为普通 21。</p><p>允许任意两张加倍、分牌后加倍（DAS）、同点值分牌及非 A 再分，最多 4 手。分 A 后每手仅补一张并自动完成。无保险、投降、边注或策略提示。结算时按初始下注返还 0.37079%，原子单位尾数由独立公平随机流取整，使已验证参考策略的长期净期望为 0；具体操作仍会影响个人结果。</p></details><div className="extra-links">{props.onFairness && <button type="button" onClick={props.onFairness}>公平详情</button>}{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div>{props.roundID && <p className="extra-round-id">Round · {props.roundID} · v{s?.round_version || '—'}</p>}</div>
     </section>;
 }

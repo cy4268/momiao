@@ -28,12 +28,13 @@ type BlackjackAuditAction struct {
 	AdditionalStake int64         `json:"additional_stake_units,string"`
 }
 type BlackjackAudit struct {
-	Shoe          [312]uint16            `json:"shoe_instance_ids"`
-	ShoeHash      string                 `json:"shoe_hash"`
-	InitialHandID string                 `json:"initial_hand_id"`
-	InitialWager  int64                  `json:"initial_wager_units,string"`
-	CreatedAt     time.Time              `json:"created_at"`
-	Actions       []BlackjackAuditAction `json:"actions"`
+	Shoe            [312]uint16            `json:"shoe_instance_ids"`
+	ShoeHash        string                 `json:"shoe_hash"`
+	InitialHandID   string                 `json:"initial_hand_id"`
+	InitialWager    int64                  `json:"initial_wager_units,string"`
+	FairReturnUnits int64                  `json:"fair_return_units,string"`
+	CreatedAt       time.Time              `json:"created_at"`
+	Actions         []BlackjackAuditAction `json:"actions"`
 }
 
 func blackjackShoe(seed []byte, fair FairRound) ([312]uint16, error) {
@@ -51,7 +52,7 @@ func nullableTime(t time.Time) any {
 }
 
 func persistBlackjackState(ctx context.Context, tx pgx.Tx, id string, s bj.State) error {
-	_, err := tx.Exec(ctx, `INSERT INTO games.blackjack_round_state(round_id,initial_hand_id,initial_wager_units,shoe_hash,shoe_index,round_version,active_hand_id,dealer_revealed,last_player_action_at,auto_resolve_at) VALUES($1,$2,$3,decode($4,'hex'),$5,$6,NULLIF($7,'')::uuid,$8,$9,$10) ON CONFLICT(round_id) DO UPDATE SET shoe_index=excluded.shoe_index,round_version=excluded.round_version,active_hand_id=excluded.active_hand_id,dealer_revealed=excluded.dealer_revealed,last_player_action_at=excluded.last_player_action_at,auto_resolve_at=excluded.auto_resolve_at`, id, s.InitialHandID, s.InitialWagerUnits, s.ShoeHash, s.ShoeIndex, s.Version, s.ActiveHandID, s.DealerRevealed, nullableTime(s.LastPlayerActionAt), nullableTime(s.AutoResolveAt))
+	_, err := tx.Exec(ctx, `INSERT INTO games.blackjack_round_state(round_id,initial_hand_id,initial_wager_units,shoe_hash,shoe_index,round_version,active_hand_id,dealer_revealed,last_player_action_at,auto_resolve_at,fair_return_units) VALUES($1,$2,$3,decode($4,'hex'),$5,$6,NULLIF($7,'')::uuid,$8,$9,$10,$11) ON CONFLICT(round_id) DO UPDATE SET shoe_index=excluded.shoe_index,round_version=excluded.round_version,active_hand_id=excluded.active_hand_id,dealer_revealed=excluded.dealer_revealed,last_player_action_at=excluded.last_player_action_at,auto_resolve_at=excluded.auto_resolve_at,fair_return_units=excluded.fair_return_units`, id, s.InitialHandID, s.InitialWagerUnits, s.ShoeHash, s.ShoeIndex, s.Version, s.ActiveHandID, s.DealerRevealed, nullableTime(s.LastPlayerActionAt), nullableTime(s.AutoResolveAt), s.FairReturnUnits)
 	if err != nil {
 		return err
 	}
@@ -88,7 +89,7 @@ func loadBlackjackState(ctx context.Context, tx pgx.Tx, r GameRound) (bj.State, 
 		s.Class = string(r.Outcome)
 	}
 	var last, due *time.Time
-	err := tx.QueryRow(ctx, `SELECT initial_hand_id::text,initial_wager_units,encode(shoe_hash,'hex'),shoe_index,round_version,coalesce(active_hand_id::text,''),dealer_revealed,last_player_action_at,auto_resolve_at FROM games.blackjack_round_state WHERE round_id=$1`, r.ID).Scan(&s.InitialHandID, &s.InitialWagerUnits, &s.ShoeHash, &s.ShoeIndex, &s.Version, &s.ActiveHandID, &s.DealerRevealed, &last, &due)
+	err := tx.QueryRow(ctx, `SELECT initial_hand_id::text,initial_wager_units,encode(shoe_hash,'hex'),shoe_index,round_version,coalesce(active_hand_id::text,''),dealer_revealed,last_player_action_at,auto_resolve_at,fair_return_units FROM games.blackjack_round_state WHERE round_id=$1`, r.ID).Scan(&s.InitialHandID, &s.InitialWagerUnits, &s.ShoeHash, &s.ShoeIndex, &s.Version, &s.ActiveHandID, &s.DealerRevealed, &last, &due, &s.FairReturnUnits)
 	if err != nil {
 		return s, err
 	}
@@ -166,50 +167,79 @@ func loadBlackjackState(ctx context.Context, tx pgx.Tx, r GameRound) (bj.State, 
 	return s, err
 }
 
-func (s *Service) recoverBlackjack(ctx context.Context, tx pgx.Tx, user int64, r GameRound) (bj.State, [312]uint16, []byte, error) {
+func (s *Service) recoverBlackjack(ctx context.Context, tx pgx.Tx, user int64, r GameRound) (bj.State, [312]uint16, []byte, FairRound, error) {
 	var shoe [312]uint16
+	var fair FairRound
 	if r.RecoveryState != "NORMAL" {
-		return bj.State{}, shoe, nil, bj.ErrNeedsReview
+		return bj.State{}, shoe, nil, fair, bj.ErrNeedsReview
 	}
 	state, err := loadBlackjackState(ctx, tx, r)
 	if err != nil {
-		return state, shoe, nil, err
+		return state, shoe, nil, fair, err
 	}
 	c, err := scanCommitment(tx.QueryRow(ctx, `SELECT `+commitmentColumns+` FROM games.fairness_commitments WHERE commitment_id=$1 AND newapi_user_id=$2`, r.CommitmentID, user))
 	if err != nil {
-		return state, shoe, nil, err
+		return state, shoe, nil, fair, err
 	}
 	cfg, err := configByID(ctx, tx, "blackjack", r.ConfigVersion)
 	if err != nil {
-		return state, shoe, nil, err
+		return state, shoe, nil, fair, err
 	}
 	var key string
 	var nonce, encrypted []byte
 	if err = tx.QueryRow(ctx, `SELECT key_version,gcm_nonce,ciphertext FROM games.fairness_commitments WHERE commitment_id=$1`, c.ID).Scan(&key, &nonce, &encrypted); err != nil {
-		return state, shoe, nil, err
+		return state, shoe, nil, fair, err
 	}
 	seed, err := s.openSeed(user, "blackjack", c, key, nonce, encrypted)
 	if err != nil {
-		return state, shoe, nil, bj.ErrNeedsReview
+		return state, shoe, nil, fair, bj.ErrNeedsReview
 	}
-	fair, err := fairnessInput("blackjack", c)
+	fair, err = fairnessInput("blackjack", c)
 	if err != nil {
-		return state, shoe, nil, bj.ErrNeedsReview
+		return state, shoe, nil, fair, bj.ErrNeedsReview
 	}
 	if err = cfg.checkRound(fair, "blackjack"); err != nil {
-		return state, shoe, nil, bj.ErrNeedsReview
+		return state, shoe, nil, fair, bj.ErrNeedsReview
 	}
 	if r.ConfigHash != c.ConfigHash || r.PolicyHash != c.PolicyHash || r.Nonce != c.Nonce {
-		return state, shoe, nil, bj.ErrNeedsReview
+		return state, shoe, nil, fair, bj.ErrNeedsReview
 	}
 	shoe, err = blackjackShoe(seed, fair)
 	if err != nil {
-		return state, shoe, nil, bj.ErrNeedsReview
+		return state, shoe, nil, fair, bj.ErrNeedsReview
+	}
+	if state.Phase != bj.Settled {
+		if err = bj.VerifyRecovery(state, shoe); err != nil {
+			return state, shoe, nil, fair, err
+		}
+		return state, shoe, seed, fair, nil
+	}
+	storedFairReturn := state.FairReturnUnits
+	if storedFairReturn < 0 || storedFairReturn > state.TotalPayoutUnits {
+		return state, shoe, nil, fair, bj.ErrNeedsReview
+	}
+	state.FairReturnUnits = 0
+	state.TotalPayoutUnits -= storedFairReturn
+	state.NetChangeUnits -= storedFairReturn
+	switch {
+	case state.NetChangeUnits < 0:
+		state.Class = "LOSS"
+	case state.NetChangeUnits == 0:
+		state.Class = "BREAK_EVEN"
+	default:
+		state.Class = "WIN"
 	}
 	if err = bj.VerifyRecovery(state, shoe); err != nil {
-		return state, shoe, nil, err
+		return state, shoe, nil, fair, err
 	}
-	return state, shoe, seed, nil
+	expected, err := blackjackFairReturn(seed, fair, cfg.binding.RulesetVersion, state.InitialWagerUnits)
+	if err != nil || expected != storedFairReturn || r.PayoutUnits != state.TotalPayoutUnits+expected || r.NetUnits != state.NetChangeUnits+expected {
+		return state, shoe, nil, fair, bj.ErrNeedsReview
+	}
+	if err = addBlackjackFairReturn(&state, expected); err != nil {
+		return state, shoe, nil, fair, err
+	}
+	return state, shoe, seed, fair, nil
 }
 func markBlackjackReview(ctx context.Context, tx pgx.Tx, r GameRound) error {
 	if r.State == "PLAYER_TURN" && r.RecoveryState == "NORMAL" {
@@ -223,7 +253,7 @@ func markBlackjackReview(ctx context.Context, tx pgx.Tx, r GameRound) error {
 	return nil
 }
 func (s *Service) publicBlackjack(ctx context.Context, tx pgx.Tx, user int64, r *GameRound) error {
-	state, _, _, err := s.recoverBlackjack(ctx, tx, user, *r)
+	state, _, _, _, err := s.recoverBlackjack(ctx, tx, user, *r)
 	if errors.Is(err, bj.ErrNeedsReview) {
 		if e := markBlackjackReview(ctx, tx, *r); e != nil {
 			return e
@@ -243,7 +273,7 @@ func (s *Service) publicBlackjack(ctx context.Context, tx pgx.Tx, user int64, r 
 	return nil
 }
 func blackjackAudit(state bj.State, shoe [312]uint16) *BlackjackAudit {
-	a := &BlackjackAudit{Shoe: shoe, ShoeHash: state.ShoeHash, InitialHandID: state.InitialHandID, InitialWager: state.InitialWagerUnits, CreatedAt: state.CreatedAt, Actions: []BlackjackAuditAction{}}
+	a := &BlackjackAudit{Shoe: shoe, ShoeHash: state.ShoeHash, InitialHandID: state.InitialHandID, InitialWager: state.InitialWagerUnits, FairReturnUnits: state.FairReturnUnits, CreatedAt: state.CreatedAt, Actions: []BlackjackAuditAction{}}
 	for _, record := range state.Actions {
 		v := record.Action
 		a.Actions = append(a.Actions, BlackjackAuditAction{v.ID, v.Type, v.HandID, v.NewHandID, v.ExpectedVersion, record.Sequence, record.At, record.AdditionalStakeUnits})

@@ -289,7 +289,7 @@ func (s *Service) verifyRound(ctx context.Context, user int64, id string, histor
 			return nil
 		}
 		if round.Game == "blackjack" {
-			state, shoe, seed, err := s.recoverBlackjack(ctx, tx, user, round)
+			state, shoe, seed, _, err := s.recoverBlackjack(ctx, tx, user, round)
 			if err != nil {
 				return err
 			}

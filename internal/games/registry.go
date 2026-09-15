@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/cy4268/momiao/internal/games/blackjack"
+	"github.com/cy4268/momiao/internal/games/slot"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -15,10 +17,37 @@ import (
 func loadConfigVersion(slug, version string, canonical []byte) (Config, error) {
 	switch slug {
 	case "dice":
+		var payload struct {
+			TripleRule string `json:"triple_rule"`
+		}
+		if json.Unmarshal(canonical, &payload) != nil {
+			return Config{}, ErrInvalidConfig
+		}
+		if payload.TripleRule == "PUSH" {
+			return DiceV2(version)
+		}
 		return DiceV1(version)
 	case "slot":
+		var payload struct {
+			PaytableVersion string `json:"paytable_version"`
+		}
+		if json.Unmarshal(canonical, &payload) != nil {
+			return Config{}, ErrInvalidConfig
+		}
+		if payload.PaytableVersion == slot.FairPaytableVersion {
+			return SlotV2(version)
+		}
 		return SlotV1(version)
 	case "blackjack":
+		var payload struct {
+			FairReturnVersion string `json:"fair_return_version"`
+		}
+		if json.Unmarshal(canonical, &payload) != nil {
+			return Config{}, ErrInvalidConfig
+		}
+		if payload.FairReturnVersion == blackjack.FairReturnVersion {
+			return BlackjackV2(version)
+		}
 		return BlackjackV1(version)
 	case "scratch", "summon":
 		var payload struct {
@@ -70,9 +99,15 @@ func expectedResources(c Config) []byte {
 		resources["reel_strip_version"] = "slot-strips-v1"
 		resources["payline_version"] = "slot-paylines-v1"
 		resources["paytable_version"] = "slot-paytable-v1"
+		if b.RulesetVersion == "slot-rules-v2" {
+			resources["paytable_version"] = slot.FairPaytableVersion
+		}
 	}
 	if b.Game == "blackjack" {
 		resources["shuffle_algorithm_version"] = "blackjack-fy-v1"
+		if b.RulesetVersion == blackjack.FairRulesetVersion {
+			resources["fair_return_version"] = blackjack.FairReturnVersion
+		}
 	}
 	data, _ := json.Marshal(resources)
 	return data

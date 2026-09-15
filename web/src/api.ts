@@ -670,7 +670,8 @@ export class ApiClient {
 }
 function configuredSessionMode(): SessionMode {
     const value = import.meta.env.VITE_MOMIAO_SESSION_MODE;
-    if (value === undefined || value === '' || value === 'native') return 'native';
+    if (value === undefined || value === '') return import.meta.env.PROD ? 'opaque' : 'native';
+    if (value === 'native') return 'native';
     if (value === 'opaque') return 'opaque';
     throw new Error('VITE_MOMIAO_SESSION_MODE must be native or opaque');
 }

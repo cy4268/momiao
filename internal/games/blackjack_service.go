@@ -11,6 +11,7 @@ import (
 	"time"
 
 	bj "github.com/cy4268/momiao/internal/games/blackjack"
+	"github.com/cy4268/momiao/internal/games/fairness"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/jackc/pgx/v5"
 )
@@ -27,6 +28,49 @@ func lockedChips(ctx context.Context, tx pgx.Tx, user int64) (int64, int64, int6
 		err = platform.ErrWalletNotFound
 	}
 	return balance, sequence, version, err
+}
+
+func blackjackFairReturn(seed []byte, fair FairRound, ruleset string, wager int64) (int64, error) {
+	if ruleset != bj.FairRulesetVersion {
+		return 0, nil
+	}
+	bonus := (wager / bj.FairReturnDenominator) * bj.FairReturnNumerator
+	scaledRemainder := (wager % bj.FairReturnDenominator) * bj.FairReturnNumerator
+	bonus += scaledRemainder / bj.FairReturnDenominator
+	fraction := scaledRemainder % bj.FairReturnDenominator
+	if fraction == 0 {
+		return bonus, nil
+	}
+	stream, err := fairness.NewStream(seed, fair, bj.FairReturnDomain)
+	if err != nil {
+		return 0, err
+	}
+	draw, err := fairness.UniformInt(stream, uint64(bj.FairReturnDenominator))
+	if err != nil {
+		return 0, err
+	}
+	if draw < uint64(fraction) {
+		bonus++
+	}
+	return bonus, nil
+}
+
+func addBlackjackFairReturn(state *bj.State, bonus int64) error {
+	if state.Phase != bj.Settled || bonus < 0 || state.FairReturnUnits != 0 || state.TotalPayoutUnits > math.MaxInt64-bonus {
+		return bj.ErrNeedsReview
+	}
+	state.FairReturnUnits = bonus
+	state.TotalPayoutUnits += bonus
+	state.NetChangeUnits += bonus
+	switch {
+	case state.NetChangeUnits < 0:
+		state.Class = "LOSS"
+	case state.NetChangeUnits == 0:
+		state.Class = "BREAK_EVEN"
+	default:
+		state.Class = "WIN"
+	}
+	return nil
 }
 func (s *Service) createBlackjack(ctx context.Context, user int64, key, commitmentID string, input CreateInput) (GameRound, error) {
 	var r GameRound
@@ -60,7 +104,10 @@ func (s *Service) createBlackjack(ctx context.Context, user int64, key, commitme
 			return e
 		}
 		if err := platform.RequireNoMaintenance(ctx, tx, "CHALDEA_USER_WRITES", "DIRECT_PLAY_NEW_ROUNDS"); err != nil {
-			if errors.Is(err, platform.ErrMaintenanceActive) { return ErrMaintenance }; return err
+			if errors.Is(err, platform.ErrMaintenanceActive) {
+				return ErrMaintenance
+			}
+			return err
 		}
 		var active bool
 		if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM games.game_rounds WHERE newapi_user_id=$1 AND game_slug='blackjack' AND state='PLAYER_TURN')`, user).Scan(&active); e != nil {
@@ -135,6 +182,15 @@ func (s *Service) createBlackjack(ctx context.Context, user int64, key, commitme
 		state, e := bj.New(shoe, n.TotalStake, handID, now)
 		if e != nil {
 			return e
+		}
+		if state.Phase == bj.Settled {
+			bonus, e := blackjackFairReturn(seed, fair, runtime.Config.binding.RulesetVersion, state.InitialWagerUnits)
+			if e != nil {
+				return e
+			}
+			if e = addBlackjackFairReturn(&state, bonus); e != nil {
+				return e
+			}
 		}
 		if _, e = tx.Exec(ctx, `UPDATE games.fairness_commitments SET state='CONSUMED' WHERE commitment_id=$1`, c.ID); e != nil {
 			return e
@@ -296,7 +352,7 @@ func (s *Service) BlackjackAction(ctx context.Context, user int64, id string, in
 			refused = bj.ErrNeedsReview
 			return nil
 		}
-		state, shoe, seed, e := s.recoverBlackjack(ctx, tx, user, r)
+		state, shoe, seed, fair, e := s.recoverBlackjack(ctx, tx, user, r)
 		if e != nil {
 			return e
 		}
@@ -304,7 +360,7 @@ func (s *Service) BlackjackAction(ctx context.Context, user int64, id string, in
 		if e != nil {
 			return e
 		}
-		if available > math.MaxInt64-state.InitialWagerUnits*16 || seq > math.MaxInt64-2 || version > math.MaxInt64-2 {
+		if available > math.MaxInt64-state.InitialWagerUnits*17 || seq > math.MaxInt64-2 || version > math.MaxInt64-2 {
 			return platform.ErrBalanceOverflow
 		}
 		if action.Type == bj.Split {
@@ -320,6 +376,15 @@ func (s *Service) BlackjackAction(ctx context.Context, user int64, id string, in
 		transition, e := bj.Apply(state, shoe, action, available, now)
 		if e != nil {
 			return e
+		}
+		if transition.State.Phase == bj.Settled {
+			bonus, fairErr := blackjackFairReturn(seed, fair, r.Ruleset, transition.State.InitialWagerUnits)
+			if fairErr != nil {
+				return fairErr
+			}
+			if fairErr = addBlackjackFairReturn(&transition.State, bonus); fairErr != nil {
+				return fairErr
+			}
 		}
 		stakeTx := ""
 		if transition.AdditionalStakeUnits > 0 {

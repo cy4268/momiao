@@ -14,6 +14,12 @@ const (
 	ConfigSchemaVersion           = "blackjack-config-v1"
 	ShuffleAlgorithmVersion       = "blackjack-fy-v1"
 	ShuffleDomain                 = "blackjack:shuffle"
+	FairRulesetVersion            = "blackjack-rules-v2"
+	FairConfigSchemaVersion       = "blackjack-config-v2"
+	FairReturnVersion             = "blackjack-fair-return-v1"
+	FairReturnDomain              = "blackjack:fair-return:v1"
+	FairReturnNumerator     int64 = 37_079
+	FairReturnDenominator   int64 = 10_000_000
 	UnitsPerChip            int64 = 500_000
 	MaxHands                      = 4
 )

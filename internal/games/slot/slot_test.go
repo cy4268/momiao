@@ -61,7 +61,7 @@ func TestFrozenStripsAndPaytable(t *testing.T) {
 		{[5]Symbol{L1, L1, L1, L1, L1}, L1, 5, 50},
 		{[5]Symbol{L2, L3, L3, L3, L3}, "", 0, 0},
 	} {
-		got := evaluateLine(tc.line)
+		got := evaluateLine(tc.line, FrozenConfig())
 		if got.Symbol != tc.symbol || got.MatchLength != tc.length || got.Multiplier != tc.multiplier {
 			t.Fatalf("%v: %+v", tc.line, got)
 		}

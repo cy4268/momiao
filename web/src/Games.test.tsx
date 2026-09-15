@@ -84,13 +84,47 @@ it('unknown HTTP outcome survives refresh and reconciles without another POST',a
     await waitFor(()=>expect(screen.getByLabelText('本局结果')).toHaveTextContent('净赢'));
     expect(create).toHaveBeenCalledTimes(1);
 });
-it('refuses invalid or unaffordable wagers without calling create',async()=>{
-    const create=vi.spyOn(gameAPI,'createGame');show();await screen.findByRole('button',{name:'掷骰'});
+it('unlocks an unaccepted pending blackjack deal when bootstrap still owns its commitment',async()=>{
+    const pending={key:'01993200-0000-7000-8000-000000000003',commitment,input:{type:'BLACKJACK' as const,initial_wager:'100'}};
+    sessionStorage.setItem(gameAPI.pendingStorage('1','blackjack'),JSON.stringify(pending));
+    vi.spyOn(gameAPI,'findPendingGame').mockResolvedValue(null);
+    vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,game:{...bootstrap.game,slug:'blackjack',config:undefined},available_units:'200000000'});
+    render(<MemoryRouter><GamePage client={client} userID="1" slug="blackjack"/></MemoryRouter>);
+    await waitFor(()=>expect(sessionStorage.getItem(gameAPI.pendingStorage('1','blackjack'))).toBeNull());
+    expect(screen.getByRole('button',{name:'Deal · 100 筹码'})).toBeEnabled();
+    expect(screen.getByText('服务器确认原下注未受理，已解除锁定。')).toBeVisible();
+});
+it('refuses invalid or unaffordable wagers without calling create while keeping a settled blackjack wager editable',async()=>{
+    const create=vi.spyOn(gameAPI,'createGame');const dice=show();await screen.findByRole('button',{name:'掷骰'});
     for(const value of ['9','10.5','-10','1e2','1001']) {
         fireEvent.change(screen.getByLabelText('基础下注（筹码）'),{target:{value}});
         expect(screen.getByRole('button',{name:'掷骰'})).toBeDisabled();
     }
+    dice.unmount();
+    const settled={...result,game:'blackjack',input:{type:'BLACKJACK',initial_wager:'500'},total_stake_units:'250000000',total_payout_units:'0',net_change_units:'-250000000',common_result:'LOSS',balance_before_units:'300000000',balance_after_units:'50000000',dice:undefined,blackjack:{phase:'SETTLED',round_version:'2',active_hand_id:'',hands:[{hand_id:id,hand_index:0,cards:[7,20],stake_units:'250000000',hand_state:'BUST',value:{hard_total:26,best_total:26,is_soft:false},is_natural:false,result:'BUST',payout_units:'0',net_change_units:'-250000000'}],dealer_cards:[4,5],dealer_revealed:true,dealer_total:{hard_total:11,best_total:21,is_soft:true},legal_actions:[],last_player_action_at:'2026-09-06T10:00:00Z',auto_resolve_at:'2026-09-07T10:00:00Z',total_stake_units:'250000000',total_payout_units:'0',net_change_units:'-250000000',result_class:'LOSS'}} as GameRound;
+    vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,game:{...bootstrap.game,slug:'blackjack',config:undefined},available_units:'50000000',latest_round:settled});
+    render(<MemoryRouter><GamePage client={client} userID="1" slug="blackjack"/></MemoryRouter>);
+    const input=await screen.findByLabelText('初始下注 · 筹码');
+    await waitFor(()=>expect(input).toHaveValue('500'));
+    expect(input).toBeEnabled();expect(screen.getByRole('button',{name:'Deal · 500 筹码'})).toBeDisabled();
+    fireEvent.change(input,{target:{value:'9'}});
+    expect(input).toBeEnabled();expect(screen.getByRole('button',{name:'Deal · — 筹码'})).toBeDisabled();
+    fireEvent.change(input,{target:{value:'100'}});
+    expect(input).toBeEnabled();expect(screen.getByRole('button',{name:'Deal · 100 筹码'})).toBeEnabled();
     expect(create).not.toHaveBeenCalled();
+});
+it('keeps the pre-purchase scratch balance visible until reveal completes',async()=>{
+    vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockReturnValue(null);
+    const scratch={...result,game:'scratch',input:{type:'SCRATCH',wager:'100'},total_stake_units:'50000000',total_payout_units:'0',net_change_units:'-50000000',common_result:'LOSS',balance_before_units:'500000000',balance_after_units:'450000000',dice:undefined,scratch:{tier:'LOSS',cells:Array.from({length:9},()=>({symbol:'P1',matching:false})),reward:{cost_multiplier:'1',payout_multiplier:'0',outcome:'LOSS'}}} as GameRound;
+    const completed={...scratch,presentation_completed_at:'2026-09-06T10:01:00Z'};
+    vi.mocked(gameAPI.readGameBootstrap).mockResolvedValueOnce({...bootstrap,game:{...bootstrap.game,slug:'scratch',config:undefined},available_units:'450000000',latest_round:scratch,scratch_presentation_blocker:scratch,effective_entry_action:'RESUME',next_commitment:null}).mockResolvedValue({...bootstrap,game:{...bootstrap.game,slug:'scratch',config:undefined},available_units:'450000000',latest_round:completed});
+    vi.spyOn(client,'request').mockResolvedValue(completed);
+    render(<MemoryRouter><GamePage client={client} userID="1" slug="scratch"/></MemoryRouter>);
+    const balance=()=>screen.getByText('可用筹码').parentElement!;
+    await waitFor(()=>expect(within(balance()).getByText('1,000')).toBeVisible());
+    expect(within(balance()).queryByText('900')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'立即揭晓'}));
+    await waitFor(()=>expect(within(balance()).getByText('900')).toBeVisible());
 });
 it('disables each quick amount by its total cost, including tenfold',async()=>{
     const summonBoot={...bootstrap,game:{...bootstrap.game,slug:'summon'},available_units:'1500000000'};

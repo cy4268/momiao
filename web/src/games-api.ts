@@ -58,7 +58,7 @@ export function wagerCost(wager:string,mode='SINGLE',game:GameSlug='summon'):big
     if(!/^\d{1,19}$/.test(wager))return null;
     const base=BigInt(wager);if(base<10n)return null;
     const multiplier=mode==='TENFOLD'?10n:1n;
-    const maximumPayoutMultiplier=game==='dice'?2n:game==='slot'?5164n:game==='blackjack'?16n:100n;
+    const maximumPayoutMultiplier=game==='dice'?2n:game==='slot'?5164n:game==='blackjack'?17n:100n;
     const divisor=game==='slot'?10n:1n;
     if(base*500000n>max||base*500000n/divisor>max/maximumPayoutMultiplier/multiplier)return null;
     return base*500000n*multiplier;
@@ -84,13 +84,13 @@ export function parseRound(raw:unknown):GameRound {
     if(blackjack&&r.recovery_state==='NORMAL'){
         const b=r.blackjack,card=(n:number)=>Number.isInteger(n)&&n>=0&&n<52;
         if(!b||b.phase!==r.state||units(b.round_version)<1n||!Array.isArray(b.hands)||b.hands.length<1||b.hands.length>4||!Array.isArray(b.dealer_cards)||b.dealer_cards.some(n=>!card(n))||b.dealer_revealed!==settled||(!settled&&b.dealer_cards.length!==1)||(settled&&b.dealer_cards.length<2))throw bad();
-        let sum=0n;const ids=new Set<string>(),indices=new Set<number>();
+        let sum=0n,handPayout=0n;const ids=new Set<string>(),indices=new Set<number>();
         for(const h of b.hands){
             if(!uuid.test(h.hand_id)||ids.has(h.hand_id)||!Number.isInteger(h.hand_index)||h.hand_index<0||h.hand_index>7||indices.has(h.hand_index)||!Array.isArray(h.cards)||h.cards.length<2||h.cards.some(n=>!card(n))||!['ACTIVE','STOOD','BUST','DOUBLED_COMPLETE','SPLIT_ACES_COMPLETE','NATURAL_COMPLETE'].includes(h.hand_state)||!h.value||!Number.isInteger(h.value.best_total)||!Number.isInteger(h.value.hard_total)||typeof h.value.is_soft!=='boolean')throw bad();
-            ids.add(h.hand_id);indices.add(h.hand_index);const hs=units(h.stake_units),hp=units(h.payout_units),hn=units(h.net_change_units,true);if(hs<=0n||(settled&&hn!==hp-hs))throw bad();sum+=hs;
+            ids.add(h.hand_id);indices.add(h.hand_index);const hs=units(h.stake_units),hp=units(h.payout_units),hn=units(h.net_change_units,true);if(hs<=0n||(settled&&hn!==hp-hs))throw bad();sum+=hs;handPayout+=hp;
         }
-        const legal=b.legal_actions||[];
-        if(legal.some(a=>!['HIT','STAND','DOUBLE','SPLIT'].includes(a))||(!settled&&!b.hands.some(h=>h.hand_id===b.active_hand_id&&h.hand_state==='ACTIVE'))||(settled&&(b.active_hand_id!==''||legal.length!==0))||sum!==stake||units(b.total_stake_units)!==stake||units(b.total_payout_units)!==payout||(settled&&(units(b.net_change_units,true)!==net||b.result_class!==r.common_result)))throw bad();
+        const legal=b.legal_actions||[],fairReturn=units(b.fair_return_units||'0');
+        if(legal.some(a=>!['HIT','STAND','DOUBLE','SPLIT'].includes(a))||(!settled&&!b.hands.some(h=>h.hand_id===b.active_hand_id&&h.hand_state==='ACTIVE'))||(settled&&(b.active_hand_id!==''||legal.length!==0))||sum!==stake||units(b.total_stake_units)!==stake||units(b.total_payout_units)!==payout||(!settled&&fairReturn!==0n)||(settled&&(handPayout+fairReturn!==payout||units(b.net_change_units,true)!==net||b.result_class!==r.common_result)))throw bad();
     }
     return r;
 }

@@ -50,7 +50,7 @@ func TestExtraWagerExactUnits(t *testing.T) {
 		maximum int64
 	}{
 		{"slot", CreateInput{Type: "SLOT", TotalWager: "11"}, 550000 * 5164},
-		{"blackjack", CreateInput{Type: "BLACKJACK", InitialWager: "11"}, 5500000 * 16},
+		{"blackjack", CreateInput{Type: "BLACKJACK", InitialWager: "11"}, 5500000 * 17},
 	} {
 		n, err := normalizeCreate(tc.slug, tc.input)
 		if err != nil || n.Base != 5500000 || n.TotalStake != 5500000 || n.MaxPayout != tc.maximum {

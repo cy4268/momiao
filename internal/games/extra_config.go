@@ -11,6 +11,16 @@ import (
 func SlotV1(version string) (Config, error) {
 	f := slot.FrozenConfig()
 	c := Config{binding: ConfigBinding{Game: "slot", Version: version, AlgorithmVersion: slot.AlgorithmVersion, RulesetVersion: slot.RulesetVersion, SchemaVersion: slot.ConfigSchemaVersion}}
+	return slotConfig(c, f)
+}
+
+func SlotV2(version string) (Config, error) {
+	f := slot.FairConfig()
+	c := Config{binding: ConfigBinding{Game: "slot", Version: version, AlgorithmVersion: slot.AlgorithmVersion, RulesetVersion: slot.FairRulesetVersion, SchemaVersion: slot.FairConfigSchemaVersion}}
+	return slotConfig(c, f)
+}
+
+func slotConfig(c Config, f slot.Config) (Config, error) {
 	return sealConfig(c, map[string]any{
 		"reel_strip_version": f.ReelStripVersion, "payline_version": f.PaylineVersion, "paytable_version": f.PaytableVersion,
 		"symbols": f.Symbols, "reel_strips": f.ReelStrips, "paylines": f.Paylines, "paytable": f.Paytable,
@@ -21,7 +31,16 @@ func SlotV1(version string) (Config, error) {
 
 func BlackjackV1(version string) (Config, error) {
 	c := Config{binding: ConfigBinding{Game: "blackjack", Version: version, AlgorithmVersion: blackjack.AlgorithmVersion, RulesetVersion: blackjack.RulesetVersion, SchemaVersion: blackjack.ConfigSchemaVersion}}
-	return sealConfig(c, map[string]any{
+	return blackjackConfig(c, false)
+}
+
+func BlackjackV2(version string) (Config, error) {
+	c := Config{binding: ConfigBinding{Game: "blackjack", Version: version, AlgorithmVersion: blackjack.AlgorithmVersion, RulesetVersion: blackjack.FairRulesetVersion, SchemaVersion: blackjack.FairConfigSchemaVersion}}
+	return blackjackConfig(c, true)
+}
+
+func blackjackConfig(c Config, fair bool) (Config, error) {
+	payload := map[string]any{
 		"deck_count": 6, "card_count": 312, "card_encoding": "DECK_TIMES_52_PLUS_SUIT_TIMES_13_PLUS_RANK",
 		"shuffle_algorithm_version": blackjack.ShuffleAlgorithmVersion, "shoe_model": "FRESH_PER_ROUND",
 		"initial_deal_order": []string{"PLAYER", "DEALER_UP", "PLAYER", "DEALER_HOLE"},
@@ -32,5 +51,13 @@ func BlackjackV1(version string) (Config, error) {
 		"split_aces_draw_count": 1, "resplit_aces": false,
 		"insurance": false, "even_money": false, "surrender": false, "side_bets": false,
 		"inactivity_hours": 24, "inactivity_action": "SYSTEM_AUTO_STAND",
-	})
+	}
+	if fair {
+		payload["fair_return_version"] = blackjack.FairReturnVersion
+		payload["fair_return_basis"] = "INITIAL_WAGER"
+		payload["fair_return_numerator"] = blackjack.FairReturnNumerator
+		payload["fair_return_denominator"] = blackjack.FairReturnDenominator
+		payload["fair_return_rounding"] = "DOMAIN_SEPARATED_UNBIASED_ATOMIC"
+	}
+	return sealConfig(c, payload)
 }

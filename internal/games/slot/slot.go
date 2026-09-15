@@ -9,14 +9,17 @@ import (
 )
 
 const (
-	ImplementationKey         = "direct.slot.v1"
-	RulesetVersion            = "slot-rules-v1"
-	AlgorithmVersion          = "slot-map-v1"
-	ConfigSchemaVersion       = "slot-config-v1"
-	ReelStripVersion          = "slot-strips-v1"
-	PaylineVersion            = "slot-paylines-v1"
-	PaytableVersion           = "slot-paytable-v1"
-	UnitsPerChip        int64 = 500_000
+	ImplementationKey             = "direct.slot.v1"
+	RulesetVersion                = "slot-rules-v1"
+	AlgorithmVersion              = "slot-map-v1"
+	ConfigSchemaVersion           = "slot-config-v1"
+	ReelStripVersion              = "slot-strips-v1"
+	PaylineVersion                = "slot-paylines-v1"
+	PaytableVersion               = "slot-paytable-v1"
+	FairRulesetVersion            = "slot-rules-v2"
+	FairConfigSchemaVersion       = "slot-config-v2"
+	FairPaytableVersion           = "slot-paytable-v2"
+	UnitsPerChip            int64 = 500_000
 	// Maximum sum of line multipliers for the frozen strips (516.4 x wager).
 	MaxRoundLineMultiplier int64 = 5164
 )
@@ -65,6 +68,17 @@ func FrozenConfig() Config {
 	}
 }
 
+// FairConfig changes only three paytable cells. Exact enumeration across all
+// 32^5 stop tuples yields total payout equal to total wager (RTP 1/1).
+func FairConfig() Config {
+	c := FrozenConfig()
+	c.PaytableVersion = FairPaytableVersion
+	c.Paytable[1][0] = 10  // L2, 3 connected
+	c.Paytable[2][2] = 175 // L3, 5 connected
+	c.Paytable[6][0] = 115 // H2, 3 connected
+	return c
+}
+
 type LineResult struct {
 	LineNumber     int    `json:"line_number"`
 	Symbol         Symbol `json:"interpreted_symbol"`
@@ -101,6 +115,14 @@ func validateWager(wager int64) error {
 // Spin draws once per independently bound domain; sample must implement shared
 // IS-06 UniformInt. It never falls back to a local or client random generator.
 func Spin(wagerUnits int64, sample func(domain string, n uint32) (uint32, error)) (Result, error) {
+	return spin(wagerUnits, sample, FrozenConfig())
+}
+
+func SpinFair(wagerUnits int64, sample func(domain string, n uint32) (uint32, error)) (Result, error) {
+	return spin(wagerUnits, sample, FairConfig())
+}
+
+func spin(wagerUnits int64, sample func(domain string, n uint32) (uint32, error), c Config) (Result, error) {
 	if e := validateWager(wagerUnits); e != nil {
 		return Result{}, e
 	}
@@ -118,16 +140,23 @@ func Spin(wagerUnits int64, sample func(domain string, n uint32) (uint32, error)
 		}
 		stops[i] = int(n)
 	}
-	return Resolve(wagerUnits, stops)
+	return resolve(wagerUnits, stops, c)
 }
 
 // Resolve is deterministic and uses exact atomic-unit arithmetic. It emits all
 // ten line records, including zeros, in the frozen order.
 func Resolve(wagerUnits int64, stops [5]int) (Result, error) {
+	return resolve(wagerUnits, stops, FrozenConfig())
+}
+
+func ResolveFair(wagerUnits int64, stops [5]int) (Result, error) {
+	return resolve(wagerUnits, stops, FairConfig())
+}
+
+func resolve(wagerUnits int64, stops [5]int, c Config) (Result, error) {
 	if e := validateWager(wagerUnits); e != nil {
 		return Result{}, e
 	}
-	c := FrozenConfig()
 	r := Result{Stops: stops, TotalWagerUnits: wagerUnits, LineStakeUnits: wagerUnits / 10}
 	for reel, stop := range stops {
 		if stop < 0 || stop >= 32 {
@@ -142,7 +171,7 @@ func Resolve(wagerUnits int64, stops [5]int) (Result, error) {
 		for reel, row := range line {
 			values[reel] = r.Grid[reel][row]
 		}
-		result := evaluateLine(values)
+		result := evaluateLine(values, c)
 		result.LineNumber = i + 1
 		result.LineStakeUnits = r.LineStakeUnits
 		if result.Multiplier > 0 && r.LineStakeUnits > math.MaxInt64/result.Multiplier {
@@ -173,8 +202,7 @@ func Resolve(wagerUnits int64, stops [5]int) (Result, error) {
 	return r, nil
 }
 
-func evaluateLine(values [5]Symbol) LineResult {
-	c := FrozenConfig()
+func evaluateLine(values [5]Symbol, c Config) LineResult {
 	var best LineResult
 	for i, symbol := range c.Symbols {
 		count := 0

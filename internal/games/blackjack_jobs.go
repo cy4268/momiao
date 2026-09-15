@@ -102,7 +102,7 @@ func (s *Service) processBlackjackJob(ctx context.Context, id, kind string, now 
 		if r.RecoveryState != "NORMAL" {
 			return nil
 		}
-		state, shoe, seed, err := s.recoverBlackjack(ctx, tx, user, r)
+		state, shoe, seed, fair, err := s.recoverBlackjack(ctx, tx, user, r)
 		if err != nil {
 			return err
 		}
@@ -121,12 +121,21 @@ func (s *Service) processBlackjackJob(ctx context.Context, id, kind string, now 
 		if err != nil {
 			return err
 		}
-		if available > math.MaxInt64-state.InitialWagerUnits*16 || seq == math.MaxInt64 || version == math.MaxInt64 {
+		if available > math.MaxInt64-state.InitialWagerUnits*17 || seq == math.MaxInt64 || version == math.MaxInt64 {
 			return platform.ErrBalanceOverflow
 		}
 		transition, err := bj.AutoResolve(state, shoe, now, func(string) (string, error) { return newUUID() })
 		if err != nil {
 			return err
+		}
+		if transition.State.Phase == bj.Settled {
+			bonus, fairErr := blackjackFairReturn(seed, fair, r.Ruleset, transition.State.InitialWagerUnits)
+			if fairErr != nil {
+				return fairErr
+			}
+			if fairErr = addBlackjackFairReturn(&transition.State, bonus); fairErr != nil {
+				return fairErr
+			}
 		}
 		if err = persistBlackjackState(ctx, tx, id, transition.State); err != nil {
 			return err

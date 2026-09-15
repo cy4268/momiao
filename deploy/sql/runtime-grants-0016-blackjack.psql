@@ -1,6 +1,6 @@
 GRANT SELECT,INSERT ON games.blackjack_round_state,games.blackjack_hands,games.blackjack_cards,games.round_jobs TO :"runtime_role";
 GRANT UPDATE(state,recovery_state,total_stake_units,total_payout_units,net_change_units,common_result,balance_after_units,settlement_transaction_id,settled_at) ON games.game_rounds TO :"runtime_role";
-GRANT UPDATE(shoe_index,round_version,active_hand_id,dealer_revealed,last_player_action_at,auto_resolve_at) ON games.blackjack_round_state TO :"runtime_role";
+GRANT UPDATE(shoe_index,round_version,active_hand_id,dealer_revealed,last_player_action_at,auto_resolve_at,fair_return_units) ON games.blackjack_round_state TO :"runtime_role";
 GRANT UPDATE(stake_units,from_split,split_aces,is_natural,hand_state,hard_total,best_total,is_soft,result,payout_units,net_change_units) ON games.blackjack_hands TO :"runtime_role";
 GRANT UPDATE(hand_id) ON games.blackjack_cards TO :"runtime_role";
 GRANT UPDATE(run_at,status,attempts,last_error,updated_at) ON games.round_jobs TO :"runtime_role";

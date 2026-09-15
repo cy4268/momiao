@@ -73,6 +73,9 @@ func (c Config) Statistics() (Statistics, error) {
 	}
 	if c.binding.Game == "dice" {
 		wins := c.diceCounts[0]
+		if c.binding.RulesetVersion == "dice-rules-v2" {
+			return Statistics{big.NewRat(2*wins+c.diceCounts[2], 216), big.NewRat(wins, 216), big.NewRat(c.diceCounts[2], 216), big.NewRat(wins, 216), new(big.Rat)}, nil
+		}
 		return Statistics{big.NewRat(2*wins, 216), big.NewRat(216-wins, 216), new(big.Rat), big.NewRat(wins, 216), new(big.Rat)}, nil
 	}
 	var payout, loss, even, win, top int64
@@ -98,9 +101,19 @@ func (c Config) Statistics() (Statistics, error) {
 // and 11..17, both choices lose to triples, win total payout 2x. Construction
 // exhaustively validates all 216 outcomes as required by TD §303 / IS §268.
 func DiceV1(version string) (Config, error) {
+	return diceConfig(version, "dice-rules-v1", "BOTH_LOSE")
+}
+
+// DiceV2 keeps the same 3d6 mapping and 2x win payout, but returns the wager
+// on the six triple outcomes. That makes either choice exactly zero-edge.
+func DiceV2(version string) (Config, error) {
+	return diceConfig(version, "dice-rules-v2", "PUSH")
+}
+
+func diceConfig(version, ruleset, tripleRule string) (Config, error) {
 	c := Config{binding: ConfigBinding{
 		Game: "dice", Version: version, AlgorithmVersion: DiceAlgorithm,
-		RulesetVersion: "dice-rules-v1", SchemaVersion: "dice-config-v1",
+		RulesetVersion: ruleset, SchemaVersion: "dice-config-v1",
 	}}
 	for a := uint8(1); a <= 6; a++ {
 		for b := uint8(1); b <= 6; b++ {
@@ -122,7 +135,7 @@ func DiceV1(version string) (Config, error) {
 	payload := map[string]any{
 		"allowed_choices": []string{"BIG", "SMALL"},
 		"big_range":       [2]int{11, 17}, "small_range": [2]int{4, 10},
-		"dice_count": 3, "faces_per_die": 6, "triple_rule": "BOTH_LOSE",
+		"dice_count": 3, "faces_per_die": 6, "triple_rule": tripleRule,
 		"win_total_payout_multiplier": 2,
 	}
 	return sealConfig(c, payload)

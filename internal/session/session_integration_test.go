@@ -208,7 +208,7 @@ func TestF4Baseline(t *testing.T) {
 	f4Check(t, patSelf["id"] == float64(1), "actual valid Native dashboard PAT positive control")
 	for name, bad := range map[string]NativeCredential{
 		"bogus signature":       {"1", "f4actor1", sid, strings.Join(strings.Split(token, ".")[:2], ".") + "." + strings.Repeat("a", 43)},
-		"PAT-shaped credential": {"1", "f4actor1", sid, "sk-f4-personal-access-token"},
+		"PAT-shaped credential": {"1", "f4actor1", sid, "test-access-token-placeholder-0001"},
 		"actual valid PAT":      {"1", "f4actor1", sid, pat},
 		"wrong actor":           {"2", "f4actor2", sid, token},
 		"wrong SID":             {"1", "f4actor1", "00000000-0000-0000-0000-000000000001", token},

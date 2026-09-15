@@ -84,6 +84,7 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
             }
             if(reconcile){
                 if(recovered){if(slug!=='blackjack')setRound(recovered);setPending(null);sessionStorage.removeItem(pendingStorage(userID,slug));setNotice('已从历史恢复原局，没有再次下注。');}
+                else if(b.next_commitment?.id===reconcile.commitment){setPending(null);sessionStorage.removeItem(pendingStorage(userID,slug));setNotice('服务器确认原下注未受理，已解除锁定。');}
                 else{setPending(reconcile);setRetryReady(true);setNotice('尚未找到已受理的局。可以使用原请求重试，核对前不会生成新请求。');}
             }
             if(reconcileAction){
@@ -98,10 +99,10 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
         try{stored=readPending(userID,slug);setPending(stored);if(slug==='blackjack'){action=readBlackjackAction(userID);setPendingAction(action);}}catch(error){setStorageBlocked(true);setNotice(gameError(error));}
         void load(stored,action);return()=>{live.current=false;loadVersion.current++;};
     },[client,userID,slug]);
-    const cost=wagerCost(wager,slug==='summon'?mode:'SINGLE',slug);
-    const available=bootstrap?units(bootstrap.available_units):null;
-    const invalid=slug==='dice'&&!choice?'请先选择大或小。':cost===null?'最低下注 10 筹码，只接受整数筹码。':available!==null&&cost>available?'可用筹码不足。':'';
     const revealIncomplete=slug==='scratch'&&round?.scratch&&!round.presentation_completed_at;
+    const cost=wagerCost(wager,slug==='summon'?mode:'SINGLE',slug);
+    const available=bootstrap?units(revealIncomplete&&round?round.balance_before_units:bootstrap.available_units):null;
+    const invalid=slug==='dice'&&!choice?'请先选择大或小。':cost===null?'最低下注 10 筹码，只接受整数筹码。':available!==null&&cost>available?'可用筹码不足。':'';
     const actionBlocked=busy||loading||!!pending||!!pendingAction||storageBlocked||!bootstrap||round?.recovery_state==='NEEDS_REVIEW';
     const activeBlackjack=slug==='blackjack'&&round?.state==='PLAYER_TURN';
     const blocked=actionBlocked||bootstrap?.game.effective_runtime!=='PLAY'||!bootstrap?.next_commitment||!!revealIncomplete||activeBlackjack;
@@ -155,8 +156,8 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
         {pending&&<div className="game-recovery" role="status"><p>有一笔下注等待核对，新下注已暂停。</p><button onClick={()=>void load(pending)} disabled={busy||loading}>核对本局</button>{retryReady&&<button onClick={()=>void play(pending)} disabled={busy}>使用原请求重试</button>}</div>}
         {pendingAction&&<div className="game-recovery" role="status"><p>有一次行动等待核对，其他行动已暂停。</p><button disabled={busy||loading} onClick={()=>void load(pending,pendingAction)}>核对本次行动</button>{actionRetryReady&&<button disabled={busy||loading} onClick={()=>void performAction(pendingAction.input,pendingAction)}>重试原行动</button>}</div>}
         {round?.recovery_state==='NEEDS_REVIEW'&&<Alert>本局状态需要核对，已暂停行动。请保留本局编号并联系管理员。</Alert>}
-        {slug==='blackjack'?<BlackjackGame snapshot={round?.blackjack||null} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending||!!pendingAction} disabledReason={activeBlackjack?(actionBlocked?'请先恢复当前状态。':null):(blocked?'请先恢复当前状态。':invalid||null)} roundID={round?.id} onDeal={async()=>{await play()}} onAction={command=>performAction(command)} onRecover={()=>void load(pending,pendingAction)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={round?()=>navigate('/history/rounds/'+round.id):undefined}/>:null}
-        {slug==='blackjack'?null:slug==='slot'?<SlotGame result={round?.slot||null} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending} disabledReason={blocked?'请先恢复当前状态。':invalid||null} roundID={round?.id} onSpin={async()=>{await play()}} onRecover={()=>void load(pending)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={round?()=>navigate('/history/rounds/'+round.id):undefined}/>:<><section className={'game-stage '+(busy?'game-busy':'')} aria-label="游戏舞台">
+        {slug==='blackjack'?<BlackjackGame snapshot={round?.blackjack||null} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending||!!pendingAction} disabledReason={activeBlackjack?(actionBlocked?'请先恢复当前状态。':null):(blocked?'请先恢复当前状态。':null)} roundID={round?.id} onDeal={async()=>{await play()}} onAction={command=>performAction(command)} onRecover={()=>void load(pending,pendingAction)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={round?()=>navigate('/history/rounds/'+round.id):undefined}/>:null}
+        {slug==='blackjack'?null:slug==='slot'?<SlotGame result={round?.slot||null} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending} disabledReason={blocked?'请先恢复当前状态。':null} roundID={round?.id} onSpin={async()=>{await play()}} onRecover={()=>void load(pending)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={round?()=>navigate('/history/rounds/'+round.id):undefined}/>:<><section className={'game-stage '+(busy?'game-busy':'')} aria-label="游戏舞台">
             <div className="game-stage-corners" aria-hidden="true"/>
             {slug==='dice'?<DiceStage result={round?.dice} busy={busy}/>:slug==='scratch'?<ScratchStage round={round} onComplete={()=>void completeScratch()} busy={busy}/>:<SummonStage round={round} busy={busy}/>}
         </section>
@@ -183,12 +184,12 @@ function ExtraMath({config,blackjack=false}:{config?:GameConfig;blackjack?:boole
     const raw=config?.validation?.result_json;
     let result:{rtp?:{fraction:string};rates?:{WIN:{fraction:string}};cases?:number;initial_wager_denominator?:{rtp:{point:{fraction:string};normal_approximation_ci95:[number,number]}}}|undefined;
     try{if(raw)result=JSON.parse(raw)}catch{/* Incomplete proof never becomes invented statistics. */}
-    if(blackjack){const rtp=result?.initial_wager_denominator?.rtp;return <section className="game-rules"><p className="eyebrow">FROZEN RULES / REFERENCE SIMULATION</p><h2>规则与参考返还率</h2><p>固定六副牌、S17、Natural 3:2；加倍与分牌会增加整局下注。总派彩减全部下注，才是本局净变化。</p>{rtp&&<><p>参考策略有效返还率（1 + 净变化 / 初始下注）：<strong>{fractionPercent(rtp.point.fraction)}</strong></p><p>95% 置信区间：{rtp.normal_approximation_ci95.map(n=>(n*100).toFixed(4)+'%').join('–')}。</p></>}<p>冻结参考策略共模拟 10,000,000 局。此值依赖该策略，不保证个人或短期结果。</p><small>{config?.ruleset_version}</small></section>;}
+    if(blackjack){const rtp=result?.initial_wager_denominator?.rtp;return <section className="game-rules"><p className="eyebrow">FROZEN RULES / REFERENCE SIMULATION</p><h2>规则与参考返还率</h2><p>固定六副牌、S17、Natural 3:2；加倍与分牌会增加整局下注。结算追加初始下注 0.37079% 的公平返还，总派彩减全部下注才是本局净变化。</p>{rtp&&<><p>参考策略长期返还率（1 + 净变化 / 初始下注）：<strong>{fractionPercent(rtp.point.fraction)}</strong></p><p>95% 置信区间：{rtp.normal_approximation_ci95.map(n=>(n*100).toFixed(4)+'%').join('–')}。</p></>}<p>基准来自冻结参考策略的 10,000,000 局验证；返还精确抵消该点估计。此值依赖该策略，不保证个人或短期结果。</p><small>{config?.ruleset_version}</small></section>;}
     return <section className="game-rules"><p className="eyebrow">FROZEN RULES / EXACT MATH</p><h2>规则与概率</h2><p>总下注平均分配给固定的 10 条线。中奖线的返还相加，再减总下注，得到整局净变化；部分返还仍计作净输。</p>{result?.rtp&&result.rates&&<div className="game-math"><span>理论返还率<strong>{fractionPercent(result.rtp.fraction)}</strong></span><span>净赢概率<strong>{fractionPercent(result.rates.WIN.fraction)}</strong></span></div>}<p>已按冻结卷轴完整枚举 {result?.cases?.toLocaleString('zh-CN')||'—'} 种停点组合。</p><small>{config?.ruleset_version}</small></section>
 }
 function GameRules({slug,config}:{slug:GameSlug;config?:GameConfig}) {
     return <section className="game-rules"><p className="eyebrow">KNOW YOUR GAME</p><h2>规则与概率</h2>
-        {slug==='dice'?<p>三颗六面骰。小为 4–10 点，大为 11–17 点。任意豹子（3 颗相同）大小都输。猜中总派彩为下注的 2 倍；未中派彩为 0。</p>:slug==='scratch'?<p>九宫格出现 3 枚相同功能星纹，获得对应倍数的总派彩；未匹配时派彩为 0。结果在购买时确定，刮擦和立即揭晓只改变展示。</p>:<p>单抽与十连使用相同奖池。十连总消耗为基础下注的 10 倍，每抽独立，没有保底或共享修正；整轮结果按总派彩减总消耗计算。</p>}
+        {slug==='dice'?<p>三颗六面骰。小为 4–10 点，大为 11–17 点。任意豹子（3 颗相同）返还本次下注；猜中总派彩为下注的 2 倍，普通未中派彩为 0。</p>:slug==='scratch'?<p>九宫格出现 3 枚相同功能星纹，获得对应倍数的总派彩；未匹配时派彩为 0。结果在购买时确定，刮擦和立即揭晓只改变展示。</p>:<p>单抽与十连使用相同奖池。十连总消耗为基础下注的 10 倍，每抽独立，没有保底或共享修正；整轮结果按总派彩减总消耗计算。</p>}
         <p>总派彩包含本金，净变化 = 总派彩 − 总消耗。回本不计作净赢。</p>
         {config&&<><div className="game-math"><span>{slug==='summon'?'单抽理论返还率':'理论返还率'}<strong>{fractionPercent(config.statistics.rtp)}</strong></span><span>{slug==='summon'?'单抽净赢概率':'净赢概率'}<strong>{fractionPercent(config.statistics.win)}</strong></span></div>{config.prizes&&<table aria-label="完整奖池"><thead><tr><th>等级</th><th>总派彩倍数</th><th>概率</th></tr></thead><tbody>{config.prizes.map(p=><tr key={p.tier}><td>{p.tier}</td><td>×{p.multiplier}</td><td>{fractionPercent(`${p.weight}/100000`)}</td></tr>)}</tbody></table>}<small>规则版本 {config.ruleset_version} · 概率是长期数学值。</small></>}
     </section>;
@@ -208,7 +209,7 @@ export function RoundReceipt({round}:{round:GameRound}) {
     if(round.state!=='SETTLED')return <section className="round-receipt" aria-label="本局进行中"><div><p className="eyebrow">PLAYER TURN / 尚未结算</p><h2>{round.recovery_state==='NEEDS_REVIEW'?'本局等待核对':'继续当前牌局'}</h2><p>已投入 {chips(round.total_stake_units)} 筹码，最终派彩与净变化将在结算后显示。</p><Link className="button" to="/games/blackjack">返回牌桌恢复本局 →</Link></div></section>;
     const d=round.dice;
     return <section className={'round-receipt result-'+round.common_result} aria-label="本局结果"><div><p className="eyebrow">SETTLED / 本局已结算</p><h2>{outcomeNames[round.common_result||'LOSS']} <strong>{chips(round.net_change_units,true)}</strong></h2>
-        {d&&<p>{d.dice.join('、')} · 合计 {d.total} 点 · 实际{d.triple?'豹子':d.side==='BIG'?'大':'小'} · 选择{d.choice==='BIG'?'大':'小'}{d.triple?'（大小均输）':''}</p>}
+        {d&&<p>{d.dice.join('、')} · 合计 {d.total} 点 · 实际{d.triple?'豹子':d.side==='BIG'?'大':'小'} · 选择{d.choice==='BIG'?'大':'小'}{d.triple?'（返还下注）':''}</p>}
         {round.scratch&&<p>{round.scratch.reward.payout_multiplier==='0'?'未组成三枚相同星纹':`匹配三枚星纹 · 总派彩 ×${round.scratch.reward.payout_multiplier}`}</p>}
         {round.summon&&<p>{round.summon.draws.length} 抽已结算 · 最高等级 {round.summon.highest_tier} · 以整轮净变化判定结果</p>}
         <Link className="text-link" to={'/history/rounds/'+round.id}>查看本局详情与公平验证 →</Link></div>

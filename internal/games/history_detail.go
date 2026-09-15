@@ -79,7 +79,7 @@ type HistoryVerification struct {
 }
 
 func (s *Service) historyBlackjack(ctx context.Context, tx pgx.Tx, user int64, r *GameRound) error {
-	state, _, _, err := s.recoverBlackjack(ctx, tx, user, *r)
+	state, _, _, _, err := s.recoverBlackjack(ctx, tx, user, *r)
 	if err != nil {
 		return err
 	}

@@ -77,7 +77,9 @@ func normalizeCreate(slug string, input CreateInput) (normalizedCreate, error) {
 		if slug == "slot" {
 			value, max, divisor = input.TotalWager, 5164, 10
 		} else {
-			value, max = input.InitialWager, 16
+			// The v2 reference-strategy fair return is paid in addition to the
+			// largest ordinary blackjack settlement, so reserve one extra wager.
+			value, max = input.InitialWager, 17
 		}
 	default:
 		return n, ErrNotFound
