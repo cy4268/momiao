@@ -256,7 +256,7 @@ index 1d75930..fa2da75 100644
  			matchingName := ratio_setting.FormatMatchingModelName(modelName)
 diff --git a/controller/momiao_account.go b/controller/momiao_account.go
 new file mode 100644
-index 0000000..8c7f0ec
+index 0000000..111f937
 --- /dev/null
 +++ b/controller/momiao_account.go
 @@ -0,0 +1,207 @@
@@ -400,7 +400,7 @@ index 0000000..8c7f0ec
 +	if method == http.MethodPost && (path == "/api/setup" || path == "/api/user/register" || path == "/api/user") {
 +		blocked = true
 +	}
-+	if method == http.MethodPut && (path == "/api/user/self" || path == "/api/user") {
++	if method == http.MethodPut && path == "/api/user/self" {
 +		blocked = true
 +	}
 +	if method == http.MethodDelete && (path == "/api/user/self" || path == "/api/user/:id" || strings.Contains(path, "/bindings/")) {
@@ -469,10 +469,10 @@ index 0000000..8c7f0ec
 +}
 diff --git a/controller/momiao_account_test.go b/controller/momiao_account_test.go
 new file mode 100644
-index 0000000..25f124f
+index 0000000..9c712ea
 --- /dev/null
 +++ b/controller/momiao_account_test.go
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,224 @@
 +package controller
 +
 +import (
@@ -581,6 +581,9 @@ index 0000000..25f124f
 +	}
 +	w, _ := momiaoRequest(t, r, http.MethodPut, "/api/user/self", `{"username":"rename"}`, "")
 +	assert.Equal(t, 403, w.Code)
++	w, response := momiaoRequest(t, r, http.MethodPut, "/api/user", `{"id":2,"group":"private"}`, "")
++	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
++	assert.True(t, response.Success)
 +	w, _ = momiaoRequest(t, r, http.MethodGet, "/internal/momiao/registrations", "", "")
 +	assert.Equal(t, 404, w.Code)
 +	w, _ = momiaoRequest(t, r, http.MethodGet, "/internal/momiao/registrations?after=0&limit=50", "", h.Discord.Config.ReaderKey)
@@ -1315,10 +1318,10 @@ index 0000000..3785788
 +}
 diff --git a/controller/momiao_auth_test.go b/controller/momiao_auth_test.go
 new file mode 100644
-index 0000000..603c63a
+index 0000000..f556759
 --- /dev/null
 +++ b/controller/momiao_auth_test.go
-@@ -0,0 +1,251 @@
+@@ -0,0 +1,252 @@
 +package controller
 +
 +import (
@@ -1420,6 +1423,7 @@ index 0000000..603c63a
 +	for _, path := range []string{"/user/register", "/oauth/state", "/setup"} {
 +		api.POST(path, func(c *gin.Context) { c.JSON(200, gin.H{"success": true}) })
 +	}
++	api.PUT("/user", func(c *gin.Context) { c.JSON(200, gin.H{"success": true}) })
 +	api.PUT("/user/self", func(c *gin.Context) { c.JSON(200, gin.H{"success": true}) })
 +	return h, r
 +}
