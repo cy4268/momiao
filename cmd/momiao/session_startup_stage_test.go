@@ -11,9 +11,9 @@ import (
 	"testing"
 )
 
-func writeSessionStartupFixture(t *testing.T, name, value string) string {
+func writeSessionStartupFixture(t *testing.T, dir, name, value string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
+	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte(value), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -22,18 +22,19 @@ func writeSessionStartupFixture(t *testing.T, name, value string) string {
 
 func sessionStartupFixture(t *testing.T) config {
 	t.Helper()
+	dir := resolvedAppPrivateDir(t)
 	return config{
 		PublicOrigin: "https://recovery.example",
-		NewAPISocket: filepath.Join(t.TempDir(), "native.sock"),
+		NewAPISocket: filepath.Join(dir, "native.sock"),
 		Session: sessionConfig{
 			Enabled:               true,
-			ReaderKeyFile:         writeSessionStartupFixture(t, "reader.key", strings.Repeat("1", 64)),
-			OpsKeyFile:            writeSessionStartupFixture(t, "ops.key", strings.Repeat("2", 64)),
-			SessionSealKeyFile:    writeSessionStartupFixture(t, "session.key", strings.Repeat("3", 64)),
-			CredentialSealKeyFile: writeSessionStartupFixture(t, "credential.key", strings.Repeat("4", 64)),
-			DSNFile:               writeSessionStartupFixture(t, "session.dsn", "postgres://%zz"),
-			RedisConfigFile:       writeSessionStartupFixture(t, "session-redis.json", "{}"),
-			OpsSocket:             filepath.Join(t.TempDir(), "ops.sock"),
+			ReaderKeyFile:         writeSessionStartupFixture(t, dir, "reader.key", strings.Repeat("1", 64)),
+			OpsKeyFile:            writeSessionStartupFixture(t, dir, "ops.key", strings.Repeat("2", 64)),
+			SessionSealKeyFile:    writeSessionStartupFixture(t, dir, "session.key", strings.Repeat("3", 64)),
+			CredentialSealKeyFile: writeSessionStartupFixture(t, dir, "credential.key", strings.Repeat("4", 64)),
+			DSNFile:               writeSessionStartupFixture(t, dir, "session.dsn", "postgres://%zz"),
+			RedisConfigFile:       writeSessionStartupFixture(t, dir, "session-redis.json", "{}"),
+			OpsSocket:             filepath.Join(dir, "ops.sock"),
 			Environment:           "RECOVERY_TEST",
 		},
 	}

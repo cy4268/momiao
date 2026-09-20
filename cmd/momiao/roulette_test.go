@@ -10,16 +10,37 @@ import (
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/roulette"
 	"github.com/jackc/pgx/v5"
+	"os"
+	"os/exec"
 	"strconv"
 	"testing"
 	"time"
 )
 
 func TestRouletteEscrowReplayLifecycle(t *testing.T) {
-	// A UTC-local host returns SQL times with a different Location from JSON Z timestamps.
-	previousLocal := time.Local
+	if os.Getenv("MOMIAO_GAMES_TEST_CONNECTION_FILE") == "" {
+		t.Skip("isolated local G1 connection required")
+	}
+	// Confine the UTC-host regression to its own test process. Other tests can
+	// still have HTTP cleanup goroutines reading time.Local after they return.
+	if os.Getenv("MOMIAO_ROULETTE_UTC_TEST_CHILD") != "1" {
+		deadline := time.Now().Add(time.Minute)
+		if limit, ok := t.Deadline(); ok && limit.Before(deadline) {
+			deadline = limit.Add(-time.Second)
+		}
+		childCtx, cancel := context.WithDeadline(t.Context(), deadline)
+		defer cancel()
+		cmd := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestRouletteEscrowReplayLifecycle$", "-test.count=1", "-test.v")
+		cmd.Env = append(os.Environ(), "MOMIAO_ROULETTE_UTC_TEST_CHILD=1")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("isolated UTC-host regression: %v\n%s", err, output)
+		}
+		t.Logf("%s", output)
+		return
+	}
+	// Set once before database workers start; process exit releases this state.
 	time.Local = time.FixedZone("roulette-utc-host", 0)
-	t.Cleanup(func() { time.Local = previousLocal })
 	owner, runtime := gameBrowserStores(t)
 	ctx := context.Background()
 	// 账户／金额使用这个既有 fixture 的本地数据库；从随机 UUID 派生两个正 int64 用户 ID，避免重复运行串数据。

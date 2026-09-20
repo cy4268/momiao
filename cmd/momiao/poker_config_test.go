@@ -72,7 +72,7 @@ func TestPokerApplicationConfigRequiresCompleteExplicitAuthority(t *testing.T) {
 }
 
 func TestPokerApplicationPrivatePersistentKeyrings(t *testing.T) {
-	dir := t.TempDir()
+	dir := resolvedAppPrivateDir(t)
 	write := func(name, body string) string {
 		t.Helper()
 		path := filepath.Join(dir, name)
@@ -115,6 +115,41 @@ func TestPokerApplicationPrivatePersistentKeyrings(t *testing.T) {
 	if _, e = readPokerStateKeys(dir); e == nil {
 		t.Fatal("directory accepted as secret")
 	}
+}
+
+func resolvedAppPrivateDir(t *testing.T) string {
+	t.Helper()
+	dir := appPrivateDir(t)
+	// Windows EvalSymlinks can fail below a junction, so peel its reparse ancestors first.
+	for range 32 {
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err == nil {
+			return resolved
+		}
+		replaced := false
+		for candidate := dir; ; candidate = filepath.Dir(candidate) {
+			target, linkErr := os.Readlink(candidate)
+			if linkErr == nil {
+				if !filepath.IsAbs(target) {
+					target = filepath.Join(filepath.Dir(candidate), target)
+				}
+				suffix, relErr := filepath.Rel(candidate, dir)
+				if relErr != nil {
+					t.Fatal(relErr)
+				}
+				dir, replaced = filepath.Join(target, suffix), true
+				break
+			}
+			if parent := filepath.Dir(candidate); parent == candidate {
+				break
+			}
+		}
+		if !replaced {
+			t.Fatal(err)
+		}
+	}
+	t.Fatal("private fixture path has too many links")
+	return ""
 }
 
 func TestPokerApplicationDisabledRoutesNeverProxy(t *testing.T) {
