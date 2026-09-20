@@ -10,6 +10,7 @@ import (
 
 	"github.com/cy4268/momiao/internal/games/blackjack"
 	"github.com/cy4268/momiao/internal/games/slot"
+	"github.com/cy4268/momiao/internal/roulette"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -298,6 +299,12 @@ func (s *Service) Catalog(ctx context.Context, readPoker PokerCatalogRuntime) ([
 			return err
 		}
 		for _, slug := range slugs {
+			if roulette.IsGame(slug) {
+				entry, err := roulette.CatalogInTx(ctx, tx, slug)
+				if err != nil { return err }
+				items = append(items, CatalogEntry{Slug:entry.Slug,Title:entry.Title,Implementation:entry.Implementation,State:entry.State})
+				continue
+			}
 			if slug == "texas-holdem" {
 				entry, err := pokerCatalogEntry(ctx, tx, readPoker)
 				if err != nil {

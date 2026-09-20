@@ -11,6 +11,7 @@ import (
 	"github.com/cy4268/momiao/internal/history"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/poker"
+ "github.com/cy4268/momiao/internal/roulette"
 	"github.com/cy4268/momiao/internal/session"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -49,11 +50,11 @@ func (a *historyApplication) Close() {
 
 // Dependencies are already authenticated/domain services. This composition never
 // starts actors, repairs games, creates accounts, provisions roles or migrates.
-func openHistoryApplication(ctx context.Context, cfg historyConfig, authorityPool *pgxpool.Pool, sessions *session.Service, rounds *games.Service, wallet *platform.Store) (app *historyApplication, err error) {
+func openHistoryApplication(ctx context.Context, cfg historyConfig, authorityPool *pgxpool.Pool, sessions *session.Service, rounds *games.Service, wallet *platform.Store, rouletteService ...*roulette.Service) (app *historyApplication, err error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
-	if ctx == nil || authorityPool == nil || sessions == nil || rounds == nil || wallet == nil {
+	if len(rouletteService)>1 || ctx == nil || authorityPool == nil || sessions == nil || rounds == nil || wallet == nil {
 		return nil, errHistoryStartup
 	}
 	a := &historyApplication{}
@@ -97,6 +98,7 @@ func openHistoryApplication(ctx context.Context, cfg historyConfig, authorityPoo
 		return nil, err
 	}
 	a.handler = &historyHTTP{sessions: sessions, list: history.NewReader(a.readerPool), rounds: rounds, poker: hands, wallet: wallet}
+	if len(rouletteService)==1 { a.handler.roulette=rouletteService[0] }
 	workerCtx, stop := context.WithCancel(ctx)
 	a.cancel, a.done = stop, make(chan struct{})
 	go func() {
@@ -134,14 +136,14 @@ func validateHistoryPools(ctx context.Context, reader, worker, authority *pgxpoo
  AND NOT r.rolreplication AND NOT r.rolbypassrls AND d.datdba<>r.oid
  AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member=r.oid)
  AND pg_catalog.has_function_privilege(r.oid,$1::text,'EXECUTE')
- AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_namespace n WHERE n.nspname IN('games','poker','economy','identity','public')
+ AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_namespace n WHERE n.nspname IN('games','poker','economy','identity','roulette','public','roulette')
   AND (n.nspowner=r.oid OR pg_catalog.has_schema_privilege(r.oid,n.oid,'CREATE')))
  AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
-  WHERE n.nspname IN('games','poker','economy','identity') AND c.relkind IN('r','p','v','m','f')
+  WHERE n.nspname IN('games','poker','economy','identity','roulette') AND c.relkind IN('r','p','v','m','f')
    AND (pg_catalog.has_any_column_privilege(r.oid,c.oid,'SELECT,INSERT,UPDATE,REFERENCES')
     OR pg_catalog.has_table_privilege(r.oid,c.oid,'DELETE,TRUNCATE,TRIGGER')))
  AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_proc f JOIN pg_catalog.pg_namespace n ON n.oid=f.pronamespace
-  WHERE n.nspname IN('games','poker','economy','identity') AND f.prosecdef AND f.oid<>$1::regprocedure
+  WHERE n.nspname IN('games','poker','economy','identity','roulette') AND f.prosecdef AND f.oid<>$1::regprocedure
    AND pg_catalog.has_function_privilege(r.oid,f.oid,'EXECUTE'))
  FROM pg_catalog.pg_roles r JOIN pg_catalog.pg_database d ON d.datname=current_database()
  WHERE r.rolname=current_user`, capability, pool.Config().ConnConfig.User).Scan(&role, &database, &valid)

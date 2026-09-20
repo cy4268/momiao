@@ -1,0 +1,3 @@
+-- Apply after 0038 using the existing platform runtime role. History roles remain separate.
+GRANT EXECUTE ON FUNCTION games.history_record_snapshot(bigint,text,uuid),economy.history_transaction_read(bigint,uuid),games.ops_activity_read() TO :"runtime_role";
+GRANT UPDATE(void_outcome) ON roulette.rounds TO :"runtime_role";

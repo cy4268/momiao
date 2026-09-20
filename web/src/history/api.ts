@@ -2,16 +2,17 @@ import { z } from 'zod';
 import { ApiError, type ApiClient } from '../api';
 import { transactionStatus } from '../economy-api';
 
-export const recordTypes = ['DIRECT_PLAY_ROUND', 'POKER_SESSION', 'POKER_HAND'] as const;
+export const recordTypes = ['DIRECT_PLAY_ROUND', 'POKER_SESSION', 'POKER_HAND', 'ROULETTE_ROUND'] as const;
 export const results = ['WIN', 'LOSS', 'BREAK_EVEN', 'CANCELLED', 'REFUNDED'] as const;
 export const statuses = ['PROCESSING', 'SETTLED', 'CANCELLED', 'REFUNDED', 'RECOVERING'] as const;
 export const idSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 const integer = z.string().regex(/^-?(0|[1-9]\d*)$/).max(20).refine(v => BigInt(v) >= -9223372036854775807n && BigInt(v) <= 9223372036854775807n);
+const aggregate = z.string().regex(/^-?(0|[1-9]\d{0,37})$/);
 const time = z.iso.datetime({ offset: true });
 const filterTime = time.refine(v => /(?:Z|\+00:00)$/.test(v) && !/\.\d{7}/.test(v), '使用 UTC 时间且最多六位小数');
 const optionalFilter = <T extends z.ZodType>(s: T) => s.optional();
 export const searchSchema = z.strictObject({
-  record_type: optionalFilter(z.enum(recordTypes)), mode: optionalFilter(z.enum(['DIRECT_PLAY', 'POKER'])),
+  record_type: optionalFilter(z.enum(recordTypes)), mode: optionalFilter(z.enum(['DIRECT_PLAY', 'POKER', 'ROULETTE'])),
   game_slug: optionalFilter(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(128)),
   time_from: optionalFilter(filterTime), time_to: optionalFilter(filterTime),
   result: optionalFilter(z.enum(results)), status: optionalFilter(z.enum(statuses)), id: optionalFilter(idSchema),
@@ -35,7 +36,7 @@ export const summarySchema = z.object({
   record_type: z.enum(recordTypes), source_id: idSchema, parent_source_id: idSchema.nullable(),
   game_slug: z.string(), mode: z.string(), occurred_at: time, ended_at: time.nullable(),
   result: z.enum(results).nullable(), status: z.enum(statuses), source_version: z.string(),
-  stake_units: integer.nullable(), payout_units: integer.nullable(), net_change_units: integer.nullable(),
+  stake_units: aggregate.nullable(), payout_units: aggregate.nullable(), net_change_units: aggregate.nullable(),
   initial_buyin_units: integer.nullable(), total_topup_units: integer.nullable(), final_cashout_units: integer.nullable(),
   snapshot: z.object({ snapshot_id: idSchema, game_title: z.string(), table_id: idSchema.nullable(), table_name: z.string().nullable(), actor_display_name: z.string().nullable(), metadata_origin: z.string() }),
 });
@@ -84,7 +85,7 @@ export type Transaction = z.infer<typeof transactionSchema>;
 export type RecordType = typeof recordTypes[number];
 export function detailPath(type: RecordType, id: string) {
   idSchema.parse(id);
-  return `/history/${type === 'DIRECT_PLAY_ROUND' ? 'rounds' : type === 'POKER_SESSION' ? 'sessions' : 'hands'}/${id}`;
+  return `/history/${type === 'ROULETTE_ROUND' ? 'roulette' : type === 'DIRECT_PLAY_ROUND' ? 'rounds' : type === 'POKER_SESSION' ? 'sessions' : 'hands'}/${id}`;
 }
 export class HistoryError extends Error {
   constructor(public status: number, public code: string) {

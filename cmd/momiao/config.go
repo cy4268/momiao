@@ -6,6 +6,7 @@ import (
 	"github.com/cy4268/momiao/internal/games"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/rankings"
+	"github.com/cy4268/momiao/internal/roulette"
 	"github.com/cy4268/momiao/internal/session"
 	"net"
 	"net/http"
@@ -42,6 +43,7 @@ type config struct {
 	poker                     http.Handler
 	pokerCatalogRuntime       games.PokerCatalogRuntime
 	games                     *games.Service
+	roulette                  *roulette.Service
 	GameFairnessKeyringFile   string
 	catalog                   catalogStore
 	catalogSource             platform.CatalogSource

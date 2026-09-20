@@ -18,7 +18,7 @@ func domainHandler(cfg config, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		game := p == "/api/v1/game-rounds" || strings.HasPrefix(p, "/api/v1/game-rounds/") || strings.HasPrefix(p, "/api/v1/games/")
+		game := p == "/api/v1/game-rounds" || strings.HasPrefix(p, "/api/v1/game-rounds/") || strings.HasPrefix(p, "/api/v1/games/") || p == "/api/v1/roulette" || strings.HasPrefix(p, "/api/v1/roulette/")
 		announcement := p == "/platform/v1/announcements" || strings.HasPrefix(p, "/platform/v1/announcements/")
 		optional := announcement && r.Method == http.MethodGet && !strings.HasSuffix(p, "/reads") && p != "/platform/v1/announcements/current-post-login-popup"
 		var prepared *http.Request

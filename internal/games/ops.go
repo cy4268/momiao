@@ -16,10 +16,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/cy4268/momiao/internal/platform"
+ "github.com/cy4268/momiao/internal/roulette"
 	"github.com/jackc/pgx/v5"
 )
 
 var opsGameSlugs = map[string]string{
+ "devil-roulette":"devil-roulette", "pressure-roulette":"pressure-roulette",
 	"dice": "dice", "scratch": "scratch", "summon": "summon",
 	"slot": "slot", "blackjack": "blackjack", "poker": "texas-holdem",
 }
@@ -87,6 +89,7 @@ type OpsOverview struct {
 }
 
 type OpsGameDetail struct {
+ Roulette *roulette.OpsStats `json:"roulette,omitempty"`
 	GeneratedAt         time.Time               `json:"generated_at"`
 	Game                OpsGameSummary          `json:"game"`
 	ConfigVersions      []OpsConfigVersion      `json:"config_versions"`
@@ -113,8 +116,7 @@ func opsDBSlug(apiSlug string) (string, bool) {
 }
 
 func directOpsDBSlug(apiSlug string) (string, bool) {
-	dbSlug, ok := opsDBSlug(apiSlug)
-	return dbSlug, ok && dbSlug != "texas-holdem"
+	switch apiSlug {case "dice","scratch","summon","slot","blackjack":return apiSlug,true;default:return "",false}
 }
 
 func utcPointer(value *time.Time) *time.Time {
@@ -140,7 +142,8 @@ func readOpsConfig(ctx context.Context, tx pgx.Tx, dbSlug, id string) (OpsConfig
 	if err != nil {
 		return result, err
 	}
-	config, err := loadConfigVersion(dbSlug, result.ConfigVersionID, canonical)
+ if roulette.IsGame(dbSlug) { c,e:=roulette.ReadConfig(ctx,tx,dbSlug,id);if e!=nil{return result,e};result.ConfigHash=hex.EncodeToString(c.Hash[:]);return result,nil }
+ config, err := loadConfigVersion(dbSlug, result.ConfigVersionID, canonical)
 	if err != nil {
 		return result, ErrInvalidConfig
 	}
@@ -197,7 +200,7 @@ func readOpsActivity(ctx context.Context, tx pgx.Tx) (map[string][2]int64, error
 func readOpsGameRows(ctx context.Context, tx pgx.Tx, only string) ([]opsGameRow, error) {
 	query := `SELECT game_slug,title,sort_order,version,publication_state,configured_runtime_state,
 	 implementation_key,active_config_version_id::text FROM games.game_registry
-	 WHERE game_slug IN('dice','scratch','summon','slot','blackjack','texas-holdem')`
+	 WHERE game_slug IN('dice','scratch','summon','slot','blackjack','texas-holdem','devil-roulette','pressure-roulette')`
 	args := []any{}
 	if only != "" {
 		query += ` AND game_slug=$1`
@@ -358,7 +361,8 @@ func (s *Service) ReadOpsGame(ctx context.Context, slug string) (OpsGameDetail, 
 			}
 			result.ConfigVersions = append(result.ConfigVersions, config)
 		}
-		result.ValidationArtifacts, err = readOpsValidationArtifacts(ctx, tx, dbSlug)
+		if roulette.IsGame(dbSlug) {stats,e:=roulette.OpsStatsInTx(ctx,tx,dbSlug);if e!=nil{return e};result.Roulette=&stats}
+ result.ValidationArtifacts, err = readOpsValidationArtifacts(ctx, tx, dbSlug)
 		return err
 	})
 	result.GeneratedAt = result.GeneratedAt.UTC()

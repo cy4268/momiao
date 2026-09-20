@@ -82,3 +82,12 @@ Thumbs.db
 
 # Existing synthetic runtime-grant test source, never a database dump.
 !/internal/platform/testdata/runtime-auth-binding-0018.sql
+
+# Generated decorative roulette artwork, not private screenshots.
+!/web/public/roulette/devil-shotgun.png
+!/web/public/roulette/pressure-revolver.png
+
+# Approved roulette raster icon atlases and felt tabletop.
+!/web/public/roulette/items-atlas-v2.png
+!/web/public/roulette/salon-art-atlas-v2.png
+!/web/public/roulette/salon-table-v2.png

@@ -11,6 +11,7 @@ const (
 	Round   Source = "DIRECT_PLAY_ROUND"
 	Session Source = "POKER_SESSION"
 	Hand    Source = "POKER_HAND"
+ RouletteRound Source = "ROULETTE_ROUND"
 )
 
 var ErrQuery = errors.New("HISTORY_QUERY_INVALID")

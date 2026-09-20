@@ -29,6 +29,9 @@ import { Channels } from './Channels';
 import { Wallet } from './Wallet';
 import { QuotaActivation } from './QuotaActivation';
 import { GamesCatalog, GamePage } from './Games';
+import {RouletteLobby} from './roulette/RouletteLobby';
+import {RouletteHistory} from './roulette/RouletteHistory';
+import {RouletteRoom} from './roulette/RouletteRoom';
 import { HistoryList, HistoryRound, HistorySession, HistoryHand, HistoryTransaction } from './history/History';
 import { MasterProfile } from './MasterProfile';
 import { Home } from './Home';
@@ -117,7 +120,10 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="/rewards" element={<Rewards client={client} user={session.user!} />} />
             {(['dice','scratch','summon','slot','blackjack'] as const).map(slug=><Route key={slug} path={'/games/'+slug} element={session.user&&<GamePage key={session.user.id+':'+client.getSessionGeneration()+':'+slug} client={client} userID={String(session.user.id)} slug={slug}/>}/>)}
             <Route path="/history" element={<HistoryList key={routedSession} client={client}/>} />
+            {(['devil-roulette','pressure-roulette'] as const).map(slug=><Route key={slug} path={'/roulette/'+slug} element={session.user&&<RouletteLobby key={routedSession+slug} client={client} userID={String(session.user.id)} slug={slug}/>}/>)}
+            <Route path="/roulette/rooms/:id" element={session.user&&<RouletteRoom key={routedSession} client={client} userID={String(session.user.id)}/>}/>
             <Route path="/history/:id" element={<LegacyRoundRedirect/>} />
+            <Route path="/history/roulette/:id" element={<RouletteHistory key={routedSession} client={client}/>}/>
             <Route path="/history/rounds/:id" element={<HistoryRound key={routedSession} client={client}/>} />
             <Route path="/history/sessions/:id" element={<HistorySession key={routedSession} client={client}/>} />
             <Route path="/history/hands/:id" element={<HistoryHand key={routedSession} client={client}/>} />
@@ -166,7 +172,7 @@ function Shell({ client, user, children }: { client: ApiClient; user: User; chil
     const domain = ['/models', '/keys', '/logs', '/playground'].includes(location.pathname) ? 'models'
         : ['/wallet', '/wallet/activate', '/rewards'].includes(location.pathname) || location.pathname.startsWith('/wallet/transactions/') ? 'assets'
         : ['/me', '/account', '/account/security', '/master-profile', '/admin/channels'].includes(location.pathname) ? 'my'
-        : location.pathname==='/poker' || location.pathname.startsWith('/games/') || location.pathname.startsWith('/history') ? 'experience' : 'home';
+        : location.pathname==='/poker' || location.pathname.startsWith('/games/') || location.pathname.startsWith('/roulette/') || location.pathname.startsWith('/history') ? 'experience' : 'home';
     const contextLinks = domain === 'models' ? [['/models', '模型目录'], ['/keys', '密钥管理'], ['/logs', '调用记录'], ['/playground', '文本测试']]
         : domain === 'assets' ? [['/wallet', '我的钱包'], ['/rewards', '奖励中心']]
         : domain === 'experience' ? [['/games', '游戏目录'],['/games/dice', '命运骰盅'],['/games/scratch','星纹刮刮卡'],['/games/summon','圣晶召唤'],['/games/slot','月光回响'],['/games/blackjack','二十一点'],['/poker','Poker 大厅'],['/history','游戏记录']] : [];
@@ -249,4 +255,3 @@ function NativeLogs({ client }: {
     function reset() { setType('0'); setModel(''); setStart(''); setEnd(''); setError(''); setPage(1); setQuery(''); }
     return <><header className="page-heading"><div><p className="eyebrow">OBSERVE / USAGE LOGS</p><h1>调用记录</h1><p>查看个人活动、模型调用与原生额度消耗。</p></div><button onClick={r.reload} disabled={r.loading}>刷新记录</button></header><section className="panel"><form className="filters" onSubmit={filter}><label>记录类型<select value={type} onChange={e => setType(e.target.value)}><option value="0">全部类型</option>{Object.entries(logTypes).map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select></label><label className="model-filter">模型名称<input value={model} onChange={e => setModel(e.target.value)} maxLength={200} placeholder="完整模型名"/></label><label>开始日期<input type="date" value={start} onChange={e => setStart(e.target.value)}/></label><label>结束日期<input type="date" value={end} onChange={e => setEnd(e.target.value)}/></label><div className="filter-actions"><button type="submit" className="primary">应用筛选</button><button type="button" onClick={reset}>重置</button></div></form>{error && <Alert>{error}</Alert>}<p className="hint">时间按设备所在时区显示。仅展示调用元数据，不展示提示词或响应内容。</p>{r.loading ? <Loading /> : r.error ? <><Alert>{r.error}</Alert><button onClick={r.reload}>重新加载</button></> : r.data && <><LogTable items={r.data.items}/><Pager page={page} total={r.data.total} size={r.data.page_size} onChange={setPage}/></>}</section></>;
 }
-

@@ -3,7 +3,7 @@ import { Link, Navigate, useLocation } from 'react-router-dom';
 import { ApiClient, type User } from './api';
 import { MasterProfile } from './MasterProfile';
 import { parseProfile } from './profile-api';
-import { consumeRouteIntent, peekRouteIntent, pokerRouteIntent, saveRouteIntent, normalizeRouteIntent } from './post-auth-intent';
+import { consumeRouteIntent, peekRouteIntent, pokerRouteIntent, rouletteRouteIntent, saveRouteIntent, normalizeRouteIntent } from './post-auth-intent';
 import { acknowledgeMigrationNotice, readAccessGate, type AccessGateView } from './access-gate-api';
 import { Alert, Brand, Loading } from './ui';
 
@@ -35,7 +35,7 @@ const messages:Record<string,string>={
 function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,children}:{client:ApiClient;user:User;route:string;postAuth?:boolean;pokerRecovery?:boolean;children?:ReactNode}){
  const [loaded,setLoaded]=useState<{value:AccessGateView;scope:GateScope}>();const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [destination,setDestination]=useState<GateScope>();
  const [admitted,setAdmitted]=useState<GateScope>();const revision=useRef(0);const generation=client.getSessionGeneration();const scope=useRef<GateScope>({client,userID:user.id,generation,route});
- scope.current={client,userID:user.id,generation,route};const poker=pokerRecovery&&pokerRouteIntent(route);
+ scope.current={client,userID:user.id,generation,route};const poker=pokerRecovery&&pokerRouteIntent(route),roulette=rouletteRouteIntent(route);
  const matches=(s:GateScope|undefined)=>!!s&&s.client===scope.current.client&&s.userID===scope.current.userID&&s.generation===scope.current.generation&&s.route===scope.current.route&&s.generation===s.client.getSessionGeneration();
  const view=loaded&&matches(loaded.scope)?loaded.value:undefined;
  const [saving,setSaving]=useState(false);const [reconcile,setReconcile]=useState(false);const active=useRef(true);const loadLock=useRef(false);const writeLock=useRef(false);
@@ -43,7 +43,7 @@ function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,child
   const valid=()=>active.current&&request===revision.current&&matches(start);
   try{
    const next=await readAccessGate(client,route);if(!valid())return;
-   setAdmitted(poker&&(next.stage==='READY'||next.stage==='MAINTENANCE')?start:undefined);
+   setAdmitted((poker||roulette)&&(next.stage==='READY'||next.stage==='MAINTENANCE')?start:undefined);
    // Preserve M2's idempotent durable provisional profile, only after native
    // active status is verified. This is never part of migration notice ACK.
    if(next.stage==='MASTER_REQUIRED'){
@@ -51,7 +51,7 @@ function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,child
     if(!valid())return;
    }
    setReconcile(false);
-   if((next.stage==='READY'||(poker&&next.stage==='MAINTENANCE'))&&postAuth){
+   if((next.stage==='READY'||((poker||roulette)&&next.stage==='MAINTENANCE'))&&postAuth){
     if(consumeRouteIntent()!==route){setError('返回入口已发生变化，请重新核对访问状态。');return;}
     setDestination(start);return;
    }
@@ -67,6 +67,7 @@ function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,child
  useEffect(()=>{active.current=true;setSaving(false);setReconcile(false);document.title='访问状态核对 · momiao';void load();return()=>{active.current=false;revision.current++;loadLock.current=false;writeLock.current=false;};},[client,user.id,route,generation]);
  if(destination&&matches(destination))return <Navigate to={destination.route} replace/>;
  // Page policy only tightens the UI; domain/controller guards still decide every operation.
+ if(roulette&&matches(admitted))return <>{view?.stage==='MAINTENANCE'&&<aside aria-label="轮盘访问状态"><Alert>维护中：已开始对局继续，保留退款与回执核对；新开局暂时关闭。</Alert></aside>}{children}</>;
  if(poker&&matches(admitted))return <PokerGateContext.Provider value={{stage:view?.stage,recovery_only:view?.stage!=='READY',mutation_blocked:loading||!!error||!view}}>
   <aside aria-label="Poker 访问状态">{loading&&<Loading/>}{error&&<Alert>{error}</Alert>}{view?.stage==='MAINTENANCE'&&<Alert>仅保留既有对局、回执核对与安全退出入口；新开局等入口暂时关闭。</Alert>}<button disabled={loading||saving} onClick={()=>void load()}>重新核对访问状态</button></aside>
   {children}

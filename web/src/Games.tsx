@@ -15,6 +15,8 @@ const runtimeNames:Record<string,string>={PLAY:'可进入',RESUME:'恢复本局'
 const gameSymbols=new Map([['dice','⚄'],['scratch','✦'],['summon','◇'],['slot','✧'],['blackjack','♠'],['texas-holdem','♣']]);
 
 function catalogDestination(game:GameEntry):string|undefined {
+    const rouletteRoutes:Record<string,string>={'devil-roulette':'roulette.devil.v1','pressure-roulette':'roulette.pressure.v1'};
+    if(rouletteRoutes[game.slug]===game.implementation_key&&(game.effective_runtime==='PLAY'||game.effective_runtime==='MAINTENANCE')) return '/roulette/'+game.slug;
     if(game.slug==='texas-holdem' && game.implementation_key==='poker.texas-holdem.v1'
         && (game.effective_runtime==='PLAY'||game.effective_runtime==='MAINTENANCE')) return '/poker';
     if(gameSlugs.includes(game.slug as GameSlug) && game.implementation_key===`direct.${game.slug}.v1`

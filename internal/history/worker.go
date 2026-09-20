@@ -60,7 +60,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
-		for _, source := range []Source{Round, Session, Hand} {
+		for _, source := range []Source{Round, Session, Hand, RouletteRound} {
 			if _, err := w.Step(ctx, source, 100); err != nil {
 				return err
 			}

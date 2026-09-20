@@ -194,6 +194,8 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 			servePokerRoute(domainHandler(cfg, cfg.poker), w, r)
 		case r.URL.Path == "/api/v1/games" || strings.HasPrefix(r.URL.Path, "/api/v1/games/") || r.URL.Path == "/api/v1/game-rounds" || strings.HasPrefix(r.URL.Path, "/api/v1/game-rounds/"):
 			domainHandler(cfg, newGameHandler(cfg.PublicOrigin, cfg.games, transport, readPoker)).ServeHTTP(w, r)
+		case r.URL.Path == "/api/v1/roulette" || strings.HasPrefix(r.URL.Path, "/api/v1/roulette/"):
+			domainHandler(cfg, newRouletteHandler(cfg.PublicOrigin, cfg.roulette, cfg.games, transport)).ServeHTTP(w, r)
 		case path.Clean(r.URL.Path) == "/internal" || strings.HasPrefix(path.Clean(r.URL.Path), "/internal/"):
 			walletError(w, 404, "NOT_FOUND")
 		case r.URL.Path == "/platform/v1/models" || strings.HasPrefix(r.URL.Path, "/platform/v1/models/") || r.URL.Path == "/platform/v1/ops/models" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/models/"):
@@ -383,7 +385,7 @@ func serveWebFile(root string, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if browserRoutes[r.URL.Path] || opsBrowserPermission(r.URL.EscapedPath()) != "" || gameBrowserRoute(r.URL.EscapedPath()) || walletTransactionBrowserRoute(r.URL.EscapedPath()) || pokerBrowserRoute(r.URL.EscapedPath()) && r.URL.RawQuery == "" && !r.URL.ForceQuery && r.URL.Fragment == "" || announcementBrowserRoute(r.URL.Path) || catalogBrowserRoute(r.URL.EscapedPath()) || r.URL.Path == "/index.html" {
+	if browserRoutes[r.URL.Path] || opsBrowserPermission(r.URL.EscapedPath()) != "" || gameBrowserRoute(r.URL.EscapedPath()) || rouletteBrowserRoute(r.URL.EscapedPath()) || walletTransactionBrowserRoute(r.URL.EscapedPath()) || pokerBrowserRoute(r.URL.EscapedPath()) && r.URL.RawQuery == "" && !r.URL.ForceQuery && r.URL.Fragment == "" || announcementBrowserRoute(r.URL.Path) || catalogBrowserRoute(r.URL.EscapedPath()) || r.URL.Path == "/index.html" {
 		serveIndex(root, w, r)
 		return
 	}

@@ -1,0 +1,8 @@
+-- Apply as the migration owner after 0037; no automatic deployment.
+GRANT USAGE ON SCHEMA roulette TO :"runtime_role";
+GRANT SELECT,INSERT ON ALL TABLES IN SCHEMA roulette TO :"runtime_role";
+GRANT UPDATE(snapshot_key_version,snapshot_nonce,snapshot_ciphertext,snapshot_version,version,action_sequence,state,escrow_units,outcome,started_at,ended_at,deadline,game_deadline,revealed_seed) ON roulette.rounds TO :"runtime_role";
+GRANT UPDATE(seat_no,ready_cycle,contribution_version,ready,active) ON roulette.participants TO :"runtime_role";
+-- Maintenance functions are invoker-visible guards, not mutation privileges.
+GRANT USAGE ON SCHEMA ops TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION ops.lock_write_scopes(text[]),ops.is_maintenance_scope_active(text) TO :"runtime_role";

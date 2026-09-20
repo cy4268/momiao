@@ -148,7 +148,7 @@ export class ApiClient {
         headers.set('X-Auth-Session', this.sid); return headers; }
     private opaqueWriteHeaders() { const headers = this.headers(); if (!this.opaqueCSRF) throw new ApiError('不透明会话缺少 CSRF 状态，请刷新页面重新核对。', 403, 'AUTH_CSRF_MISSING'); headers.set('X-CSRF-Token', this.opaqueCSRF); return headers; }
     private protectedHeaders(path: string, method: string, gameHeaders?: Record<string,string>) {
-        const headers = this.headers(), game = /^\/api\/v1\/(games|game-rounds)(?:\/|$)/.test(path);
+        const headers = this.headers(), game = /^\/api\/v1\/(games|game-rounds|roulette)(?:\/|$)/.test(path);
         for (const [name, value] of Object.entries(gameHeaders || {})) {
             if (!game || !['Idempotency-Key', 'X-CSRF-Token', 'X-Fairness-Commitment'].includes(name)) throw new ApiError('无效的游戏请求头。');
             headers.set(this.sessionMode === 'opaque' && name === 'X-CSRF-Token' ? 'X-Game-CSRF-Token' : name, value);

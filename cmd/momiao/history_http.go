@@ -13,12 +13,14 @@ import (
 	"github.com/cy4268/momiao/internal/historyaccess"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/poker"
+ "github.com/cy4268/momiao/internal/roulette"
 	"github.com/cy4268/momiao/internal/session"
 )
 
 // Concrete dependencies keep request-controlled identities out of the authority seam.
 type historyHTTP struct {
-	sessions *session.Service
+	roulette *roulette.Service
+ sessions *session.Service
 	list     *history.Reader
 	rounds   *games.Service
 	poker    *poker.HistoryReader
@@ -91,7 +93,10 @@ func (h *historyHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			data, err = h.rounds.HistoryDetail(r.Context(), access, id)
 		}
-	case "sessions":
+	case "roulette":
+  if h.roulette==nil {err=historyaccess.ErrUnavailable;break}
+  if proof { data,err=h.roulette.HistoryVerify(r.Context(),access,id) } else {data,err=h.roulette.HistoryDetail(r.Context(),access,id,roulette.HistoryQuery{Limit:historyLimit(q,"limit"),Cursor:q.Get("cursor")})}
+ case "sessions":
 		if h.poker == nil {
 			err = historyaccess.ErrUnavailable
 			break
@@ -129,7 +134,7 @@ func (h *historyHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func historyHTTPError(w http.ResponseWriter, err error) {
 	status, code := 503, "HISTORY_UNAVAILABLE"
 	switch {
-	case errors.Is(err, poker.ErrHistoryCursorStale):
+	case errors.Is(err, poker.ErrHistoryCursorStale),errors.Is(err,roulette.ErrHistoryCursorStale):
 		status, code = 409, "HISTORY_CURSOR_STALE"
 	case errors.Is(err, history.ErrQuery), errors.Is(err, historyaccess.ErrInvalid):
 		status, code = 400, "HISTORY_QUERY_INVALID"
@@ -157,14 +162,14 @@ func parseHistoryRequest(u *url.URL) (kind, id string, proof bool, q url.Values,
 		}
 		kind, id = parts[0], parts[1]
 		proof = len(parts) == 3
-		if proof && ((kind != "rounds" && kind != "hands") || parts[2] != "verify") {
+		if proof && ((kind != "rounds" && kind != "hands" && kind != "roulette") || parts[2] != "verify") {
 			return
 		}
 		switch kind {
 		case "rounds", "transactions":
 		case "sessions":
 			allowed = "funding_limit funding_cursor hand_limit hand_cursor"
-		case "hands":
+		case "hands", "roulette":
 			allowed = "limit cursor"
 		default:
 			return

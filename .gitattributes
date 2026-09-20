@@ -3,3 +3,7 @@
 LICENSE -text
 # Preserve historical Markdown hard breaks and terminal blank lines.
 docs/design/archive/** whitespace=-blank-at-eol,-blank-at-eof
+# These applied migrations retain their exact checksum bytes, including CRLF.
+internal/platform/migrations/0037_roulette.sql -text whitespace=cr-at-eol
+internal/platform/migrations/0038_roulette_history_ops.sql -text whitespace=cr-at-eol
+internal/platform/migrations/0039_pressure_roulette_enable.sql -text whitespace=cr-at-eol

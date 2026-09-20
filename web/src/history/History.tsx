@@ -8,12 +8,12 @@ import { chips } from '../games-api';
 import { detailPath, handSchema, historyGet, idSchema, listQuery, pageSchema, readSearch, recordTypes, results, roundSchema, searchSchema, sessionSchema, statuses, transactionSchema, type Transaction } from './api';
 import './history.css';
 
-const names: Record<string, string> = { ...transactionStatus, API_CHIPS_EXCHANGE: 'API → Chips', DIRECT_PLAY_ROUND: '单局游戏', POKER_SESSION: '牌桌会话', POKER_HAND: '单手牌局', DIRECT_PLAY: '直接游玩', POKER: '扑克', WIN: '净赢', LOSS: '净输', BREAK_EVEN: '回本', PROCESSING: '处理中', SETTLED: '已结算', CANCELLED: '已取消', REFUNDED: '已退款', RECOVERING: '恢复中', CONFIRMED: '已确认', BUY_IN: '买入', TOP_UP: '补充筹码', REBUY: '重新买入', CASH_OUT: '离桌结算', GAME_WAGER: '游戏下注', GAME_PAYOUT: '游戏派彩', POKER_CASH_OUT: '扑克离桌结算' };
+const names: Record<string, string> = { ...transactionStatus, ROULETTE_ROUND:"轮盘对局", ROULETTE:"多人轮盘", ROULETTE_ESCROW:"轮盘托管",ROULETTE_REFUND:"轮盘退款",ROULETTE_PAYOUT:"轮盘派彩",ROULETTE_VOID_REFUND:"轮盘作废退款", API_CHIPS_EXCHANGE: 'API → Chips', DIRECT_PLAY_ROUND: '单局游戏', POKER_SESSION: '牌桌会话', POKER_HAND: '单手牌局', DIRECT_PLAY: '直接游玩', POKER: '扑克', WIN: '净赢', LOSS: '净输', BREAK_EVEN: '回本', PROCESSING: '处理中', SETTLED: '已结算', CANCELLED: '已取消', REFUNDED: '已退款', RECOVERING: '恢复中', CONFIRMED: '已确认', BUY_IN: '买入', TOP_UP: '补充筹码', REBUY: '重新买入', CASH_OUT: '离桌结算', GAME_WAGER: '游戏下注', GAME_PAYOUT: '游戏派彩', POKER_CASH_OUT: '扑克离桌结算' };
 const label = (value: string | null | undefined) => value ? names[value] || value : '未记录';
 const money = (value: string | null | undefined, signed = false) => value == null ? '未记录' : chips(value, signed);
 const when = (value: string | null | undefined) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '未记录';
 type HistoryProps = { client: ApiClient };
-function useHistory<T>(client: ApiClient, path: string, schema: z.ZodType<T>) {
+export function useHistory<T>(client: ApiClient, path: string, schema: z.ZodType<T>) {
   const [version, setVersion] = useState(0);
   const [state, setState] = useState<{ data?: T; error?: string; loading: boolean }>({ loading: true });
   useEffect(() => {
@@ -43,7 +43,7 @@ function safeReturn(state: unknown): { search: string; scroll: number; focus: st
   }
   return { search: '', scroll: 0, focus: '' };
 }
-function Back({ parent }: { parent?: { path: string; title: string } }) {
+export function Back({ parent }: { parent?: { path: string; title: string } }) {
   const location = useLocation(), saved = safeReturn(location.state);
   const parentSearch = z.object({ parentSessionSearch: z.string() }).safeParse(location.state);
   let suffix = '';
@@ -98,7 +98,7 @@ function HistoryListContent({ client }: HistoryProps) {
   const previousSearch = previous.success ? previous.data.previousHistory : '';
   const filterForm = <form onSubmit={filter} className="history-filter-form">{error && <Alert>{error}</Alert>}
     <label>记录类型<select name="record_type" defaultValue={q.record_type || ''}><option value="">全部记录（单局与会话）</option>{recordTypes.map(v => <option key={v} value={v}>{label(v)}</option>)}</select></label>
-    <label>游玩模式<select name="mode" defaultValue={q.mode || ''}><option value="">全部模式</option><option value="DIRECT_PLAY">直接游玩</option><option value="POKER">扑克</option></select></label>
+    <label>游玩模式<select name="mode" defaultValue={q.mode || ''}><option value="">全部模式</option><option value="DIRECT_PLAY">直接游玩</option><option value="POKER">扑克</option><option value="ROULETTE">多人轮盘</option></select></label>
     <label>游戏<select name="game_slug" defaultValue={q.game_slug || ''}><option value="">全部游戏</option>{q.game_slug && !data.data?.game_options.some(g => g.game_slug === q.game_slug) && <option value={q.game_slug}>{q.game_slug}</option>}{data.data?.game_options.map(g => <option key={g.game_slug} value={g.game_slug}>{g.game_title}{g.retired ? '（已退役）' : ''}</option>)}</select></label>
     <label>开始时间（本地）<input name="time_from" type="datetime-local" defaultValue={localTime(q.time_from)} /></label><label>结束时间（不含，本地）<input name="time_to" type="datetime-local" defaultValue={localTime(q.time_to)} /></label>
     <label>结果<select name="result" defaultValue={q.result || ''}><option value="">全部结果</option>{results.map(v => <option key={v} value={v}>{label(v)}</option>)}</select></label>

@@ -24,7 +24,7 @@ func NewReader(pool *pgxpool.Pool) *Reader { return &Reader{pool: pool} }
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 var slug = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-func validSource(source Source) bool { return source == Round || source == Session || source == Hand }
+func validSource(source Source) bool { return source == Round || source == Session || source == Hand || source == RouletteRound }
 
 func (r *Reader) List(ctx context.Context, user int64, q Query) (Page, error) {
 	page := Page{Items: []Summary{}, GameOptions: []GameOption{}}
@@ -32,7 +32,7 @@ func (r *Reader) List(ctx context.Context, user int64, q Query) (Page, error) {
 		q.Limit = 50
 	}
 	if user <= 0 || q.Limit < 1 || q.Limit > 100 || (q.RecordType != "" && !validSource(q.RecordType)) ||
-		(q.Mode != "" && q.Mode != "DIRECT_PLAY" && q.Mode != "POKER") ||
+		(q.Mode != "" && q.Mode != "DIRECT_PLAY" && q.Mode != "POKER" && q.Mode != "ROULETTE") ||
 		(q.GameSlug != "" && (len(q.GameSlug) > 128 || !slug.MatchString(q.GameSlug))) ||
 		(q.ID != "" && !uuid.MatchString(q.ID)) || (q.ParentSourceID != "" && !uuid.MatchString(q.ParentSourceID)) ||
 		!slices.Contains([]string{"", "WIN", "LOSS", "BREAK_EVEN", "CANCELLED", "REFUNDED"}, q.Result) ||

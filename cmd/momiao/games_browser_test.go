@@ -20,7 +20,9 @@ import (
 	"time"
 
 	"github.com/cy4268/momiao/internal/games"
+ "github.com/cy4268/momiao/internal/historyaccess"
 	"github.com/cy4268/momiao/internal/platform"
+	"github.com/cy4268/momiao/internal/roulette"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -83,7 +85,7 @@ func gameBrowserStores(t *testing.T) (*platform.Store, *platform.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grantPaths := []string{"../../internal/platform/testdata/runtime-baseline-0001-0004.sql", "../../deploy/sql/runtime-grants-0005-0009.psql", "../../deploy/sql/runtime-grants-0010-games.psql"}
+	grantPaths := []string{"../../internal/platform/testdata/runtime-baseline-0001-0004.sql", "../../deploy/sql/runtime-grants-0005-0009.psql", "../../deploy/sql/runtime-grants-0010-games.psql", "../../deploy/sql/runtime-grants-0037-roulette.psql", "../../deploy/sql/runtime-grants-0038-roulette-history-ops.psql"}
 	if os.Getenv("MOMIAO_GAMES_TEST_ISOLATED_GAP") == "1" {
 		grantPaths = append(grantPaths, "../../deploy/sql/runtime-grants-0015-slot.psql")
 		if _, e := os.Stat("../../deploy/sql/runtime-grants-0016-blackjack.psql"); e == nil {
@@ -107,6 +109,15 @@ func gameBrowserStores(t *testing.T) (*platform.Store, *platform.Store) {
 			t.Fatal(err)
 		}
 	}
+	// ReadProfile now includes the existing 0030 rename flag. Reuse that narrow
+	// column grant for this local browser surface, not the entire Ops authority.
+	err = owner.WithTx(ctx, func(tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, "GRANT SELECT(rename_required) ON identity.master_profiles TO "+pgx.Identifier{c.RuntimeRole}.Sanitize())
+		return e
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	runtime, err := platform.Open(ctx, c.RuntimeURL)
 	if err != nil {
 		t.Fatal("isolated runtime connection failed")
@@ -124,7 +135,7 @@ func TestGamesBrowserFixture(t *testing.T) {
 	}
 	owner, runtime := gameBrowserStores(t)
 	ctx := context.Background()
-	for _, user := range []int64{935000101, 935000102} {
+	for _, user := range []int64{935000101, 935000102, 935000103, 935000104, 935000105, 935000106} {
 		if err := owner.EnsureAccount(ctx, user); err != nil {
 			t.Fatal(err)
 		}
@@ -161,6 +172,11 @@ func TestGamesBrowserFixture(t *testing.T) {
 	workerCtx, stopWorker := context.WithCancel(ctx)
 	defer stopWorker()
 	go service.RunWorker(workerCtx)
+	rouletteService, err := roulette.NewService(runtime, roulette.Keyring{Active: "g1-browser-v1", Keys: map[string][32]byte{"g1-browser-v1": key, "test-v1": {1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go rouletteService.RunWorker(workerCtx)
 	nativeUser := func(id int64) map[string]any {
 		return map[string]any{"id": id, "username": "g1-player-" + strconv.FormatInt(id, 10), "display_name": "G1 合成试玩", "role": 1, "status": 1, "quota": 0, "used_quota": 0, "request_count": 0}
 	}
@@ -173,6 +189,9 @@ func TestGamesBrowserFixture(t *testing.T) {
 		return raw + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 	}
 	tokens := map[int64]string{935000101: makeToken(935000101), 935000102: makeToken(935000102)}
+	for user := int64(935000103); user <= 935000106; user++ {
+		tokens[user] = makeToken(user)
+	}
 	bundle := func(id int64) map[string]any {
 		return map[string]any{"access_token": tokens[id], "access_expires_at": time.Now().Add(12 * time.Hour).Unix(), "user": nativeUser(id), "session": map[string]any{"sid": sessionID(id)}}
 	}
@@ -213,11 +232,16 @@ func TestGamesBrowserFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	origin := "http://" + listener.Addr().String()
-	cfg := config{WebDir: web, PublicOrigin: origin, games: service, wallet: runtime, economy: runtime, profile: runtime, announcements: runtime, accessGate: runtime, accessDeclaration: &accessDeclaration{Version: 1, Environment: "DEVELOPMENT", Origin: origin, EvidenceRef: "g1-real-games-synthetic-native-only", MigrationApplicability: "NO_MIGRATION_APPLICABLE", Resources: map[string]string{"ACCOUNT": "AVAILABLE", "ASSETS": "AVAILABLE", "EXPERIENCE": "AVAILABLE", "COMMUNITY": "AVAILABLE"}}}
+	cfg := config{WebDir: web, PublicOrigin: origin, games: service, roulette: rouletteService, wallet: runtime, economy: runtime, profile: runtime, announcements: runtime, accessGate: runtime, accessDeclaration: &accessDeclaration{Version: 1, Environment: "DEVELOPMENT", Origin: origin, EvidenceRef: "g1-real-games-synthetic-native-only", MigrationApplicability: "NO_MIGRATION_APPLICABLE", Resources: map[string]string{"ACCOUNT": "AVAILABLE", "ASSETS": "AVAILABLE", "EXPERIENCE": "AVAILABLE", "COMMUNITY": "AVAILABLE"}}}
 	portal := newPortalHandler(cfg, native)
 	var server *http.Server
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/__games-fixture/login":
+			// Browser entry for the already opt-in loopback fixture. No production
+			// auth route or credential persistence is added by this test surface.
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, `<!doctype html><html lang="zh"><meta charset="utf-8"><title>Momiao 本地试玩账户</title><style>body{font:18px system-ui;max-width:700px;margin:80px auto;background:#f4f0e8;color:#17202d}button,select{font:inherit;padding:12px;margin:12px}</style><h1>Momiao 本地试玩</h1><p>真实 Go / PostgreSQL 游戏，合成登录身份。</p><form><label>试玩账户<select name="username"><option value="g1-player">玩家 1</option><option value="g1-other">玩家 2</option><option value="g1-player-3">玩家 3</option><option value="g1-player-4">玩家 4</option><option value="g1-player-5">玩家 5</option><option value="g1-player-6">玩家 6</option></select></label><button>进入恶魔轮盘大厅</button></form><p id="error"></p><script>document.querySelector('form').onsubmit=async e=>{e.preventDefault();const response=await fetch('/api/user/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:new FormData(e.target).get('username'),password:'g1-local-only'})});if(response.ok)location.href='/roulette/devil-roulette';else document.querySelector('#error').textContent='登录失败';}</script></html>`)
 		case "/api/user/login":
 			var input struct{ Username, Password string }
 			if r.Method != "POST" || json.NewDecoder(io.LimitReader(r.Body, 2048)).Decode(&input) != nil || input.Password != "g1-local-only" {
@@ -230,6 +254,11 @@ func TestGamesBrowserFixture(t *testing.T) {
 			}
 			if input.Username == "g1-other" {
 				id = 935000102
+			}
+			for user := int64(935000103); user <= 935000106; user++ {
+				if input.Username == fmt.Sprintf("g1-player-%d", user%100) {
+					id = user
+				}
 			}
 			if id == 0 {
 				walletError(w, 401, "AUTH_UNAUTHORIZED")
@@ -271,8 +300,20 @@ func TestGamesBrowserFixture(t *testing.T) {
 			}
 			walletSuccess(w, map[string]any{"stopping": true})
 			go server.Shutdown(context.Background())
-		default:
-			portal.ServeHTTP(w, r)
+        default:
+            // Native identity is synthetic only in this explicit loopback fixture.
+            // The actual immutable history and proof readers remain production code.
+            if historyAPIRoute(r.URL.Path) {
+                if r.Method!="GET" {walletError(w,405,"HISTORY_READ_ONLY");return}
+                user,status:=verifyWalletUser(r,native);if status!=0 {walletError(w,status,"AUTH_UNAUTHORIZED");return}
+                kind,id,proof,q,e:=parseHistoryRequest(r.URL);if e!=nil{historyHTTPError(w,e);return}
+                access:=historyaccess.Own(user);var value any
+                switch kind {case "roulette": if proof{value,e=rouletteService.HistoryVerify(r.Context(),access,id)}else{value,e=rouletteService.HistoryDetail(r.Context(),access,id,roulette.HistoryQuery{Limit:historyLimit(q,"limit"),Cursor:q.Get("cursor")})}
+                case "transactions":value,e=runtime.HistoryTransaction(r.Context(),access,id)
+                default:historyHTTPError(w,historyaccess.ErrUnavailable);return}
+                if e!=nil{t.Logf("fixture history: %v",e);historyHTTPError(w,e);return};walletSuccess(w,value);return
+            }
+            portal.ServeHTTP(w, r)
 		}
 	})
 	server = &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second}

@@ -108,7 +108,7 @@ func gateRouteDomain(route string) string {
 	if pokerBrowserRoute(route) {
 		return "EXPERIENCE"
 	}
-	if gameBrowserRoute(route) {
+	if gameBrowserRoute(route) || rouletteBrowserRoute(route) {
 		return "EXPERIENCE"
 	}
 	if strings.Contains(route, "#") {

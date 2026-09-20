@@ -20,7 +20,7 @@ func newOpsGamesHandler(sessions *session.Service,store *platform.Store,service 
   if !opsRequestSafe(r)||r.ContentLength!=0||len(r.TransferEncoding)!=0{walletError(w,400,"OPS_INPUT_INVALID");return}
   if !requireMethod(w,r,http.MethodGet)||!requireOpsQuery(w,r,"authz_epoch"){return}
   slug:=strings.TrimPrefix(r.URL.Path,path)
-  if slug!=""{slug=strings.TrimPrefix(slug,"/");switch slug{case "dice","scratch","summon","slot","blackjack","poker":default:walletError(w,404,"NOT_FOUND");return}}
+  if slug!=""{slug=strings.TrimPrefix(slug,"/");switch slug{case "dice","scratch","summon","slot","blackjack","poker","devil-roulette","pressure-roulette":default:walletError(w,404,"NOT_FOUND");return}}
   epoch,valid:=opsEpoch(r.URL.Query().Get("authz_epoch"));if !valid{walletError(w,400,"OPS_INPUT_INVALID");return}
   if sessions==nil||store==nil||service==nil{walletError(w,503,"OPS_UNAVAILABLE");return}
   ctx,cancel:=context.WithTimeout(r.Context(),10*time.Second);defer cancel();r=r.WithContext(ctx)

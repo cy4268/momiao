@@ -11,6 +11,7 @@ import (
 	"github.com/cy4268/momiao/internal/historyaccess"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/poker"
+ "github.com/cy4268/momiao/internal/roulette"
 	"github.com/cy4268/momiao/internal/session"
 )
 
@@ -286,10 +287,10 @@ func (h *opsSupportRecordsHTTP) record(w http.ResponseWriter, r *http.Request, a
 	}
 	kind, recordID := parts[0], parts[1]
 	recordType := map[string]string{
-		"rounds": "DIRECT_PLAY_ROUND", "sessions": "POKER_SESSION",
+		"roulette": "ROULETTE_ROUND", "rounds": "DIRECT_PLAY_ROUND", "sessions": "POKER_SESSION",
 		"hands": "POKER_HAND", "transactions": "TRANSACTION",
 	}[kind]
-	if recordType == "" || verify && kind != "rounds" && kind != "hands" {
+	if recordType == "" || verify && kind != "rounds" && kind != "hands" && kind != "roulette" {
 		walletError(w, http.StatusNotFound, "NOT_FOUND")
 		return
 	}
@@ -298,7 +299,7 @@ func (h *opsSupportRecordsHTTP) record(w http.ResponseWriter, r *http.Request, a
 		switch kind {
 		case "sessions":
 			allowed = append(allowed, "funding_limit", "funding_cursor", "hand_limit", "hand_cursor")
-		case "hands":
+		case "hands", "roulette":
 			allowed = append(allowed, "limit", "cursor")
 		}
 	}
@@ -331,7 +332,12 @@ func (h *opsSupportRecordsHTTP) record(w http.ResponseWriter, r *http.Request, a
 		err    error
 	)
 	switch kind {
-	case "rounds":
+	case "roulette":
+  if h.history.roulette==nil {err=historyaccess.ErrUnavailable} else if verify {record,err=h.history.roulette.HistoryVerify(r.Context(),access,recordID)} else {
+   limit,valid:=opsReadLimit(values.Get("limit"));if !valid{walletError(w,400,"OPS_INPUT_INVALID");return}
+   record,err=h.history.roulette.HistoryDetail(r.Context(),access,recordID,roulette.HistoryQuery{Limit:limit,Cursor:values.Get("cursor")})
+  }
+ case "rounds":
 		if h.history.rounds == nil {
 			err = historyaccess.ErrUnavailable
 		} else if verify {

@@ -13,7 +13,7 @@ func validOpsRecordAccess(kind, recordType string) bool {
 	switch recordType {
 	case "HISTORY_LIST":
 		return kind == "LIST"
-	case "DIRECT_PLAY_ROUND", "POKER_HAND":
+	case "DIRECT_PLAY_ROUND", "POKER_HAND", "ROULETTE_ROUND":
 		return kind == "DETAIL" || kind == "VERIFY"
 	case "POKER_SESSION", "TRANSACTION":
 		return kind == "DETAIL"

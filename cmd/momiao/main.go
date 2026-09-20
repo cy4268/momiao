@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/cy4268/momiao/internal/bffauth"
 	"github.com/cy4268/momiao/internal/games"
+	"github.com/cy4268/momiao/internal/roulette"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/rankings"
 	"github.com/jackc/pgx/v5"
@@ -113,11 +114,17 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			if err != nil {
 				return errors.New("game fairness startup failed")
 			}
+			cfg.roulette, err = roulette.NewService(store, roulette.Keyring{Active:keyring.Active, Keys:keyring.Keys})
+			if err != nil { return errors.New("roulette startup failed") }
+			rouletteCtx, stopRoulette := context.WithCancel(ctx)
+			rouletteDone := make(chan struct{})
+			go func(){ defer close(rouletteDone); cfg.roulette.RunWorker(rouletteCtx) }()
+			defer func(){ stopRoulette(); <-rouletteDone }()
 			if cfg.History.Enabled {
 				if sessionApp == nil {
 					return errHistoryStartup
 				}
-				application, err := openHistoryApplication(ctx, cfg.History, sessionApp.pool, cfg.sessions, cfg.games, store)
+				application, err := openHistoryApplication(ctx, cfg.History, sessionApp.pool, cfg.sessions, cfg.games, store, cfg.roulette)
 				if err != nil {
 					return errHistoryStartup
 				}
@@ -287,6 +294,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		bindings = append(bindings, platform.OpsSupportBindings(runtimeStore)...)
 		bindings = append(bindings, platform.OpsIncidentBindings(runtimeStore)...)
 		bindings = append(bindings, games.OpsBindings(cfg.games)...)
+ bindings = append(bindings, roulette.OpsBindings(cfg.roulette)...)
 		bindings = append(bindings, rankings.OpsBindings(cfg.rankings)...)
 		bindings = append(bindings, pokerOpsBindings(pokerOpsPort)...)
 		opsService, err := platform.NewOpsService(runtimeStore, cfg.OpsEnvironment, bindings...)
