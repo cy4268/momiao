@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ApiClient, ApiError } from './api';
 import { Alert, Brand, Empty, Loading, useResource } from './ui';
@@ -12,7 +12,7 @@ import './game-hall.css';
 import { assetSrcSet, assetUrl, gameArt, hallArt, type ImageAsset } from './game-hall-assets';
 import { catalogAvailability, catalogQuerySchema, parseCatalogQuery, serializeCatalogQuery, parsePublicCatalog, type CatalogQuery } from './game-catalog-query';
 
-const gameCopy:Record<GameSlug,{eyebrow:string;intro:string}>={dice:{eyebrow:'LUCKY DICE SALON',intro:'选大或小，让三颗象牙骰为这一刻落定。'},scratch:{eyebrow:'TREASURE VOUCHER SALON',intro:'刮开星纹，寻找属于你的三枚相同印记。'},summon:{eyebrow:'GRAND MANIFESTATION THEATRE',intro:'点亮召唤阵，让每一次独立的星光回应你。'},slot:{eyebrow:'ROYAL TREASURY GALLERY',intro:'五轴星纹落定，十条线共同回应这一局。'},blackjack:{eyebrow:'VIP ROYAL TABLE',intro:'坐进皇家牌桌，让同一副牌序回应你的每次选择。'}};
+const gameCopy:Record<GameSlug,{eyebrow:string;intro:string}>={dice:{eyebrow:'LUCKY DICE SALON',intro:'三颗骰子，一次选择。让星光为这一刻落定。'},scratch:{eyebrow:'TREASURE VOUCHER SALON',intro:'刮开星纹，寻找属于你的三枚相同印记。'},summon:{eyebrow:'GRAND MANIFESTATION THEATRE',intro:'点亮召唤阵，让每一次独立的星光回应你。'},slot:{eyebrow:'ROYAL TREASURY GALLERY',intro:'五轴星纹落定，十条线共同回应这一局。'},blackjack:{eyebrow:'VIP ROYAL TABLE',intro:'坐进皇家牌桌，让同一副牌序回应你的每次选择。'}};
 const runtimeNames:Record<string,string>={PLAY:'可进入',RESUME:'恢复本局',MAINTENANCE:'维护中',TEMPORARILY_UNAVAILABLE:'暂不可用',COMING_SOON:'即将开放',RETIRED:'已退役'};
 
 function HallImage({asset,alt='',className,sizes,lazy=false}:{asset:ImageAsset;alt?:string;className?:string;sizes:string;lazy?:boolean}) {
@@ -100,6 +100,7 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
     const navigate=useNavigate();
     const [bootstrap,setBootstrap]=useState<GameBootstrap>();
     const [round,setRound]=useState<GameRound|null>(null);
+    const [diceAnimating,setDiceAnimating]=useState(false);
     const [busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[notice,setNotice]=useState('');
     const [pending,setPending]=useState<PendingGame|null>(null),[retryReady,setRetryReady]=useState(false),[storageBlocked,setStorageBlocked]=useState(false);
     const [pendingAction,setPendingAction]=useState<PendingBlackjackAction|null>(null),[actionRetryReady,setActionRetryReady]=useState(false);
@@ -146,7 +147,7 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
     const invalid=slug==='dice'&&!choice?'请先选择大或小。':cost===null?'最低下注 10 筹码，只接受整数筹码。':available!==null&&cost>available?'可用筹码不足。':'';
     const actionBlocked=busy||loading||!!pending||!!pendingAction||storageBlocked||!bootstrap||round?.recovery_state==='NEEDS_REVIEW';
     const activeBlackjack=slug==='blackjack'&&round?.state==='PLAYER_TURN';
-    const blocked=actionBlocked||bootstrap?.game.effective_runtime!=='PLAY'||!bootstrap?.next_commitment||!!revealIncomplete||activeBlackjack;
+    const blocked=(slug==='dice'&&diceAnimating)||actionBlocked||bootstrap?.game.effective_runtime!=='PLAY'||!bootstrap?.next_commitment||!!revealIncomplete||activeBlackjack;
     async function play(original?:PendingGame) {
         if(lock.current||!bootstrap||(original?(!retryReady||loading):blocked||!!invalid))return;
         lock.current=true;setBusy(true);setNotice('');setRetryReady(false);
@@ -191,6 +192,7 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
         }}finally{if(current()){lock.current=false;setBusy(false);}}
     }
     const copy=gameCopy[slug];
+    const StageLayout=slug==='dice'?'div':Fragment;
     return <div className={'direct-game game-'+slug}>
         <header className="game-page-heading"><div><p className="eyebrow">CHALDEA / {copy.eyebrow}</p><h1>{gameNames[slug]}</h1><p>{copy.intro}</p></div><div className="game-heading-links"><Link to="/games">所有游戏 ↗</Link><Link to="/history">游戏记录</Link><button onClick={()=>void load(pending,pendingAction)} disabled={busy||loading}>刷新恢复</button></div></header>
         {notice&&<Alert>{notice}</Alert>}
@@ -198,9 +200,9 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
         {pendingAction&&<div className="game-recovery" role="status"><p>有一次行动等待核对，其他行动已暂停。</p><button disabled={busy||loading} onClick={()=>void load(pending,pendingAction)}>核对本次行动</button>{actionRetryReady&&<button disabled={busy||loading} onClick={()=>void performAction(pendingAction.input,pendingAction)}>重试原行动</button>}</div>}
         {round?.recovery_state==='NEEDS_REVIEW'&&<Alert>本局状态需要核对，已暂停行动。请保留本局编号并联系管理员。</Alert>}
         {slug==='blackjack'?<BlackjackGame snapshot={round?.blackjack||null} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending||!!pendingAction} disabledReason={activeBlackjack?(actionBlocked?'请先恢复当前状态。':null):(blocked?'请先恢复当前状态。':null)} roundID={round?.id} onDeal={async()=>{await play()}} onAction={command=>performAction(command)} onRecover={()=>void load(pending,pendingAction)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={round?()=>navigate('/history/rounds/'+round.id):undefined}/>:null}
-        {slug==='blackjack'?null:slug==='slot'?<SlotGame result={round?.slot||null} rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending} disabledReason={blocked?'请先恢复当前状态。':null} roundID={round?.id} onSpin={async()=>{await play()}} onRecover={()=>void load(pending)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={round?()=>navigate('/history/rounds/'+round.id):undefined}/>:<><section className={'game-stage '+(busy?'game-busy':'')} aria-label="游戏舞台">
+        {slug==='blackjack'?null:slug==='slot'?<SlotGame result={round?.slot||null} rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending} disabledReason={blocked?'请先恢复当前状态。':null} roundID={round?.id} onSpin={async()=>{await play()}} onRecover={()=>void load(pending)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={round?()=>navigate('/history/rounds/'+round.id):undefined}/>:<StageLayout {...(slug==='dice'?{className:'dice-play-layout'}:{})}><section className={'game-stage '+(busy?'game-busy':'')} aria-label="游戏舞台">
             <div className="game-stage-corners" aria-hidden="true"/>
-            {slug==='dice'?<DiceStage result={round?.dice} busy={busy}/>:slug==='scratch'?<ScratchStage round={round} onComplete={()=>void completeScratch()} busy={busy}/>:<SummonStage round={round} busy={busy}/>}
+            {slug==='dice'?<DiceStage key={userID} result={round?.dice} busy={busy} loading={loading} recovering={!!pending} onAnimatingChange={setDiceAnimating}/>:slug==='scratch'?<ScratchStage round={round} onComplete={()=>void completeScratch()} busy={busy}/>:<SummonStage round={round} busy={busy}/>}
         </section>
         <section className="game-console" aria-label="下注控制台"><div className="game-balance"><p>可用筹码</p><strong>{available===null?'—':chips(available.toString())}</strong><div><Link to="/wallet">钱包兑换 →</Link><Link to="/rewards">免费签到 →</Link></div></div>
             <form className="wager-form" onSubmit={e=>{e.preventDefault();void play()}}>
@@ -210,13 +212,13 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
                 {slug==='summon'&&<fieldset className="summon-mode" disabled={blocked}><legend>召唤方式</legend>{(['SINGLE','TENFOLD'] as const).map(value=><label key={value}><input type="radio" name="summon-mode" checked={mode===value} onChange={()=>setMode(value)}/>{value==='SINGLE'?'单次召唤 · 1 抽':'十连召唤 · 10 抽'}</label>)}</fieldset>}
                 <p className={'wager-hint '+(invalid?'invalid':'')} id="wager-hint">{invalid||'最低 10 筹码 · 整数步长 1 筹码'}</p>
                 <div className="wager-cost"><span>本次总消耗 <strong>{cost===null?'—':chips(cost.toString())}</strong></span><span>最低预估余额 <strong>{cost!==null&&available!==null&&cost<=available?chips((available-cost).toString()):'—'}</strong></span></div>
-                <button className="primary game-play" type="submit" disabled={blocked||!!invalid}>{busy?'正在核对…':slug==='dice'?'掷骰':slug==='scratch'?'购买刮刮卡':`${mode==='TENFOLD'?'十连召唤':'单次召唤'} · ${cost===null?'—':chips(cost.toString())} 筹码`}</button>
+                <button className="primary game-play" type="submit" disabled={blocked||!!invalid}>{busy?'正在核对…':slug==='dice'?(diceAnimating?'落定中…':'掷骰'):slug==='scratch'?'购买刮刮卡':`${mode==='TENFOLD'?'十连召唤':'单次召唤'} · ${cost===null?'—':chips(cost.toString())} 筹码`}</button>
                 {revealIncomplete&&<p className="hint">请先完成上方刮卡揭晓，再购买下一张。</p>}
                 {bootstrap&&bootstrap.game.effective_runtime!=='PLAY'&&<p className="hint">{runtimeNames[bootstrap.game.effective_runtime]||'暂不可用'}，历史结果仍可查阅。</p>}
             </form>
         </section>
-        </>}{loading&&!bootstrap&&<Loading/>}
-        {round&&!revealIncomplete&&<RoundReceipt round={round}/>}
+        </StageLayout>}{loading&&!bootstrap&&<Loading/>}
+        {round&&!revealIncomplete&&!(slug==='dice'&&(busy||diceAnimating||pending))&&<RoundReceipt round={round}/> }
         <div className="game-information">{slug==='slot'||slug==='blackjack'?<ExtraRules config={bootstrap?.game.config} blackjack={slug==='blackjack'}/>:<GameRules slug={slug} config={bootstrap?.game.config}/>} {bootstrap&&<FairnessControl client={client} slug={slug} bootstrap={bootstrap} disabled={blocked} onChanged={()=>void load()}/>}</div>
     </div>;
 }

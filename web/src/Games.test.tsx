@@ -64,20 +64,37 @@ it('Blackjack resumes an active hand during maintenance and locks an uncertain a
 it('publishes commitment before manual wager, locks double click, then displays durable result',async()=>{
     let resolve!:(value:GameRound)=>void;
     const create=vi.spyOn(gameAPI,'createGame').mockReturnValue(new Promise(r=>resolve=r));
-    show();await screen.findByText('可用筹码');expect(create).not.toHaveBeenCalled();
+    const view=show();await screen.findByText('可用筹码');expect(create).not.toHaveBeenCalled();
+    expect(await screen.findByRole('img',{name:'星月骰盅，仅在首次开局前展示'})).toBeVisible();
     expect(screen.getByText(hash)).toBeInTheDocument();
     expect(screen.getByRole('heading',{name:'规则与奖励'})).toBeVisible();
     expect(screen.queryByText('理论返还率')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('radio',{name:/小/}));
     fireEvent.click(screen.getByRole('button',{name:'掷骰'}));
+    expect(screen.queryByRole('img',{name:'星月骰盅，仅在首次开局前展示'})).not.toBeInTheDocument();
+    expect(screen.getByLabelText('三颗骰子正在翻滚，等待落定')).toHaveClass('is-rolling');
     expect(create).toHaveBeenCalledTimes(1);
     expect(screen.getByLabelText('基础下注（筹码）')).toBeDisabled();
     expect(create.mock.calls[0][2].input).toEqual({type:'DICE',wager:'10',choice:'SMALL'});
     vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,latest_round:result,available_units:result.balance_after_units});
     resolve(result);
-    await waitFor(()=>expect(screen.getByLabelText('本局结果')).toHaveTextContent('净赢'));
+    await waitFor(()=>expect(screen.getByRole('button',{name:'落定中…'})).toBeDisabled());
+    expect(screen.queryByLabelText('本局结果')).not.toBeInTheDocument();
+    await waitFor(()=>expect(screen.getByLabelText('本局结果')).toHaveTextContent('净赢'),{timeout:2500});
+    expect(screen.getByLabelText('骰子点数 2、3、4，合计 9 点')).not.toHaveClass('is-rolling');
     expect(within(screen.getByLabelText('本局结果')).getByText('+10')).toBeVisible();
     expect(create).toHaveBeenCalledTimes(1);expect(sessionStorage.getItem(gameAPI.pendingStorage('1','dice'))).toBeNull();
+    view.unmount();show();
+    await screen.findByLabelText('骰子点数 2、3、4，合计 9 点');
+    expect(screen.queryByRole('img',{name:'星月骰盅，仅在首次开局前展示'})).not.toBeInTheDocument();
+    vi.stubGlobal('matchMedia',vi.fn(()=>({matches:true})));
+    try {
+        fireEvent.click(screen.getByRole('button',{name:'掷骰'}));
+        await waitFor(()=>expect(screen.getByRole('button',{name:'掷骰'})).toBeEnabled());
+        expect(create).toHaveBeenCalledTimes(2);
+        expect(screen.getByLabelText('骰子点数 2、3、4，合计 9 点')).not.toHaveClass('is-rolling');
+        expect(screen.queryByRole('img',{name:'星月骰盅，仅在首次开局前展示'})).not.toBeInTheDocument();
+    } finally { vi.unstubAllGlobals(); }
 });
 it('unknown HTTP outcome survives refresh and reconciles without another POST',async()=>{
     const create=vi.spyOn(gameAPI,'createGame').mockRejectedValue(new ApiError('lost response',0,'',true));

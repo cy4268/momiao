@@ -1,16 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import type { DiceResult, GameRound } from '../games-api';
+import type { GameRound } from '../games-api';
 
-const pipPositions:Record<number,number[]>={1:[5],2:[1,9],3:[1,5,9],4:[1,3,7,9],5:[1,3,5,7,9],6:[1,3,4,6,7,9]};
-export function DiceStage({result,busy}:{result?:DiceResult;busy:boolean}) {
-    return <div className={'dice-salon '+(busy?'rolling':'')}>
-        <div className="salon-orbit" aria-hidden="true"/><div className="dice-tray" aria-label={result?`骰子点数 ${result.dice.join('、')}，合计 ${result.total} 点`:'三颗象牙白骰子，等待开局'}>
-            {[0,1,2].map(i=><div className="ivory-die" key={i} aria-hidden="true">{result?Array.from({length:9},(_,n)=><i key={n} className={pipPositions[result.dice[i]].includes(n+1)?'pip':'empty-pip'}/>):<span className="die-seal">◇</span>}</div>)}
-        </div>
-        <p className="stage-caption">{busy?'命运正在落定…':result?`${result.dice.join(' + ')} = ${result.total} 点 · ${result.triple?'豹子':result.side==='BIG'?'大':'小'}`:'三颗骰子，一次选择。'}</p>
-        <span className="stage-serial" aria-hidden="true">CHALDEA · LUCKY DICE SALON</span>
-    </div>;
-}
+export { DiceStage } from './DiceStage';
 
 export function ScratchStage({round,onComplete,busy}:{round:GameRound|null;onComplete:()=>void;busy:boolean}) {
     const canvas=useRef<HTMLCanvasElement>(null);const drawing=useRef(false);const previous=useRef<{x:number;y:number}|null>(null);

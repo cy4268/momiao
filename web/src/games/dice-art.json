@@ -1,0 +1,43 @@
+{
+  "stage": {
+    "src": "games/dice/stage.1920w.1be2838164a5.webp",
+    "width": 1920,
+    "height": 1081,
+    "variants": [
+      {
+        "src": "games/dice/stage.960w.5877b25388a9.webp",
+        "width": 960
+      },
+      {
+        "src": "games/dice/stage.1920w.1be2838164a5.webp",
+        "width": 1920
+      }
+    ]
+  },
+  "cup": {
+    "src": "games/dice/cup.1200w.084cd0c2c5fb.webp",
+    "width": 1200,
+    "height": 800,
+    "variants": [
+      {
+        "src": "games/dice/cup.600w.037a9741485b.webp",
+        "width": 600
+      },
+      {
+        "src": "games/dice/cup.1200w.084cd0c2c5fb.webp",
+        "width": 1200
+      }
+    ]
+  },
+  "face": {
+    "src": "games/dice/face.256w.eb93c231d7d5.webp",
+    "width": 256,
+    "height": 256,
+    "variants": [
+      {
+        "src": "games/dice/face.256w.eb93c231d7d5.webp",
+        "width": 256
+      }
+    ]
+  }
+}
