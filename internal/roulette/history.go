@@ -178,8 +178,11 @@ func replay(ctx context.Context, tx pgx.Tx, r *round, ps []participant, user, af
 			}
 			ended, _, _, eventText := rr.ruleResult(a.Input)
 			hash := ruleHash(rr.ruleState())
-			expectedEvent := PublicEvent{a.Sequence, a.At, &a.Seat, a.Input.Kind, eventText}
-			if a.StateHash != hex.EncodeToString(hash[:]) || !reflect.DeepEqual(a.Event, expectedEvent) {
+			// SQL and JSON may attach different Locations to the same instant.
+			expectedEvent := PublicEvent{a.Sequence, a.At.UTC(), &a.Seat, a.Input.Kind, eventText}
+			recordedEvent := a.Event
+			recordedEvent.At = recordedEvent.At.UTC()
+			if a.StateHash != hex.EncodeToString(hash[:]) || !reflect.DeepEqual(recordedEvent, expectedEvent) {
 				return frames, false, nil
 			}
 			rr.Sequence = a.Sequence

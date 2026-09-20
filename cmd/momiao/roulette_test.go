@@ -12,9 +12,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestRouletteEscrowReplayLifecycle(t *testing.T) {
+	// A UTC-local host returns SQL times with a different Location from JSON Z timestamps.
+	previousLocal := time.Local
+	time.Local = time.FixedZone("roulette-utc-host", 0)
+	t.Cleanup(func() { time.Local = previousLocal })
 	owner, runtime := gameBrowserStores(t)
 	ctx := context.Background()
 	// 账户／金额使用这个既有 fixture 的本地数据库；从随机 UUID 派生两个正 int64 用户 ID，避免重复运行串数据。
