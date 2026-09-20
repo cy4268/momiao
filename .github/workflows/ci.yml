@@ -54,7 +54,6 @@ jobs:
       GOTOOLCHAIN: local
       GOWORK: 'off'
       MOMIAO_TEST_DATABASE_URL: postgres://postgres:momiao-ci-fixture@127.0.0.1:55432/momiao_test_ci?sslmode=disable
-      POKER_TEST_CONNECTION_FILE: ${{ runner.temp }}/poker-test-connection.json
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -67,6 +66,8 @@ jobs:
 
       - name: Prepare disposable Poker database fixture
         shell: bash
+        env:
+          POKER_TEST_CONNECTION_FILE: ${{ runner.temp }}/poker-test-connection.json
         run: |
           psql --version
           python3 - <<'PY'
@@ -83,6 +84,8 @@ jobs:
           path.chmod(0o600)
           PY
       - name: Verify Poker close guard and password profiles on real PostgreSQL
+        env:
+          POKER_TEST_CONNECTION_FILE: ${{ runner.temp }}/poker-test-connection.json
         run: go test -race -count=1 -timeout=90s -v -run '^(TestHostCloseFinalGuard|TestPasswordProfilesEmptyAndProfiles|TestPasswordProfilesMalformed|TestPasswordProfilesFailures)$' ./internal/poker
 
   web:
