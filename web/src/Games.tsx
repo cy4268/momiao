@@ -8,11 +8,28 @@ import {BlackjackGame,type BlackjackCommand} from './games/BlackjackGame';
 import {blackjackActionStorage,findBlackjackAction,readBlackjackAction,type PendingBlackjackAction} from './games-api';
 import { chips, createGame, findPendingGame, gameError, gameNames, gameSlugs, gameUUID, outcomeNames, parseRound, pendingStorage, readGameBootstrap, readPending, units, wagerCost, type Commitment, type GameBootstrap, type GameConfig, type GameEntry, type GameInput, type GameRound, type GameSlug, type GameVerification, type PendingGame } from './games-api';
 import './games.css';
+import './game-hall.css';
+import { assetSrcSet, assetUrl, gameArt, hallArt, type ImageAsset } from './game-hall-assets';
 import { catalogAvailability, catalogQuerySchema, parseCatalogQuery, serializeCatalogQuery, parsePublicCatalog, type CatalogQuery } from './game-catalog-query';
 
 const gameCopy:Record<GameSlug,{eyebrow:string;intro:string}>={dice:{eyebrow:'LUCKY DICE SALON',intro:'选大或小，让三颗象牙骰为这一刻落定。'},scratch:{eyebrow:'TREASURE VOUCHER SALON',intro:'刮开星纹，寻找属于你的三枚相同印记。'},summon:{eyebrow:'GRAND MANIFESTATION THEATRE',intro:'点亮召唤阵，让每一次独立的星光回应你。'},slot:{eyebrow:'ROYAL TREASURY GALLERY',intro:'五轴星纹落定，十条线共同回应这一局。'},blackjack:{eyebrow:'VIP ROYAL TABLE',intro:'坐进皇家牌桌，让同一副牌序回应你的每次选择。'}};
 const runtimeNames:Record<string,string>={PLAY:'可进入',RESUME:'恢复本局',MAINTENANCE:'维护中',TEMPORARILY_UNAVAILABLE:'暂不可用',COMING_SOON:'即将开放',RETIRED:'已退役'};
-const gameSymbols=new Map([['dice','⚄'],['scratch','✦'],['summon','◇'],['slot','✧'],['blackjack','♠'],['texas-holdem','♣']]);
+
+function HallImage({asset,alt='',className,sizes,lazy=false}:{asset:ImageAsset;alt?:string;className?:string;sizes:string;lazy?:boolean}) {
+    return <img key={asset.src} className={className} src={assetUrl(asset.src)} srcSet={assetSrcSet(asset)} sizes={sizes}
+        width={asset.width} height={asset.height} alt={alt} loading={lazy?'lazy':'eager'} decoding="async"
+        onError={event=>{event.currentTarget.style.visibility='hidden';}}/>;
+}
+
+function HallOrnament({name}:{name:keyof typeof hallArt.ornaments.cells}) {
+    const atlas=hallArt.ornaments,cell=atlas.cells[name],scale=1/Math.max(cell.width,cell.height);
+    return <span className="hall-ornament" aria-hidden="true"><span style={{
+        width:cell.width*scale+'em',height:cell.height*scale+'em',
+        backgroundImage:`url("${assetUrl(atlas.src)}")`,
+        backgroundSize:`${atlas.width*scale}em ${atlas.height*scale}em`,
+        backgroundPosition:`${-cell.x*scale}em ${-cell.y*scale}em`,
+    }}/></span>;
+}
 
 function catalogDestination(game:GameEntry):string|undefined {
     const rouletteRoutes:Record<string,string>={'devil-roulette':'roulette.devil.v1','pressure-roulette':'roulette.pressure.v1'};
@@ -47,14 +64,36 @@ export function GamesCatalog({client}:{client:ApiClient}) {
     try{query=parseCatalogQuery(search);}catch{/* Invalid URLs stay visible and never trigger a catalog request. */}
     const catalog=useResource(async()=>query?parsePublicCatalog(await client.gameCatalog<unknown>(discovery?query:undefined)):null,[client,session.user?.id,search,discovery]);
     const clear=()=>navigate({pathname:location.pathname,search:''});
-    return <div className="games-catalog"><a className="skip-link" href="#games-catalog-content">跳至主要内容</a><header className="portal-header"><Link to="/" className="brand" aria-label="Chaldea Platform 首页"><Brand/></Link><nav className="portal-global" aria-label="主导航"><Link to="/">首页</Link><Link to="/models">模型目录</Link><Link to="/entertainment" aria-current="page">娱乐</Link><Link to="/announcements">公告</Link></nav><Link className="button" to={session.user?'/me':'/login'}>{session.user?'个人中心':'登录账户'}</Link></header>
-        <main id="games-catalog-content"><section className="entertainment-hero"><div className="atrium-arches" aria-hidden="true"><i/><i/><i/></div><div className="entertainment-hero-copy"><p className="eyebrow">CHALDEA / A MOMENT OF FORTUNE</p><h1>留一点时间，<br/>给意外的惊喜<span>。</span></h1><p>在星光下稍作休息。<br/>选一间沙龙，开始你的一局。</p><a className="button primary" href="#game-directory">探索游戏 <span aria-hidden="true">↓</span></a><p className="entertainment-note">筹码来自免费奖励与已有额度兑换。<br/>不提供购买、转赠或交易。</p></div><div className="atrium-emblem" aria-hidden="true">✦<span>CHALDEA<br/>CASINO RESORT</span></div></section>
-        <section className="game-directory" id="game-directory"><header className="section-heading"><div><p className="eyebrow">CHOOSE YOUR SALON</p><h2>今晚，想玩些什么？</h2></div>{session.user&&<Link to="/history" className="text-link">我的游戏记录 →</Link>}</header>
+    return <div className="games-catalog game-hall"><a className="skip-link" href="#games-catalog-content">跳至主要内容</a>
+        <header className="portal-header">
+            <Link to="/" className="brand hall-brand" aria-label="Chaldea Platform 首页"><span>CHALDEA</span><small>MOMIAO</small></Link>
+            <nav className="portal-global" aria-label="主导航"><Link to="/">首页</Link><Link to="/models">模型目录</Link><Link to="/entertainment" aria-current="page">娱乐</Link><Link to="/announcements">公告</Link></nav>
+            <Link className="button hall-account" to={session.user?'/me':'/login'}>{session.user?'个人中心':'登录账户'}</Link>
+        </header>
+        <main id="games-catalog-content">
+            <section className="entertainment-hero">
+                <HallImage asset={hallArt.hero.background} className="hall-backdrop" sizes="(max-width: 1440px) 100vw, 1440px"/>
+                <HallImage asset={hallArt.hero.character} className="hall-character" alt="爱尔奎特·布伦史塔德，微笑着倚坐在星夜会馆" sizes="(max-width: 720px) 230px, 390px"/>
+                <div className="entertainment-hero-copy"><p className="eyebrow">CHALDEA / GAME LOBBY</p><h1>游戏大厅</h1><p className="hall-subtitle"><span>留一点时间，</span><span>给意外的惊喜。</span></p><a className="button primary" href="#game-directory">探索游戏 <span aria-hidden="true">→</span></a></div>
+                <p className="hall-character-name" aria-hidden="true">Arcueid<br/>Brunestud</p>
+            </section>
+        <section className="game-directory" id="game-directory"><header className="section-heading"><h2>今晚，想玩些什么？</h2><HallOrnament name="star"/><span className="hall-rule" aria-hidden="true"/><p className="hall-motto">GOOD GAMES, A BRIGHTER TOMORROW.</p>{session.user&&<Link to="/history" className="text-link">我的游戏记录 →</Link>}</header>
         {discovery&&<CatalogFilters key={search} query={query??catalogQuerySchema.parse({})} onApply={value=>navigate({pathname:location.pathname,search:serializeCatalogQuery(value)})} onClear={clear}/>}
         {!query?<Alert>目录筛选参数无效，请清除筛选后重试。</Alert>:catalog.loading?<p className="loading" role="status">正在读取游戏目录…</p>:catalog.error?<><Alert>游戏目录暂时无法读取，请重试。</Alert><button onClick={catalog.reload}>重新读取游戏目录</button></>:catalog.data&&<>
         {discovery&&<p className="game-catalog-count" role="status">找到 {catalog.data.items.length} 个游戏</p>}
-        {catalog.data.items.length===0?<Empty title="没有匹配的游戏">试试其他名称或状态，也可以清除筛选查看全部游戏。</Empty>:<div className="game-catalog-grid">{catalog.data.items.map((game,i)=><article key={game.slug} className={'game-catalog-item game-'+game.slug}><div className="game-item-visual" aria-hidden="true"><span>{gameSymbols.get(game.slug)||'◇'}</span></div><div className="game-item-body"><p className="eyebrow">{String(i+1).padStart(2,'0')} / {game.slug.toUpperCase()}</p><h3>{game.title}</h3><p>{game.slug==='texas-holdem'?'浏览公开牌桌，或回到原会话继续你的牌局。':gameSlugs.includes(game.slug as GameSlug)?gameCopy[game.slug as GameSlug].intro:'新的沙龙正在准备，敬请期待。'}</p><div><span>{runtimeNames[game.effective_runtime]||'状态待核对'}</span>{canEnterCatalogGame(game)?<Link to={catalogDestination(game)!} className="text-link">{game.slug==='texas-holdem'?(game.effective_runtime==='PLAY'?'进入 Poker 大厅':'查看大厅与恢复牌局'):(game.effective_runtime==='PLAY'?'进入游戏':'查看与恢复牌局')} →</Link>:<span className="game-entry-disabled">{game.effective_runtime==='PLAY'?'暂不可用':runtimeNames[game.effective_runtime]||'暂不可用'}</span>}</div></div></article>)}</div>}</>}
-        <p className="game-catalog-links"><Link to="/rankings">资产与游戏排行 →</Link><Link to="/rewards">领取每日免费奖励 →</Link><Link to="/wallet">我的筹码钱包 →</Link></p></section></main><footer className="workspace-foot"><span>CHALDEA / ENTERTAINMENT</span><span>愿每一局，都有值得记住的瞬间。</span></footer></div>;
+        {catalog.data.items.length===0?<Empty title="没有匹配的游戏">试试其他名称或状态，也可以清除筛选查看全部游戏。</Empty>:<div className="game-catalog-grid">{catalog.data.items.map((game,i)=>{
+            const art=gameArt(game.slug);
+            return <article key={game.slug} className={'game-catalog-item game-'+game.slug}>
+                {art&&<div className="game-item-visual" aria-hidden="true"><HallImage asset={art} sizes="(max-width: 720px) calc(100vw - 40px), (max-width: 1100px) calc((100vw - 72px) / 2), 360px" lazy={i>=3}/></div>}
+                <div className="game-item-body"><h3>{game.title}</h3><p className="hall-description">{game.slug==='texas-holdem'?'浏览公开牌桌，或回到原会话继续你的牌局。':gameSlugs.includes(game.slug as GameSlug)?gameCopy[game.slug as GameSlug].intro:'新的沙龙正在准备，敬请期待。'}</p><div>
+                    <span className={'hall-status state-'+game.effective_runtime}>{runtimeNames[game.effective_runtime]||'状态待核对'}</span>
+                    {canEnterCatalogGame(game)?<Link to={catalogDestination(game)!} className="text-link">{game.slug==='texas-holdem'?(game.effective_runtime==='PLAY'?'进入 Poker 大厅':'查看大厅与恢复牌局'):(game.effective_runtime==='PLAY'?'进入游戏':'查看与恢复牌局')} →</Link>:<span className="game-entry-disabled">{game.effective_runtime==='PLAY'?'暂不可用':runtimeNames[game.effective_runtime]||'暂不可用'}</span>}
+                </div></div>
+            </article>;
+        })}</div>}</>}
+        <nav className="game-catalog-links" aria-label="游戏服务"><Link to="/history"><HallOrnament name="history"/>游戏记录</Link><Link to="/rewards"><HallOrnament name="rewards"/>每日奖励</Link><Link to="/wallet"><HallOrnament name="wallet"/>筹码钱包</Link><Link to="/rankings"><HallOrnament name="rankings"/>排行榜</Link></nav>
+        <p className="entertainment-note">筹码来自免费奖励与已有额度兑换。不提供购买、转赠或交易。</p>
+        </section></main><footer className="workspace-foot"><span>CHALDEA / ENTERTAINMENT</span><span>愿每一局，都有值得记住的瞬间。</span></footer></div>;
 }
 
 export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;slug:GameSlug}) {

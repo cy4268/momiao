@@ -6,6 +6,12 @@ The current source includes the platform session/BFF integration, model portal, 
 
 Build the Platform with `go build ./cmd/momiao`. In `web`, install from `package-lock.json` and run `npm run build`; the committed non-secret `web/.env.production` selects opaque sessions. See [Native source integration](native-source/README.md) to reconstruct and build the matching Native backend/authentication UI from source. No compiled binaries, images, data or credentials are included. Public illustrations under `web/public` are application assets, not runtime records.
 
+### Game hall artwork
+
+The game hall loads responsive, versioned artwork directly from a CDN. Set `VITE_ASSET_BASE_URL` at build time or in an ignored `web/.env.production.local`, for example `VITE_ASSET_BASE_URL=https://assets.example.com`. This is a public asset URL, never a credential. Keep installation-specific domains and storage credentials out of committed source.
+
+The artwork manifest uses relative, content-hashed keys; host matching files under the configured base URL. Apply long-lived `public, max-age=31536000, immutable` caching to versioned assets and retain older hashes while deployed pages reference them. If an image fails to load, game titles, availability and navigation remain usable. The illustration source files and private delivery records are not part of this repository.
+
 
 一个从实际可用功能开始生长的开源 AI 平台。从 **登录 → 模型 → 在线测试 → 调用记录** 建立真实连接，并管理自己的 API 密钥和上游渠道，而不是静态页面或演示数据。
 

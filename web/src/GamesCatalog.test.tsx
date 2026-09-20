@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import manifest from './game-hall-assets.json';
 import { ApiClient } from './api';
 import { GamesCatalog } from './Games';
 
@@ -67,22 +68,29 @@ it('keeps service failure distinct from empty matches and leaves Hub queries unt
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();expect(f.requests).toEqual(['/api/v1/games']);
 });
 
-it('keeps game identity symbols through filtering and sorting',async()=>{
+it('keeps game artwork bound to identity through filtering and sorting',async()=>{
+    vi.stubEnv('VITE_ASSET_BASE_URL','https://cdn.example.test/media/');
+    try {
     const unknown={...items[3],slug:'constructor'};
     const client=new ApiClient(async path=>new Response(JSON.stringify({success:true,data:{items:path.includes('q=blackjack')?[items[2]]:path.includes('sort=NAME')?[items[2],items[0],unknown]:[items[0],items[2],unknown]}}),{status:200}));
     show(client);
-    const symbol=(name:string)=>screen.getByRole('heading',{name}).closest('article')!.querySelector('.game-item-visual > span');
+    const image=(name:string)=>screen.getByRole('heading',{name}).closest('article')!.querySelector('img');
     await screen.findByText('二十一点');
     fireEvent.change(screen.getByRole('searchbox',{name:'搜索游戏'}),{target:{value:'blackjack'}});
     fireEvent.click(screen.getByRole('button',{name:'应用筛选'}));
     await waitFor(()=>expect(screen.queryByText('骰子 Dice')).not.toBeInTheDocument());
-    expect(symbol('二十一点')).toHaveTextContent('♠');
+    expect(image('二十一点')).toHaveAttribute('src','https://cdn.example.test/media/'+manifest.games.blackjack.src);
     fireEvent.click(screen.getByRole('button',{name:'清除筛选'}));await screen.findByText('骰子 Dice');
     fireEvent.change(screen.getByLabelText('排序方式'),{target:{value:'NAME'}});
     fireEvent.click(screen.getByRole('button',{name:'应用筛选'}));
     await waitFor(()=>expect(screen.getAllByRole('article')[0]).toContainElement(screen.getByRole('heading',{name:'二十一点'})));
-    expect(symbol('二十一点')).toHaveTextContent('♠');expect(symbol('骰子 Dice')).toHaveTextContent('⚄');
-    expect(symbol('新沙龙')).toHaveTextContent('◇');
+    expect(image('二十一点')).toHaveAttribute('src','https://cdn.example.test/media/'+manifest.games.blackjack.src);
+    expect(image('骰子 Dice')).toHaveAttribute('src','https://cdn.example.test/media/'+manifest.games.dice.src);
+    expect(image('新沙龙')).toBeNull();
+    fireEvent.error(image('骰子 Dice')!);
+    expect(image('骰子 Dice')).not.toBeVisible();
+    expect(within(screen.getByRole('heading',{name:'骰子 Dice'}).closest('article')!).getByRole('link')).toHaveAttribute('href','/games/dice');
+    } finally { vi.unstubAllEnvs(); }
 });
 
 it.each([['/games','PLAY'],['/games','MAINTENANCE'],['/entertainment','PLAY'],['/entertainment','MAINTENANCE']])('routes exact Poker %s/%s to the Lobby',async(path,state)=>{

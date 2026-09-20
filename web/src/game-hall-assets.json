@@ -1,0 +1,193 @@
+{
+  "hero": {
+    "background": {
+      "src": "backgrounds/game-hall/night-salon.960w.11a5ca82a77a.webp",
+      "width": 960,
+      "height": 360,
+      "variants": [
+        {
+          "src": "backgrounds/game-hall/night-salon.960w.11a5ca82a77a.webp",
+          "width": 960
+        },
+        {
+          "src": "backgrounds/game-hall/night-salon.1920w.9a1e2d622a37.webp",
+          "width": 1920
+        }
+      ]
+    },
+    "character": {
+      "src": "characters/arcueid/game-hall.512w.3be0f6d3c224.webp",
+      "width": 512,
+      "height": 768,
+      "variants": [
+        {
+          "src": "characters/arcueid/game-hall.512w.3be0f6d3c224.webp",
+          "width": 512
+        },
+        {
+          "src": "characters/arcueid/game-hall.1024w.0e26a705d4c8.webp",
+          "width": 1024
+        }
+      ]
+    }
+  },
+  "games": {
+    "dice": {
+      "src": "games/dice/hall-cover.480w.fa7837e56001.webp",
+      "width": 480,
+      "height": 216,
+      "variants": [
+        {
+          "src": "games/dice/hall-cover.480w.fa7837e56001.webp",
+          "width": 480
+        },
+        {
+          "src": "games/dice/hall-cover.960w.726dfd9d4818.webp",
+          "width": 960
+        }
+      ]
+    },
+    "scratch": {
+      "src": "games/scratch/hall-cover.480w.47336ec81d6d.webp",
+      "width": 480,
+      "height": 216,
+      "variants": [
+        {
+          "src": "games/scratch/hall-cover.480w.47336ec81d6d.webp",
+          "width": 480
+        },
+        {
+          "src": "games/scratch/hall-cover.960w.8e1ef2618d81.webp",
+          "width": 960
+        }
+      ]
+    },
+    "summon": {
+      "src": "games/summon/hall-cover.480w.4a943347dce2.webp",
+      "width": 480,
+      "height": 216,
+      "variants": [
+        {
+          "src": "games/summon/hall-cover.480w.4a943347dce2.webp",
+          "width": 480
+        },
+        {
+          "src": "games/summon/hall-cover.960w.b52e974b2115.webp",
+          "width": 960
+        }
+      ]
+    },
+    "slot": {
+      "src": "games/slot/hall-cover.480w.f9502846b8b7.webp",
+      "width": 480,
+      "height": 216,
+      "variants": [
+        {
+          "src": "games/slot/hall-cover.480w.f9502846b8b7.webp",
+          "width": 480
+        },
+        {
+          "src": "games/slot/hall-cover.960w.2bde7024b903.webp",
+          "width": 960
+        }
+      ]
+    },
+    "blackjack": {
+      "src": "games/blackjack/hall-cover.480w.0d070b9bc68e.webp",
+      "width": 480,
+      "height": 216,
+      "variants": [
+        {
+          "src": "games/blackjack/hall-cover.480w.0d070b9bc68e.webp",
+          "width": 480
+        },
+        {
+          "src": "games/blackjack/hall-cover.960w.490aa6d77595.webp",
+          "width": 960
+        }
+      ]
+    },
+    "texas-holdem": {
+      "src": "games/texas-holdem/hall-cover.480w.547ebd4a2a33.webp",
+      "width": 480,
+      "height": 216,
+      "variants": [
+        {
+          "src": "games/texas-holdem/hall-cover.480w.547ebd4a2a33.webp",
+          "width": 480
+        },
+        {
+          "src": "games/texas-holdem/hall-cover.960w.6c9dd66cbe65.webp",
+          "width": 960
+        }
+      ]
+    },
+    "devil-roulette": {
+      "src": "games/devil-roulette/hall-cover.480w.c30edc73508f.webp",
+      "width": 480,
+      "height": 216,
+      "variants": [
+        {
+          "src": "games/devil-roulette/hall-cover.480w.c30edc73508f.webp",
+          "width": 480
+        },
+        {
+          "src": "games/devil-roulette/hall-cover.960w.e06fec605f59.webp",
+          "width": 960
+        }
+      ]
+    },
+    "pressure-roulette": {
+      "src": "games/pressure-roulette/hall-cover.480w.05cec3c46e4c.webp",
+      "width": 480,
+      "height": 216,
+      "variants": [
+        {
+          "src": "games/pressure-roulette/hall-cover.480w.05cec3c46e4c.webp",
+          "width": 480
+        },
+        {
+          "src": "games/pressure-roulette/hall-cover.960w.18057a39573b.webp",
+          "width": 960
+        }
+      ]
+    }
+  },
+  "ornaments": {
+    "src": "ui/game-hall/ornaments.1536w.5668a712f1d2.webp",
+    "width": 1536,
+    "height": 1024,
+    "cells": {
+      "history": {
+        "x": 27,
+        "y": 14,
+        "width": 488,
+        "height": 482
+      },
+      "rewards": {
+        "x": 559,
+        "y": 39,
+        "width": 431,
+        "height": 437
+      },
+      "wallet": {
+        "x": 1054,
+        "y": 105,
+        "width": 458,
+        "height": 335
+      },
+      "rankings": {
+        "x": 34,
+        "y": 500,
+        "width": 446,
+        "height": 484
+      },
+      "star": {
+        "x": 558,
+        "y": 523,
+        "width": 417,
+        "height": 421
+      }
+    }
+  }
+}
