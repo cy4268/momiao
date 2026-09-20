@@ -16,7 +16,7 @@ The manifest is **operator-controlled deployment provenance**, not a remotely at
 
 ## Fixed source evidence
 
-Read-only native checkout: `E:/Programs/vps/.codex-tmp/native-integration-20260906/native-src`.
+Read-only native checkout: `PRIVATE_WORKSPACE/native-src`.
 
 - HEAD `1b19c300b46e025724016420454fe188992ce504`, complete tree `3c15a618fa7a528c06da92de7dbf2f2c843a9162`, fixed upstream `f116414284162ad15d8925f7bca494c109b83e93`.
 - `router/api-router.go:91–97`: self route uses `UserAuth`, then `GetSelf`.

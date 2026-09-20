@@ -63,6 +63,12 @@ func (s *Service) Create(ctx context.Context, user int64, slug, key, commitmentI
 		if runtime.Entry.State != "PLAY" {
 			return ErrUnavailable
 		}
+		// Bind the maximum payout before resolving randomness, while preserving
+		// historical wager bounds when old rounds are verified or replayed.
+		n, err = normalizeCreateForRuleset(slug, input, runtime.Config.binding.RulesetVersion)
+		if err != nil {
+			return err
+		}
 		if slug == "scratch" {
 			var blocked bool
 			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM games.game_rounds r JOIN games.scratch_results t ON t.round_id=r.round_id WHERE r.newapi_user_id=$1 AND t.presentation_completed_at IS NULL)`, user).Scan(&blocked); err != nil {
@@ -184,7 +190,7 @@ func (s *Service) Create(ctx context.Context, user int64, slug, key, commitmentI
 	return round, nil
 }
 func derive(round *GameRound, seed []byte, fair FairRound, c Config) (int64, error) {
-	n, err := normalizeCreate(round.Game, round.Input)
+	n, err := normalizeCreateForRuleset(round.Game, round.Input, c.binding.RulesetVersion)
 	if err != nil {
 		return 0, err
 	}

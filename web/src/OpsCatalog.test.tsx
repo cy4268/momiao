@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, it } from 'vitest';
 import { OpsCatalog } from './OpsCatalog';
 import { catalogOps, type CatalogCommand, type CatalogModel, type CatalogOpsPage } from './catalog-api';
 import { fixtureClient, ok, failed } from './m1-test-fixtures';
+import { OpsProbabilityDetails } from './ops/OpsGames';
 
 it('edits, previews and publishes a model then keeps its confirmed receipt when refresh fails',async()=>{
  const principal={user_id:'1',base_role:'SUPER_ADMIN',authz_epoch:2,permissions:['models.read','models.write','models.publish']};
@@ -16,10 +17,25 @@ it('edits, previews and publishes a model then keeps its confirmed receipt when 
   if(failRefresh)return failed();
   if(path.includes('/detail?'))return ok({principal,item});
   const page:CatalogOpsPage={principal,items:[item],total:1,offset:0,limit:50,sync:{version:'1',observed_count:1,last_attempt_at:null,last_attempt_status:'VERIFIED',last_observed_at:null,last_verified_at:null},freshness:item.freshness,vocabulary:{families:[{value:'gemini',label:'Gemini'}],tags:[{value:'writing',label:'写作'}],use_cases:[{value:'writing',label:'创作与写作'}],assets:[]}};return ok(page);
- });await client.login('ops','fixture');render(<MemoryRouter><OpsCatalog client={client}/></MemoryRouter>);
+ });await client.login('ops','fixture');const view=render(<MemoryRouter><OpsCatalog client={client}/></MemoryRouter>);
  fireEvent.click(await screen.findByRole('button',{name:'编辑模型'}));await screen.findByLabelText('展示名称');fireEvent.change(screen.getByLabelText('展示名称'),{target:{value:'已审核模型'}});fireEvent.change(screen.getByLabelText('模型家族'),{target:{value:'gemini'}});fireEvent.change(screen.getByLabelText('模型简介'),{target:{value:'可核对的合成模型介绍。'}});fireEvent.change(screen.getByLabelText('操作原因'),{target:{value:'补全模型信息'}});fireEvent.click(screen.getByRole('button',{name:'预览保存'}));
  fireEvent.click(await screen.findByRole('button',{name:'确认执行'}));await waitFor(()=>expect(executions.length).toBe(1));await screen.findByText('已确认：保存元数据');
  await waitFor(()=>expect(screen.getByRole('button',{name:'预览发布'})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:'预览发布'}));fireEvent.click(await screen.findByRole('button',{name:'确认执行'}));
  await screen.findByText('已确认：发布模型');await screen.findByText('操作已经确认，最新状态读取失败。请刷新核对，勿重复提交。');expect(screen.getByRole('button',{name:'预览保存'})).toBeDisabled();expect(executions.every(e=>e.confirmed&&e.preview_id==='preview-fixture')).toBe(true);expect(executions[0].command.operation_id).not.toBe(executions[1].command.operation_id);
- failRefresh=false;fireEvent.click(screen.getByRole('button',{name:'重新核对状态'}));await waitFor(()=>expect(screen.queryByText('操作已经确认，最新状态读取失败。请刷新核对，勿重复提交。')).not.toBeInTheDocument());expect(executions.length).toBe(2);
-});
+  failRefresh=false;fireEvent.click(screen.getByRole('button',{name:'重新核对状态'}));await waitFor(()=>expect(screen.queryByText('操作已经确认，最新状态读取失败。请刷新核对，勿重复提交。')).not.toBeInTheDocument());expect(executions.length).toBe(2);view.unmount();
+  const config={config_version_id:'01993200-0000-7000-8000-000000000003',version_number:'2',status:'ACTIVE' as const,config_schema_version:'summon-config-v1',ruleset_version:'summon-rules-v1',algorithm_version:'summon-map-v1',config_hash:'a'.repeat(64),created_at:'2026-09-20T00:00:00Z',validated_at:'2026-09-20T00:00:00Z',previewed_at:'2026-09-20T00:00:00Z',activated_at:'2026-09-20T00:00:00Z',editable_config:{type:'SUMMON_V1' as const,prize_table_version:'summon-prize-v3',prizes:[{tier:'T0',multiplier:'0',weight:'1'},{tier:'T5',multiplier:'100',weight:'1'}]}};
+  const artifact={validation_artifact_id:'01993200-0000-7000-8000-000000000203',config_version_id:config.config_version_id,artifact_type:'EXACT_MATH',implementation_key:'direct.summon.v1',ruleset_version:config.ruleset_version,algorithm_version:config.algorithm_version,config_hash:config.config_hash,validator_version:'direct-validate-v1',validation_build:'direct-games-v1',result_summary:{rtp:'50',win:'1/2',loss:'1/2',break_even:'0',top:'1/2'},artifact_sha256:'b'.repeat(64),status:'VERIFIED',generated_at:'2026-09-20T00:00:00Z',verified_at:'2026-09-20T00:00:00Z'};
+  const probability=render(<OpsProbabilityDetails gameSlug="summon" config={config} artifacts={[{...artifact,config_hash:'c'.repeat(64)}]}/>);
+  expect(screen.getByText('尚无可信数据')).toBeVisible();expect(screen.queryByText('理论返还率（RTP）')).not.toBeInTheDocument();
+  probability.rerender(<OpsProbabilityDetails gameSlug="summon" config={config} artifacts={[artifact]}/>);
+  expect(screen.queryByText('尚无可信数据')).not.toBeInTheDocument();expect(screen.getByText('summon-map-v1')).toBeVisible();
+  const metrics=screen.getByRole('heading',{name:'只读概率详情'}).closest('section')!;expect(within(metrics).getByText('理论返还率（RTP）')).toBeVisible();expect(within(metrics).getByText('十连净赢')).toBeVisible();
+  const slotConfig={...config,ruleset_version:'slot-rules-v3',algorithm_version:'slot-map-v1',editable_config:undefined};
+  const slotResult={complete:true,method:'EXACT_ENUMERATION_PRODUCTION_LINE_EVALUATOR',cases:33554432,total_combinations:33554432,rates:{WIN:{fraction:'4565/8192'},BREAK_EVEN:{fraction:'0/1'},LOSS:{fraction:'3627/8192'},NONZERO_PAYOUT:{fraction:'4565/8192'},NO_WIN:{fraction:'3627/8192'},PARTIAL_RETURN:{fraction:'0/1'}},rtp:{fraction:'19181593/16777216'},top:{count:1,total_wager_multiplier:{fraction:'5201/10'}},wild_five:{count:10,line_multiplier:5000,probability:{fraction:'5/16777216'}}};
+  const slotArtifact={...artifact,artifact_type:'SLOT_EXHAUSTIVE',implementation_key:'direct.slot.v1',ruleset_version:slotConfig.ruleset_version,algorithm_version:slotConfig.algorithm_version,result_summary:{config_version:slotConfig.config_version_id,config_hash:slotConfig.config_hash,ruleset_version:slotConfig.ruleset_version,algorithm_version:slotConfig.algorithm_version,artifact_type:'SLOT_EXHAUSTIVE',implementation_key:'direct.slot.v1',result_json:JSON.stringify(slotResult)}};
+  probability.rerender(<OpsProbabilityDetails gameSlug="slot" config={slotConfig} artifacts={[slotArtifact]}/>);expect(screen.getByText('完整枚举').parentElement).toHaveTextContent('33,554,432');expect(screen.getByText('单转净赢')).toBeVisible();expect(screen.getByText('Wild 五连盘面').parentElement).toHaveTextContent('每线 ×5000');
+  const blackjackConfig={...config,ruleset_version:'blackjack-rules-v2',algorithm_version:'blackjack-map-v1',editable_config:undefined};
+  const blackjackResult={complete:true,method:'REFERENCE_STRATEGY_BASE_PLUS_EXACT_EXPECTED_FAIR_RETURN',rounds:10000000,initial_wager_denominator:{rtp:{point:{fraction:'1/1'},normal_approximation_ci95:[0.99,1.01]}},base_sample:{rtp:{fraction:'9962921/10000000'}},fair_return:{fraction:'37079/10000000'},reference_strategy:{version:'blackjack-basic-s17-das-total-v1',scope:'six-deck reference'}};
+  const blackjackArtifact={...artifact,artifact_type:'BLACKJACK_RTP',implementation_key:'direct.blackjack.v1',ruleset_version:blackjackConfig.ruleset_version,algorithm_version:blackjackConfig.algorithm_version,result_summary:{config_version:blackjackConfig.config_version_id,config_hash:blackjackConfig.config_hash,ruleset_version:blackjackConfig.ruleset_version,algorithm_version:blackjackConfig.algorithm_version,artifact_type:'BLACKJACK_RTP',implementation_key:'direct.blackjack.v1',result_json:JSON.stringify(blackjackResult)}};
+  probability.rerender(<OpsProbabilityDetails gameSlug="blackjack" config={blackjackConfig} artifacts={[blackjackArtifact]}/>);expect(screen.getByText(/不是任意策略或短期结果保证/)).toBeVisible();expect(screen.getByText('净赢率').parentElement).toHaveTextContent('未包含');
+ });

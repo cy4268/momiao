@@ -28,7 +28,7 @@ The native patch adds 23 files and touches 6 existing files. New code lives in `
 
 ## Fresh verification
 
-All raw logs and binaries remain in the private task evidence directory `E:\Programs\vps\.codex-tmp\m2-worker-20260906\evidence`. No raw log, real secret or large binary is committed. Synthetic tokens in negative-test diagnostics are private test fixtures, not real provider/account credentials.
+All raw logs and binaries remain in the private task evidence directory `PRIVATE_EVIDENCE_DIR`. No raw log, real secret or large binary is committed. Synthetic tokens in negative-test diagnostics are private test fixtures, not real provider/account credentials.
 
 The final replay was performed in a newly initialized isolated repository. `git apply --check`, verbose apply and reverse check succeeded. All 29 normalized source file hashes match the implementation; 28 raw file hashes match and the SQL file differs only by upstream Windows CRLF checkout policy. Hashes and exact build artifacts are in `source-manifest.json` and `verification-summary.json`.
 

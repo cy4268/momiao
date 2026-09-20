@@ -325,7 +325,7 @@ func (s *Service) verifyRound(ctx context.Context, user int64, id string, histor
 		if err != nil {
 			return err
 		}
-		n, err := normalizeCreate(round.Game, round.Input)
+		n, err := normalizeCreateForRuleset(round.Game, round.Input, round.Ruleset)
 		if err != nil {
 			return err
 		}

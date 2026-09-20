@@ -74,7 +74,7 @@ export function DiceExperience({ userID }: { userID: string }) {
             </section>
             <aside className="panel dice-rules" aria-labelledby="dice-rules-title"><p className="eyebrow">KNOW THE RULES</p><h2 id="dice-rules-title">看懂每一种结果</h2>
                 <dl><div><dt>小 <span>4–10</span></dt><dd>三枚点数相加为 4 到 10，且不是三个相同点数。</dd></div><div><dt>大 <span>11–17</span></dt><dd>三枚点数相加为 11 到 17，且不是三个相同点数。</dd></div><div><dt>豹子 <span>三枚相同</span></dt><dd>从 1·1·1 到 6·6·6，不论总和，猜大或猜小均未命中。</dd></div></dl>
-                <div className="dice-probability"><strong>216 种等可能组合</strong><p>大 105 种 · 小 105 种 · 豹子 6 种</p><p className="hint">每次独立生成，上一轮的结果不会改变下一轮的概率。短期记录不必符合理论比例。</p></div>
+                <p className="hint">每次掷骰彼此独立，上一轮不会改变下一轮结果。</p>
             </aside>
         </div>
         <section className="panel dice-history" aria-labelledby="dice-history-title"><div className="section-heading"><div><p className="eyebrow">THIS TAB / LOCAL HISTORY</p><h2 id="dice-history-title">本机体验记录</h2></div><button type="button" onClick={clear} disabled={!state.items.length}>清空本机记录</button></div>

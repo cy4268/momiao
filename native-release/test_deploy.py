@@ -21,7 +21,7 @@ assert 'image_archive_sha256' in plan['approval_fields_remaining']
 assert plan['sequence'].index('native migration')<plan['sequence'].index('replace only newapi')
 assert plan['sequence'].index('HTTP namespace READY')<plan['sequence'].index('quota and Discord READY')
 
-module.require_admission_origin({'public_origin':'https://momiao.win','redirect_uri':'https://momiao.win/oauth/discord'})
+module.require_admission_origin({'public_origin':'https://portal.example.test','redirect_uri':'https://portal.example.test/oauth/discord'})
 try:module.require_admission_origin({'public_origin':'https://other.invalid','redirect_uri':'https://other.invalid/oauth/discord'})
 except RuntimeError:pass
 else:raise AssertionError('Another site was accepted for this stack')

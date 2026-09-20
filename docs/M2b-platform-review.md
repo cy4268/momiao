@@ -14,7 +14,7 @@ Scope: admission store/worker/config/router, original profile initialization and
 
 ## Evidence
 
-Raw root: `E:\Programs\vps\.codex-tmp\m2b-platform-20260906\evidence`.
+Raw root: `PRIVATE_EVIDENCE_DIR`.
 
 | Check | Observed result | Raw file |
 |---|---|---|

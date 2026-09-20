@@ -20,6 +20,11 @@ func SlotV2(version string) (Config, error) {
 	return slotConfig(c, f)
 }
 
+func SlotV3(version string) (Config, error) {
+	c := Config{binding: ConfigBinding{Game: "slot", Version: version, AlgorithmVersion: slot.AlgorithmVersion, RulesetVersion: slot.FrequentRulesetVersion, SchemaVersion: slot.FrequentConfigSchemaVersion}}
+	return slotConfig(c, slot.FrequentConfig())
+}
+
 func slotConfig(c Config, f slot.Config) (Config, error) {
 	return sealConfig(c, map[string]any{
 		"reel_strip_version": f.ReelStripVersion, "payline_version": f.PaylineVersion, "paytable_version": f.PaytableVersion,

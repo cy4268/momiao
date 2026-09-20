@@ -28,7 +28,7 @@ it('edits only the controlled wager, validates whole chips and submits exact uni
 
 it('renders only the supplied grid, exposes ten selectable lines and never spins for replay', () => {
     const spin = vi.fn(async () => {});
-    render(<SlotGame availableUnits="50000000" wagerChips="11" onWagerChange={() => {}} busy={false} result={result} roundID="round-slot-1" onSpin={spin} />);
+    const view = render(<SlotGame availableUnits="50000000" wagerChips="11" onWagerChange={() => {}} busy={false} result={result} roundID="round-slot-1" rulesetVersion="slot-rules-v3" onSpin={spin} />);
     expect(screen.getAllByTestId('slot-cell')).toHaveLength(15);
     expect(screen.getByLabelText('第 1 轴，中行：L3')).toBeVisible();
     expect(within(screen.getByRole('group', { name: '查看固定中奖线' })).getAllByRole('button')).toHaveLength(10);
@@ -38,6 +38,11 @@ it('renders only the supplied grid, exposes ten selectable lines and never spins
     fireEvent.click(screen.getByRole('button', { name: '回看本局结果' })); expect(spin).not.toHaveBeenCalled();
     expect(screen.getByText(/仅回看相同盘面/)).toBeVisible();
     expect(screen.getByRole('status', { name: '本局结算' })).toHaveTextContent('净盈利');
+    const currentPaytable = screen.getByRole('table', { name: 'slot-paytable-v3 奖励倍率表' });
+    expect(within(currentPaytable).getByRole('row', { name: 'L1 11× 12× 15×' })).toBeInTheDocument();
+    expect(screen.getByText(/slot-strips-v2 \/ slot-paylines-v1/)).toBeInTheDocument();
+    view.rerender(<SlotGame availableUnits="50000000" wagerChips="11" onWagerChange={() => {}} busy={false} result={result} roundID="round-slot-1" rulesetVersion="slot-rules-v1" onSpin={spin} />);
+    expect(within(screen.getByRole('table', { name: 'slot-paytable-v1 奖励倍率表' })).getByRole('row', { name: 'L2 8× 25× 80×' })).toBeInTheDocument();
 });
 
 it('keeps partial payout a net loss and blocks while recovering or unavailable', () => {

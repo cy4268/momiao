@@ -42,7 +42,7 @@ M3c 仅导入上表精确输入；92a85c9 仅取 `catalog_reader.go`、对应测
 
 主控已核对部署 guard 的分工：HTTP namespace guard 不固定镜像；quota guard 保留所有检查，只在部署包装中更新精确镜像预期；Discord reconciler 消费 HTTP READY 并校验 namespace inode。本次只收录部署输入，没有安装单元、变更 guard 或启动出站服务。该独立来源的零 capability、固定目标及合成 TLS 证据见 `native-release/discord-egress/acceptance.json`，真实 OAuth 仍待部署验收。
 
-后续收录的部署入口保持离线计划为默认，实际执行和代码回退均需显式 `--apply`；本站 origin 与回调固定为 `https://momiao.win` 及 `/oauth/discord`。本批只导入并校验精确来源，没有执行入口、Docker、迁移或生产 apply，也未重复来源测试矩阵。已只读核对来源目录上层的 `artifacts/native-6d7062.tar`：130198528 bytes，SHA256 `c393696004c374f066d8e91a1f2b3dad1e4c6883a32b88835c7736808ba690af`；TAR 留在 Git 外，没有重建或重新导出。
+后续收录的部署入口保持离线计划为默认，实际执行和代码回退均需显式 `--apply`；本站 origin 与回调固定为 `https://portal.example.test` 及 `/oauth/discord`。本批只导入并校验精确来源，没有执行入口、Docker、迁移或生产 apply，也未重复来源测试矩阵。已只读核对来源目录上层的 `artifacts/native-6d7062.tar`：130198528 bytes，SHA256 `c393696004c374f066d8e91a1f2b3dad1e4c6883a32b88835c7736808ba690af`；TAR 留在 Git 外，没有重建或重新导出。
 
 Kimi 原文件和获取时清单保持不变：`WORKSPACE_PROVIDED`，1024×1536 RGBA、2632300 bytes，SHA256 `658da9f399818b7e18eac93095db8a602211628a12c7bd8fa47275af200e23ab`。本批不声称新生图或已有许可证证明。项目所有者明确批准项目内复用；registry 的 `LICENSED_OR_APPROVED` 记录此批准，不推断历史许可证或作者身份。
 
@@ -120,6 +120,6 @@ M4d 联合验收由原执行者在真实低权限角色与 77 列旧基线下完
 
 本地组合收尾完成，剩余是既有 CI、双库备份及真实发布验收。当前迁移为 0001–0009，低权限存储与授权基于已审 M4d manifest 冻结；后续只做字节核对，发现真实 SQL 问题才精确补验。认证角色本地接入已验收，高分辨率母版与其传输优化仍保留为后续媒体事项。
 
-用户已授权联合验收、M4 低权限通过及主控复审后的第三台 `momiao.win` 条件发布，包括平台迁移/最小权限、已核原生镜像、固定 Discord 443 出站与指定原生 ID 1 的首次平台管理员初始化。本轮明确按独立新站开放注册/登录，旧站账号和额度另批迁移；正式声明 `deploy/portal-access-declaration-20260906.json` 使用 `NO_MIGRATION_APPLICABLE`，五个已交付域 AVAILABLE、EXPERIENCE UNAVAILABLE，不创建虚构迁移事实/requirements/ACK。
+用户已授权联合验收、M4 低权限通过及主控复审后的第三台 `portal.example.test` 条件发布，包括平台迁移/最小权限、已核原生镜像、固定 Discord 443 出站与指定原生 ID 1 的首次平台管理员初始化。本轮明确按独立新站开放注册/登录，旧站账号和额度另批迁移；正式声明 `deploy/portal-access-declaration-20260906.json` 使用 `NO_MIGRATION_APPLICABLE`，五个已交付域 AVAILABLE、EXPERIENCE UNAVAILABLE，不创建虚构迁移事实/requirements/ACK。
 
 当前未 apply。发布保留双库备份与回滚，旧站不动，不代领奖励或消费额度。迁移以真实平台库的 `momiao_owner` 执行，runtime 为 `momiao_wallet`；现有名为 `momiao_bootstrap` 的初始 superuser 不得作为 CLI deployer。Bootstrap 使用独立最小 LOGIN、窄函数 EXECUTE、原生 ID 1 的实时 native-self 会话私有输入与生产 TTY 确认，回执核对后撤销授权并删凭据。私有 reader 配对文件沿用主控已核原值，不输出或纳入 Git；真实 OAuth 留待发布后用户核验。数据库回退遵循既有前滚/备份恢复边界，不能删除已应用历史 SQL。

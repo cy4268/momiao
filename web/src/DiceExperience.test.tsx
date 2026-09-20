@@ -12,6 +12,8 @@ it('only rolls on explicit action, remembers this tab history and isolates accou
     const first = render(<DiceExperience userID="1" />);
     expect(roll).not.toHaveBeenCalled();
     expect(screen.getByText(/不扣除筹码，不发放奖励/)).toBeVisible();
+    expect(screen.queryByText('216 种等可能组合')).not.toBeInTheDocument();
+    expect(screen.getByText(/每次掷骰彼此独立/)).toBeVisible();
     fireEvent.click(screen.getByRole('radio', { name: /猜小/ }));
     expect(roll).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '模拟掷骰' }));

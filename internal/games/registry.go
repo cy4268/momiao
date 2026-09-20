@@ -37,6 +37,9 @@ func loadConfigVersion(slug, version string, canonical []byte) (Config, error) {
 		if payload.PaytableVersion == slot.FairPaytableVersion {
 			return SlotV2(version)
 		}
+		if payload.PaytableVersion == slot.FrequentPaytableVersion {
+			return SlotV3(version)
+		}
 		return SlotV1(version)
 	case "blackjack":
 		var payload struct {
@@ -84,7 +87,7 @@ func configByID(ctx context.Context, tx pgx.Tx, slug, version string) (Config, e
 }
 func summary(c Config) *ConfigSummary {
 	b := c.Binding()
-	return &ConfigSummary{Version: b.Version, Hash: hex.EncodeToString(b.Hash[:]), Schema: b.SchemaVersion, Ruleset: b.RulesetVersion, Algorithm: b.AlgorithmVersion, Prizes: c.Prizes(), Statistics: mathSummary(c), Validation: json.RawMessage(extraValidationSummaries[b.Game])}
+	return &ConfigSummary{Version: b.Version, Hash: hex.EncodeToString(b.Hash[:]), Schema: b.SchemaVersion, Ruleset: b.RulesetVersion, Algorithm: b.AlgorithmVersion, Prizes: c.Prizes(), Statistics: mathSummary(c), Validation: json.RawMessage(extraValidationSummary(c))}
 }
 func expectedResources(c Config) []byte {
 	b := c.Binding()
@@ -101,6 +104,10 @@ func expectedResources(c Config) []byte {
 		resources["paytable_version"] = "slot-paytable-v1"
 		if b.RulesetVersion == "slot-rules-v2" {
 			resources["paytable_version"] = slot.FairPaytableVersion
+		}
+		if b.RulesetVersion == slot.FrequentRulesetVersion {
+			resources["reel_strip_version"] = slot.FrequentReelStripVersion
+			resources["paytable_version"] = slot.FrequentPaytableVersion
 		}
 	}
 	if b.Game == "blackjack" {
@@ -181,7 +188,7 @@ func resolveRuntime(ctx context.Context, tx pgx.Tx, slug string, lock bool) (run
 	m := mathSummary(c)
 	canonicalSummary, _ := json.Marshal(m)
 	expectedValidator, expectedBuild := validationVersion, "direct-games-v1"
-	if external, ok := extraValidationSummaries[slug]; ok {
+	if external := extraValidationSummary(c); external != "" {
 		canonicalSummary = []byte(external)
 		var metadata struct {
 			Validator string `json:"validator_version"`

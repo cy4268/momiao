@@ -22,7 +22,7 @@ function show(){return render(<MemoryRouter><GamePage client={client} userID="1"
 it('Slot adapter submits total chips only and keeps a lost response locked for reconciliation',async()=>{
     vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,game:{...bootstrap.game,slug:'slot',config:undefined}});
     const create=vi.spyOn(gameAPI,'createGame').mockRejectedValue(new ApiError('lost response',0,'',true));
-    render(<MemoryRouter><GamePage client={client} userID="1" slug="slot"/></MemoryRouter>);
+    const view=render(<MemoryRouter><GamePage client={client} userID="1" slug="slot"/></MemoryRouter>);
     await waitFor(()=>expect(screen.getByRole('button',{name:'Spin · 10 筹码'})).toBeEnabled());
     fireEvent.change(screen.getByLabelText('总下注 · 筹码'),{target:{value:'11'}});
     fireEvent.click(screen.getByRole('button',{name:'Spin · 11 筹码'}));
@@ -30,6 +30,11 @@ it('Slot adapter submits total chips only and keeps a lost response locked for r
     expect(create).toHaveBeenCalledTimes(1);
     expect(create.mock.calls[0][2].input).toEqual({type:'SLOT',total_wager:'11'});
     expect(screen.getByRole('button',{name:'Spin · 11 筹码'})).toBeDisabled();
+    view.unmount();sessionStorage.clear();
+    const historicalSlot={...result,game:'slot',input:{type:'SLOT',total_wager:'10'},dice:undefined,ruleset_version:'slot-rules-v1',slot:{stops:[0,0,0,0,0],full_grid:Array.from({length:5},()=>['L1','L2','L3']),lines:Array.from({length:10},(_,index)=>({line_number:index+1,interpreted_symbol:'',match_length:0,multiplier:0,line_stake_units:'500000',line_payout_units:'0'})),total_wager_units:'5000000',line_stake_units:'500000',total_payout_units:'10000000',net_change_units:'5000000',result_class:'WIN',result_detail:'WIN'}} as GameRound;
+    vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,game:{...bootstrap.game,slug:'slot',config:{...bootstrap.game.config!,ruleset_version:'slot-rules-v3'}},latest_round:historicalSlot});
+    render(<MemoryRouter><GamePage client={client} userID="1" slug="slot"/></MemoryRouter>);await screen.findByText('本局结果已确认。下一局仍需主动 Spin。');
+    expect(screen.getByRole('table',{name:'slot-paytable-v1 奖励倍率表'})).toBeInTheDocument();expect(screen.queryByRole('table',{name:'slot-paytable-v3 奖励倍率表'})).not.toBeInTheDocument();
 });
 it('Blackjack resumes an active hand during maintenance and locks an uncertain action across refresh',async()=>{
     const active={...result,game:'blackjack',state:'PLAYER_TURN',input:{type:'BLACKJACK',initial_wager:'10'},total_payout_units:'0',net_change_units:'-5000000',common_result:'',balance_after_units:'495000000',settlement_transaction_id:'',settled_at:null,dice:undefined,
@@ -61,6 +66,8 @@ it('publishes commitment before manual wager, locks double click, then displays 
     const create=vi.spyOn(gameAPI,'createGame').mockReturnValue(new Promise(r=>resolve=r));
     show();await screen.findByText('可用筹码');expect(create).not.toHaveBeenCalled();
     expect(screen.getByText(hash)).toBeInTheDocument();
+    expect(screen.getByRole('heading',{name:'规则与奖励'})).toBeVisible();
+    expect(screen.queryByText('理论返还率')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('radio',{name:/小/}));
     fireEvent.click(screen.getByRole('button',{name:'掷骰'}));
     expect(create).toHaveBeenCalledTimes(1);
@@ -95,6 +102,8 @@ it('unlocks an unaccepted pending blackjack deal when bootstrap still owns its c
     expect(screen.getByText('服务器确认原下注未受理，已解除锁定。')).toBeVisible();
 });
 it('refuses invalid or unaffordable wagers without calling create while keeping a settled blackjack wager editable',async()=>{
+    expect(gameAPI.wagerCost('35467687124','SINGLE','slot')).not.toBeNull();
+    expect(gameAPI.wagerCost('35467687125','SINGLE','slot')).toBeNull();
     const create=vi.spyOn(gameAPI,'createGame');const dice=show();await screen.findByRole('button',{name:'掷骰'});
     for(const value of ['9','10.5','-10','1e2','1001']) {
         fireEvent.change(screen.getByLabelText('基础下注（筹码）'),{target:{value}});
@@ -127,7 +136,7 @@ it('keeps the pre-purchase scratch balance visible until reveal completes',async
     await waitFor(()=>expect(within(balance()).getByText('900')).toBeVisible());
 });
 it('disables each quick amount by its total cost, including tenfold',async()=>{
-    const summonBoot={...bootstrap,game:{...bootstrap.game,slug:'summon'},available_units:'1500000000'};
+    const summonBoot={...bootstrap,game:{...bootstrap.game,slug:'summon',config:{...bootstrap.game.config!,prizes:[{tier:'T0',multiplier:0,weight:50000},{tier:'T5',multiplier:100,weight:50000}]}},available_units:'1500000000'};
     vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue(summonBoot);
     render(<MemoryRouter><GamePage client={client} userID="1" slug="summon"/></MemoryRouter>);
     await screen.findByLabelText('基础下注（筹码）');
@@ -136,6 +145,9 @@ it('disables each quick amount by its total cost, including tenfold',async()=>{
     expect(screen.getByRole('button',{name:'100'})).toBeEnabled();
     expect(screen.getByRole('button',{name:'500'})).toBeDisabled();
     expect(screen.getByRole('button',{name:'1000'})).toBeDisabled();
+    const rewards=screen.getByRole('table',{name:'完整奖励表'});
+    expect(within(rewards).getAllByRole('columnheader').map(cell=>cell.textContent)).toEqual(['等级','总派彩倍数']);
+    expect(within(rewards).getByRole('row',{name:'T5 ×100'})).toBeVisible();
 });
 it('restores last durable wager on first entry without overwriting a live edit',async()=>{
     vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,latest_round:{...result,input:{type:'DICE',wager:'100',choice:'SMALL'}}});

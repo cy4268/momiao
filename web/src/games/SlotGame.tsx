@@ -15,7 +15,7 @@ export interface DirectExtraControls {
     busy: boolean; error?: string | null; recovering?: boolean; disabledReason?: string | null; roundID?: string;
     onRecover?: () => void; onWallet?: () => void; onRewards?: () => void; onFairness?: () => void; onHistory?: () => void;
 }
-export interface SlotGameProps extends DirectExtraControls { result: SlotResultDTO | null; onSpin: (wagerUnits: string) => Promise<void> }
+export interface SlotGameProps extends DirectExtraControls { result: SlotResultDTO | null; rulesetVersion?: string; onSpin: (wagerUnits: string) => Promise<void> }
 
 // The wallet already validates fixed-point amounts but has no units formatter.
 // Keep all six decimal places exact; no monetary value passes through Number.
@@ -71,7 +71,12 @@ export function ExtraNotice({ controls, failure, message }: { controls: DirectEx
 }
 
 const paylineRows = [[1,1,1,1,1],[0,0,0,0,0],[2,2,2,2,2],[0,1,2,1,0],[2,1,0,1,2],[0,0,1,2,2],[2,2,1,0,0],[1,0,0,0,1],[1,2,2,2,1],[2,1,1,1,0]];
-const publicPaytable: [SlotSymbol, number, number, number][] = [['L1',4,15,50],['L2',10,25,80],['L3',10,40,175],['M1',15,60,250],['M2',25,100,500],['H1',50,250,1000],['H2',115,500,2500],['W',125,1000,5000]];
+type PublicSlotRules = { paytableVersion: string; reelStripVersion: string; paytable: [SlotSymbol, number, number, number][] };
+const publicRules: Record<string, PublicSlotRules> = {
+    'slot-rules-v1': { paytableVersion: 'slot-paytable-v1', reelStripVersion: 'slot-strips-v1', paytable: [['L1',4,15,50],['L2',8,25,80],['L3',10,40,150],['M1',15,60,250],['M2',25,100,500],['H1',50,250,1000],['H2',100,500,2500],['W',125,1000,5000]] },
+    'slot-rules-v2': { paytableVersion: 'slot-paytable-v2', reelStripVersion: 'slot-strips-v1', paytable: [['L1',4,15,50],['L2',10,25,80],['L3',10,40,175],['M1',15,60,250],['M2',25,100,500],['H1',50,250,1000],['H2',115,500,2500],['W',125,1000,5000]] },
+    'slot-rules-v3': { paytableVersion: 'slot-paytable-v3', reelStripVersion: 'slot-strips-v2', paytable: [['L1',11,12,15],['L2',11,25,80],['L3',11,40,175],['M1',15,60,250],['M2',25,100,500],['H1',50,250,1000],['H2',115,500,2500],['W',125,1000,5000]] },
+};
 const paths: Record<SlotSymbol, string> = {
     L1: 'M18 4 29 18 18 32 7 18Z M18 10V26 M12 18H24',
     L2: 'M7 9H29V27H7Z M18 4V32 M4 18H32',
@@ -91,6 +96,7 @@ export function SlotGame(props: SlotGameProps) {
     useEffect(() => { setSelected(null); setReplay(false); }, [result, props.roundID]);
     useEffect(() => { if (!replay) return; const timer = window.setTimeout(() => setReplay(false), 1500); return () => window.clearTimeout(timer); }, [replay]);
     const line = selected === null ? undefined : result?.lines.find(item => item.line_number === selected);
+    const rules = props.rulesetVersion ? publicRules[props.rulesetVersion] : undefined;
     return <section className="extra-game extra-slot" aria-labelledby={title} aria-busy={props.busy || command.pending}>
         <header className="extra-heading"><div><p className="extra-eyebrow">KING’S TREASURY / SLOT GALLERY</p><h2 id={title}>王之宝库 · Slot</h2><p>五轴三行，一眼看清整局结果。</p></div><div className="extra-balance"><span>可用筹码</span><strong>{formatChipUnits(props.availableUnits)}</strong></div></header>
         <div className="extra-layout">
@@ -114,6 +120,6 @@ export function SlotGame(props: SlotGameProps) {
             </aside>
         </div>
         {result && <div className={`extra-result is-${result.result_class.toLowerCase()}`} role="status" aria-label="本局结算"><strong>{resultNames[result.result_detail]}</strong><dl><div><dt>本局总下注</dt><dd>{formatChipUnits(result.total_wager_units)}</dd></div><div><dt>总派彩（含返还）</dt><dd>{formatChipUnits(result.total_payout_units)}</dd></div><div><dt>净变化 · 筹码</dt><dd>{formatChipUnits(result.net_change_units, true)}</dd></div></dl></div>}
-        <div className="extra-utilities"><details><summary>奖表与固定规则</summary><p>从左向右至少 3 连；Wild 替代普通符号或按自身奖表，只支付同线最高解释。倍数基于每线下注，不叠加同线 3 / 4 / 5 连。</p><table><caption>slot-paytable-v2 · 总派彩倍数</caption><thead><tr><th>符号</th><th>3 连</th><th>4 连</th><th>5 连</th></tr></thead><tbody>{publicPaytable.map(([symbol, ...values]) => <tr key={symbol}><th>{symbol}</th>{values.map((value, i) => <td key={i}>{value}×</td>)}</tr>)}</tbody></table><p>slot-strips-v1 / slot-paylines-v1。完整卷轴、配置及数学验证记录请查看公平详情。</p></details><div className="extra-links">{props.onFairness && <button type="button" onClick={props.onFairness}>公平详情</button>}{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div>{props.roundID && <p className="extra-round-id">Round · {props.roundID}</p>}</div>
+        <div className="extra-utilities"><details><summary>奖表与固定规则</summary><p>从左向右至少 3 连；Wild 替代普通符号或按自身奖表，只支付同线最高解释。倍数基于每线下注，不叠加同线 3 / 4 / 5 连。</p>{rules?<><table aria-label={`${rules.paytableVersion} 奖励倍率表`}><caption>{rules.paytableVersion} · 总派彩倍数</caption><thead><tr><th>符号</th><th>3 连</th><th>4 连</th><th>5 连</th></tr></thead><tbody>{rules.paytable.map(([symbol, ...values]) => <tr key={symbol}><th>{symbol}</th>{values.map((value, i) => <td key={i}>{value}×</td>)}</tr>)}</tbody></table><p>{rules.reelStripVersion} / slot-paylines-v1。完整卷轴、配置及数学验证记录请查看公平详情。</p></>:<p>正在读取本局规则版本；奖表未确认前不显示替代版本。</p>}</details><div className="extra-links">{props.onFairness && <button type="button" onClick={props.onFairness}>公平详情</button>}{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div>{props.roundID && <p className="extra-round-id">Round · {props.roundID}</p>}</div>
     </section>;
 }

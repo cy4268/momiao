@@ -58,7 +58,7 @@ export function wagerCost(wager:string,mode='SINGLE',game:GameSlug='summon'):big
     if(!/^\d{1,19}$/.test(wager))return null;
     const base=BigInt(wager);if(base<10n)return null;
     const multiplier=mode==='TENFOLD'?10n:1n;
-    const maximumPayoutMultiplier=game==='dice'?2n:game==='slot'?5164n:game==='blackjack'?17n:100n;
+    const maximumPayoutMultiplier=game==='dice'?2n:game==='slot'?5201n:game==='blackjack'?17n:100n;
     const divisor=game==='slot'?10n:1n;
     if(base*500000n>max||base*500000n/divisor>max/maximumPayoutMultiplier/multiplier)return null;
     return base*500000n*multiplier;

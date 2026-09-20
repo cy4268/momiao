@@ -43,6 +43,10 @@ type normalizedCreate struct {
 }
 
 func normalizeCreate(slug string, input CreateInput) (normalizedCreate, error) {
+	return normalizeCreateForRuleset(slug, input, "")
+}
+
+func normalizeCreateForRuleset(slug string, input CreateInput, ruleset string) (normalizedCreate, error) {
 	n := normalizedCreate{Input: input}
 	if (slug != "slot" && input.TotalWager != "") || (slug != "blackjack" && input.InitialWager != "") {
 		return n, ErrInvalidInput
@@ -75,7 +79,10 @@ func normalizeCreate(slug string, input CreateInput) (normalizedCreate, error) {
 			return n, ErrInvalidInput
 		}
 		if slug == "slot" {
-			value, max, divisor = input.TotalWager, 5164, 10
+			value, max, divisor = input.TotalWager, slot.MaxRoundLineMultiplier, 10
+			if ruleset == slot.FrequentRulesetVersion {
+				max = slot.FrequentMaxRoundLineMultiplier
+			}
 		} else {
 			// The v2 reference-strategy fair return is paid in addition to the
 			// largest ordinary blackjack settlement, so reserve one extra wager.

@@ -155,7 +155,7 @@ func readOpsConfig(ctx context.Context, tx pgx.Tx, dbSlug, id string) (OpsConfig
 	result.ValidatedAt = utcPointer(result.ValidatedAt)
 	result.PreviewedAt = utcPointer(result.PreviewedAt)
 	result.ActivatedAt = utcPointer(result.ActivatedAt)
-	if result.Status == "DRAFT" && (dbSlug == "scratch" || dbSlug == "summon") {
+	if dbSlug == "scratch" || dbSlug == "summon" {
 		editable := editableOpsConfig(config)
 		result.EditableConfig = &editable
 	}
@@ -753,10 +753,9 @@ type opsValidationEvidence struct {
 }
 
 func validationEvidence(config Config) (opsValidationEvidence, error) {
-	binding := config.Binding()
 	evidence := opsValidationEvidence{ArtifactType: "EXACT_MATH", ValidatorVersion: validationVersion,
 		ValidationBuild: "direct-games-v1"}
-	if external, ok := extraValidationSummaries[binding.Game]; ok {
+	if external := extraValidationSummary(config); external != "" {
 		evidence.Summary = json.RawMessage(external)
 		var metadata struct {
 			ArtifactType     string `json:"artifact_type"`

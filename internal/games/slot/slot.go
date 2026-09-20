@@ -9,19 +9,24 @@ import (
 )
 
 const (
-	ImplementationKey             = "direct.slot.v1"
-	RulesetVersion                = "slot-rules-v1"
-	AlgorithmVersion              = "slot-map-v1"
-	ConfigSchemaVersion           = "slot-config-v1"
-	ReelStripVersion              = "slot-strips-v1"
-	PaylineVersion                = "slot-paylines-v1"
-	PaytableVersion               = "slot-paytable-v1"
-	FairRulesetVersion            = "slot-rules-v2"
-	FairConfigSchemaVersion       = "slot-config-v2"
-	FairPaytableVersion           = "slot-paytable-v2"
-	UnitsPerChip            int64 = 500_000
+	ImplementationKey                 = "direct.slot.v1"
+	RulesetVersion                    = "slot-rules-v1"
+	AlgorithmVersion                  = "slot-map-v1"
+	ConfigSchemaVersion               = "slot-config-v1"
+	ReelStripVersion                  = "slot-strips-v1"
+	PaylineVersion                    = "slot-paylines-v1"
+	PaytableVersion                   = "slot-paytable-v1"
+	FairRulesetVersion                = "slot-rules-v2"
+	FairConfigSchemaVersion           = "slot-config-v2"
+	FairPaytableVersion               = "slot-paytable-v2"
+	FrequentRulesetVersion            = "slot-rules-v3"
+	FrequentConfigSchemaVersion       = "slot-config-v3"
+	FrequentReelStripVersion          = "slot-strips-v2"
+	FrequentPaytableVersion           = "slot-paytable-v3"
+	UnitsPerChip                int64 = 500_000
 	// Maximum sum of line multipliers for the frozen strips (516.4 x wager).
-	MaxRoundLineMultiplier int64 = 5164
+	MaxRoundLineMultiplier         int64 = 5164
+	FrequentMaxRoundLineMultiplier int64 = 5201
 )
 
 type Symbol string
@@ -79,6 +84,21 @@ func FairConfig() Config {
 	return c
 }
 
+// FrequentConfig preserves independent uniform stops and the original paylines.
+// New resources never overwrite the frozen v1/v2 configurations used by old rounds.
+func FrequentConfig() Config {
+	c := FairConfig()
+	c.ReelStripVersion, c.PaytableVersion = FrequentReelStripVersion, FrequentPaytableVersion
+	for reel, stops := range [5][3]int{{1, 12, 29}, {0, 11, 13}, {0, 15, 25}, {1, 5, 13}, {15, 17, 24}} {
+		for _, stop := range stops {
+			c.ReelStrips[reel][stop] = L1
+		}
+	}
+	c.Paytable[0] = [3]int64{11, 12, 15}
+	c.Paytable[1][0], c.Paytable[2][0] = 11, 11
+	return c
+}
+
 type LineResult struct {
 	LineNumber     int    `json:"line_number"`
 	Symbol         Symbol `json:"interpreted_symbol"`
@@ -102,11 +122,15 @@ type Result struct {
 var ErrWager = errors.New("SLOT_INVALID_WAGER")
 var ErrOverflow = errors.New("SLOT_INTEGER_OVERFLOW")
 
-func validateWager(wager int64) error {
+func validateWager(wager int64, c Config) error {
 	if wager < 10*UnitsPerChip || wager%UnitsPerChip != 0 {
 		return ErrWager
 	}
-	if wager/10 > math.MaxInt64/MaxRoundLineMultiplier {
+	maximum := MaxRoundLineMultiplier
+	if c.PaytableVersion == FrequentPaytableVersion {
+		maximum = FrequentMaxRoundLineMultiplier
+	}
+	if wager/10 > math.MaxInt64/maximum {
 		return ErrOverflow
 	}
 	return nil
@@ -122,8 +146,12 @@ func SpinFair(wagerUnits int64, sample func(domain string, n uint32) (uint32, er
 	return spin(wagerUnits, sample, FairConfig())
 }
 
+func SpinFrequent(wagerUnits int64, sample func(domain string, n uint32) (uint32, error)) (Result, error) {
+	return spin(wagerUnits, sample, FrequentConfig())
+}
+
 func spin(wagerUnits int64, sample func(domain string, n uint32) (uint32, error), c Config) (Result, error) {
-	if e := validateWager(wagerUnits); e != nil {
+	if e := validateWager(wagerUnits, c); e != nil {
 		return Result{}, e
 	}
 	if sample == nil {
@@ -153,8 +181,12 @@ func ResolveFair(wagerUnits int64, stops [5]int) (Result, error) {
 	return resolve(wagerUnits, stops, FairConfig())
 }
 
+func ResolveFrequent(wagerUnits int64, stops [5]int) (Result, error) {
+	return resolve(wagerUnits, stops, FrequentConfig())
+}
+
 func resolve(wagerUnits int64, stops [5]int, c Config) (Result, error) {
-	if e := validateWager(wagerUnits); e != nil {
+	if e := validateWager(wagerUnits, c); e != nil {
 		return Result{}, e
 	}
 	r := Result{Stops: stops, TotalWagerUnits: wagerUnits, LineStakeUnits: wagerUnits / 10}

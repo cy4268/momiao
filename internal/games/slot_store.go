@@ -15,6 +15,9 @@ func deriveSlot(round *GameRound, seed []byte, fair FairRound, c Config, wager i
 	if c.binding.RulesetVersion == slot.FairRulesetVersion {
 		spin = slot.SpinFair
 	}
+	if c.binding.RulesetVersion == slot.FrequentRulesetVersion {
+		spin = slot.SpinFrequent
+	}
 	r, err := spin(wager, func(domain string, n uint32) (uint32, error) {
 		stream, e := fairness.NewStream(seed, fair, domain)
 		if e != nil {
@@ -38,11 +41,14 @@ func persistSlot(ctx context.Context, tx pgx.Tx, r GameRound) error {
 			grid = append(grid, string(symbol))
 		}
 	}
-	paytable := slot.PaytableVersion
+	strips, paytable := slot.ReelStripVersion, slot.PaytableVersion
 	if r.Ruleset == slot.FairRulesetVersion {
 		paytable = slot.FairPaytableVersion
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO games.slot_results(round_id,stop_1,stop_2,stop_3,stop_4,stop_5,full_grid,total_wager_units,line_stake_units,total_payout_units,net_change_units,result_detail,reel_strip_version,payline_version,paytable_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'slot-strips-v1','slot-paylines-v1',$13)`, r.ID, d.Stops[0], d.Stops[1], d.Stops[2], d.Stops[3], d.Stops[4], grid, d.TotalWagerUnits, d.LineStakeUnits, d.TotalPayoutUnits, d.NetChangeUnits, d.Detail, paytable)
+	if r.Ruleset == slot.FrequentRulesetVersion {
+		strips, paytable = slot.FrequentReelStripVersion, slot.FrequentPaytableVersion
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO games.slot_results(round_id,stop_1,stop_2,stop_3,stop_4,stop_5,full_grid,total_wager_units,line_stake_units,total_payout_units,net_change_units,result_detail,reel_strip_version,payline_version,paytable_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'slot-paylines-v1',$14)`, r.ID, d.Stops[0], d.Stops[1], d.Stops[2], d.Stops[3], d.Stops[4], grid, d.TotalWagerUnits, d.LineStakeUnits, d.TotalPayoutUnits, d.NetChangeUnits, d.Detail, strips, paytable)
 	if err != nil {
 		return err
 	}
