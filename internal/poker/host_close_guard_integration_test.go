@@ -2,6 +2,7 @@ package poker
 
 import (
 	"context"
+	"os"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -13,6 +14,9 @@ import (
 
 // Catches either CLOSED writer ignoring residual facts, or auto reporting a zero-row close.
 func TestHostCloseFinalGuard(t *testing.T) {
+	if os.Getenv("POKER_TEST_CONNECTION_FILE") == "" {
+		t.Skip("set POKER_TEST_CONNECTION_FILE for isolated real-PG service test")
+	}
 	facts := []struct {
 		name, session, pending string
 		chips                  int64
@@ -27,11 +31,11 @@ func TestHostCloseFinalGuard(t *testing.T) {
 		{"empty_control", "", "", 0, false, true},
 		{"settled_zero_control", "SETTLED", "", 0, false, true},
 	}
+	owner, pool := localPokerDB(t) // This helper seeds wallets before the measured boundary.
 	for _, entry := range []string{"manual", "auto"} {
 		for _, fact := range facts {
 			observed := false
 			t.Run(entry+"/"+fact.name, func(t *testing.T) { // Sequential inherited PID-scoped fixtures.
-				owner, pool := localPokerDB(t) // This helper seeds wallets before the measured boundary.
 				ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 				defer cancel()
 				must := func(err error) {
@@ -56,9 +60,20 @@ func TestHostCloseFinalGuard(t *testing.T) {
 					AfterCommit: func(string, uint64) { publications.Add(1) }})
 				must(err)
 				defer s.Close()
-				created, err := s.CreateTable(ctx, CreateTableCommand{UserID: 910001, Key: "c1g-create-guard-table", Name: "Close guard", BlindPreset: "5-10", MaxSeats: 2})
+				created, err := s.CreateTable(ctx, CreateTableCommand{UserID: 910001, Key: "c1g-create-guard-" + entry + "-" + fact.name, Name: "Close guard", BlindPreset: "5-10", MaxSeats: 2})
 				must(err)
 				table, state := created.TableID, "CLOSING"
+				defer func() {
+					cleanup, stop := context.WithTimeout(context.Background(), 3*time.Second)
+					defer stop()
+					if _, err := owner.Exec(cleanup, `WITH settled AS (
+					 UPDATE poker.sessions SET state='SETTLED',current_stack_units=0,ended_at=coalesce(ended_at,clock_timestamp())
+					 WHERE table_id=$1 RETURNING 1)
+					 UPDATE poker.tables SET lifecycle_state='CLOSED',accepting_players=false,
+					 allow_new_hands=false,closed_at=coalesce(closed_at,clock_timestamp()) WHERE table_id=$1`, table); err != nil {
+						t.Error("infrastructure: case table cleanup failed")
+					}
+				}()
 				if entry == "auto" {
 					state = "WAITING"
 				}
@@ -88,13 +103,14 @@ func TestHostCloseFinalGuard(t *testing.T) {
 				must(owner.QueryRow(ctx, `SELECT lifecycle_state=$2 AND accepting_players=$3 AND allow_new_hands=$3
 				 AND closed_at IS NULL AND current_hand_id IS NULL AND runtime_epoch=0 AND spectator_count=0
 				 AND ($3=false OR empty_since<=clock_timestamp()-interval '30 minutes')
-				 AND NOT EXISTS(SELECT 1 FROM poker.recovery_state) AND NOT EXISTS(SELECT 1 FROM poker.seats WHERE session_id IS NOT NULL)
-				 AND (SELECT count(*) FROM poker.sessions)=CASE WHEN $4='' THEN 0 ELSE 1 END
-				 AND NOT EXISTS(SELECT 1 FROM poker.sessions WHERE state<>$4 OR initial_buyin_units<>$5 OR current_stack_units<>$5)
-				 AND (SELECT count(*) FROM poker.funding_operations)=CASE WHEN $6='' THEN 0 ELSE 1 END
-				 AND NOT EXISTS(SELECT 1 FROM poker.funding_operations WHERE kind<>$6 OR state<>'PENDING' OR amount_units<>0)
-				 AND (SELECT count(*) FROM poker.hands)=CASE WHEN $7 THEN 1 ELSE 0 END
-				 AND NOT EXISTS(SELECT 1 FROM poker.hands WHERE state<>'COMMITTED' OR runtime_epoch<>0)
+				 AND NOT EXISTS(SELECT 1 FROM poker.recovery_state WHERE table_id=$1)
+				 AND NOT EXISTS(SELECT 1 FROM poker.seats WHERE table_id=$1 AND session_id IS NOT NULL)
+				 AND (SELECT count(*) FROM poker.sessions WHERE table_id=$1)=CASE WHEN $4='' THEN 0 ELSE 1 END
+				 AND NOT EXISTS(SELECT 1 FROM poker.sessions WHERE table_id=$1 AND (state<>$4 OR initial_buyin_units<>$5 OR current_stack_units<>$5))
+				 AND (SELECT count(*) FROM poker.funding_operations WHERE table_id=$1)=CASE WHEN $6='' THEN 0 ELSE 1 END
+				 AND NOT EXISTS(SELECT 1 FROM poker.funding_operations WHERE table_id=$1 AND (kind<>$6 OR state<>'PENDING' OR amount_units<>0))
+				 AND (SELECT count(*) FROM poker.hands WHERE table_id=$1)=CASE WHEN $7 THEN 1 ELSE 0 END
+				 AND NOT EXISTS(SELECT 1 FROM poker.hands WHERE table_id=$1 AND (state<>'COMMITTED' OR runtime_epoch<>0))
 				 FROM poker.tables WHERE table_id=$1`, table, state, entry == "auto", fact.session, fact.chips*engine.UnitsPerChip, fact.pending, fact.hand).Scan(&ready))
 				if !ready || len(s.actors) != 0 {
 					t.Fatal("infrastructure: exact single-fact entry preconditions")
@@ -124,7 +140,7 @@ func TestHostCloseFinalGuard(t *testing.T) {
 					t.Helper()
 					var v snapshot
 					must(owner.QueryRow(ctx, `SELECT lifecycle_state,table_version,closed_at IS NOT NULL,accepting_players,allow_new_hands,empty_since,
-					 md5(to_jsonb(x)::text),md5((to_jsonb(x)-ARRAY['lifecycle_state','table_version','closed_at','accepting_players','allow_new_hands','empty_since'])::text)
+					 md5(to_jsonb(x)::text),md5((to_jsonb(x)-ARRAY['lifecycle_state','table_version','closed_at','accepting_players','allow_new_hands','empty_since','updated_at'])::text)
 					 FROM poker.tables x WHERE table_id=$1`, table).Scan(&v.state, &v.version, &v.closed, &v.accepting, &v.hands, &v.empty, &v.full, &v.stable))
 					return v
 				}

@@ -1,8 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { expect, it } from 'vitest';
 import { App } from './App';
 import { bundle, failed, fixtureClient, ok, profile, user } from './m1-test-fixtures';
+
+function ProviderReturn() { const navigate = useNavigate(); return <button onClick={() => navigate('/welcome')}>test provider return</button>; }
 
 it('shows verified Master identity separately from the native account and links the existing journey', async () => {
     const { client, fetcher } = fixtureClient();
@@ -59,10 +61,15 @@ it('discards a late identity from the previous account after logout and a new lo
         if (p === '/api/user/login' && account === 2) return ok({ ...bundle, user: { ...user, id: 2 }, session: { sid: 'second-session' } });
         if (p === '/api/user/self' && account === 2) return ok({ ...user, id: 2 });
     });
-    render(<MemoryRouter initialEntries={['/me']}><App client={client} /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/me']}><ProviderReturn /><App client={client} /></MemoryRouter>);
     await waitFor(() => expect(resolve).toBeTypeOf('function'));
-    await act(async () => { await client.logout(); account = 2; await client.login('fixture-second', 'fixture'); resolve(ok(profile)); });
-    fireEvent.click(within(screen.getByRole('navigation', { name: '底部导航' })).getByRole('link', { name: '我的' }));
+    await act(async () => { await client.logout(); });
+    expect(await screen.findByRole('link', { name: '前往 New API 登录' })).toHaveAttribute('href', '/sign-in');
+    account = 2;
+    await act(async () => { await client.login('fixture-second', 'fixture'); });
+    fireEvent.click(screen.getByRole('button', { name: 'test provider return' }));
+    await act(async () => { resolve(ok(profile)); });
+    fireEvent.click(within(await screen.findByRole('navigation', { name: '底部导航' })).getByRole('link', { name: '我的' }));
     expect(await within(screen.getByRole('region', { name: 'Master 身份' })).findByText('另一个观测员')).toBeVisible();
     expect(screen.queryByText(profile.display_name)).not.toBeInTheDocument();
 });

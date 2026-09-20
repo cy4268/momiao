@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestQuotaTransferIntegration(t *testing.T) {
@@ -52,7 +54,16 @@ func TestQuotaTransferIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	native := &NativeQuota{pool: s.pool}
+	// Production's native quota adapter owns a pool distinct from the wallet
+	// store. Keep that boundary in this single-database fixture too: sharing the
+	// four-connection test pool lets concurrent outer wallet transactions consume
+	// every connection before the winning worker can query the native receipt.
+	nativePool, err := pgxpool.NewWithConfig(ctx, s.pool.Config().Copy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(nativePool.Close)
+	native := &NativeQuota{pool: nativePool}
 	// Target committed, but local completion is lost. Restarted worker queries the original receipt.
 	receipt, err := native.Credit(ctx, tr.ID, user, tr.AmountUnits)
 	if err != nil || receipt.Result != "APPLIED" {

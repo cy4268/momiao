@@ -80,7 +80,7 @@ func profileCheck(t *testing.T, owner, pool *pgxpool.Pool, runtime *PasswordRunt
 }
 
 func TestPasswordProfilesEmptyAndProfiles(t *testing.T) {
-	owner, pool, _, _ := passwordProfileFixture(t)
+	owner, pool, _, _ := passwordProfileFixture(t, false)
 	configs := []PasswordConfig{{64, 1, 1}, {128, 1, 1}, {192, 1, 1}, {256, 1, 1}}
 	build := func(t *testing.T, profiles []PasswordConfig) *PasswordRuntime {
 		return runtimeForTest(t, PasswordPolicy{Current: profiles[0], VerifyProfiles: profiles, MaxConcurrent: 1, MaxWorkMemoryKiB: 256})
@@ -177,6 +177,7 @@ func TestPasswordProfilesMalformed(t *testing.T) {
 		{"key_nonascii", key, "御" + key[1:]},
 		{"garbage", seed, "garbage"},
 	}
+	fixture := passwordProfileFixtureFactory(t, false)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			phc := strings.Replace(seed, tc.from, tc.to, 1)
@@ -184,7 +185,7 @@ func TestPasswordProfilesMalformed(t *testing.T) {
 			if ok || !errors.Is(err, ErrInvalid) {
 				t.Fatal("malformed fixture did not fail the real P1 strict parser")
 			}
-			owner, pool, _, _ := passwordProfileFixture(t)
+			owner, pool, _, _ := fixture(t)
 			profileInsert(t, owner, phc, "CLOSED")
 			profileCheck(t, owner, pool, runtimeForTest(t, runtimePolicy()), ErrPasswordConfig)
 		})
@@ -239,11 +240,14 @@ func profileSettings(t *testing.T, pool *pgxpool.Pool) [2]string {
 }
 
 func TestPasswordProfilesFailures(t *testing.T) {
-	for _, name := range []string{
+	names := []string{
 		"nil_pool", "closed_pool", "missing_table", "revoked_select", "platform_role", "ops_role",
 		"readonly_and_timeout", "nil_context", "precancelled", "expired", "blocked_default",
 		"blocked_caller", "cancel_after_query", "pool_reuse", "cancel_after_commit",
-	} {
+	}
+	fixture := passwordProfileFixtureFactory(t, false)
+	raw21Fixture := passwordProfileFixtureFactory(t, true)
+	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			runtime := runtimeForTest(t, runtimePolicy())
 			ctx, cancel := context.WithCancel(t.Context())
@@ -267,7 +271,11 @@ func TestPasswordProfilesFailures(t *testing.T) {
 				profileResult(t, CheckPasswordProfiles(ctx, pool, runtime), ErrPasswordUnavailable, cause)
 				return
 			}
-			owner, pool, platform, ops := passwordProfileFixture(t)
+			open := fixture
+			if name == "missing_table" {
+				open = raw21Fixture
+			}
+			owner, pool, platform, ops := open(t)
 			if name == "missing_table" {
 				var absent bool
 				err := owner.QueryRow(ctx, "SELECT pg_catalog.to_regclass('poker.table_access_credentials') IS NULL").Scan(&absent)

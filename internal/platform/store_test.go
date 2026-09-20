@@ -368,10 +368,13 @@ func TestStoreIntegration(t *testing.T) {
 		mustApply(t, s, m)
 	})
 	t.Run("immutable_history", func(t *testing.T) {
-		tables := []struct{ table, trigger, column string }{
-			{"economy.wallet_ledger", "wallet_ledger_immutable", "delta_units"},
-			{"economy.asset_transactions", "asset_transactions_immutable", "operation_type"},
-			{"platform_meta.mutation_idempotency_records", "mutation_idempotency_immutable", "scope"},
+		u := base + 6
+		mustEnsure(t, s, u)
+		entry := mustApply(t, s, mutation(u, time.Now().Format("150405.000000000"), 1))
+		tables := []struct{ table, trigger, column, key, value string }{
+			{"economy.wallet_ledger", "wallet_ledger_immutable", "delta_units", "ledger_entry_id", entry.ID},
+			{"economy.asset_transactions", "asset_transactions_immutable", "operation_type", "transaction_id", entry.TransactionID},
+			{"platform_meta.mutation_idempotency_records", "mutation_idempotency_immutable", "scope", "resource_id", entry.ID},
 		}
 		for _, target := range tables {
 			for _, op := range []string{"update", "delete", "truncate"} {
@@ -394,42 +397,61 @@ func TestStoreIntegration(t *testing.T) {
 								}
 							}
 						}
-						if _, err = tx.Exec(ctx, "DROP TRIGGER daily_checkins_immutable ON rewards.daily_checkins"); err != nil {
-							t.Fatal(err)
-						}
-						// New registration dependents must not mask the particular
-						// M0 trigger under test. This transaction is always rolled
-						// back, restoring both guards and every removed fixture row.
-						if _, err = tx.Exec(ctx, "DROP TRIGGER registration_issuances_immutable ON rewards.registration_issuances; DROP TRIGGER registration_grants_no_remove ON rewards.registration_grants"); err != nil {
-							t.Fatal(err)
-						}
-						// Remove FK dependents for a real DELETE, so a constraint
-						// cannot mask a missing trigger. Other triggers are absent.
+						// Delete only the dedicated fixture's dependents. Unrelated
+						// history left by earlier package tests must not participate.
 						if op == "delete" && target.table != "platform_meta.mutation_idempotency_records" {
-							if _, err = tx.Exec(ctx, "DELETE FROM rewards.registration_issuances; DELETE FROM platform_meta.registration_grant_jobs; DELETE FROM rewards.registration_grants"); err != nil {
-								t.Fatal(err)
-							}
-							if _, err = tx.Exec(ctx, "DELETE FROM platform_meta.mutation_idempotency_records"); err != nil {
+							if _, err = tx.Exec(ctx, "DELETE FROM platform_meta.mutation_idempotency_records WHERE resource_id=$1", entry.ID); err != nil {
 								t.Fatal(err)
 							}
 							if target.table == "economy.asset_transactions" {
-								if _, err = tx.Exec(ctx, "DELETE FROM rewards.daily_checkins; DELETE FROM economy.wallet_ledger"); err != nil {
+								if _, err = tx.Exec(ctx, "DELETE FROM economy.wallet_ledger WHERE ledger_entry_id=$1", entry.ID); err != nil {
+									t.Fatal(err)
+								}
+							}
+						}
+						// TRUNCATE checks the target trigger only. Drop every direct
+						// referencing FK transactionally, rather than CASCADE into
+						// unrelated immutable history tables and their triggers.
+						if op == "truncate" {
+							rows, queryErr := tx.Query(ctx, `SELECT format('ALTER TABLE %I.%I DROP CONSTRAINT %I',n.nspname,c.relname,k.conname)
+ FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+ WHERE k.contype='f' AND k.confrelid=$1::regclass ORDER BY n.nspname,c.relname,k.conname`, target.table)
+							if queryErr != nil {
+								t.Fatal(queryErr)
+							}
+							drops := []string{}
+							for rows.Next() {
+								var drop string
+								if err = rows.Scan(&drop); err != nil {
+									rows.Close()
+									t.Fatal(err)
+								}
+								drops = append(drops, drop)
+							}
+							rows.Close()
+							if err = rows.Err(); err != nil {
+								t.Fatal(err)
+							}
+							for _, drop := range drops {
+								if _, err = tx.Exec(ctx, drop); err != nil {
 									t.Fatal(err)
 								}
 							}
 						}
 						var count int
-						if err = tx.QueryRow(ctx, "SELECT count(*) FROM "+target.table).Scan(&count); err != nil || count == 0 {
+						if err = tx.QueryRow(ctx, "SELECT count(*) FROM "+target.table+" WHERE "+target.key+"=$1", target.value).Scan(&count); err != nil || count != 1 {
 							t.Fatalf("negative control needs real history rows: %d %v", count, err)
 						}
-						sql := "UPDATE " + target.table + " SET " + target.column + "=" + target.column
+						sql := "UPDATE " + target.table + " SET " + target.column + "=" + target.column + " WHERE " + target.key + "=$1"
+						args := []any{target.value}
 						if op == "delete" {
-							sql = "DELETE FROM " + target.table
+							sql = "DELETE FROM " + target.table + " WHERE " + target.key + "=$1"
 						}
 						if op == "truncate" {
-							sql = "TRUNCATE " + target.table + " CASCADE"
+							sql = "TRUNCATE " + target.table
+							args = nil
 						}
-						_, err = tx.Exec(ctx, sql)
+						_, err = tx.Exec(ctx, sql, args...)
 						if protected {
 							var pgErr *pgconn.PgError
 							if !errors.As(err, &pgErr) || pgErr.Code != "55000" {

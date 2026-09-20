@@ -64,13 +64,39 @@ func TestRegistrationMigrationUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	const user int64 = 62001
-	if _, err = s.InitializeProfile(ctx, user, 0, "Upgrade-before", "system-default"); err != nil {
+	initialDisplay, initialNormalized, err := ValidateNickname("Upgrade-before")
+	if err != nil {
 		t.Fatal(err)
 	}
 	renamed := "Upgrade-after"
-	before, err := s.UpdateProfile(ctx, user, ProfilePatch{ExpectedVersion: 1, DisplayName: &renamed})
-	if err != nil || before.ProfileVersion != 2 || before.NextRenameAt == nil {
-		t.Fatal("pre-upgrade profile", err)
+	renamedDisplay, renamedNormalized, err := ValidateNickname(renamed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var changed time.Time
+	if err = pool.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&changed); err != nil {
+		t.Fatal(err)
+	}
+	seed, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rollback(seed)
+	if _, err = seed.Exec(ctx, "INSERT INTO identity.account_refs(newapi_user_id) VALUES($1)", user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = seed.Exec(ctx, `INSERT INTO identity.master_profiles(newapi_user_id,display_name,normalized_name,avatar_id,profile_version,nickname_changed_at) VALUES($1,$2,$3,'system-default',2,$4)`, user, renamedDisplay, renamedNormalized, changed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = seed.Exec(ctx, `INSERT INTO identity.master_profile_name_history(newapi_user_id,profile_version,display_name,normalized_name) VALUES($1,1,$2,$3),($1,2,$4,$5)`, user, initialDisplay, initialNormalized, renamedDisplay, renamedNormalized); err != nil {
+		t.Fatal(err)
+	}
+	if err = seed.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	before := profileView(Profile{UserID: user, DisplayName: renamedDisplay, AvatarID: "system-default", ProfileVersion: 2, NicknameChangedAt: &changed})
+	if before.NextRenameAt == nil {
+		t.Fatal("pre-upgrade profile")
 	}
 	if err = s.Migrate(ctx); err != nil {
 		t.Fatal(err)

@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { afterEach, expect, it } from 'vitest';
 import { App } from './App';
 import { bundle, daily, failed, fixtureClient, ok, profile, receipt, user, wallet } from './m1-test-fixtures';
 
 afterEach(() => sessionStorage.clear());
+function ProviderReturn() { const navigate = useNavigate(); return <button onClick={() => navigate('/welcome')}>test provider return</button>; }
 const nav = (name: string) => within(screen.getByRole('navigation', { name: '页面导航' })).getByRole('link', { name });
 it('claims fixed Shanghai-day rewards only on click, refreshes confirmed status, and links activation', async () => {
     let claimed = false;
@@ -108,11 +109,16 @@ it('never consumes a previous account receipt after switching sessions', async (
             if (p === '/platform/v1/rewards/daily') return ok({ ...daily, user_id: '2' });
         }
     });
-    render(<MemoryRouter initialEntries={['/rewards']}><App client={client} /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/rewards']}><ProviderReturn /><App client={client} /></MemoryRouter>);
     fireEvent.click(await screen.findByRole('button', { name: '领取今日 500 额度' }));
     await waitFor(() => expect(resolve).toBeTypeOf('function'));
-    await act(async () => { await client.logout(); account = 2; await client.login('second', 'fixture'); resolve(ok(receipt)); });
-    fireEvent.click(within(screen.getByRole('navigation', { name: '底部导航' })).getByRole('link', { name: '资产' }));
+    await act(async () => { await client.logout(); });
+    expect(await screen.findByRole('link', { name: '前往 New API 登录' })).toHaveAttribute('href', '/sign-in');
+    account = 2;
+    await act(async () => { await client.login('second', 'fixture'); });
+    fireEvent.click(screen.getByRole('button', { name: 'test provider return' }));
+    await act(async () => { resolve(ok(receipt)); });
+    fireEvent.click(within(await screen.findByRole('navigation', { name: '底部导航' })).getByRole('link', { name: '资产' }));
     await screen.findByRole('heading', { name: '我的钱包' });
     fireEvent.click(nav('奖励中心'));
     expect(await screen.findByRole('button', { name: '领取今日 500 额度' })).toBeEnabled();

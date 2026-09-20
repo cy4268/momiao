@@ -50,7 +50,7 @@ it('mounts the whole-Lobby owner under the ordinary Shell without creating a tic
   expect(screen.getByRole('navigation',{name:'底部导航'})).toBeVisible();expect(tickets(r)).toHaveLength(0);
 });
 
-function Navigation(){const navigate=useNavigate(),location=useLocation();return <><output data-testid="path">{location.pathname}</output><button onClick={()=>navigate('/wallet')}>test wallet navigation</button><button onClick={()=>navigate(-1)}>test browser back</button><button onClick={()=>navigate(1)}>test browser forward</button><button onClick={()=>navigate('/poker')}>test lobby navigation</button></>;}
+function Navigation(){const navigate=useNavigate(),location=useLocation();return <><output data-testid="path">{location.pathname}</output><button onClick={()=>navigate('/wallet')}>test wallet navigation</button><button onClick={()=>navigate(-1)}>test browser back</button><button onClick={()=>navigate(1)}>test browser forward</button><button onClick={()=>navigate('/poker')}>test lobby navigation</button><button onClick={()=>navigate('/welcome')}>test provider return</button></>;}
 function mount(r:Awaited<ReturnType<typeof setup>>,path='/poker/table/'+table){return render(<MemoryRouter initialEntries={['/wallet',path]} initialIndex={1}><Navigation/><App client={r.client}/></MemoryRouter>);}
 function activate(socket:Socket,player=true){
   const frame=(type:string,payload:unknown)=>JSON.stringify({type,event_id:'app-route-synthetic',event_seq:10,table_id:table,table_version:7,hand_id:self.hand.hand_id,hand_version:8,server_time:self.server_now,payload});
@@ -96,8 +96,9 @@ it('saves only the guest catalog destination and returns through the original po
   render(<MemoryRouter initialEntries={['/entertainment']}><Navigation/><App client={client}/></MemoryRouter>);
   await screen.findByRole('heading',{name:'目录中的 Poker'});fireEvent.click(screen.getByRole('link',{name:'进入 Poker 大厅 →'}));
   await waitFor(()=>expect(screen.getByTestId('path').textContent).toBe('/login'));
-  expect(peekRouteIntent()).toBe('/poker');expect(signedIn).toBe(false);expect(paths.some(p=>p.startsWith('/api/v1/poker'))).toBe(false);
+  expect(screen.getByRole('link',{name:'前往 New API 登录'})).toHaveAttribute('href','/sign-in');expect(peekRouteIntent()).toBe('/poker');expect(signedIn).toBe(false);expect(paths.some(p=>p.startsWith('/api/v1/poker'))).toBe(false);
   await act(async()=>{await client.login('synthetic','synthetic');});
+  fireEvent.click(screen.getByRole('button',{name:'test provider return'}));
   await screen.findByRole('region',{name:'Poker 大厅'});expect(screen.getByTestId('path').textContent).toBe('/poker');
   expect(paths.filter(p=>p.startsWith('/api/v1/poker'))).toEqual(['/api/v1/poker']);expect(Socket.all).toHaveLength(0);
   expect(peekRouteIntent()).toBe('/dashboard');sessionStorage.clear();
@@ -169,7 +170,7 @@ it('hands the successful create/reserve/buyin owner into the same player route h
   mount(r,'/poker');fireEvent.click(await screen.findByRole('button',{name:'创建牌桌'}));fireEvent.change(screen.getByLabelText('牌桌名称'),{target:{value:'Successful route handoff'}});fireEvent.click(screen.getByRole('button',{name:'确认创建牌桌'}));
   await waitFor(()=>expect(screen.getByRole('button',{name:'预留 2 号座位'})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:'预留 2 号座位'}));
   await waitFor(()=>expect(screen.getByRole('button',{name:'确认买入并等待大盲'})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:'确认买入并等待大盲'}));
-  await waitFor(()=>expect(Socket.all).toHaveLength(1));expect(screen.getByTestId('path').textContent).toBe('/poker/table/'+table);expect(JSON.parse(String(tickets(r)[0][1]?.body)).control_intent).toBe('CLAIM_CONTROL');
+  await waitFor(()=>{expect(Socket.all).toHaveLength(1);expect(screen.getByTestId('path').textContent).toBe('/poker/table/'+table);});expect(JSON.parse(String(tickets(r)[0][1]?.body)).control_intent).toBe('CLAIM_CONTROL');
   act(()=>activate(Socket.all[0]));fireEvent.click(screen.getByRole('button',{name:'test wallet navigation'}));await waitFor(()=>expect(screen.getByTestId('path').textContent).toBe('/poker/table/'+table));
   expect(screen.getByRole('button',{name:'安全离座'})).toBeEnabled();expect(tickets(r)).toHaveLength(1);expect(pokerCalls(r).filter(([p])=>/\/(tables|seat-reservations|buy-ins)$/.test(p))).toHaveLength(3);
 });

@@ -116,10 +116,26 @@ func TestLobbyHTTPWholeSnapshotAndStrictQuery(t *testing.T) {
 	request(t, "POST", base+"/tables?", create, auth, 400)
 	request(t, "POST", base+"/tables?limit=1", create, auth, 400)
 	request(t, "POST", base+"/tables", strings.TrimSuffix(create, "}")+`,"password":"x"}`, auth, 400)
-	request(t, "POST", base+"/tables", strings.TrimSuffix(create, "}")+`,"chat_enabled":true}`, auth, 400)
+	request(t, "POST", base+"/tables", strings.TrimSuffix(create, "}")+`,"chat_enabled":"true"}`, auth, 400)
+	request(t, "POST", base+"/tables", strings.TrimSuffix(create, "}")+`,"unknown_setting":true}`, auth, 400)
 	request(t, "PUT", base+"/tables", "", auth, 405)
 	if reads.Load() != before || forbidden.Load() != 0 {
 		t.Error("invalid/read-only Lobby request reached a forbidden port")
+	}
+	// Chat is an established create field; reject malformed types, not valid booleans.
+	created := make(chan CreateTableRequest, 1)
+	h.opts.Ports.CreateTable = func(_ context.Context, _ Principal, body CreateTableRequest) (json.RawMessage, error) {
+		created <- body
+		return json.RawMessage(whole), nil
+	}
+	request(t, "POST", base+"/tables", strings.TrimSuffix(create, "}")+`,"chat_enabled":true}`, auth, 200)
+	select {
+	case got := <-created:
+		if !got.ChatEnabled || got.RequestID != "lobby-create-identity-001" || got.Name != "Public" {
+			t.Error("valid create fields were not forwarded intact")
+		}
+	default:
+		t.Error("valid chat-enabled create did not reach its port")
 	}
 	h.opts.Ports.ReadLobby = nil
 	h.opts.Ports.ReadTables = nil

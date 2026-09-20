@@ -33,6 +33,8 @@ type leaseEntry struct {
 	expires time.Time
 }
 
+var localPokerDBSequence atomic.Uint64
+
 func (l *fixtureLeases) Acquire(_ context.Context, table string, seat int, token string, expires time.Time) (bool, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -96,7 +98,7 @@ func localPokerDB(t *testing.T, skipMigrations ...string) (*pgxpool.Pool, *pgxpo
 	if err = admin.Ping(ctx); err != nil {
 		t.Fatal("local PG not reachable")
 	}
-	suffix := strconv.Itoa(os.Getpid())
+	suffix := strconv.Itoa(os.Getpid()) + "_" + strconv.FormatUint(localPokerDBSequence.Add(1), 10)
 	db := "g3_poker_test_" + suffix
 	owner := "g3_poker_owner_" + suffix
 	runtime := "g3_poker_runtime_" + suffix
