@@ -1,0 +1,58 @@
+{
+  "stage": {
+    "src": "games/scratch/stage.1600w.968a4caba913.webp",
+    "width": 1600,
+    "height": 900,
+    "variants": [
+      {
+        "src": "games/scratch/stage.960w.31070dec8ad7.webp",
+        "width": 960
+      },
+      {
+        "src": "games/scratch/stage.1600w.968a4caba913.webp",
+        "width": 1600
+      }
+    ]
+  },
+  "frame": {
+    "src": "games/scratch/frame.1200w.314e4a9f5f55.webp",
+    "width": 1200,
+    "height": 1000,
+    "variants": [
+      {
+        "src": "games/scratch/frame.600w.54345fb96d73.webp",
+        "width": 600
+      },
+      {
+        "src": "games/scratch/frame.1200w.314e4a9f5f55.webp",
+        "width": 1200
+      }
+    ]
+  },
+  "foil": {
+    "src": "games/scratch/foil.320w.88b66dde6066.webp",
+    "width": 320,
+    "height": 320,
+    "variants": [
+      {
+        "src": "games/scratch/foil.320w.88b66dde6066.webp",
+        "width": 320
+      }
+    ]
+  },
+  "symbols": {
+    "src": "games/scratch/symbols.1600w.1cb18eb85577.webp",
+    "width": 1600,
+    "height": 800,
+    "variants": [
+      {
+        "src": "games/scratch/symbols.1024w.29db2a885613.webp",
+        "width": 1024
+      },
+      {
+        "src": "games/scratch/symbols.1600w.1cb18eb85577.webp",
+        "width": 1600
+      }
+    ]
+  }
+}

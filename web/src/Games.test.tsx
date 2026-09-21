@@ -149,8 +149,15 @@ it('keeps the pre-purchase scratch balance visible until reveal completes',async
     const balance=()=>screen.getByText('可用筹码').parentElement!;
     await waitFor(()=>expect(within(balance()).getByText('1,000')).toBeVisible());
     expect(within(balance()).queryByText('900')).not.toBeInTheDocument();
+    expect(screen.getByRole('img',{name:'未揭晓涂层'})).toBeVisible();
+    expect(screen.queryByRole('img',{name:'赤铜果实'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'购买刮刮卡'})).toBeDisabled();
     fireEvent.click(screen.getByRole('button',{name:'立即揭晓'}));
     await waitFor(()=>expect(within(balance()).getByText('900')).toBeVisible());
+    expect(screen.getAllByRole('img',{name:'赤铜果实'})).toHaveLength(9);
+    expect(screen.queryByRole('img',{name:'未揭晓涂层'})).not.toBeInTheDocument();
+    expect(client.request).toHaveBeenCalledWith(`/api/v1/game-rounds/${id}/actions`,'POST',expect.objectContaining({action_type:'SCRATCH_REVEAL_COMPLETE'}),{'X-CSRF-Token':hash});
+    expect(screen.getByRole('button',{name:'购买刮刮卡'})).toBeEnabled();
 });
 it('disables each quick amount by its total cost, including tenfold',async()=>{
     const summonBoot={...bootstrap,game:{...bootstrap.game,slug:'summon',config:{...bootstrap.game.config!,prizes:[{tier:'T0',multiplier:0,weight:50000},{tier:'T5',multiplier:100,weight:50000}]}},available_units:'1500000000'};
