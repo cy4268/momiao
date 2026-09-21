@@ -143,7 +143,10 @@ it.each(['denied','other-session'])('retires spectator admission across real bac
 });
 it('drops the pin and old socket after a hard Gate restriction, then permits ordinary navigation',async()=>{
   const r=await setup(whole(true));await live(r);r.f.gateStage='ACCOUNT_RESTRICTED';fireEvent.click(screen.getByRole('button',{name:'重新核对访问状态'}));
-  await screen.findByText(/账户当前受到访问限制/);expect(Socket.all[0].readyState).toBe(3);fireEvent.click(screen.getByRole('button',{name:'test wallet navigation'}));
+  await screen.findByText(/账户当前受到访问限制/);
+  // The Gate notice can render before passive-effect cleanup closes the old socket.
+  await waitFor(()=>expect(Socket.all[0].readyState).toBe(3));
+  fireEvent.click(screen.getByRole('button',{name:'test wallet navigation'}));
   await waitFor(()=>expect(screen.getByTestId('path').textContent).toBe('/wallet'));
 });
 it('preserves the original unknown entry key through navigation and receipt NOT_FOUND without resubmitting',async()=>{
