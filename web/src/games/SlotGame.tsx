@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { amountUnits } from '../economy-api';
 import { integer } from '../wallet-api';
 import { assetSrcSet, assetUrl, type ImageAsset } from '../game-hall-assets';
@@ -97,6 +97,11 @@ const previewSymbols: SlotSymbol[] = ['L1','L2','L3','M1','M2','H1','H1','W','H1
 function SlotArt({ asset, className, sizes }: { asset: ImageAsset; className: string; sizes: string }) {
     return <img key={asset.src} className={className} src={assetUrl(asset.src)} srcSet={assetSrcSet(asset)} sizes={sizes} width={asset.width} height={asset.height} alt="" decoding="async" onError={event => { event.currentTarget.style.visibility = 'hidden'; }} />;
 }
+function SlotFace({ symbol }: { symbol: SlotSymbol }) {
+    return <><SlotArt asset={art.cell} className="slot-cell-frame" sizes="320px" /><SlotArt asset={art.symbols[symbol]} className="slot-item-art" sizes="(max-width: 760px) 18vw, 15vw" /><span>{symbol === 'W' ? 'W · WILD' : symbol}<small>{art.symbols[symbol].name}</small></span></>;
+}
+// Presentation strips only; the last three stopping symbols always come from full_grid.
+const reelSymbols: SlotSymbol[] = ['L1', 'L2', 'L3', 'M1', 'M2', 'H1', 'H2', 'W'];
 export function SlotRules({ rulesetVersion }: { rulesetVersion?: string }) {
     const rules = rulesetVersion ? publicRules[rulesetVersion] : undefined;
     return <div className="slot-rules"><p>总下注平均分配给固定的 10 条线。中奖线的返还相加，再减总下注，得到整局净变化；部分返还仍计作净输。</p><p>从左向右至少 3 连；Wild 替代普通符号或按自身奖表，只支付同线最高解释。倍数基于每线下注，不叠加同线 3 / 4 / 5 连。</p>{rules ? <><table aria-label={`${rules.paytableVersion} 奖励倍率表`}><caption>{rules.paytableVersion} · 总派彩倍数</caption><thead><tr><th>符号</th><th>3 连</th><th>4 连</th><th>5 连</th></tr></thead><tbody>{rules.paytable.map(([symbol, ...values]) => <tr key={symbol}><th>{symbol}</th>{values.map((value, i) => <td key={i}>{value}×</td>)}</tr>)}</tbody></table><p>{rules.reelStripVersion} / slot-paylines-v1。完整卷轴、配置及数学验证记录请查看公平详情。</p></> : <p>正在读取本局规则版本；奖表未确认前不显示替代版本。</p>}</div>;
@@ -104,35 +109,63 @@ export function SlotRules({ rulesetVersion }: { rulesetVersion?: string }) {
 
 export function SlotGame(props: SlotGameProps) {
     const command = useExtraCommand(); const title = useId(); const [selected, setSelected] = useState<number | null>(null); const [replay, setReplay] = useState(false);
-    const result = props.result; const blocked = props.busy || command.pending || !!props.recovering || !!props.disabledReason;
+    const [motion, setMotion] = useState<'rolling' | 'stopping' | null>(null);
+    const motionStart = useRef(0); const motionRound = useRef<string | undefined>(undefined);
+    const result = props.result; const blocked = props.busy || command.pending || !!props.recovering || !!props.disabledReason || !!motion;
     useEffect(() => { setSelected(null); setReplay(false); }, [result, props.roundID]);
     useEffect(() => { if (!replay) return; const timer = window.setTimeout(() => setReplay(false), 1500); return () => window.clearTimeout(timer); }, [replay]);
+    useEffect(() => {
+        if (motion !== 'rolling' || props.busy || command.pending) return;
+        if (props.recovering || props.error || command.failure || !result || props.roundID === motionRound.current) { setMotion(null); return; }
+        const timer = window.setTimeout(() => setMotion('stopping'), Math.max(0, 850 - (performance.now() - motionStart.current)));
+        return () => window.clearTimeout(timer);
+    }, [motion, props.busy, command.pending, props.recovering, props.error, command.failure, result, props.roundID]);
+    useEffect(() => {
+        if (motion !== 'stopping') return;
+        // Also release the controls if animationend is skipped (e.g. a hidden tab).
+        const timer = window.setTimeout(() => setMotion(null), 1400);
+        return () => window.clearTimeout(timer);
+    }, [motion]);
+    function spin(units: string) {
+        void command.run(async () => {
+            if (props.salon && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+                motionStart.current = performance.now(); motionRound.current = props.roundID;
+                setSelected(null); setReplay(false); setMotion('rolling');
+            }
+            await props.onSpin(units);
+        });
+    }
     const line = selected === null ? undefined : result?.lines.find(item => item.line_number === selected);
-    return <section className={`extra-game extra-slot${props.salon ? ' slot-salon' : ''}`} aria-labelledby={title} aria-busy={props.busy || command.pending}>
+    return <section className={`extra-game extra-slot${props.salon ? ' slot-salon' : ''}`} aria-labelledby={title} aria-busy={props.busy || command.pending || !!motion}>
         <header className="extra-heading"><div><p className="extra-eyebrow">KING’S TREASURY / SLOT GALLERY</p><h2 id={title}>王之宝库 · Slot</h2><p>五轴三行，一眼看清整局结果。</p></div><div className="extra-balance"><span>可用筹码</span><strong>{formatChipUnits(props.availableUnits)}</strong></div></header>
         <div className="extra-layout">
-            <div className={`extra-slot-stage${replay ? ' is-replaying' : ''}${props.busy || command.pending ? ' is-spinning' : ''}`}>
-                <div className="extra-stage-label"><span>{props.salon ? (result ? '服务端已确认 · 王之宝库' : '盘面示意 · 尚未开局') : 'ROYAL TREASURY SIGILS'}</span><span>5 × 3 / 10 LINES</span></div>
-                <div className="extra-reels" aria-label={props.salon && !result ? '宝库符号示意，尚未开局' : '服务端确认的五轴三行盘面'}>
+            <div className={`extra-slot-stage${replay ? ' is-replaying' : ''}`}>
+                <div className="extra-stage-label"><span>{motion ? '转轮滚动中 · 王之宝库' : props.salon ? (result ? '服务端已确认 · 王之宝库' : '盘面示意 · 尚未开局') : 'ROYAL TREASURY SIGILS'}</span><span>5 × 3 / 10 LINES</span></div>
+                <div className="extra-reels" data-spin-phase={motion || 'idle'} aria-label={motion ? '五轴转轮滚动中，等待落定' : props.salon && !result ? '宝库符号示意，尚未开局' : '服务端确认的五轴三行盘面'}>
                     {[0, 1, 2].flatMap(row => [0, 1, 2, 3, 4].map(reel => {
                         const symbol = result?.full_grid[reel]?.[row]; const active = selected !== null && paylineRows[selected - 1][reel] === row;
                         const shown = symbol || (props.salon ? previewSymbols[row * 5 + reel] : undefined);
-                        return <div data-testid="slot-cell" key={`${reel}-${row}`} className={`extra-sigil${active ? ' is-line' : ''}`} aria-label={`第 ${reel + 1} 轴，${['上', '中', '下'][row]}行：${symbol || '尚无结果'}`} style={{ animationDelay: `${reel * 120}ms` }}>{props.salon && <SlotArt asset={art.cell} className="slot-cell-frame" sizes="320px" />}{shown ? <>{props.salon ? <SlotArt asset={art.symbols[shown]} className="slot-item-art" sizes="(max-width: 760px) 18vw, 15vw" /> : <Sigil symbol={shown} />}<span>{shown === 'W' ? 'W · WILD' : shown}{props.salon && <small>{art.symbols[shown].name}</small>}</span></> : <span className="extra-unresolved">—</span>}</div>;
+                        return <div data-testid="slot-cell" key={`${reel}-${row}`} className={`extra-sigil${active ? ' is-line' : ''}`} aria-hidden={!!motion} aria-label={`第 ${reel + 1} 轴，${['上', '中', '下'][row]}行：${symbol || '尚无结果'}`} style={{ animationDelay: `${reel * 120}ms` }}>{shown ? props.salon ? <SlotFace symbol={shown} /> : <><Sigil symbol={shown} /><span>{shown === 'W' ? 'W · WILD' : shown}</span></> : <span className="extra-unresolved">—</span>}</div>;
                     }))}
-                    {selected !== null && <svg className="extra-line-overlay" viewBox="0 0 500 300" preserveAspectRatio="none" aria-hidden="true"><polyline points={paylineRows[selected - 1].map((row, reel) => `${reel * 100 + 50},${row * 100 + 50}`).join(' ')} /></svg>}
+                    {motion && <div className="slot-reel-motion" aria-hidden="true">{[0, 1, 2, 3, 4].map(reel => {
+                        const symbols = Array.from({ length: motion === 'rolling' ? 11 : 16 }, (_, i) => reelSymbols[(i + reel * 3) % reelSymbols.length]);
+                        if (motion === 'stopping') symbols.push(...(result?.full_grid[reel] || []));
+                        return <div className="slot-reel-window" key={reel} style={{ '--slot-reel': reel } as CSSProperties}><div key={motion} className="slot-reel-strip" onAnimationEnd={event => { if (reel === 4 && event.animationName === 'slot-reel-stop') setMotion(null); }}>{symbols.map((symbol, i) => <div className="extra-sigil slot-reel-symbol" key={i} data-symbol={symbol}><SlotFace symbol={symbol} /></div>)}</div></div>;
+                    })}</div>}
+                    {!motion && selected !== null && <svg className="extra-line-overlay" viewBox="0 0 500 300" preserveAspectRatio="none" aria-hidden="true"><polyline points={paylineRows[selected - 1].map((row, reel) => `${reel * 100 + 50},${row * 100 + 50}`).join(' ')} /></svg>}
                 </div>
-                <div className="extra-line-markers" role="group" aria-label="查看固定中奖线">{paylineRows.map((_, i) => <button type="button" key={i} aria-label={`查看第 ${i + 1} 线`} aria-pressed={selected === i + 1} onClick={() => setSelected(selected === i + 1 ? null : i + 1)}>{i + 1}{result?.lines.some(item => item.line_number === i + 1 && item.multiplier > 0) && <span aria-label="有派彩">·</span>}</button>)}</div>
+                <div className="extra-line-markers" role="group" aria-label="查看固定中奖线">{paylineRows.map((_, i) => <button type="button" key={i} disabled={!!motion} aria-label={`查看第 ${i + 1} 线`} aria-pressed={selected === i + 1} onClick={() => setSelected(selected === i + 1 ? null : i + 1)}>{i + 1}{!motion && result?.lines.some(item => item.line_number === i + 1 && item.multiplier > 0) && <span aria-label="有派彩">·</span>}</button>)}</div>
                 <p className="extra-line-detail" role="status" aria-label="当前中奖线">{line ? `第 ${line.line_number} 线 · ${line.multiplier > 0 ? `${line.interpreted_symbol} · ${line.match_length} 连 · 每线 ${formatChipUnits(line.line_stake_units)} × ${line.multiplier} → ${formatChipUnits(line.line_payout_units)} 筹码` : '无派彩'}` : selected ? `第 ${selected} 线 · ${paylineRows[selected - 1].map(row => ['上', '中', '下'][row]).join('—')}` : '选择线号查看路径；十条线始终参与，非开关。'}</p>
-                <div className="extra-replay"><span>{result ? 'Stop · ' + result.stops.join(' / ') : '等待第一局结果'}</span>{result && <button type="button" disabled={props.busy || command.pending} onClick={() => setReplay(value => !value)}>{replay ? 'Fast Stop · 直接显示结果' : '回看本局结果'}</button>}</div>
+                <div className="extra-replay"><span>{motion ? '转轮正在落定' : result ? 'Stop · ' + result.stops.join(' / ') : '等待第一局结果'}</span>{result && <button type="button" disabled={props.busy || command.pending || !!motion} onClick={() => setReplay(value => !value)}>{replay ? 'Fast Stop · 直接显示结果' : '回看本局结果'}</button>}</div>
                 {result && <p className="extra-stage-note">仅回看相同盘面与中奖线，不会创建新局或重复结算。</p>}
             </div>
             <aside className="extra-console">
                 {props.salon && <div className="slot-balance"><span>可用筹码</span><strong>{formatChipUnits(props.availableUnits)}</strong></div>}
-                <ExtraWager controls={props} blocked={blocked} label="总下注 · 筹码" verb="Spin" lineStake onSubmit={units => void command.run(() => props.onSpin(units))} />
-                <ExtraNotice controls={props} failure={command.failure} message={props.recovering ? '正在恢复同一局，保留已确认盘面。' : props.busy || command.pending ? '正在提交或核对结果，请稍候。' : result ? '本局结果已确认。下一局仍需主动 Spin。' : '选择总下注，点击 Spin 即提交本局。'} />
+                <ExtraWager controls={props} blocked={blocked} label="总下注 · 筹码" verb="Spin" lineStake onSubmit={spin} />
+                <ExtraNotice controls={props} failure={command.failure} message={motion === 'stopping' ? '转轮正在从左到右依次落定…' : motion ? '宝库转轮滚动中…' : props.recovering ? '正在恢复同一局，保留已确认盘面。' : props.busy || command.pending ? '正在提交或核对结果，请稍候。' : result ? '本局结果已确认。下一局仍需主动 Spin。' : '选择总下注，点击 Spin 即提交本局。'} />
             </aside>
         </div>
-        {result && <div className={`extra-result is-${result.result_class.toLowerCase()}`} role="status" aria-label="本局结算"><strong>{resultNames[result.result_detail]}</strong><dl><div><dt>本局总下注</dt><dd>{formatChipUnits(result.total_wager_units)}</dd></div><div><dt>总派彩（含返还）</dt><dd>{formatChipUnits(result.total_payout_units)}</dd></div><div><dt>净变化 · 筹码</dt><dd>{formatChipUnits(result.net_change_units, true)}</dd></div></dl></div>}
+        {result && <div className={`extra-result is-${result.result_class.toLowerCase()}`} role="status" aria-label="本局结算" aria-hidden={!!motion}><strong>{resultNames[result.result_detail]}</strong><dl><div><dt>本局总下注</dt><dd>{formatChipUnits(result.total_wager_units)}</dd></div><div><dt>总派彩（含返还）</dt><dd>{formatChipUnits(result.total_payout_units)}</dd></div><div><dt>净变化 · 筹码</dt><dd>{formatChipUnits(result.net_change_units, true)}</dd></div></dl></div>}
         <div className="extra-utilities">{props.salon ? <div className="slot-tool-dock"><button type="button" aria-haspopup="dialog" onClick={props.onRules}>奖表与固定规则<span aria-hidden="true">＋</span></button><button type="button" aria-haspopup="dialog" onClick={props.onFairness}>公平验证<span aria-hidden="true">＋</span></button>{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录 ↗</button>}</div> : <><details><summary>奖表与固定规则</summary><SlotRules rulesetVersion={props.rulesetVersion} /></details><div className="extra-links">{props.onFairness && <button type="button" onClick={props.onFairness}>公平详情</button>}{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div>{props.roundID && <p className="extra-round-id">Round · {props.roundID}</p>}</>}</div>
     </section>;
 }

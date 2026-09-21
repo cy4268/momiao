@@ -25,7 +25,7 @@
 .slot-salon .extra-layout { grid-template-columns:minmax(0,1fr) clamp(272px,25vw,370px); gap:16px; min-height:0; }
 .slot-salon .extra-slot-stage { min-width:0; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto auto auto auto; gap:6px; padding:10px 12px; background:#051020c9; border:1px solid #d2af6d; border-radius:2px; box-shadow:inset 0 0 0 3px #060e1c,inset 0 0 0 4px #a28c5c60,0 8px 30px #01081575; }
 .slot-salon .extra-stage-label { font-size:10px; letter-spacing:.1em; color:#d4c08d; min-height:18px; align-items:center; }
-.slot-salon .extra-reels { grid-template-rows:repeat(3,minmax(0,1fr)); gap:4px; margin:0; padding:0; min-height:0; border:0; border-radius:0; background:transparent; }
+.slot-salon .extra-reels { --slot-gap:4px; grid-template-rows:repeat(3,minmax(0,1fr)); gap:var(--slot-gap); margin:0; padding:0; min-height:0; border:0; border-radius:0; background:transparent; }
 .slot-salon .extra-sigil { position:relative; min-width:0; height:auto; min-height:0; padding:0; border:0; border-radius:0; background:#08162b; display:flex; align-items:center; justify-content:flex-end; flex-direction:column; overflow:hidden; }
 .slot-salon .slot-cell-frame { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
 .slot-salon .slot-item-art { position:absolute; inset:7px 8px 27px; width:calc(100% - 16px); height:calc(100% - 34px); object-fit:contain; filter:drop-shadow(0 3px 7px #010510); }
@@ -66,8 +66,17 @@
 .slot-tool-dock button { flex:1; display:flex; align-items:center; justify-content:space-between; gap:14px; padding:8px 16px; background:#061222ed; border:1px solid #b69a627a; border-radius:1px; font-size:12px; }
 .slot-tool-dock button:last-child:not(:nth-child(2)) { flex:0 0 auto; }
 .slot-tool-dock button span { color:#e5c680; font-size:17px; }
-.slot-salon .is-spinning .slot-item-art { animation:slot-pulse .8s ease-in-out infinite alternate; }
-@keyframes slot-pulse { from { opacity:.55; transform:translateY(-3px); } to { opacity:1; transform:translateY(3px); } }
+.slot-reel-motion { position:absolute; inset:0; z-index:3; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:var(--slot-gap); pointer-events:none; }
+.slot-reel-window { position:relative; min-width:0; overflow:hidden; background:#08162b; }
+.slot-reel-window::after { content:""; position:absolute; inset:0; background:linear-gradient(#02091780,transparent 18%,transparent 82%,#02091780); pointer-events:none; }
+.slot-reel-strip { height:100%; will-change:transform; animation:slot-reel-loop .55s linear infinite; }
+.slot-salon .slot-reel-symbol { height:calc((100% - 2 * var(--slot-gap)) / 3); margin-bottom:var(--slot-gap); }
+.slot-salon [data-spin-phase="rolling"] .slot-reel-strip { filter:blur(.65px); }
+.slot-salon [data-spin-phase="stopping"] .slot-reel-strip { animation:slot-reel-stop calc(700ms + var(--slot-reel) * 150ms) cubic-bezier(.12,.65,.2,1) both; }
+.slot-salon .extra-result[aria-hidden="true"] { visibility:hidden; }
+/* Eight loop symbols; sixteen decorative symbols before the three confirmed rows. */
+@keyframes slot-reel-loop { to { transform:translateY(calc(-800% / 3 - var(--slot-gap) * 8 / 3)); } }
+@keyframes slot-reel-stop { to { transform:translateY(calc(-1600% / 3 - var(--slot-gap) * 16 / 3)); } }
 /* Native dialog supplies focus containment, Escape and focus restoration. */
 .game-slot .modal:has(.slot-dialog-content) { width:min(780px,calc(100vw - 28px)); max-height:calc(100dvh - 40px); padding:22px; overflow:hidden; background:#0b1a2e; color:#e5e9f1; border:1px solid #c2a365; border-radius:3px; }
 .game-slot .modal[open]:has(.slot-dialog-content) { display:flex; flex-direction:column; }
@@ -130,7 +139,7 @@
     .slot-salon .extra-layout { grid-template-columns:minmax(0,1fr); gap:16px; }
     .slot-salon .extra-slot-stage { padding:8px; gap:8px; }
     .slot-salon .extra-stage-label { font-size:8px; letter-spacing:0; }
-    .slot-salon .extra-reels { min-height:0; height:clamp(234px,65vw,440px); gap:2px; }
+    .slot-salon .extra-reels { --slot-gap:2px; min-height:0; height:clamp(234px,65vw,440px); }
     .slot-salon .slot-item-art { inset:4px 3px 22px; width:calc(100% - 6px); height:calc(100% - 26px); }
     .slot-salon .extra-sigil>span { font-size:10px; padding:3px 0 5px; }
     .slot-salon .extra-sigil small { display:none; }
