@@ -1,0 +1,168 @@
+{
+  "stage": {
+    "src": "games/summon/stage.1600w.f2f5234c980a.webp",
+    "width": 1600,
+    "height": 1001,
+    "variants": [
+      {
+        "src": "games/summon/stage.960w.b124c85615ca.webp",
+        "width": 960
+      },
+      {
+        "src": "games/summon/stage.1600w.f2f5234c980a.webp",
+        "width": 1600
+      }
+    ]
+  },
+  "frame": {
+    "src": "games/summon/frame.840w.6c3cee8f1cbc.webp",
+    "width": 840,
+    "height": 1200,
+    "variants": [
+      {
+        "src": "games/summon/frame.420w.6f560f663503.webp",
+        "width": 420
+      },
+      {
+        "src": "games/summon/frame.840w.6c3cee8f1cbc.webp",
+        "width": 840
+      }
+    ]
+  },
+  "back": {
+    "src": "games/summon/back.840w.69ca511daf64.webp",
+    "width": 840,
+    "height": 1200,
+    "variants": [
+      {
+        "src": "games/summon/back.420w.9418c42aefae.webp",
+        "width": 420
+      },
+      {
+        "src": "games/summon/back.840w.69ca511daf64.webp",
+        "width": 840
+      }
+    ]
+  },
+  "star": {
+    "src": "games/summon/star.96w.711ea55e0c49.webp",
+    "width": 96,
+    "height": 96,
+    "variants": [
+      {
+        "src": "games/summon/star.96w.711ea55e0c49.webp",
+        "width": 96
+      }
+    ]
+  },
+  "servants": {
+    "T0": {
+      "name": "安哥拉曼纽",
+      "stars": 0,
+      "className": "Avenger",
+      "src": "games/summon/t0.840w.93b6e27bbb87.webp",
+      "width": 840,
+      "height": 1200,
+      "variants": [
+        {
+          "src": "games/summon/t0.420w.5cd769f83d8d.webp",
+          "width": 420
+        },
+        {
+          "src": "games/summon/t0.840w.93b6e27bbb87.webp",
+          "width": 840
+        }
+      ]
+    },
+    "T1": {
+      "name": "夏洛特·科黛",
+      "stars": 1,
+      "className": "Assassin",
+      "src": "games/summon/t1.840w.18a0161becab.webp",
+      "width": 840,
+      "height": 1200,
+      "variants": [
+        {
+          "src": "games/summon/t1.420w.64e02fe631fb.webp",
+          "width": 420
+        },
+        {
+          "src": "games/summon/t1.840w.18a0161becab.webp",
+          "width": 840
+        }
+      ]
+    },
+    "T2": {
+      "name": "陈宫",
+      "stars": 2,
+      "className": "Caster",
+      "src": "games/summon/t2.840w.cb7c66fc2e02.webp",
+      "width": 840,
+      "height": 1200,
+      "variants": [
+        {
+          "src": "games/summon/t2.420w.ac6f6e5b8bd4.webp",
+          "width": 420
+        },
+        {
+          "src": "games/summon/t2.840w.cb7c66fc2e02.webp",
+          "width": 840
+        }
+      ]
+    },
+    "T3": {
+      "name": "美杜莎",
+      "stars": 3,
+      "className": "Rider",
+      "src": "games/summon/t3.840w.7118572d0c2c.webp",
+      "width": 840,
+      "height": 1200,
+      "variants": [
+        {
+          "src": "games/summon/t3.420w.0928c50a7d9c.webp",
+          "width": 420
+        },
+        {
+          "src": "games/summon/t3.840w.7118572d0c2c.webp",
+          "width": 840
+        }
+      ]
+    },
+    "T4": {
+      "name": "谜之女主角XX〔Alter〕",
+      "stars": 4,
+      "className": "Foreigner",
+      "src": "games/summon/t4.840w.119d309b7388.webp",
+      "width": 840,
+      "height": 1200,
+      "variants": [
+        {
+          "src": "games/summon/t4.420w.0cc14395335a.webp",
+          "width": 420
+        },
+        {
+          "src": "games/summon/t4.840w.119d309b7388.webp",
+          "width": 840
+        }
+      ]
+    },
+    "T5": {
+      "name": "阿尔托莉雅·卡斯特",
+      "stars": 5,
+      "className": "Berserker",
+      "src": "games/summon/t5.840w.c954616da624.webp",
+      "width": 840,
+      "height": 1201,
+      "variants": [
+        {
+          "src": "games/summon/t5.420w.fb6671bb00ff.webp",
+          "width": 420
+        },
+        {
+          "src": "games/summon/t5.840w.c954616da624.webp",
+          "width": 840
+        }
+      ]
+    }
+  }
+}

@@ -162,7 +162,7 @@ it('keeps the pre-purchase scratch balance visible until reveal completes',async
 it('disables each quick amount by its total cost, including tenfold',async()=>{
     const summonBoot={...bootstrap,game:{...bootstrap.game,slug:'summon',config:{...bootstrap.game.config!,prizes:[{tier:'T0',multiplier:0,weight:50000},{tier:'T5',multiplier:100,weight:50000}]}},available_units:'1500000000'};
     vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue(summonBoot);
-    render(<MemoryRouter><GamePage client={client} userID="1" slug="summon"/></MemoryRouter>);
+    const view=render(<MemoryRouter><GamePage client={client} userID="1" slug="summon"/></MemoryRouter>);
     await screen.findByLabelText('基础下注（筹码）');
     await waitFor(()=>expect(screen.getByRole('button',{name:'1000'})).toBeEnabled());
     fireEvent.click(screen.getByRole('radio',{name:'十连召唤 · 10 抽'}));
@@ -172,6 +172,54 @@ it('disables each quick amount by its total cost, including tenfold',async()=>{
     const rewards=screen.getByRole('table',{name:'完整奖励表'});
     expect(within(rewards).getAllByRole('columnheader').map(cell=>cell.textContent)).toEqual(['等级','总派彩倍数']);
     expect(within(rewards).getByRole('row',{name:'T5 ×100'})).toBeVisible();
+    expect(screen.getByRole('img',{name:'待召唤的灵基卡背'})).toBeVisible();
+    expect(screen.queryByRole('img',{name:'阿尔托莉雅·卡斯特'})).not.toBeInTheDocument();
+    // Reuse the existing round and this case's prize values; art must not select a result.
+    const create=vi.spyOn(gameAPI,'createGame').mockImplementation(async(_client,_slug,request)=>{
+        const next={...result,game:'summon',dice:undefined,input:request.input,summon:{mode:'TENFOLD',highest_tier:'T5',draws:Array.from({length:10},(_,i)=>({index:i+1,tier:summonBoot.game.config.prizes[i%2].tier,multiplier:String(summonBoot.game.config.prizes[i%2].multiplier)}))}} as GameRound;
+        vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...summonBoot,latest_round:next});
+        return next;
+    });
+    fireEvent.click(screen.getByRole('button',{name:'十连召唤 · 100 筹码'}));
+    const skip=await screen.findByRole('button',{name:'全部揭晓 · 跳过演出'});
+    expect(screen.queryByRole('img',{name:'阿尔托莉雅·卡斯特'})).not.toBeInTheDocument();
+    fireEvent.click(skip);
+    const cards=within(screen.getByRole('list',{name:'本轮召唤结果'})).getAllByRole('listitem');
+    expect(cards).toHaveLength(10);
+    for(let i=0;i<cards.length;i++){
+        expect(cards[i]).toHaveTextContent(`第 ${i+1} 抽`);
+        expect(within(cards[i]).getByRole('img',{name:i%2?'阿尔托莉雅·卡斯特':'安哥拉曼纽'})).toBeVisible();
+        expect(within(cards[i]).getByLabelText(i%2?'5 星':'0 星')).toBeVisible();
+        expect(cards[i]).toHaveTextContent(i%2?'×100':'×0');
+    }
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][2].input).toEqual({type:'SUMMON',base_wager:'10',mode:'TENFOLD'});
+    expect(screen.getByRole('list',{name:'本轮召唤结果'})).toHaveClass('is-complete');
+    expect(screen.getByText('本轮 10 抽已揭晓 · 倍率以本局结果为准。')).toHaveFocus();
+    fireEvent.error(within(cards[1]).getByRole('img',{name:'阿尔托莉雅·卡斯特'}));
+    expect(cards[1]).toHaveTextContent('阿尔托莉雅·卡斯特');
+    expect(cards[1]).toHaveTextContent('T5');
+    expect(cards[1]).toHaveTextContent('×100');
+    const refresh=screen.getByRole('button',{name:'刷新恢复'});
+    fireEvent.click(refresh);
+    await waitFor(()=>expect(refresh).toBeEnabled());
+    expect(screen.getByRole('list',{name:'本轮召唤结果'})).toHaveClass('is-complete');
+    expect(screen.queryByRole('button',{name:'全部揭晓 · 跳过演出'})).not.toBeInTheDocument();
+    expect(create).toHaveBeenCalledTimes(1);
+    view.unmount();
+    const restored=render(<MemoryRouter><GamePage client={client} userID="1" slug="summon"/></MemoryRouter>);
+    expect(await screen.findByRole('list',{name:'本轮召唤结果'})).toHaveClass('is-complete');
+    expect(screen.queryByRole('button',{name:'全部揭晓 · 跳过演出'})).not.toBeInTheDocument();
+    restored.unmount();vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue(summonBoot);
+    vi.stubGlobal('matchMedia',vi.fn(()=>({matches:true})));
+    try {
+        render(<MemoryRouter><GamePage client={client} userID="1" slug="summon"/></MemoryRouter>);
+        await screen.findByRole('img',{name:'待召唤的灵基卡背'});
+        fireEvent.click(screen.getByRole('radio',{name:'十连召唤 · 10 抽'}));
+        fireEvent.click(screen.getByRole('button',{name:'十连召唤 · 100 筹码'}));
+        expect(await screen.findByRole('list',{name:'本轮召唤结果'})).toHaveClass('is-complete');
+        expect(screen.queryByRole('button',{name:'全部揭晓 · 跳过演出'})).not.toBeInTheDocument();
+    } finally {vi.unstubAllGlobals();}
 });
 it('restores last durable wager on first entry without overwriting a live edit',async()=>{
     vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,latest_round:{...result,input:{type:'DICE',wager:'100',choice:'SMALL'}}});

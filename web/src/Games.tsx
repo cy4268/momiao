@@ -101,6 +101,7 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
     const [bootstrap,setBootstrap]=useState<GameBootstrap>();
     const [round,setRound]=useState<GameRound|null>(null);
     const [diceAnimating,setDiceAnimating]=useState(false);
+    const [summonAnimationID,setSummonAnimationID]=useState<string|null>(null);
     const [busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[notice,setNotice]=useState('');
     const [pending,setPending]=useState<PendingGame|null>(null),[retryReady,setRetryReady]=useState(false),[storageBlocked,setStorageBlocked]=useState(false);
     const [pendingAction,setPendingAction]=useState<PendingBlackjackAction|null>(null),[actionRetryReady,setActionRetryReady]=useState(false);
@@ -159,6 +160,7 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
             catch{setStorageBlocked(true);setNotice('浏览器无法保存本局恢复标识，尚未提交下注。请允许本网站使用会话存储后刷新。');return;}
             setPending(request);
             const result=await createGame(client,slug,request,bootstrap.csrf_token);if(!current())return;
+            if(slug==='summon')setSummonAnimationID(result.id);
             setRound(result);sessionStorage.removeItem(pendingStorage(userID,slug));setPending(null);
             await load();
         }catch(error){if(current()){
@@ -192,7 +194,7 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
         }}finally{if(current()){lock.current=false;setBusy(false);}}
     }
     const copy=gameCopy[slug];
-    const salonLayout=slug==='dice'||slug==='scratch';
+    const salonLayout=slug==='dice'||slug==='scratch'||slug==='summon';
     const StageLayout=salonLayout?'div':Fragment;
     return <div className={'direct-game game-'+slug}>
         <header className="game-page-heading"><div><p className="eyebrow">CHALDEA / {copy.eyebrow}</p><h1>{gameNames[slug]}</h1><p>{copy.intro}</p></div><div className="game-heading-links"><Link to="/games">所有游戏 ↗</Link><Link to="/history">游戏记录</Link><button onClick={()=>void load(pending,pendingAction)} disabled={busy||loading}>刷新恢复</button></div></header>
@@ -203,7 +205,7 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
         {slug==='blackjack'?<BlackjackGame snapshot={round?.blackjack||null} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending||!!pendingAction} disabledReason={activeBlackjack?(actionBlocked?'请先恢复当前状态。':null):(blocked?'请先恢复当前状态。':null)} roundID={round?.id} onDeal={async()=>{await play()}} onAction={command=>performAction(command)} onRecover={()=>void load(pending,pendingAction)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={round?()=>navigate('/history/rounds/'+round.id):undefined}/>:null}
         {slug==='blackjack'?null:slug==='slot'?<SlotGame result={round?.slot||null} rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending} disabledReason={blocked?'请先恢复当前状态。':null} roundID={round?.id} onSpin={async()=>{await play()}} onRecover={()=>void load(pending)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={round?()=>navigate('/history/rounds/'+round.id):undefined}/>:<StageLayout {...(salonLayout?{className:slug+'-play-layout'}:{})}><section className={'game-stage '+(busy?'game-busy':'')} aria-label="游戏舞台">
             <div className="game-stage-corners" aria-hidden="true"/>
-            {slug==='dice'?<DiceStage key={userID} result={round?.dice} busy={busy} loading={loading} recovering={!!pending} onAnimatingChange={setDiceAnimating}/>:slug==='scratch'?<ScratchStage round={round} onComplete={()=>void completeScratch()} busy={busy}/>:<SummonStage round={round} busy={busy}/>}
+            {slug==='dice'?<DiceStage key={userID} result={round?.dice} busy={busy} loading={loading} recovering={!!pending} onAnimatingChange={setDiceAnimating}/>:slug==='scratch'?<ScratchStage round={round} onComplete={()=>void completeScratch()} busy={busy}/>:<SummonStage key={userID} round={round} animateRoundID={summonAnimationID} busy={busy} loading={loading} recovering={!!pending}/>}
         </section>
         <section className="game-console" aria-label="下注控制台"><div className="game-balance"><p>可用筹码</p><strong>{available===null?'—':chips(available.toString())}</strong><div><Link to="/wallet">钱包兑换 →</Link><Link to="/rewards">免费签到 →</Link></div></div>
             <form className="wager-form" onSubmit={e=>{e.preventDefault();void play()}}>

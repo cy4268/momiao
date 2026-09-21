@@ -1,0 +1,93 @@
+/* Page-scoped art direction: no changes to the hall, wallet or other games. */
+.portal-shell:has(.direct-game.game-summon) { --ink:#f4ecd7; --muted:#b9cadd; --line:#7185a34d; color-scheme:dark; color:var(--ink); background:#071527; }
+.portal-shell:has(.direct-game.game-summon) .main-content { width:100%; max-width:none; padding:0; margin:0; }
+.portal-shell:has(.direct-game.game-summon) .portal-header { max-width:none; width:100%; padding-inline:clamp(16px,2.5vw,48px); background:#081526; border-color:#bba57a70; }
+.portal-shell:has(.direct-game.game-summon) .portal-header a,.portal-shell:has(.direct-game.game-summon) .account-button { color:#e1e8f4; }
+.portal-shell:has(.direct-game.game-summon) .brand { color:#eddbb3; }
+.portal-shell:has(.direct-game.game-summon) .portal-context { display:none; }
+.portal-shell:has(.direct-game.game-summon) .workspace-foot { max-width:none; padding-inline:clamp(16px,2.5vw,48px); color:#a9b8ce; background:#081628; border-color:#63758d50; }
+.portal-shell:has(.direct-game.game-summon) .mobile-nav,.portal-shell:has(.direct-game.game-summon) .account-menu { background:#10223a; color:#e1e8f4; border-color:#7087a8; }
+.portal-shell:has(.direct-game.game-summon) .mobile-nav a { color:#afc5e3; }
+.portal-shell:has(.direct-game.game-summon) .mobile-nav a[aria-current] { color:#ffe7b3; background:#1a3150; }
+.direct-game.game-summon { width:100%; max-width:none; min-height:calc(100svh - 150px); padding:18px clamp(16px,2.5vw,48px) 40px; color:#f4ecd7; background:radial-gradient(ellipse at 25% 0,#173d6270,transparent 65%),#071527; }
+.game-summon .game-page-heading { margin-bottom:14px; align-items:center; }
+.game-summon .game-page-heading h1 { margin:6px 0 8px; font:500 clamp(30px,3.5vw,50px) "Noto Serif SC","Songti SC",SimSun,serif; letter-spacing:.1em; color:#f7e4b8; }
+.game-summon .eyebrow { color:#d4b574; font-size:10px; letter-spacing:.18em; }
+.game-summon .game-page-heading p:last-child { color:#bccfe5; }
+.game-summon .game-heading-links a { min-height:44px; display:inline-flex; align-items:center; color:#d7e3f5; }
+.game-summon button { min-height:44px; border-color:#6982a1; background:#142a46; color:#e6eefb; }
+.game-summon :focus-visible { outline:3px solid #a8d2ff; outline-offset:4px; }
+.game-summon .summon-play-layout { position:relative; isolation:isolate; display:grid; grid-template-columns:minmax(0,1fr) clamp(320px,27vw,420px); gap:24px; align-items:start; padding:26px 22px 22px; border:1px solid #8295a857; border-radius:5px; overflow:hidden; }
+.game-summon .game-stage { position:static; min-width:0; min-height:0; border:0; background:transparent; overflow:visible; }
+.game-summon .game-stage::before,.game-summon .game-stage::after,.game-summon .game-stage-corners { display:none; }
+.summon-room { position:absolute; z-index:-2; inset:0; width:100%; height:100%; object-fit:cover; object-position:50% 65%; opacity:.88; }
+.summon-scene { display:flex; min-height:660px; flex-direction:column; align-items:center; justify-content:center; gap:18px; }
+.summon-scene::before { content:""; position:absolute; z-index:-1; inset:0; pointer-events:none; background:linear-gradient(90deg,#06111d10,#04112320 65%,#03102080),linear-gradient(0deg,#030e2480,transparent 25%); }
+.summon-idle { width:min(70%,360px); flex:none; filter:drop-shadow(0 0 22px #427ff67a); }
+.summon-idle>img { display:block; width:100%; height:auto; border-radius:6px; }
+.spirit-cards { display:grid; list-style:none; padding:0; margin:0; width:100%; gap:14px; }
+.spirit-cards.single { width:min(84%,420px); }
+.spirit-cards.tenfold { grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }
+.spirit-card { position:relative; aspect-ratio:7/10; min-width:0; perspective:1000px; container-type:inline-size; filter:drop-shadow(0 8px 12px #01081590); }
+.spirit-back,.spirit-front { position:absolute; inset:0; backface-visibility:hidden; transition:transform .55s cubic-bezier(.2,.7,.2,1); transition-delay:var(--card-delay); border-radius:5px; }
+.spirit-back { transform:rotateY(0); }
+.spirit-front { transform:rotateY(180deg); background:#0b172b; }
+.spirit-back>img { display:block; width:100%; height:100%; border-radius:5px; }
+.is-revealed .spirit-back { transform:rotateY(-180deg); }
+.is-revealed .spirit-front { transform:rotateY(0); }
+.is-complete .spirit-front,.is-complete .spirit-back { transition:none; }
+.spirit-portrait { position:absolute; inset:2.7%; width:94.6%; height:94.6%; object-fit:cover; border-radius:3px; }
+.spirit-frame { position:absolute; inset:0; width:100%; height:100%; z-index:3; pointer-events:none; }
+.tier-T0 .spirit-frame { filter:grayscale(1) brightness(.7); }
+.tier-T1 .spirit-frame,.tier-T2 .spirit-frame { filter:sepia(.35) saturate(.6) brightness(.85); }
+.tier-T3 .spirit-frame { filter:grayscale(1) brightness(1.12); }
+.is-revealed .tier-T5 { filter:drop-shadow(0 0 18px #f7d27770); }
+.spirit-rarity { position:absolute; z-index:4; left:10%; right:10%; top:4.5%; display:flex; justify-content:center; gap:2%; filter:drop-shadow(0 1px 3px #031020); }
+.spirit-rarity img { width:11%; aspect-ratio:1; height:auto; }
+.spirit-rarity>span { color:#d4def0; padding:2px 10px; background:#09172acd; border:1px solid #90a1b566; border-radius:20px; font-size:clamp(10px,3cqw,13px); }
+.spirit-caption { position:absolute; z-index:2; bottom:2.5%; left:3%; right:3%; padding:12% 6% 4%; text-align:center; color:#f2eddd; background:linear-gradient(transparent,#061528ee 35%,#061528 65%); }
+.spirit-caption small { display:block; color:#bbcfe2; font-size:clamp(10px,3cqw,12px); }
+.spirit-caption h2 { margin:3px 0; color:#fff2cd; font:500 clamp(12px,5cqw,23px)/1.35 "Noto Serif SC",SimSun,serif; overflow-wrap:anywhere; }
+.spirit-caption>span { display:block; color:#c7d9e9; font:clamp(10px,3.3cqw,13px) Marcellus,serif; }
+.spirit-caption p { display:flex; justify-content:center; gap:16%; margin:5px 0 0; font:clamp(13px,5cqw,24px) Marcellus,serif; }
+.spirit-caption b,.spirit-caption strong { font-weight:400; }
+.summon-status { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; min-height:48px; gap:12px; padding:8px 16px; border:1px solid #7a98c566; border-radius:4px; background:#061425dd; text-align:center; }
+.summon-status p { margin:0; color:#d9e5f4; font-size:14px; line-height:1.6; }
+.game-summon .summon-status button { background:linear-gradient(#e7ce94,#c4a56b); color:#14273f; border-color:#e8d09c; }
+.summon-roster { width:100%; color:#c8d9ee; background:#061425e8; border:1px solid #7a98c588; border-radius:4px; padding:0 16px; }
+.summon-roster summary { cursor:pointer; min-height:48px; display:list-item; align-content:center; color:#efe2c3; font-size:14px; }
+.summon-roster dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:8px 0 16px; font-size:13px; }
+.summon-roster dt { color:#e9c886; margin-bottom:5px; }.summon-roster dd { margin:0; line-height:1.6; }.summon-roster>p { font-size:12px; line-height:1.6; }
+.game-summon .game-console { display:flex; flex-direction:column; gap:18px; margin:18px 0 0; padding:25px; border:1px solid #c4aa7c; outline:1px solid #576b82; outline-offset:-5px; border-radius:5px; background:linear-gradient(135deg,#10233bf7,#051426f7); box-shadow:0 12px 30px #0005; }
+.game-summon .game-balance { display:block; margin:0; border:0; border-bottom:1px solid #ad997450; padding:0 0 16px; }
+.game-summon .game-balance>p { margin-bottom:8px; color:#bccddd; }.game-summon .game-balance>strong { color:#fae6b7; font-size:38px; }
+.game-summon .game-balance>div { display:flex; gap:18px; margin-top:8px; flex-wrap:wrap; }.game-summon .game-balance a { color:#a8d2ff; min-height:32px; display:flex; align-items:center; }
+.game-summon .wager-form { display:flex; flex-direction:column; gap:12px; }.game-summon .wager-form>label { margin:0; color:#d5dfed; font-size:14px; }
+.game-summon .wager-form input,.game-summon .game-fairness input { color:#f6f3ed; background:#071524; border-color:#6481a5; }
+.game-summon .wager-quick { align-self:stretch; }.game-summon .wager-quick button { background:linear-gradient(#183251,#0c1b30); border-color:#7185a1; font-size:13px; }
+.game-summon .summon-mode { display:grid; grid-template-columns:1fr 1fr; gap:8px; }.game-summon .summon-mode legend { color:#bdcee2; font-size:13px; }
+.game-summon .summon-mode label { position:relative; justify-content:center; min-height:50px; border-color:#60799b; border-radius:4px; background:#0c2139; color:#cfdeed; font-size:12px; text-align:center; padding:10px 6px; }
+.game-summon .summon-mode label:has(:checked) { border-color:#e6c886; background:#234663; box-shadow:inset 0 0 10px #d4b76f33; color:#fff0c7; }
+.game-summon .summon-mode input { position:absolute; opacity:0; width:1px; height:1px; min-height:0; padding:0; }.game-summon .summon-mode label:has(:focus-visible) { outline:3px solid #a8d2ff; outline-offset:3px; }
+.game-summon .wager-hint { color:#bdcee2; line-height:1.6; }.game-summon .wager-hint.invalid { color:#f2ce97; }
+.game-summon .wager-cost { display:grid; gap:12px; border-color:#ad997450; color:#bdcce1; padding-block:14px 8px; }.game-summon .wager-cost>span { display:flex; justify-content:space-between; gap:8px; }.game-summon .wager-cost strong { color:#f3ecd8; font-size:16px; }
+.game-summon .game-play { min-height:58px!important; margin-top:8px; border:1px solid #f3d39b!important; background:linear-gradient(#f0d598,#c3a166)!important; color:#152944!important; font:600 19px "Noto Serif SC",SimSun,serif; letter-spacing:.04em; box-shadow:inset 0 0 12px #fff1c940; }.game-summon .game-play:disabled { opacity:.55; }
+.direct-game.game-summon .round-receipt { margin:22px 0 0; background:#0e2339; border-color:#ad997480; border-left-color:#d6be8c; }.direct-game.game-summon .round-receipt h2,.direct-game.game-summon .round-receipt dd { color:#f0dcae; }.direct-game.game-summon .round-receipt p:not(.eyebrow),.direct-game.game-summon .round-receipt dt { color:#c0d0e4; }
+.game-summon .text-link { color:#b1d9ff; }.game-summon .game-information { gap:24px; margin-top:24px; padding:0; border:0; }.game-summon .game-information>section { padding:24px 28px; border:1px solid #ad997470; background:linear-gradient(140deg,#14293eee,#0b192ae6); border-radius:5px; }.game-summon .game-information h2 { color:#f1dfb6; font-family:"Noto Serif SC",SimSun,serif; }.game-summon .game-information p:not(.eyebrow),.game-summon .game-information small { color:#bbcade; }
+.game-summon .game-rules th,.game-summon .game-rules td { border-color:#52677e; }.game-summon .fairness-hash { background:#071726; color:#c8dcf1; border-color:#6886a05c; }.game-summon .game-fairness summary { color:#b1d9ff; }.game-summon .game-fairness details { border-color:#6d819b70; }.game-summon .game-recovery { color:#f2dbab; border-color:#a28a63; background:#2e2930; }
+.is-summoning .spirit-back,.is-summoning .summon-idle { animation:spirit-charge 1.1s ease-in-out infinite alternate; }
+@keyframes spirit-charge { from { filter:drop-shadow(0 0 8px #629afa66); translate:0 0; } to { filter:drop-shadow(0 0 24px #a3ccffff); translate:0 -6px; } }
+@media (max-width:1100px) {
+    .game-summon .summon-play-layout { grid-template-columns:minmax(0,1fr); padding:22px 18px; gap:18px; }
+    .game-summon .game-console { margin:0; }.summon-scene { min-height:0; }.summon-room { object-position:50% 0; }
+}
+@media (max-width:600px) {
+    .direct-game.game-summon { padding:16px 10px 30px; }.game-summon .game-page-heading { align-items:start; flex-direction:column; gap:4px; }.game-summon .game-page-heading p:last-child { font-size:13px; margin:0; }.game-summon .game-heading-links { gap:10px; font-size:12px; width:100%; justify-content:space-between; }
+    .game-summon .summon-play-layout { padding:18px 8px 10px; gap:14px; }.summon-scene { gap:12px; }.summon-idle { width:min(84%,300px); }.spirit-cards.single { width:min(94%,370px); }.spirit-cards.tenfold { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 8px; }
+    .summon-status { padding:8px 10px; width:100%; }.summon-status p { font-size:12px; }.summon-roster { padding-inline:12px; }.summon-roster dl { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .game-summon .game-console { padding:20px 16px; gap:14px; }.game-summon .game-balance>strong { font-size:32px; }.game-summon .game-balance a { min-height:44px; }.game-summon .game-play { font-size:18px; }
+    .game-summon .game-information { grid-template-columns:minmax(0,1fr); gap:16px; }.game-summon .game-information>section { padding:20px; }.direct-game.game-summon .round-receipt { padding:20px; gap:16px; grid-template-columns:minmax(0,1fr); }.direct-game.game-summon .round-receipt dl { gap:12px; }.direct-game.game-summon .round-receipt dd { font-size:22px; }
+}
+@media (prefers-reduced-motion:reduce) {
+    .game-summon .spirit-back,.game-summon .spirit-front { transition:none; }.game-summon .is-summoning .spirit-back,.game-summon .is-summoning .summon-idle { animation:none; }
+}
