@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ApiClient, ApiError } from './api';
-import { Alert, Brand, Empty, Loading, useResource } from './ui';
+import { Alert, Brand, Empty, Loading, Modal, useResource } from './ui';
 import { DiceStage, ScratchStage, SummonStage } from './games/DirectStages';
-import {SlotGame} from './games/SlotGame';
+import {SlotGame, SlotRules} from './games/SlotGame';
+import slotArt from './games/slot-art.json';
 import {BlackjackGame,type BlackjackCommand} from './games/BlackjackGame';
 import {blackjackActionStorage,findBlackjackAction,readBlackjackAction,type PendingBlackjackAction} from './games-api';
 import { chips, createGame, findPendingGame, gameError, gameNames, gameSlugs, gameUUID, outcomeNames, parseRound, pendingStorage, readGameBootstrap, readPending, units, wagerCost, type Commitment, type GameBootstrap, type GameConfig, type GameEntry, type GameInput, type GameRound, type GameSlug, type GameVerification, type PendingGame } from './games-api';
@@ -102,6 +103,8 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
     const [round,setRound]=useState<GameRound|null>(null);
     const [diceAnimating,setDiceAnimating]=useState(false);
     const [summonAnimationID,setSummonAnimationID]=useState<string|null>(null);
+    const [slotPanel,setSlotPanel]=useState<'rules'|'fairness'|null>(null);
+    const [slotSeedSaving,setSlotSeedSaving]=useState(false);
     const [busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[notice,setNotice]=useState('');
     const [pending,setPending]=useState<PendingGame|null>(null),[retryReady,setRetryReady]=useState(false),[storageBlocked,setStorageBlocked]=useState(false);
     const [pendingAction,setPendingAction]=useState<PendingBlackjackAction|null>(null),[actionRetryReady,setActionRetryReady]=useState(false);
@@ -197,13 +200,14 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
     const salonLayout=slug==='dice'||slug==='scratch'||slug==='summon';
     const StageLayout=salonLayout?'div':Fragment;
     return <div className={'direct-game game-'+slug}>
-        <header className="game-page-heading"><div><p className="eyebrow">CHALDEA / {copy.eyebrow}</p><h1>{gameNames[slug]}</h1><p>{copy.intro}</p></div><div className="game-heading-links"><Link to="/games">所有游戏 ↗</Link><Link to="/history">游戏记录</Link><button onClick={()=>void load(pending,pendingAction)} disabled={busy||loading}>刷新恢复</button></div></header>
+        {slug==='slot'&&<HallImage asset={slotArt.room} className="slot-room" sizes="100vw"/>}
+        <header className="game-page-heading"><div><p className="eyebrow">CHALDEA / {copy.eyebrow}</p><h1>{gameNames[slug]}{slug==='slot'&&<small>王之宝库 · Slot</small>}</h1><p>{copy.intro}</p></div><div className="game-heading-links"><Link to="/games">所有游戏 ↗</Link><Link to="/history">游戏记录</Link><button onClick={()=>void load(pending,pendingAction)} disabled={busy||loading}>刷新恢复</button></div></header>
         {notice&&<Alert>{notice}</Alert>}
         {pending&&<div className="game-recovery" role="status"><p>有一笔下注等待核对，新下注已暂停。</p><button onClick={()=>void load(pending)} disabled={busy||loading}>核对本局</button>{retryReady&&<button onClick={()=>void play(pending)} disabled={busy}>使用原请求重试</button>}</div>}
         {pendingAction&&<div className="game-recovery" role="status"><p>有一次行动等待核对，其他行动已暂停。</p><button disabled={busy||loading} onClick={()=>void load(pending,pendingAction)}>核对本次行动</button>{actionRetryReady&&<button disabled={busy||loading} onClick={()=>void performAction(pendingAction.input,pendingAction)}>重试原行动</button>}</div>}
         {round?.recovery_state==='NEEDS_REVIEW'&&<Alert>本局状态需要核对，已暂停行动。请保留本局编号并联系管理员。</Alert>}
         {slug==='blackjack'?<BlackjackGame snapshot={round?.blackjack||null} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending||!!pendingAction} disabledReason={activeBlackjack?(actionBlocked?'请先恢复当前状态。':null):(blocked?'请先恢复当前状态。':null)} roundID={round?.id} onDeal={async()=>{await play()}} onAction={command=>performAction(command)} onRecover={()=>void load(pending,pendingAction)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={round?()=>navigate('/history/rounds/'+round.id):undefined}/>:null}
-        {slug==='blackjack'?null:slug==='slot'?<SlotGame result={round?.slot||null} rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending} disabledReason={blocked?'请先恢复当前状态。':null} roundID={round?.id} onSpin={async()=>{await play()}} onRecover={()=>void load(pending)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={round?()=>navigate('/history/rounds/'+round.id):undefined}/>:<StageLayout {...(salonLayout?{className:slug+'-play-layout'}:{})}><section className={'game-stage '+(busy?'game-busy':'')} aria-label="游戏舞台">
+        {slug==='blackjack'?null:slug==='slot'?<SlotGame salon onRules={()=>setSlotPanel('rules')} result={round?.slot||null} rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending} disabledReason={blocked?'请先恢复当前状态。':null} roundID={round?.id} onSpin={async()=>{await play()}} onRecover={()=>void load(pending)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={()=>setSlotPanel('fairness')}/>:<StageLayout {...(salonLayout?{className:slug+'-play-layout'}:{})}><section className={'game-stage '+(busy?'game-busy':'')} aria-label="游戏舞台">
             <div className="game-stage-corners" aria-hidden="true"/>
             {slug==='dice'?<DiceStage key={userID} result={round?.dice} busy={busy} loading={loading} recovering={!!pending} onAnimatingChange={setDiceAnimating}/>:slug==='scratch'?<ScratchStage round={round} onComplete={()=>void completeScratch()} busy={busy}/>:<SummonStage key={userID} round={round} animateRoundID={summonAnimationID} busy={busy} loading={loading} recovering={!!pending}/>}
         </section>
@@ -221,9 +225,21 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
             </form>
         </section>
         </StageLayout>}{loading&&!bootstrap&&<Loading/>}
-        {round&&!revealIncomplete&&!(slug==='dice'&&(busy||diceAnimating||pending))&&<RoundReceipt round={round}/> }
-        <div className="game-information">{slug==='slot'||slug==='blackjack'?<ExtraRules config={bootstrap?.game.config} blackjack={slug==='blackjack'}/>:<GameRules slug={slug} config={bootstrap?.game.config}/>} {bootstrap&&<FairnessControl client={client} slug={slug} bootstrap={bootstrap} disabled={blocked} onChanged={()=>void load()}/>}</div>
+        {slug!=='slot'&&round&&!revealIncomplete&&!(slug==='dice'&&(busy||diceAnimating||pending))&&<RoundReceipt round={round}/> }
+        {slug==='slot'?slotPanel&&<Modal busy={slotSeedSaving} title={slotPanel==='rules'?'奖表与固定规则':'公平验证'} onClose={()=>setSlotPanel(null)}><div className="slot-dialog-content">{slotPanel==='rules'?<><SlotRules rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version}/><p>本局优先使用锁定的规则版本。插画仅对应原符号，不代表获得新币种或道具。</p><dl className="slot-symbol-key">{Object.entries(slotArt.symbols).map(([symbol,art])=><div key={symbol}><dt>{symbol}</dt><dd>{art.name}</dd></div>)}</dl></>:<>{bootstrap&&<FairnessControl client={client} slug={slug} bootstrap={bootstrap} disabled={blocked} onSavingChange={setSlotSeedSaving} onChanged={()=>void load()}/>} {round?<SlotRoundVerification key={round.id} client={client} round={round}/>:<p>尚未开局；结算后可在这里验证本局。</p>}</>}</div></Modal>:<div className="game-information">{slug==='blackjack'?<ExtraRules config={bootstrap?.game.config} blackjack/>:<GameRules slug={slug} config={bootstrap?.game.config}/>} {bootstrap&&<FairnessControl client={client} slug={slug} bootstrap={bootstrap} disabled={blocked} onChanged={()=>void load()}/>}</div>}
     </div>;
+}
+
+function SlotRoundVerification({client,round}:{client:ApiClient;round:GameRound}) {
+    const [attempt,setAttempt]=useState(0);
+    const check=useResource(async()=>{
+        if(!attempt)return null;
+        const result=await client.request<GameVerification>(`/api/v1/game-rounds/${round.id}/fairness`);
+        if(result.round_id!==round.id||typeof result.verified!=='boolean'||!result.commitment)throw new Error('验证响应尚未核对。');
+        return result;
+    },[client,round.id,attempt]);
+    const verification=check.data;
+    return <section className="slot-verification"><h2>复算本局</h2><p className="round-id">Round · {round.id}</p><p>依据本局锁定的种子、Nonce、配置和算法复算，不创建新局或重复结算。</p><p>规则 {round.ruleset_version} · 结算后余额 {chips(round.balance_after_units)} 筹码</p><button disabled={attempt>0&&check.loading} onClick={()=>setAttempt(value=>value+1)}>{attempt>0&&check.loading?'正在复算…':'验证本局'}</button>{check.error&&<Alert>{check.error}</Alert>}{verification&&<div className="verification-result" role="status"><h3>{verification.reveal_state!=='REVEALED'?'本局尚未结算，种子将在结算后公开。':verification.verified?'验证通过：结果与原始输入一致':'验证未通过：请保留本局编号'}</h3><dl><div><dt>Server Seed Hash</dt><dd><code>{verification.server_seed_hash}</code></dd></div><div><dt>公开 Server Seed</dt><dd><code>{verification.server_seed}</code></dd></div><div><dt>Client Seed</dt><dd><code>{verification.commitment.client_seed}</code></dd></div><div><dt>Nonce</dt><dd>{verification.commitment.nonce}</dd></div><div><dt>随机流版本</dt><dd>{verification.commitment.fairness_stream_version}</dd></div><div><dt>配置哈希</dt><dd><code>{verification.commitment.config_hash}</code></dd></div></dl><details><summary>查看完整可复算输入</summary><pre>{JSON.stringify(verification.commitment,null,2)}</pre><pre>{verification.canonical_config}</pre></details></div>}<Link className="text-link" to={'/history/rounds/'+round.id}>查看本局记录 ↗</Link></section>;
 }
 
 function ExtraRules({config,blackjack=false}:{config?:GameConfig;blackjack?:boolean}){
@@ -237,11 +253,11 @@ function GameRules({slug,config}:{slug:GameSlug;config?:GameConfig}) {
         {config&&<>{config.prizes&&<table aria-label="完整奖励表"><thead><tr><th>等级</th><th>总派彩倍数</th></tr></thead><tbody>{config.prizes.map(p=><tr key={p.tier}><td>{p.tier}</td><td>×{p.multiplier}</td></tr>)}</tbody></table>}<small>规则版本 {config.ruleset_version} · 奖励表与当前配置一致。</small></>}
     </section>;
 }
-function FairnessControl({client,slug,bootstrap,disabled,onChanged}:{client:ApiClient;slug:GameSlug;bootstrap:GameBootstrap;disabled:boolean;onChanged:()=>void}) {
+function FairnessControl({client,slug,bootstrap,disabled,onChanged,onSavingChange}:{client:ApiClient;slug:GameSlug;bootstrap:GameBootstrap;disabled:boolean;onChanged:()=>void;onSavingChange?:(saving:boolean)=>void}) {
     const [seed,setSeed]=useState(bootstrap.client_seed_preference.client_seed),[busy,setBusy]=useState(false),[error,setError]=useState('');
     const active=useRef(true);useEffect(()=>{active.current=true;return()=>{active.current=false}},[]);
     useEffect(()=>setSeed(bootstrap.client_seed_preference.client_seed),[bootstrap.client_seed_preference.version]);
-    async function save(e:FormEvent) {e.preventDefault();if(busy||disabled)return;setBusy(true);setError('');try{await client.request<Commitment>(`/api/v1/games/${slug}/client-seed`,'PUT',{client_seed:seed},{'X-CSRF-Token':bootstrap.csrf_token});if(active.current)onChanged()}catch(e){if(active.current)setError(gameError(e))}finally{if(active.current)setBusy(false)}}
+    async function save(e:FormEvent) {e.preventDefault();if(busy||disabled)return;setBusy(true);onSavingChange?.(true);setError('');try{await client.request<Commitment>(`/api/v1/games/${slug}/client-seed`,'PUT',{client_seed:seed},{'X-CSRF-Token':bootstrap.csrf_token});if(active.current)onChanged()}catch(e){if(active.current)setError(gameError(e))}finally{if(active.current){setBusy(false);onSavingChange?.(false)}}}
     return <section className="game-fairness"><p className="eyebrow">PROVABLY FAIR</p><h2>开局前的承诺</h2><p>服务器已承诺下一局的种子哈希。结算后公开原种子，你可以在局详情中复算结果。</p>
         {bootstrap.next_commitment?<><p className="fairness-hash-label">下一局 Server Seed Hash</p><code className="fairness-hash">{bootstrap.next_commitment.server_seed_hash}</code><p className="hint">Nonce {bootstrap.next_commitment.nonce} · {bootstrap.next_commitment.algorithm_version}</p></>:<p className="hint">完成当前局或恢复游戏状态后，将读取下一份预承诺。</p>}
         <details><summary>自定义 Client Seed</summary><form onSubmit={e=>void save(e)}><label>Client Seed<input value={seed} onChange={e=>setSeed(e.target.value)} disabled={disabled||busy} maxLength={128}/></label><p className="hint">1–128 UTF-8 字节，不能包含控制字符；只影响下一局。</p><button disabled={disabled||busy||!seed}>{busy?'正在更新…':'更新下一局种子'}</button></form>{error&&<Alert>{error}</Alert>}</details>

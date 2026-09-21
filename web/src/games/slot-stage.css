@@ -1,0 +1,150 @@
+/* The live Slot salon only; history and the other direct games keep their layout. */
+.portal-shell:has(.game-slot) { --ink:#f3ecd9; --muted:#b9cadf; --line:#7285a54d; color-scheme:dark; color:var(--ink); background:#071425; }
+.portal-shell:has(.game-slot) .main-content { width:100%; max-width:none; padding:0; margin:0; min-width:0; }
+.portal-shell:has(.game-slot) .portal-header { width:100%; max-width:none; padding:10px clamp(16px,2.6vw,48px); background:#081425f2; border-color:#c7a35e80; }
+.portal-shell:has(.game-slot) .portal-header a,.portal-shell:has(.game-slot) .account-button { color:#e1e9f5; }
+.portal-shell:has(.game-slot) .brand { color:#ebd09b; }
+.portal-shell:has(.game-slot) .portal-context { display:none; }
+.portal-shell:has(.game-slot) .workspace-foot { width:100%; max-width:none; padding:8px clamp(16px,2.6vw,48px); margin:0; color:#abbdd4; background:#071425; border-color:#b29a6260; font-size:10px; }
+.portal-shell:has(.game-slot) .mobile-nav,.portal-shell:has(.game-slot) .account-menu { background:#10233d; color:#e1e9f5; border-color:#768cad; }
+.game-slot { position:relative; isolation:isolate; padding:16px clamp(16px,2.6vw,48px); color:#f3ecd9; display:flex; flex-direction:column; gap:12px; }
+.slot-room { position:absolute; inset:0; z-index:-2; width:100%; height:100%; object-fit:cover; object-position:50% 35%; }
+.game-slot::before { content:""; position:absolute; inset:0; z-index:-1; background:linear-gradient(90deg,#030c1ab3,transparent 65%),linear-gradient(#04102425,#04102460); }
+.game-slot .game-page-heading { margin:0; padding:0; align-items:center; gap:20px; }
+.game-slot .game-page-heading .eyebrow { color:#cfbb8d; font-size:10px; letter-spacing:.18em; margin:0 0 6px; }
+.game-slot .game-page-heading h1 { display:flex; align-items:baseline; flex-wrap:wrap; gap:6px 20px; margin:0; font:400 clamp(28px,2.5vw,44px)/1.2 "Noto Serif SC",SimSun,serif; color:#fff1d0; text-shadow:0 2px 12px #010917; }
+.game-slot .game-page-heading h1 small { font-size:.5em; color:#e4c98c; letter-spacing:.08em; }
+.game-slot .game-page-heading p:last-child { margin:7px 0 0; color:#c8d5e7; font-size:13px; }
+.game-slot .game-heading-links { gap:18px; align-items:center; }
+.game-slot .game-heading-links a { min-height:44px; display:inline-flex; align-items:center; color:#e2e9f5; font-size:12px; }
+.game-slot button { min-height:44px; border-color:#aa966578; color:#eae6da; background:#0c1c31; }
+.game-slot button:hover:not(:disabled) { border-color:#f1d490; background:#20344d; }
+.game-slot :focus-visible { outline:3px solid #b6ddff; outline-offset:3px; }
+.slot-salon { --extra-ink:#f3ecd9; --extra-blue:#ebcf91; --extra-line:#baa06370; --extra-muted:#bacbe0; min-width:0; display:grid; gap:10px; }
+.slot-salon>.extra-heading { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); }
+.slot-salon .extra-layout { grid-template-columns:minmax(0,1fr) clamp(272px,25vw,370px); gap:16px; min-height:0; }
+.slot-salon .extra-slot-stage { min-width:0; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto auto auto auto; gap:6px; padding:10px 12px; background:#051020c9; border:1px solid #d2af6d; border-radius:2px; box-shadow:inset 0 0 0 3px #060e1c,inset 0 0 0 4px #a28c5c60,0 8px 30px #01081575; }
+.slot-salon .extra-stage-label { font-size:10px; letter-spacing:.1em; color:#d4c08d; min-height:18px; align-items:center; }
+.slot-salon .extra-reels { grid-template-rows:repeat(3,minmax(0,1fr)); gap:4px; margin:0; padding:0; min-height:0; border:0; border-radius:0; background:transparent; }
+.slot-salon .extra-sigil { position:relative; min-width:0; height:auto; min-height:0; padding:0; border:0; border-radius:0; background:#08162b; display:flex; align-items:center; justify-content:flex-end; flex-direction:column; overflow:hidden; }
+.slot-salon .slot-cell-frame { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+.slot-salon .slot-item-art { position:absolute; inset:7px 8px 27px; width:calc(100% - 16px); height:calc(100% - 34px); object-fit:contain; filter:drop-shadow(0 3px 7px #010510); }
+.slot-salon .extra-sigil>span { position:relative; z-index:1; display:flex; gap:6px; align-items:baseline; justify-content:center; width:100%; padding:4px 5px 6px; margin:0; color:#f5e6bf; font:12px/1.25 Marcellus,"Noto Serif SC",SimSun,serif; letter-spacing:0; text-align:center; background:linear-gradient(transparent,#071021b3); }
+.slot-salon .extra-sigil small { font:inherit; }
+.slot-salon .extra-sigil.is-line { box-shadow:inset 0 0 0 2px #ffe3a0; }
+.slot-salon .extra-line-overlay { inset:0; width:100%; height:100%; filter:drop-shadow(0 0 4px #ffc650); }
+.slot-salon .extra-line-overlay polyline { stroke:#ffe7a3; stroke-width:2; }
+.slot-salon .extra-line-markers { gap:6px; margin:0; }
+.slot-salon .extra-line-markers button { height:44px; border-radius:1px; color:#e2d7bc; background:#081529db; font:16px Marcellus,serif; }
+.slot-salon .extra-line-markers button[aria-pressed="true"] { background:#31404f; border-color:#ffe3a0; box-shadow:inset 0 0 12px #ddb95f38; color:#fff3d5; }
+.slot-salon .extra-line-detail { min-height:18px; margin:0; color:#c7d8e9; font-size:11px; }
+.slot-salon .extra-replay { gap:12px; min-height:44px; }
+.slot-salon .extra-replay>span { color:#a5bad4; font-size:10px; overflow-wrap:anywhere; }
+.slot-salon .extra-replay button { padding:6px 13px; font-size:12px; }
+.slot-salon .extra-stage-note { margin:0; font-size:10px; line-height:1.3; color:#b0c3dd; }
+.slot-salon .extra-console { min-width:0; padding:clamp(18px,2vw,30px); border:1px solid #c3a46c; border-radius:2px; background:linear-gradient(145deg,#051020f0,#11294ccf); box-shadow:inset 0 0 0 3px #071324,inset 0 0 0 4px #ad965849; }
+.slot-balance { padding-bottom:16px; margin-bottom:18px; border-bottom:1px solid #bda06870; }
+.slot-balance>span { font-size:12px; color:#d4dce8; }
+.slot-balance>strong { display:block; margin:8px 0; color:#fff1d2; font:clamp(27px,2.5vw,42px)/1.15 Marcellus,serif; overflow-wrap:anywhere; }
+.slot-salon .extra-wager>label { display:block; margin:0; line-height:20px; }
+.slot-salon .extra-wager input { height:48px; margin-top:8px; color:#ffe7b0; background:#061323; border-color:#bea068; font:26px Marcellus,serif; }
+.slot-salon .extra-quick { gap:6px; margin-top:12px; }
+.slot-salon .extra-quick button { min-width:0; padding:6px 2px; font:15px Marcellus,serif; }
+.slot-salon .extra-note { margin:12px 0; color:#b9cbe1; line-height:1.6; }
+.slot-salon .extra-primary { min-height:56px; margin-top:8px; border:1px solid #f3d49b; border-radius:2px; color:#231b13; background:linear-gradient(135deg,#ae8745,#ffe6a4 42%,#d9b56a 80%,#b99557); box-shadow:inset 0 0 0 3px #46321c8a,inset 0 0 0 4px #ffe4a1; font:22px Marcellus,"Noto Serif SC",SimSun,serif; }
+.slot-salon .extra-primary:hover:not(:disabled) { color:#1f170b; background:linear-gradient(135deg,#d0aa67,#fff1c1,#d8b26a); }
+.slot-salon .extra-notices { margin-top:16px; }
+.slot-salon .extra-current { margin:0; color:#e1d9c5; font-size:12px; line-height:1.65; }
+.slot-salon .extra-error { color:#ffd1c2; background:#49292c; padding:10px; }
+.slot-salon .extra-result { padding:10px 16px; margin:0; gap:20px; background:#071426ed; border:1px solid #aa945d; border-radius:1px; }
+.slot-salon .extra-result>strong { font:16px "Noto Serif SC",SimSun,serif; }
+.slot-salon .extra-result dl { gap:24px; margin:0; }
+.slot-salon .extra-result dt { color:#bbcbe1; font-size:10px; }
+.slot-salon .extra-result dd { margin-top:3px; color:#f5ddb2; font:22px Marcellus,serif; }
+.slot-salon .extra-utilities { margin:0; }
+.slot-tool-dock { display:flex; gap:8px; }
+.slot-tool-dock button { flex:1; display:flex; align-items:center; justify-content:space-between; gap:14px; padding:8px 16px; background:#061222ed; border:1px solid #b69a627a; border-radius:1px; font-size:12px; }
+.slot-tool-dock button:last-child:not(:nth-child(2)) { flex:0 0 auto; }
+.slot-tool-dock button span { color:#e5c680; font-size:17px; }
+.slot-salon .is-spinning .slot-item-art { animation:slot-pulse .8s ease-in-out infinite alternate; }
+@keyframes slot-pulse { from { opacity:.55; transform:translateY(-3px); } to { opacity:1; transform:translateY(3px); } }
+/* Native dialog supplies focus containment, Escape and focus restoration. */
+.game-slot .modal:has(.slot-dialog-content) { width:min(780px,calc(100vw - 28px)); max-height:calc(100dvh - 40px); padding:22px; overflow:hidden; background:#0b1a2e; color:#e5e9f1; border:1px solid #c2a365; border-radius:3px; }
+.game-slot .modal[open]:has(.slot-dialog-content) { display:flex; flex-direction:column; }
+.game-slot .modal::backdrop { background:#020914bd; backdrop-filter:blur(5px); }
+.game-slot .modal-heading { flex:none; margin:0 0 14px; padding:0 0 12px; border-bottom:1px solid #a58e6066; }
+.game-slot .modal-heading h2 { color:#eed7a6; }
+.slot-dialog-content { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding-right:10px; scrollbar-gutter:stable; line-height:1.8; }
+.slot-dialog-content .game-fairness { padding:0; border:0; background:transparent; }
+.slot-dialog-content h2 { margin:12px 0; font-size:22px; color:#ead9b7; }
+.slot-dialog-content h3 { color:#ead9b7; }
+.slot-dialog-content p,.slot-dialog-content .hint { color:#cbd7e6; }
+.slot-dialog-content table { width:100%; }
+.slot-dialog-content th,.slot-dialog-content td { border-color:#8599b84d; padding:8px 12px; color:#e3dece; }
+.slot-dialog-content th { background:#172c46; }
+.slot-dialog-content .fairness-hash { background:#071324; border-color:#879ab45c; }
+.slot-dialog-content summary { min-height:44px; padding:10px 0; cursor:pointer; color:#efd6a1; }
+.slot-dialog-content .fairness-hash,.slot-dialog-content code,.slot-dialog-content .round-id { overflow-wrap:anywhere; word-break:break-word; color:#ccddf2; }
+.slot-dialog-content pre { white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; background:#071324; padding:12px; font-size:11px; }
+.slot-dialog-content input { background:#071426; color:#ecdfc0; border-color:#889bb8; }
+.slot-dialog-content small { color:#b9cae0; overflow-wrap:anywhere; }
+.slot-dialog-content dd { margin:0; overflow-wrap:anywhere; }
+.slot-dialog-content dt { color:#b1c4df; font-size:12px; }
+.slot-dialog-content .slot-verification { border-top:1px solid #a58e6066; padding-top:18px; margin-top:22px; }
+.slot-dialog-content .text-link { display:inline-flex; min-height:44px; align-items:center; color:#d3e4ff; }
+.slot-symbol-key { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.slot-symbol-key>div { display:flex; gap:12px; }
+@media (min-width: 1000px) and (min-height: 700px) {
+    .portal-shell:has(.game-slot) { height:100dvh; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; }
+    .portal-shell:has(.game-slot) .portal-header { min-height:64px; padding-block:4px; }
+    .portal-shell:has(.game-slot) .main-content { min-height:0; }
+    .game-slot { height:100%; min-height:0; }
+    .slot-salon { flex:1; min-height:0; grid-template-rows:minmax(0,1fr) auto auto; }
+    .slot-salon .extra-console { overflow-y:auto; overscroll-behavior:contain; }
+    .slot-salon .extra-slot-stage { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:auto minmax(0,1fr) auto auto; }
+    .slot-salon .extra-stage-label,.slot-salon .extra-reels,.slot-salon .extra-line-markers { grid-column:1/-1; }
+    .slot-salon .extra-line-detail { align-self:center; }
+    .slot-salon .extra-replay { grid-column:2; }
+    .slot-salon .extra-replay>span,.slot-salon .extra-stage-note { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+    .slot-salon .slot-item-art { bottom:22px; height:calc(100% - 29px); }
+    /* Recovery notices take priority over one-screen presentation. */
+    .portal-shell:has(.game-slot>.alert),.portal-shell:has(.game-slot>.game-recovery) { height:auto; min-height:100dvh; }
+    .game-slot:has(>.alert) .extra-reels,.game-slot:has(>.game-recovery) .extra-reels { min-height:330px; }
+}
+@media (max-height: 820px) and (min-width: 1000px) {
+    .game-slot { padding-block:10px; gap:8px; }
+    .game-slot .game-page-heading h1 { font-size:30px; }
+    .slot-salon .extra-console { padding:16px 20px; }
+    .slot-balance { margin-bottom:12px; padding-bottom:8px; }
+    .slot-balance>strong { font-size:30px; margin:4px 0; }
+    .slot-salon .extra-notices { margin-top:8px; }
+}
+@media (max-width: 999px), (max-height: 699px) {
+    .slot-salon .extra-reels { min-height:360px; }
+}
+@media (max-width: 760px) {
+    .game-slot { padding:18px 12px 28px; gap:18px; }
+    .game-slot .game-page-heading { display:block; }
+    .game-slot .game-page-heading h1 { font-size:32px; }
+    .game-slot .game-heading-links { display:flex; flex-wrap:wrap; margin-top:12px; gap:18px; }
+    .slot-salon .extra-layout { grid-template-columns:minmax(0,1fr); gap:16px; }
+    .slot-salon .extra-slot-stage { padding:8px; gap:8px; }
+    .slot-salon .extra-stage-label { font-size:8px; letter-spacing:0; }
+    .slot-salon .extra-reels { min-height:0; height:clamp(234px,65vw,440px); gap:2px; }
+    .slot-salon .slot-item-art { inset:4px 3px 22px; width:calc(100% - 6px); height:calc(100% - 26px); }
+    .slot-salon .extra-sigil>span { font-size:10px; padding:3px 0 5px; }
+    .slot-salon .extra-sigil small { display:none; }
+    .slot-salon .extra-line-markers { grid-template-columns:repeat(5,minmax(0,1fr)); gap:4px; }
+    .slot-salon .extra-line-detail { font-size:11px; min-height:30px; }
+    .slot-salon .extra-console { padding:22px; }
+    .slot-balance>strong { font-size:36px; }
+    .slot-salon .extra-result { flex-direction:column; align-items:stretch; gap:12px; padding:15px; }
+    .slot-salon .extra-result dl { gap:12px; justify-content:space-between; }
+    .slot-salon .extra-result dd { font-size:20px; }
+    .slot-tool-dock { flex-wrap:wrap; gap:6px; }
+    .slot-tool-dock button { padding:8px 12px; min-width:40%; }
+    .slot-tool-dock button:last-child:not(:nth-child(2)) { flex:1 1 100%; }
+    .game-slot .modal:has(.slot-dialog-content) { padding:16px; max-height:calc(100dvh - 24px); }
+    .slot-dialog-content { padding-right:4px; font-size:13px; }
+    .slot-dialog-content th,.slot-dialog-content td { padding:8px 6px; }
+}

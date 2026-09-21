@@ -1,0 +1,158 @@
+{
+  "symbols": {
+    "L1": {
+      "name": "QP",
+      "src": "games/slot/l1.420w.8de894590649.webp",
+      "width": 420,
+      "height": 420,
+      "variants": [
+        {
+          "src": "games/slot/l1.192w.9026263fbb96.webp",
+          "width": 192
+        },
+        {
+          "src": "games/slot/l1.420w.8de894590649.webp",
+          "width": 420
+        }
+      ]
+    },
+    "L2": {
+      "name": "圣晶石",
+      "src": "games/slot/l2.420w.61d121224309.webp",
+      "width": 420,
+      "height": 420,
+      "variants": [
+        {
+          "src": "games/slot/l2.192w.b30b30c1c205.webp",
+          "width": 192
+        },
+        {
+          "src": "games/slot/l2.420w.61d121224309.webp",
+          "width": 420
+        }
+      ]
+    },
+    "L3": {
+      "name": "呼符",
+      "src": "games/slot/l3.420w.b2377ea8bff4.webp",
+      "width": 420,
+      "height": 420,
+      "variants": [
+        {
+          "src": "games/slot/l3.192w.6d6b82b01adf.webp",
+          "width": 192
+        },
+        {
+          "src": "games/slot/l3.420w.b2377ea8bff4.webp",
+          "width": 420
+        }
+      ]
+    },
+    "M1": {
+      "name": "赤红魔枪",
+      "src": "games/slot/m1.420w.ed5233e56b70.webp",
+      "width": 420,
+      "height": 420,
+      "variants": [
+        {
+          "src": "games/slot/m1.192w.42b8197e5d40.webp",
+          "width": 192
+        },
+        {
+          "src": "games/slot/m1.420w.ed5233e56b70.webp",
+          "width": 420
+        }
+      ]
+    },
+    "M2": {
+      "name": "圣杯",
+      "src": "games/slot/m2.420w.f6f5bc3f28a6.webp",
+      "width": 420,
+      "height": 420,
+      "variants": [
+        {
+          "src": "games/slot/m2.192w.2c97746f32e0.webp",
+          "width": 192
+        },
+        {
+          "src": "games/slot/m2.420w.f6f5bc3f28a6.webp",
+          "width": 420
+        }
+      ]
+    },
+    "H1": {
+      "name": "誓约胜利之剑",
+      "src": "games/slot/h1.420w.5a5c32449297.webp",
+      "width": 420,
+      "height": 420,
+      "variants": [
+        {
+          "src": "games/slot/h1.192w.517134b83596.webp",
+          "width": 192
+        },
+        {
+          "src": "games/slot/h1.420w.5a5c32449297.webp",
+          "width": 420
+        }
+      ]
+    },
+    "H2": {
+      "name": "乖离剑",
+      "src": "games/slot/h2.420w.17c3064d3338.webp",
+      "width": 420,
+      "height": 420,
+      "variants": [
+        {
+          "src": "games/slot/h2.192w.25bf6dbfe14f.webp",
+          "width": 192
+        },
+        {
+          "src": "games/slot/h2.420w.17c3064d3338.webp",
+          "width": 420
+        }
+      ]
+    },
+    "W": {
+      "name": "王之财宝",
+      "src": "games/slot/w.420w.4409302392a0.webp",
+      "width": 420,
+      "height": 420,
+      "variants": [
+        {
+          "src": "games/slot/w.192w.63a74b447de9.webp",
+          "width": 192
+        },
+        {
+          "src": "games/slot/w.420w.4409302392a0.webp",
+          "width": 420
+        }
+      ]
+    }
+  },
+  "room": {
+    "src": "games/slot/room.1672w.406fed24a09b.webp",
+    "width": 1672,
+    "height": 941,
+    "variants": [
+      {
+        "src": "games/slot/room.960w.d2b26a2dcc44.webp",
+        "width": 960
+      },
+      {
+        "src": "games/slot/room.1672w.406fed24a09b.webp",
+        "width": 1672
+      }
+    ]
+  },
+  "cell": {
+    "src": "games/slot/cell.320w.a9259621e2d8.webp",
+    "width": 320,
+    "height": 320,
+    "variants": [
+      {
+        "src": "games/slot/cell.320w.a9259621e2d8.webp",
+        "width": 320
+      }
+    ]
+  }
+}
