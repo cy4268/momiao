@@ -99,6 +99,8 @@ export function GamesCatalog({client}:{client:ApiClient}) {
 
 export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;slug:GameSlug}) {
     const navigate=useNavigate();
+    const automaticRecovery=slug!=='blackjack';
+    const [recoveryAttempt,setRecoveryAttempt]=useState(0);
     const [bootstrap,setBootstrap]=useState<GameBootstrap>();
     const [round,setRound]=useState<GameRound|null>(null);
     const [diceAnimating,setDiceAnimating]=useState(false);
@@ -129,15 +131,17 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
                 hydratedInput.current=true;
             }
             if(reconcile){
-                if(recovered){if(slug!=='blackjack')setRound(recovered);setPending(null);sessionStorage.removeItem(pendingStorage(userID,slug));setNotice('已从历史恢复原局，没有再次下注。');}
-                else if(b.next_commitment?.id===reconcile.commitment){setPending(null);sessionStorage.removeItem(pendingStorage(userID,slug));setNotice('服务器确认原下注未受理，已解除锁定。');}
+                if(recovered){if(slug!=='blackjack')setRound(recovered);setPending(null);sessionStorage.removeItem(pendingStorage(userID,slug));setNotice(automaticRecovery?'':'已从历史恢复原局，没有再次下注。');}
+                // The by-key endpoint shares the server create lock; null is definitive absence.
+                // Fast games can unlock after that read without ever replaying a wager POST.
+                else if(automaticRecovery||b.next_commitment?.id===reconcile.commitment){setPending(null);sessionStorage.removeItem(pendingStorage(userID,slug));setNotice(automaticRecovery?'本次操作未受理，没有新增扣款。':'服务器确认原下注未受理，已解除锁定。');}
                 else{setPending(reconcile);setRetryReady(true);setNotice('尚未找到已受理的局。可以使用原请求重试，核对前不会生成新请求。');}
             }
             if(reconcileAction){
                 if(recoveredAction){sessionStorage.removeItem(blackjackActionStorage(userID));setPendingAction(null);setNotice('原行动已受理，已恢复最新牌局。');}
                 else{setPendingAction(reconcileAction);setActionRetryReady(true);setNotice('尚未找到原行动。可以用同一行动编号重试，期间保持锁定。');}
             }
-        }catch(error){if(current()){setBootstrap(undefined);setNotice(gameError(error));}}
+        }catch(error){if(current()&&version===loadVersion.current){if(!automaticRecovery||!reconcile){setBootstrap(undefined);setNotice(gameError(error));}}}
         finally{if(current()&&version===loadVersion.current)setLoading(false);}
     }
     useEffect(()=>{
@@ -145,6 +149,18 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
         try{stored=readPending(userID,slug);setPending(stored);if(slug==='blackjack'){action=readBlackjackAction(userID);setPendingAction(action);}}catch(error){setStorageBlocked(true);setNotice(gameError(error));}
         void load(stored,action);return()=>{live.current=false;loadVersion.current++;};
     },[client,userID,slug]);
+    useEffect(()=>{
+        if(!automaticRecovery||!pending){if(recoveryAttempt)setRecoveryAttempt(0);return;}
+        if(busy||loading||storageBlocked)return;
+        let started=false;
+        const recover=()=>{
+            if(started||lock.current||!current())return;
+            started=true;setRecoveryAttempt(value=>value+1);void load(pending);
+        };
+        const timer=setTimeout(recover,Math.min(1000*2**Math.min(recoveryAttempt,5),30000));
+        window.addEventListener('online',recover);
+        return()=>{clearTimeout(timer);window.removeEventListener('online',recover);};
+    },[automaticRecovery,pending,busy,loading,storageBlocked,recoveryAttempt,client,userID,slug,generation]);
     const revealIncomplete=slug==='scratch'&&round?.scratch&&!round.presentation_completed_at;
     const cost=wagerCost(wager,slug==='summon'?mode:'SINGLE',slug);
     const available=bootstrap?units(revealIncomplete&&round?round.balance_before_units:bootstrap.available_units):null;
@@ -168,7 +184,7 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
             await load();
         }catch(error){if(current()){
             if(error instanceof ApiError&&!error.uncertain&&error.status>=400&&error.status<500){sessionStorage.removeItem(pendingStorage(userID,slug));setPending(null);await load();setNotice(gameError(error));}
-            else{setNotice('本次请求结果尚未确认。请核对本局，确认前暂停新下注。'+gameError(error));}
+            else if(!automaticRecovery){setNotice('本次请求结果尚未确认。请核对本局，确认前暂停新下注。'+gameError(error));}
         }}finally{if(current()){lock.current=false;setBusy(false);}}
     }
     async function completeScratch() {
@@ -202,12 +218,12 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
     return <div className={'direct-game game-'+slug}>
         {slug==='slot'&&<HallImage asset={slotArt.room} className="slot-room" sizes="100vw"/>}
         <header className="game-page-heading"><div><p className="eyebrow">CHALDEA / {copy.eyebrow}</p><h1>{gameNames[slug]}{slug==='slot'&&<small>王之宝库 · Slot</small>}</h1><p>{copy.intro}</p></div><div className="game-heading-links"><Link to="/games">所有游戏 ↗</Link><Link to="/history">游戏记录</Link><button onClick={()=>void load(pending,pendingAction)} disabled={busy||loading}>刷新恢复</button></div></header>
-        {notice&&<Alert>{notice}</Alert>}
-        {pending&&<div className="game-recovery" role="status"><p>有一笔下注等待核对，新下注已暂停。</p><button onClick={()=>void load(pending)} disabled={busy||loading}>核对本局</button>{retryReady&&<button onClick={()=>void play(pending)} disabled={busy}>使用原请求重试</button>}</div>}
+        {notice&&!automaticRecovery&&<Alert>{notice}</Alert>}
+        {!automaticRecovery&&pending&&<div className="game-recovery" role="status"><p>有一笔下注等待核对，新下注已暂停。</p><button onClick={()=>void load(pending)} disabled={busy||loading}>核对本局</button>{retryReady&&<button onClick={()=>void play(pending)} disabled={busy}>使用原请求重试</button>}</div>}
         {pendingAction&&<div className="game-recovery" role="status"><p>有一次行动等待核对，其他行动已暂停。</p><button disabled={busy||loading} onClick={()=>void load(pending,pendingAction)}>核对本次行动</button>{actionRetryReady&&<button disabled={busy||loading} onClick={()=>void performAction(pendingAction.input,pendingAction)}>重试原行动</button>}</div>}
         {round?.recovery_state==='NEEDS_REVIEW'&&<Alert>本局状态需要核对，已暂停行动。请保留本局编号并联系管理员。</Alert>}
         {slug==='blackjack'?<BlackjackGame snapshot={round?.blackjack||null} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending||!!pendingAction} disabledReason={activeBlackjack?(actionBlocked?'请先恢复当前状态。':null):(blocked?'请先恢复当前状态。':null)} roundID={round?.id} onDeal={async()=>{await play()}} onAction={command=>performAction(command)} onRecover={()=>void load(pending,pendingAction)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={round?()=>navigate('/history/rounds/'+round.id):undefined}/>:null}
-        {slug==='blackjack'?null:slug==='slot'?<SlotGame salon onRules={()=>setSlotPanel('rules')} result={round?.slot||null} rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending} disabledReason={blocked?'请先恢复当前状态。':null} roundID={round?.id} onSpin={async()=>{await play()}} onRecover={()=>void load(pending)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={()=>setSlotPanel('fairness')}/>:<StageLayout {...(salonLayout?{className:slug+'-play-layout'}:{})}><section className={'game-stage '+(busy?'game-busy':'')} aria-label="游戏舞台">
+        {slug==='blackjack'?null:slug==='slot'?<SlotGame salon onRules={()=>setSlotPanel('rules')} result={round?.slot||null} rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} error={!pending?notice:null} busy={busy||loading} recovering={!!pending} disabledReason={blocked&&!busy&&!loading&&!pending?'当前暂不可开局。':null} roundID={round?.id} onSpin={async()=>{await play()}} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={()=>setSlotPanel('fairness')}/>:<StageLayout {...(salonLayout?{className:slug+'-play-layout'}:{})}><section className={'game-stage '+(busy?'game-busy':'')} aria-label="游戏舞台">
             <div className="game-stage-corners" aria-hidden="true"/>
             {slug==='dice'?<DiceStage key={userID} result={round?.dice} busy={busy} loading={loading} recovering={!!pending} onAnimatingChange={setDiceAnimating}/>:slug==='scratch'?<ScratchStage round={round} onComplete={()=>void completeScratch()} busy={busy}/>:<SummonStage key={userID} round={round} animateRoundID={summonAnimationID} busy={busy} loading={loading} recovering={!!pending}/>}
         </section>
@@ -219,7 +235,8 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
                 {slug==='summon'&&<fieldset className="summon-mode" disabled={blocked}><legend>召唤方式</legend>{(['SINGLE','TENFOLD'] as const).map(value=><label key={value}><input type="radio" name="summon-mode" checked={mode===value} onChange={()=>setMode(value)}/>{value==='SINGLE'?'单次召唤 · 1 抽':'十连召唤 · 10 抽'}</label>)}</fieldset>}
                 <p className={'wager-hint '+(invalid?'invalid':'')} id="wager-hint">{invalid||'最低 10 筹码 · 整数步长 1 筹码'}</p>
                 <div className="wager-cost"><span>本次总消耗 <strong>{cost===null?'—':chips(cost.toString())}</strong></span><span>最低预估余额 <strong>{cost!==null&&available!==null&&cost<=available?chips((available-cost).toString()):'—'}</strong></span></div>
-                <button className="primary game-play" type="submit" disabled={blocked||!!invalid}>{busy?'正在核对…':slug==='dice'?(diceAnimating?'落定中…':'掷骰'):slug==='scratch'?'购买刮刮卡':`${mode==='TENFOLD'?'十连召唤':'单次召唤'} · ${cost===null?'—':chips(cost.toString())} 筹码`}</button>
+                <button className="primary game-play" type="submit" disabled={blocked||!!invalid}>{busy||pending?'正在同步…':slug==='dice'?(diceAnimating?'落定中…':'掷骰'):slug==='scratch'?'购买刮刮卡':`${mode==='TENFOLD'?'十连召唤':'单次召唤'} · ${cost===null?'—':chips(cost.toString())} 筹码`}</button>
+                {notice&&!pending&&<p className="wager-hint" role="status">{notice}</p>}
                 {revealIncomplete&&<p className="hint">请先完成上方刮卡揭晓，再购买下一张。</p>}
                 {bootstrap&&bootstrap.game.effective_runtime!=='PLAY'&&<p className="hint">{runtimeNames[bootstrap.game.effective_runtime]||'暂不可用'}，历史结果仍可查阅。</p>}
             </form>

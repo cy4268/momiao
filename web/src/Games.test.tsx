@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ApiClient, ApiError } from './api';
@@ -22,6 +22,7 @@ function show(){return render(<MemoryRouter><GamePage client={client} userID="1"
 it('Slot adapter submits total chips only and keeps a lost response locked for reconciliation',async()=>{
     vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,game:{...bootstrap.game,slug:'slot',config:undefined}});
     const create=vi.spyOn(gameAPI,'createGame').mockRejectedValue(new ApiError('lost response',0,'',true));
+    vi.spyOn(gameAPI,'findPendingGame').mockReturnValue(new Promise(()=>{}));
     const view=render(<MemoryRouter><GamePage client={client} userID="1" slug="slot"/></MemoryRouter>);
     await waitFor(()=>expect(screen.getByRole('button',{name:'Spin · 10 筹码'})).toBeEnabled());
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -44,7 +45,8 @@ it('Slot adapter submits total chips only and keeps a lost response locked for r
     fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));
     fireEvent.change(screen.getByLabelText('总下注 · 筹码'),{target:{value:'11'}});
     fireEvent.click(screen.getByRole('button',{name:'Spin · 11 筹码'}));
-    await screen.findByRole('button',{name:'核对本局'});
+    await waitFor(()=>expect(create).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('button',{name:/核对本局/})).not.toBeInTheDocument();
     expect(create).toHaveBeenCalledTimes(1);
     expect(create.mock.calls[0][2].input).toEqual({type:'SLOT',total_wager:'11'});
     expect(screen.getByRole('button',{name:'Spin · 11 筹码'})).toBeDisabled();
@@ -126,17 +128,57 @@ it('publishes commitment before manual wager, locks double click, then displays 
         expect(screen.queryByRole('img',{name:'星月骰盅，仅在首次开局前展示'})).not.toBeInTheDocument();
     } finally { vi.unstubAllGlobals(); }
 });
-it('unknown HTTP outcome survives refresh and reconciles without another POST',async()=>{
+it('unknown HTTP outcome reconciles automatically, survives refresh and never repeats the POST',async()=>{
     const create=vi.spyOn(gameAPI,'createGame').mockRejectedValue(new ApiError('lost response',0,'',true));
-    const find=vi.spyOn(gameAPI,'findPendingGame').mockResolvedValue(result);
+    let recover!:(value:GameRound)=>void;
+    const find=vi.spyOn(gameAPI,'findPendingGame').mockRejectedValueOnce(new ApiError('offline',0,'',true)).mockImplementationOnce(()=>new Promise(resolve=>{recover=resolve})).mockResolvedValue(result);
     const first=show();await screen.findByRole('button',{name:'掷骰'});
-    fireEvent.click(screen.getByRole('radio',{name:/^大/}));
-    fireEvent.click(screen.getByRole('button',{name:'掷骰'}));
-    await waitFor(()=>expect(screen.getByRole('button',{name:'核对本局'})).toBeVisible());
-    expect(sessionStorage.getItem(gameAPI.pendingStorage('1','dice'))).toContain('commitment');first.unmount();
-    show();await waitFor(()=>expect(find).toHaveBeenCalledTimes(1));
-    await waitFor(()=>expect(screen.getByLabelText('本局结果')).toHaveTextContent('净赢'));
-    expect(create).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers();
+    try {
+        fireEvent.click(screen.getByRole('radio',{name:/^大/}));
+        await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'掷骰'}));});
+        const stored=sessionStorage.getItem(gameAPI.pendingStorage('1','dice'))!;
+        expect(stored).toContain('commitment');
+        expect(screen.queryByText('有一笔下注等待核对，新下注已暂停。')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button',{name:/核对本局|使用原请求重试/})).not.toBeInTheDocument();
+        expect(screen.getByLabelText('基础下注（筹码）')).toBeDisabled();
+        await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+        expect(find).toHaveBeenCalledTimes(1);
+        expect(sessionStorage.getItem(gameAPI.pendingStorage('1','dice'))).toBe(stored);
+        await act(async()=>{await vi.advanceTimersByTimeAsync(1999);});
+        expect(find).toHaveBeenCalledTimes(1);
+        await act(async()=>{fireEvent(window,new Event('online'));});
+        expect(find).toHaveBeenCalledTimes(2);
+        await act(async()=>{await vi.advanceTimersByTimeAsync(30000);});
+        expect(find).toHaveBeenCalledTimes(2); // No overlapping recovery reads.
+        expect(find.mock.calls.every(call=>call[2]===JSON.parse(stored).key)).toBe(true);
+        vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,latest_round:result});
+        await act(async()=>{recover(result);});
+        expect(screen.getByLabelText('本局结果')).toHaveTextContent('净赢');
+        expect(sessionStorage.getItem(gameAPI.pendingStorage('1','dice'))).toBeNull();
+        expect(create).toHaveBeenCalledTimes(1);
+        first.unmount();
+        sessionStorage.setItem(gameAPI.pendingStorage('1','dice'),stored);
+        let restored!:ReturnType<typeof show>;
+        await act(async()=>{restored=show();});
+        expect(find).toHaveBeenCalledTimes(3);
+        expect(sessionStorage.getItem(gameAPI.pendingStorage('1','dice'))).toBeNull();
+        restored.unmount();
+        // The server's by-key read shares the create lock: null definitively means not accepted,
+        // even if another tab has since rotated the commitment. Never resubmit the old wager.
+        sessionStorage.setItem(gameAPI.pendingStorage('1','dice'),stored);
+        find.mockResolvedValue(null);
+        vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,next_commitment:{...bootstrap.next_commitment!,id}});
+        await act(async()=>{restored=show();});
+        expect(sessionStorage.getItem(gameAPI.pendingStorage('1','dice'))).toBeNull();
+        expect(screen.getByRole('button',{name:'掷骰'})).toBeEnabled();
+        expect(within(screen.getByLabelText('下注控制台')).getByText('本次操作未受理，没有新增扣款。')).toBeVisible();
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(create).toHaveBeenCalledTimes(1);
+        restored.unmount();
+        await act(async()=>{await vi.advanceTimersByTimeAsync(60000);});
+        expect(find).toHaveBeenCalledTimes(4);
+    } finally {vi.useRealTimers();}
 });
 it('unlocks an unaccepted pending blackjack deal when bootstrap still owns its commitment',async()=>{
     const pending={key:'01993200-0000-7000-8000-000000000003',commitment,input:{type:'BLACKJACK' as const,initial_wager:'100'}};
