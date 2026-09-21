@@ -51,8 +51,8 @@ it('previews without writing, explicitly initializes once and round-trips the id
     expect(JSON.parse(String(writes(f)[0][1]?.body))).toEqual({ expected_version: '0', display_name: 'Moonlit', avatar_id: 'system-default' });
     const headers = new Headers(writes(f)[0][1]?.headers);
     expect(headers.get('New-Api-User')).toBe('1'); expect(headers.get('Authorization')).toBe('Bearer memory');
-    // Editor and shell each confirm their view before and after the explicit save.
-    expect(f.mock.calls.filter(([p, init]) => p === '/platform/v1/master-profile' && init?.method === 'GET')).toHaveLength(4);
+    // Editor and shell both confirm; the shell's reload effect can follow the saved notice.
+    await waitFor(() => expect(f.mock.calls.filter(([p, init]) => p === '/platform/v1/master-profile' && init?.method === 'GET')).toHaveLength(4));
     expect(client.getSnapshot().user).toMatchObject({ username: 'native-user', display_name: 'Native User' });
 });
 it('sends PATCH with exact string version and renders server rename timestamps', async () => {
