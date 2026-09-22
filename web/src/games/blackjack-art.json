@@ -1,0 +1,32 @@
+{
+  "cardBack": {
+    "src": "games/blackjack/cardBack.192w.c930618542f2.webp",
+    "width": 192,
+    "height": 288,
+    "variants": [
+      {
+        "src": "games/blackjack/cardBack.192w.c930618542f2.webp",
+        "width": 192
+      },
+      {
+        "src": "games/blackjack/cardBack.384w.e600799151a9.webp",
+        "width": 384
+      }
+    ]
+  },
+  "chips": {
+    "src": "games/blackjack/chips.128w.2aad120bc3ea.webp",
+    "width": 128,
+    "height": 128,
+    "variants": [
+      {
+        "src": "games/blackjack/chips.128w.2aad120bc3ea.webp",
+        "width": 128
+      },
+      {
+        "src": "games/blackjack/chips.256w.1230083ced17.webp",
+        "width": 256
+      }
+    ]
+  }
+}

@@ -24,7 +24,7 @@ it('starts only on explicit Deal with a valid controlled wager and no extra conf
 
 it('uses stable hand order, neutral hidden hole card and only server-approved commands', async () => {
     let finish!: () => void; const command = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
-    render(<BlackjackGame {...base} snapshot={{ ...snapshot, dealer_cards: [0, 51] }} onAction={command} roundID="bj-round" />);
+    render(<BlackjackGame {...base} salon snapshot={{ ...snapshot, dealer_cards: [0, 51], hands: snapshot.hands.map(hand => hand.hand_id === 'left' ? { ...hand, cards: [7, 20, 0, 13] } : hand) }} onAction={command} roundID="bj-round" />);
     const hands = screen.getAllByTestId('blackjack-hand'); expect(hands.map(h => h.getAttribute('data-hand-id'))).toEqual(['left', 'right']);
     expect(screen.getByLabelText('庄家暗牌，尚未公开')).toBeVisible(); expect(screen.queryByLabelText('庄家总点数')).not.toBeInTheDocument();
     expect(within(screen.getByRole('group', { name: '庄家公开手牌' })).getAllByTestId('playing-card')).toHaveLength(1);
@@ -34,7 +34,8 @@ it('uses stable hand order, neutral hidden hole card and only server-approved co
     expect(command).toHaveBeenCalledExactlyOnceWith({ hand_id: 'left', action_type: 'HIT', expected_round_version: '12' });
     expect(screen.getByRole('button', { name: 'Stand · 停牌' })).toBeDisabled();
     await act(async () => finish());
-    expect(within(hands[0]).getAllByTestId('playing-card')).toHaveLength(2); // no predicted hit card
+    expect(within(hands[0]).getAllByTestId('playing-card')).toHaveLength(4); // confirmed cards only, no predicted hit card
+    expect(within(hands[0]).getAllByTestId('playing-card').map(card => card.getAttribute('aria-label'))).toEqual(['梅花 8', '方块 8', '梅花 A', '方块 A']);
 });
 
 it('blocks only additional-stake actions on low balance, then obeys recovery and server timeout state', () => {

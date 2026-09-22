@@ -5,7 +5,8 @@ import { Alert, Brand, Empty, Loading, Modal, useResource } from './ui';
 import { DiceStage, ScratchStage, SummonStage } from './games/DirectStages';
 import {SlotGame, SlotRules} from './games/SlotGame';
 import slotArt from './games/slot-art.json';
-import {BlackjackGame,type BlackjackCommand} from './games/BlackjackGame';
+import pokerArt from './poker/poker-art.json';
+import {BlackjackGame,BlackjackRules,type BlackjackCommand} from './games/BlackjackGame';
 import {blackjackActionStorage,findBlackjackAction,readBlackjackAction,type PendingBlackjackAction} from './games-api';
 import { chips, createGame, findPendingGame, gameError, gameNames, gameSlugs, gameUUID, outcomeNames, parseRound, pendingStorage, readGameBootstrap, readPending, units, wagerCost, type Commitment, type GameBootstrap, type GameConfig, type GameEntry, type GameInput, type GameRound, type GameSlug, type GameVerification, type PendingGame } from './games-api';
 import './games.css';
@@ -99,26 +100,26 @@ export function GamesCatalog({client}:{client:ApiClient}) {
 
 export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;slug:GameSlug}) {
     const navigate=useNavigate();
-    const automaticRecovery=slug!=='blackjack';
     const [recoveryAttempt,setRecoveryAttempt]=useState(0);
     const [bootstrap,setBootstrap]=useState<GameBootstrap>();
     const [round,setRound]=useState<GameRound|null>(null);
     const [diceAnimating,setDiceAnimating]=useState(false);
     const [summonAnimationID,setSummonAnimationID]=useState<string|null>(null);
-    const [slotPanel,setSlotPanel]=useState<'rules'|'fairness'|null>(null);
-    const [slotSeedSaving,setSlotSeedSaving]=useState(false);
+    const [infoPanel,setInfoPanel]=useState<'rules'|'fairness'|null>(null);
+    const [seedSaving,setSeedSaving]=useState(false);
     const [busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[notice,setNotice]=useState('');
-    const [pending,setPending]=useState<PendingGame|null>(null),[retryReady,setRetryReady]=useState(false),[storageBlocked,setStorageBlocked]=useState(false);
-    const [pendingAction,setPendingAction]=useState<PendingBlackjackAction|null>(null),[actionRetryReady,setActionRetryReady]=useState(false);
+    const [pending,setPending]=useState<PendingGame|null>(null),[storageBlocked,setStorageBlocked]=useState(false);
+    const [pendingAction,setPendingAction]=useState<PendingBlackjackAction|null>(null);
     const [wager,setWager]=useState('10'),[choice,setChoice]=useState<'BIG'|'SMALL'|null>(null),[mode,setMode]=useState<'SINGLE'|'TENFOLD'>('SINGLE');
     const live=useRef(true),lock=useRef(false),loadVersion=useRef(0),hydratedInput=useRef(false),roundAction=useRef<{round:string;id:string}|null>(null);
     const generation=client.getSessionGeneration();
     const current=()=>live.current&&client.getSessionGeneration()===generation&&String(client.getSnapshot().user?.id)===userID&&!client.getSnapshot().loggingOut;
     async function load(reconcile:PendingGame|null=null,reconcileAction:PendingBlackjackAction|null=null) {
-        const version=++loadVersion.current;setLoading(true);setRetryReady(false);setActionRetryReady(false);
+        const version=++loadVersion.current;setLoading(true);
         try {
             const recovered=reconcile?await findPendingGame(client,slug,reconcile.key):null;
             const recoveredAction=reconcileAction?await findBlackjackAction(client,reconcileAction):null;
+            if(recoveredAction&&(recoveredAction.id!==reconcileAction!.round||recoveredAction.game!=='blackjack'))throw new ApiError('行动响应尚未核对。',0,'',true);
             const b=await readGameBootstrap(client,slug);if(!current()||version!==loadVersion.current)return;
             setBootstrap(b);setRound(b.active_round||b.latest_round);
             if(!hydratedInput.current){
@@ -131,17 +132,17 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
                 hydratedInput.current=true;
             }
             if(reconcile){
-                if(recovered){if(slug!=='blackjack')setRound(recovered);setPending(null);sessionStorage.removeItem(pendingStorage(userID,slug));setNotice(automaticRecovery?'':'已从历史恢复原局，没有再次下注。');}
-                // The by-key endpoint shares the server create lock; null is definitive absence.
-                // Fast games can unlock after that read without ever replaying a wager POST.
-                else if(automaticRecovery||b.next_commitment?.id===reconcile.commitment){setPending(null);sessionStorage.removeItem(pendingStorage(userID,slug));setNotice(automaticRecovery?'本次操作未受理，没有新增扣款。':'服务器确认原下注未受理，已解除锁定。');}
-                else{setPending(reconcile);setRetryReady(true);setNotice('尚未找到已受理的局。可以使用原请求重试，核对前不会生成新请求。');}
+                if(recovered&&slug!=='blackjack')setRound(recovered);
+                // Both by-key reads take the matching server write lock. A null
+                // answer is definitive absence; never automatically replay a POST.
+                setPending(null);sessionStorage.removeItem(pendingStorage(userID,slug));
+                setNotice(recovered?'':slug==='blackjack'?'服务器确认原下注未受理，已解除锁定。':'本次操作未受理，没有新增扣款。');
             }
             if(reconcileAction){
-                if(recoveredAction){sessionStorage.removeItem(blackjackActionStorage(userID));setPendingAction(null);setNotice('原行动已受理，已恢复最新牌局。');}
-                else{setPendingAction(reconcileAction);setActionRetryReady(true);setNotice('尚未找到原行动。可以用同一行动编号重试，期间保持锁定。');}
+                sessionStorage.removeItem(blackjackActionStorage(userID));setPendingAction(null);
+                setNotice(recoveredAction?'':'本次行动未受理，已恢复当前牌局。');
             }
-        }catch(error){if(current()&&version===loadVersion.current){if(!automaticRecovery||!reconcile){setBootstrap(undefined);setNotice(gameError(error));}}}
+        }catch(error){if(current()&&version===loadVersion.current&&!reconcile&&!reconcileAction){setBootstrap(undefined);setNotice(gameError(error));}}
         finally{if(current()&&version===loadVersion.current)setLoading(false);}
     }
     useEffect(()=>{
@@ -150,17 +151,17 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
         void load(stored,action);return()=>{live.current=false;loadVersion.current++;};
     },[client,userID,slug]);
     useEffect(()=>{
-        if(!automaticRecovery||!pending){if(recoveryAttempt)setRecoveryAttempt(0);return;}
+        if(!pending&&!pendingAction){if(recoveryAttempt)setRecoveryAttempt(0);return;}
         if(busy||loading||storageBlocked)return;
         let started=false;
         const recover=()=>{
             if(started||lock.current||!current())return;
-            started=true;setRecoveryAttempt(value=>value+1);void load(pending);
+            started=true;setRecoveryAttempt(value=>value+1);void load(pending,pendingAction);
         };
         const timer=setTimeout(recover,Math.min(1000*2**Math.min(recoveryAttempt,5),30000));
         window.addEventListener('online',recover);
         return()=>{clearTimeout(timer);window.removeEventListener('online',recover);};
-    },[automaticRecovery,pending,busy,loading,storageBlocked,recoveryAttempt,client,userID,slug,generation]);
+    },[pending,pendingAction,busy,loading,storageBlocked,recoveryAttempt,client,userID,slug,generation]);
     const revealIncomplete=slug==='scratch'&&round?.scratch&&!round.presentation_completed_at;
     const cost=wagerCost(wager,slug==='summon'?mode:'SINGLE',slug);
     const available=bootstrap?units(revealIncomplete&&round?round.balance_before_units:bootstrap.available_units):null;
@@ -168,12 +169,13 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
     const actionBlocked=busy||loading||!!pending||!!pendingAction||storageBlocked||!bootstrap||round?.recovery_state==='NEEDS_REVIEW';
     const activeBlackjack=slug==='blackjack'&&round?.state==='PLAYER_TURN';
     const blocked=(slug==='dice'&&diceAnimating)||actionBlocked||bootstrap?.game.effective_runtime!=='PLAY'||!bootstrap?.next_commitment||!!revealIncomplete||activeBlackjack;
-    async function play(original?:PendingGame) {
-        if(lock.current||!bootstrap||(original?(!retryReady||loading):blocked||!!invalid))return;
-        lock.current=true;setBusy(true);setNotice('');setRetryReady(false);
+    async function play() {
+        if(lock.current||!bootstrap||blocked||!!invalid)return;
+        lock.current=true;setBusy(true);setNotice('');
         try{
-            let request=original;
-            if(!request){if(slug==='dice'&&choice===null)return;const input:GameInput=slug==='dice'?{type:'DICE',wager,choice:choice!}:slug==='scratch'?{type:'SCRATCH',wager}:slug==='slot'?{type:'SLOT',total_wager:wager}:slug==='blackjack'?{type:'BLACKJACK',initial_wager:wager}:{type:'SUMMON',base_wager:wager,mode};request={key:gameUUID(),commitment:bootstrap.next_commitment!.id,input};}
+            if(slug==='dice'&&choice===null)return;
+            const input:GameInput=slug==='dice'?{type:'DICE',wager,choice:choice!}:slug==='scratch'?{type:'SCRATCH',wager}:slug==='slot'?{type:'SLOT',total_wager:wager}:slug==='blackjack'?{type:'BLACKJACK',initial_wager:wager}:{type:'SUMMON',base_wager:wager,mode};
+            const request:PendingGame={key:gameUUID(),commitment:bootstrap.next_commitment!.id,input};
             // Only recovery identities and typed input persist, never auth or seed keys.
             try{sessionStorage.setItem(pendingStorage(userID,slug),JSON.stringify(request));}
             catch{setStorageBlocked(true);setNotice('浏览器无法保存本局恢复标识，尚未提交下注。请允许本网站使用会话存储后刷新。');return;}
@@ -184,7 +186,6 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
             await load();
         }catch(error){if(current()){
             if(error instanceof ApiError&&!error.uncertain&&error.status>=400&&error.status<500){sessionStorage.removeItem(pendingStorage(userID,slug));setPending(null);await load();setNotice(gameError(error));}
-            else if(!automaticRecovery){setNotice('本次请求结果尚未确认。请核对本局，确认前暂停新下注。'+gameError(error));}
         }}finally{if(current()){lock.current=false;setBusy(false);}}
     }
     async function completeScratch() {
@@ -197,10 +198,10 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
         }catch(error){if(current())setNotice('揭晓状态尚未确认，刷新即可恢复本张；不会再次购买。'+gameError(error));}
         finally{if(current()){lock.current=false;setBusy(false);}}
     }
-    async function performAction(command:BlackjackCommand,original?:PendingBlackjackAction){
-        if(lock.current||!bootstrap||!round||(original?(!actionRetryReady||loading):actionBlocked||!activeBlackjack))return;
-        lock.current=true;setBusy(true);setNotice('');setActionRetryReady(false);
-        const request=original||{round:round.id,input:{...command,action_id:gameUUID()}};
+    async function performAction(command:BlackjackCommand){
+        if(lock.current||!bootstrap||!round||actionBlocked||!activeBlackjack)return;
+        lock.current=true;setBusy(true);setNotice('');
+        const request={round:round.id,input:{...command,action_id:gameUUID()}};
         try{
             try{sessionStorage.setItem(blackjackActionStorage(userID),JSON.stringify(request));}catch{setStorageBlocked(true);setNotice('无法保存行动恢复标识，尚未提交行动。请允许会话存储后刷新。');return;}
             setPendingAction(request);
@@ -209,21 +210,19 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
             if(!current())return;sessionStorage.removeItem(blackjackActionStorage(userID));setPendingAction(null);await load();
         }catch(error){if(current()){
             if(error instanceof ApiError&&!error.uncertain&&error.status>=400&&error.status<500){sessionStorage.removeItem(blackjackActionStorage(userID));setPendingAction(null);await load();setNotice(gameError(error));}
-            else setNotice('行动结果尚未确认，请先核对本次行动。'+gameError(error));
         }}finally{if(current()){lock.current=false;setBusy(false);}}
     }
     const copy=gameCopy[slug];
+    const foldedInformation=slug==='slot'||slug==='blackjack';
     const salonLayout=slug==='dice'||slug==='scratch'||slug==='summon';
     const StageLayout=salonLayout?'div':Fragment;
     return <div className={'direct-game game-'+slug}>
+        {slug==='blackjack'&&<HallImage asset={pokerArt.room} className="blackjack-room" sizes="100vw"/>}
         {slug==='slot'&&<HallImage asset={slotArt.room} className="slot-room" sizes="100vw"/>}
         <header className="game-page-heading"><div><p className="eyebrow">CHALDEA / {copy.eyebrow}</p><h1>{gameNames[slug]}{slug==='slot'&&<small>王之宝库 · Slot</small>}</h1><p>{copy.intro}</p></div><div className="game-heading-links"><Link to="/games">所有游戏 ↗</Link><Link to="/history">游戏记录</Link><button onClick={()=>void load(pending,pendingAction)} disabled={busy||loading}>刷新恢复</button></div></header>
-        {notice&&!automaticRecovery&&<Alert>{notice}</Alert>}
-        {!automaticRecovery&&pending&&<div className="game-recovery" role="status"><p>有一笔下注等待核对，新下注已暂停。</p><button onClick={()=>void load(pending)} disabled={busy||loading}>核对本局</button>{retryReady&&<button onClick={()=>void play(pending)} disabled={busy}>使用原请求重试</button>}</div>}
-        {pendingAction&&<div className="game-recovery" role="status"><p>有一次行动等待核对，其他行动已暂停。</p><button disabled={busy||loading} onClick={()=>void load(pending,pendingAction)}>核对本次行动</button>{actionRetryReady&&<button disabled={busy||loading} onClick={()=>void performAction(pendingAction.input,pendingAction)}>重试原行动</button>}</div>}
         {round?.recovery_state==='NEEDS_REVIEW'&&<Alert>本局状态需要核对，已暂停行动。请保留本局编号并联系管理员。</Alert>}
-        {slug==='blackjack'?<BlackjackGame snapshot={round?.blackjack||null} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending||!!pendingAction} disabledReason={activeBlackjack?(actionBlocked?'请先恢复当前状态。':null):(blocked?'请先恢复当前状态。':null)} roundID={round?.id} onDeal={async()=>{await play()}} onAction={command=>performAction(command)} onRecover={()=>void load(pending,pendingAction)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={round?()=>navigate('/history/rounds/'+round.id):undefined}/>:null}
-        {slug==='blackjack'?null:slug==='slot'?<SlotGame salon onRules={()=>setSlotPanel('rules')} result={round?.slot||null} rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} error={!pending?notice:null} busy={busy||loading} recovering={!!pending} disabledReason={blocked&&!busy&&!loading&&!pending?'当前暂不可开局。':null} roundID={round?.id} onSpin={async()=>{await play()}} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={()=>setSlotPanel('fairness')}/>:<StageLayout {...(salonLayout?{className:slug+'-play-layout'}:{})}><section className={'game-stage '+(busy?'game-busy':'')} aria-label="游戏舞台">
+        {slug==='blackjack'?<BlackjackGame salon onRules={()=>setInfoPanel('rules')} snapshot={round?.blackjack||null} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending||!!pendingAction} error={!pending&&!pendingAction?notice:null} disabledReason={!busy&&!loading&&!pending&&!pendingAction&&(activeBlackjack?actionBlocked:blocked)?'当前暂不可操作。':null} roundID={round?.id} onDeal={async()=>{await play()}} onAction={command=>performAction(command)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={()=>setInfoPanel('fairness')}/>:null}
+        {slug==='blackjack'?null:slug==='slot'?<SlotGame salon onRules={()=>setInfoPanel('rules')} result={round?.slot||null} rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} error={!pending?notice:null} busy={busy||loading} recovering={!!pending} disabledReason={blocked&&!busy&&!loading&&!pending?'当前暂不可开局。':null} roundID={round?.id} onSpin={async()=>{await play()}} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={()=>setInfoPanel('fairness')}/>:<StageLayout {...(salonLayout?{className:slug+'-play-layout'}:{})}><section className={'game-stage '+(busy?'game-busy':'')} aria-label="游戏舞台">
             <div className="game-stage-corners" aria-hidden="true"/>
             {slug==='dice'?<DiceStage key={userID} result={round?.dice} busy={busy} loading={loading} recovering={!!pending} onAnimatingChange={setDiceAnimating}/>:slug==='scratch'?<ScratchStage round={round} onComplete={()=>void completeScratch()} busy={busy}/>:<SummonStage key={userID} round={round} animateRoundID={summonAnimationID} busy={busy} loading={loading} recovering={!!pending}/>}
         </section>
@@ -242,12 +241,12 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
             </form>
         </section>
         </StageLayout>}{loading&&!bootstrap&&<Loading/>}
-        {slug!=='slot'&&round&&!revealIncomplete&&!(slug==='dice'&&(busy||diceAnimating||pending))&&<RoundReceipt round={round}/> }
-        {slug==='slot'?slotPanel&&<Modal busy={slotSeedSaving} title={slotPanel==='rules'?'奖表与固定规则':'公平验证'} onClose={()=>setSlotPanel(null)}><div className="slot-dialog-content">{slotPanel==='rules'?<><SlotRules rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version}/><p>本局优先使用锁定的规则版本。插画仅对应原符号，不代表获得新币种或道具。</p><dl className="slot-symbol-key">{Object.entries(slotArt.symbols).map(([symbol,art])=><div key={symbol}><dt>{symbol}</dt><dd>{art.name}</dd></div>)}</dl></>:<>{bootstrap&&<FairnessControl client={client} slug={slug} bootstrap={bootstrap} disabled={blocked} onSavingChange={setSlotSeedSaving} onChanged={()=>void load()}/>} {round?<SlotRoundVerification key={round.id} client={client} round={round}/>:<p>尚未开局；结算后可在这里验证本局。</p>}</>}</div></Modal>:<div className="game-information">{slug==='blackjack'?<ExtraRules config={bootstrap?.game.config} blackjack/>:<GameRules slug={slug} config={bootstrap?.game.config}/>} {bootstrap&&<FairnessControl client={client} slug={slug} bootstrap={bootstrap} disabled={blocked} onChanged={()=>void load()}/>}</div>}
+        {!foldedInformation&&round&&!revealIncomplete&&!(slug==='dice'&&(busy||diceAnimating||pending))&&<RoundReceipt round={round}/> }
+        {foldedInformation?infoPanel&&<Modal busy={seedSaving} title={infoPanel==='rules'?(slug==='blackjack'?'游戏规则':'奖表与固定规则'):'公平验证'} onClose={()=>setInfoPanel(null)}><div className="slot-dialog-content">{infoPanel==='rules'?slug==='blackjack'?<><BlackjackRules/><p>规则版本 {round?.ruleset_version||bootstrap?.game.config?.ruleset_version||'读取中'}</p>{round?.blackjack?.phase==='PLAYER_TURN'&&<p>长期未操作处理时间：<time dateTime={round.blackjack.auto_resolve_at}>{new Date(round.blackjack.auto_resolve_at).toLocaleString('zh-CN',{hour12:false})}</time>。最后成功行动后24小时由服务端处理。</p>}</>:<><SlotRules rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version}/><p>本局优先使用锁定的规则版本。插画仅对应原符号，不代表获得新币种或道具。</p><dl className="slot-symbol-key">{Object.entries(slotArt.symbols).map(([symbol,art])=><div key={symbol}><dt>{symbol}</dt><dd>{art.name}</dd></div>)}</dl></>:<>{bootstrap&&<FairnessControl client={client} slug={slug} bootstrap={bootstrap} disabled={blocked} onSavingChange={setSeedSaving} onChanged={()=>void load()}/>} {round?<DirectRoundVerification key={round.id} client={client} round={round}/>:<p>尚未开局；结算后可在这里验证本局。</p>}</>}</div></Modal>:<div className="game-information"><GameRules slug={slug} config={bootstrap?.game.config}/> {bootstrap&&<FairnessControl client={client} slug={slug} bootstrap={bootstrap} disabled={blocked} onChanged={()=>void load()}/>}</div>}
     </div>;
 }
 
-function SlotRoundVerification({client,round}:{client:ApiClient;round:GameRound}) {
+function DirectRoundVerification({client,round}:{client:ApiClient;round:GameRound}) {
     const [attempt,setAttempt]=useState(0);
     const check=useResource(async()=>{
         if(!attempt)return null;
@@ -256,13 +255,9 @@ function SlotRoundVerification({client,round}:{client:ApiClient;round:GameRound}
         return result;
     },[client,round.id,attempt]);
     const verification=check.data;
-    return <section className="slot-verification"><h2>复算本局</h2><p className="round-id">Round · {round.id}</p><p>依据本局锁定的种子、Nonce、配置和算法复算，不创建新局或重复结算。</p><p>规则 {round.ruleset_version} · 结算后余额 {chips(round.balance_after_units)} 筹码</p><button disabled={attempt>0&&check.loading} onClick={()=>setAttempt(value=>value+1)}>{attempt>0&&check.loading?'正在复算…':'验证本局'}</button>{check.error&&<Alert>{check.error}</Alert>}{verification&&<div className="verification-result" role="status"><h3>{verification.reveal_state!=='REVEALED'?'本局尚未结算，种子将在结算后公开。':verification.verified?'验证通过：结果与原始输入一致':'验证未通过：请保留本局编号'}</h3><dl><div><dt>Server Seed Hash</dt><dd><code>{verification.server_seed_hash}</code></dd></div><div><dt>公开 Server Seed</dt><dd><code>{verification.server_seed}</code></dd></div><div><dt>Client Seed</dt><dd><code>{verification.commitment.client_seed}</code></dd></div><div><dt>Nonce</dt><dd>{verification.commitment.nonce}</dd></div><div><dt>随机流版本</dt><dd>{verification.commitment.fairness_stream_version}</dd></div><div><dt>配置哈希</dt><dd><code>{verification.commitment.config_hash}</code></dd></div></dl><details><summary>查看完整可复算输入</summary><pre>{JSON.stringify(verification.commitment,null,2)}</pre><pre>{verification.canonical_config}</pre></details></div>}<Link className="text-link" to={'/history/rounds/'+round.id}>查看本局记录 ↗</Link></section>;
+    return <section className="slot-verification"><h2>复算本局</h2><p className="round-id">Round · {round.id}</p><p>依据本局锁定的种子、Nonce、配置和算法复算，不创建新局或重复结算。</p><p>规则 {round.ruleset_version} · {round.state==='SETTLED'?'结算后余额':'本局已确认余额'} {chips(round.balance_after_units)} 筹码</p><button disabled={attempt>0&&check.loading} onClick={()=>setAttempt(value=>value+1)}>{attempt>0&&check.loading?'正在复算…':'验证本局'}</button>{check.error&&<Alert>{check.error}</Alert>}{verification&&<div className="verification-result" role="status"><h3>{verification.reveal_state!=='REVEALED'?'本局尚未结算，种子将在结算后公开。':verification.verified?'验证通过：结果与原始输入一致':'验证未通过：请保留本局编号'}</h3><dl><div><dt>Server Seed Hash</dt><dd><code>{verification.server_seed_hash}</code></dd></div><div><dt>公开 Server Seed</dt><dd><code>{verification.server_seed}</code></dd></div><div><dt>Client Seed</dt><dd><code>{verification.commitment.client_seed}</code></dd></div><div><dt>Nonce</dt><dd>{verification.commitment.nonce}</dd></div><div><dt>随机流版本</dt><dd>{verification.commitment.fairness_stream_version}</dd></div><div><dt>配置哈希</dt><dd><code>{verification.commitment.config_hash}</code></dd></div></dl><details><summary>查看完整可复算输入</summary><pre>{JSON.stringify(verification.commitment,null,2)}</pre><pre>{verification.canonical_config}</pre>{verification.blackjack_audit!==undefined&&<pre>{JSON.stringify(verification.blackjack_audit,null,2)}</pre>}</details></div>}<Link className="text-link" to={'/history/rounds/'+round.id}>查看本局记录 ↗</Link></section>;
 }
 
-function ExtraRules({config,blackjack=false}:{config?:GameConfig;blackjack?:boolean}){
-    if(blackjack)return <section className="game-rules"><p className="eyebrow">FROZEN RULES</p><h2>固定规则</h2><p>固定六副牌、S17、Natural 3:2；加倍与分牌会增加整局下注。结算追加规则规定的公平返还，总派彩减全部下注才是本局净变化。</p><p>具体操作会改变个人结果；牌桌不提供策略推荐。完整规则、结果与可复算输入保存在本局详情。</p><small>{config?.ruleset_version&&`规则版本 ${config.ruleset_version}`}</small></section>;
-    return <section className="game-rules"><p className="eyebrow">FROZEN RULES</p><h2>固定规则</h2><p>总下注平均分配给固定的 10 条线。中奖线的返还相加，再减总下注，得到整局净变化；部分返还仍计作净输。</p><p>卷轴、中奖线和本局使用的奖励倍率可在奖表及公平详情中核对。</p><small>{config?.ruleset_version&&`规则版本 ${config.ruleset_version}`}</small></section>
-}
 function GameRules({slug,config}:{slug:GameSlug;config?:GameConfig}) {
     return <section className="game-rules"><p className="eyebrow">KNOW YOUR GAME</p><h2>规则与奖励</h2>
         {slug==='dice'?<p>三颗六面骰。小为 4–10 点，大为 11–17 点。任意豹子（3 颗相同）返还本次下注；猜中总派彩为下注的 2 倍，普通未中派彩为 0。</p>:slug==='scratch'?<p>九宫格出现 3 枚相同功能星纹，获得对应倍数的总派彩；未匹配时派彩为 0。结果在购买时确定，刮擦和立即揭晓只改变展示。</p>:<p>单抽与十连使用相同奖池。十连总消耗为基础下注的 10 倍，每抽独立，没有保底或共享修正；整轮结果按总派彩减总消耗计算。</p>}
