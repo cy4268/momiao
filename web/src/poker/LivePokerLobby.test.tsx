@@ -31,6 +31,7 @@ const lease=()=>({user_id:'910001',table_id:table,reservation_id:reservation,sta
 function seated(){const s=whole();s.active_session={session_id:session,table_id:table,table_name:'月光长廊',state:'ACTIVE',seat_no:3,stack_units:'200000000',committed_units:'0',poker_in_play_units:'200000000',small_blind_units:'2500000',big_blind_units:'5000000',ante_units:'0',can_reconnect:true};s.viewer.poker_in_play_units='200000000';return s;}
 async function openCreate(){fireEvent.click(screen.getByRole('button',{name:'创建牌桌'}));fireEvent.change(screen.getByLabelText('牌桌名称'),{target:{value:'月下新桌'}});}
 const confirmCreate=()=>fireEvent.click(screen.getByRole('button',{name:'确认创建牌桌'}));
+const openEntryStatus=()=>fireEvent.click(screen.getByRole('button',{name:'入桌状态'}));
 async function prepare(r:Runtime,kind:'create'|'reserve'|'buyin'){
   const view=await live(r);
   if(kind==='create')await openCreate();
@@ -45,6 +46,7 @@ async function live(r:Runtime){const view=render(<LivePokerLobby {...r.p}/>);awa
 
 describe('Live Lobby whole-read owner',()=>{
   it('loads the real whole DTO instead of leaving the authenticated lobby inert',async()=>{
+    vi.useFakeTimers({toFake:['setInterval','clearInterval']});
     const r=await setup(),response=deferred<Response>();r.fetcher.mockImplementation(()=>response.promise.then(value=>value.clone()));
     renderToString(<LivePokerLobby {...r.p}/>);expect(reads(r)).toHaveLength(0);
     render(<StrictMode><LivePokerLobby {...r.p}/></StrictMode>);await act(async()=>{});
@@ -52,6 +54,13 @@ describe('Live Lobby whole-read owner',()=>{
     await act(async()=>response.resolve(ok(whole())));expect(await screen.findByText('月光长廊')).toBeInTheDocument();
     expect(reads(r).at(-1)?.[0]).toBe('/api/v1/poker');expect(r.p.onPendingChange).not.toHaveBeenCalled();
     expect(r.fetcher.mock.calls.filter(([path,init])=>path.startsWith('/api/v1/poker')&&init?.method==='POST')).toHaveLength(0);
+    await openCreate();const input=screen.getByLabelText('牌桌名称');fireEvent.change(input,{target:{value:'保留中的草稿'}});input.focus();const old=observed.current!,count=reads(r).length,refresh=deferred<Response>();
+    r.fetcher.mockImplementation(()=>refresh.promise);act(()=>vi.advanceTimersByTime(30_000));expect(reads(r)).toHaveLength(count+1);expect(screen.getByText('HTTP 已更新')).toBeInTheDocument();expect(screen.getByRole('button',{name:'确认创建牌桌'})).toBeEnabled();
+    act(()=>window.dispatchEvent(new Event('focus')));expect(reads(r)).toHaveLength(count+1);
+    const closed=whole();closed.tables=[];await act(async()=>refresh.resolve(ok(closed)));expect(screen.queryByText('月光长廊')).not.toBeInTheDocument();expect(input).toHaveValue('保留中的草稿');expect(document.activeElement).toBe(input);
+    act(()=>old.onIntent({type:'create',name:'保留中的草稿',visibility:'PUBLIC',max_seats:6,blind_preset_id:'5-10',allow_spectators:true,chat_enabled:false},old.authority.scope));expect(writes(r)).toHaveLength(0);
+    r.fetcher.mockRejectedValueOnce(Error('offline'));act(()=>window.dispatchEvent(new Event('focus')));expect(await screen.findByText('后台刷新暂未完成，继续保留最近一次完整大厅状态。')).toBeInTheDocument();
+    r.fetcher.mockResolvedValueOnce(ok(closed));act(()=>window.dispatchEvent(new Event('focus')));await waitFor(()=>expect(screen.queryByText('后台刷新暂未完成，继续保留最近一次完整大厅状态。')).not.toBeInTheDocument());
   });
 });
 
@@ -92,26 +101,25 @@ describe('Live Lobby original entry pipeline',()=>{
     expect(r.p.onPendingChange).toHaveBeenLastCalledWith(false);expect(uuid).toHaveBeenCalledTimes(3);expect(writes(r)).toHaveLength(3);
     expect(r.fetcher.mock.calls.some(([path])=>path===`/api/v1/poker/tables/${table}`)).toBe(false);
   });
-  it.each(['create','reserve','buyin'] as const)('retains %s timeout through filters / NOT_FOUND and retries only the original command',async kind=>{
-    const r=await setup();let attempts=0,confirmed=false;
+  it.each(['create','reserve','buyin'] as const)('automatically recovers %s through NOT_FOUND backoff without replaying the command',async kind=>{
+    const r=await setup();let attempts=0,lookups=0,confirmed=false;
     r.fetcher.mockImplementation((path,init)=>{
       if(init?.method==='GET')return Promise.resolve(ok(confirmed?seated():whole()));
       if(path.endsWith('/reservation-query'))return Promise.resolve(ok(lease()));
-      if(path.endsWith('/entry-receipt-query')){const body=JSON.parse(init!.body as string);return Promise.resolve(ok({user_id:'910001',kind:body.kind,mutation_id:body.mutation_id,state:'NOT_FOUND'}));}
+      if(path.endsWith('/entry-receipt-query')){const body=JSON.parse(init!.body as string);lookups++;if(lookups===1)return Promise.resolve(ok({user_id:'910001',kind:body.kind,mutation_id:body.mutation_id,state:'NOT_FOUND'}));if(kind==='buyin')confirmed=true;return Promise.resolve(ok({user_id:'910001',kind:body.kind,mutation_id:body.mutation_id,state:'FOUND',receipt:receipt(kind)}));}
       const actual=kindFor(path);if(actual===kind&&++attempts===1)return Promise.reject(Error('lost ACK'));
       if(actual==='buyin')confirmed=true;return Promise.resolve(ok(receipt(actual)));
     });
-    const uuid=vi.spyOn(crypto,'randomUUID'),view=await prepare(r,kind);view.submit();await screen.findByRole('button',{name:'查询原操作回执'});
-    await waitFor(()=>expect(screen.getByRole('button',{name:'查询原操作回执'})).toBeEnabled());
+    const uuid=vi.spyOn(crypto,'randomUUID'),view=await prepare(r,kind),visibility=vi.spyOn(document,'visibilityState','get'),online=vi.spyOn(navigator,'onLine','get');let visible=false,connected=false;
+    visibility.mockImplementation(()=>visible?'visible':'hidden');online.mockImplementation(()=>connected);vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});view.submit();await act(async()=>{});
     const original=writes(r).at(-1)!,keyCount=uuid.mock.calls.length,pendingCalls=vi.mocked(r.p.onPendingChange).mock.calls.length;
     expect(screen.getByRole('button',{name:'收起'})).toBeDisabled();expect(screen.getByRole('button',{name:'查看钱包 ↗'})).toBeDisabled();
-    fireEvent.change(screen.getByLabelText('搜索牌桌'),{target:{value:'另一筛选'}});await act(async()=>{});
-    expect(r.p.onPendingChange).toHaveBeenCalledTimes(pendingCalls);expect(uuid).toHaveBeenCalledTimes(keyCount);
-    fireEvent.click(screen.getByRole('button',{name:'查询原操作回执'}));await screen.findByText(/原回执尚未读到/);
-    expect(r.p.onPendingChange).toHaveBeenLastCalledWith(true);expect(attempts).toBe(1);
-    fireEvent.click(screen.getByRole('button',{name:'重试原请求'}));await waitFor(()=>expect(attempts).toBe(2));await act(async()=>{});
-    expect(writes(r).at(-1)?.[0]).toBe(original[0]);expect(writes(r).at(-1)?.[1]?.body).toBe(original[1]?.body);expect(uuid).toHaveBeenCalledTimes(keyCount);
-    expect(r.fetcher.mock.calls.filter(([path])=>path.endsWith('/entry-receipt-query'))).toHaveLength(2);
+    expect(screen.queryByRole('region',{name:'原入桌操作'})).not.toBeInTheDocument();openEntryStatus();expect(screen.getByText(/自动只读核对中/)).toBeInTheDocument();expect(screen.queryByRole('button',{name:/查询原操作回执|重试原请求|继续核对原结果/})).not.toBeInTheDocument();
+    await act(async()=>vi.advanceTimersByTime(30_000));expect(lookups).toBe(0);connected=true;act(()=>window.dispatchEvent(new Event('online')));expect(lookups).toBe(0);
+    visible=true;await act(async()=>document.dispatchEvent(new Event('visibilitychange')));expect(lookups).toBe(1);expect(screen.getByText(/NOT_FOUND 仅代表当前不可见/)).toBeInTheDocument();
+    expect(r.p.onPendingChange).toHaveBeenCalledTimes(pendingCalls);expect(r.p.onPendingChange).toHaveBeenLastCalledWith(true);expect(attempts).toBe(1);expect(writes(r)).toHaveLength(kind==='buyin'?2:1);expect(writes(r).at(-1)?.[0]).toBe(original[0]);expect(writes(r).at(-1)?.[1]?.body).toBe(original[1]?.body);expect(uuid).toHaveBeenCalledTimes(keyCount);
+    await act(async()=>vi.advanceTimersByTime(1_999));expect(lookups).toBe(1);await act(async()=>window.dispatchEvent(new Event('focus')));expect(lookups).toBe(2);await act(async()=>{});
+    expect(r.fetcher.mock.calls.filter(([path])=>path.endsWith('/entry-receipt-query'))).toHaveLength(2);expect(attempts).toBe(1);expect(uuid).toHaveBeenCalledTimes(keyCount);
     expect(r.p.onPendingChange).toHaveBeenLastCalledWith(false);
   });
   it('blocks a write still waiting on native refresh when the latest soft policy is loading',async()=>{
@@ -160,22 +168,23 @@ describe('Live Lobby read / handoff boundaries',()=>{
 });
 
 describe('Live Lobby preserved ACK and latest retry conditions',()=>{
-  it('continues a create ACK when manual pagination finally returns its real row, without resetting back to page one',async()=>{
-    const r=await setup();let created=false;
+  it('continues a create ACK with its immutable table target when a later filter read wins first',async()=>{
+    const r=await setup(),target=deferred<Response>(),filtered=deferred<Response>();let created=false;
     r.fetcher.mockImplementation((path,init)=>{
       if(init?.method==='POST'){created=true;return Promise.resolve(ok(receipt('create')));}
-      const s=whole();if(created&&!path.includes('cursor=')){s.tables=[{...s.tables[1],name:table}];s.page.next_cursor='eyJ2IjoyfQ';}return Promise.resolve(ok(s));
+      if(!created)return Promise.resolve(ok(whole()));if(path.includes(`q=${table}`))return target.promise;if(path.includes('q=%E5%85%B6%E4%BB%96%E7%AD%9B%E9%80%89'))return filtered.promise;return Promise.resolve(ok(whole()));
     });
-    const view=await prepare(r,'create');view.submit();await waitFor(()=>expect(screen.getByRole('button',{name:'继续核对原结果'})).toBeEnabled());
-    expect(r.p.onPendingChange).toHaveBeenLastCalledWith(true);fireEvent.click(screen.getByRole('button',{name:'下一页'}));
-    await waitFor(()=>expect(screen.getByRole('button',{name:'预留 3 号座位'})).toBeEnabled());expect(r.p.onPendingChange).toHaveBeenLastCalledWith(false);
-    expect(reads(r).at(-1)?.[0]).toContain('cursor=eyJ2IjoyfQ');expect(writes(r)).toHaveLength(1);
+    const view=await prepare(r,'create');view.submit();expect(screen.queryByRole('region',{name:'原入桌操作'})).not.toBeInTheDocument();openEntryStatus();await waitFor(()=>expect(screen.getByRole('region',{name:'原入桌操作'})).toHaveTextContent('WAITING'));expect(screen.getByText(/自动只读核对中/)).toBeInTheDocument();
+    expect(reads(r).some(([path])=>path.includes(`q=${table}`))).toBe(true);fireEvent.change(screen.getByLabelText('搜索牌桌'),{target:{value:'其他筛选'}});expect(reads(r).at(-1)?.[0]).toContain('q=%E5%85%B6%E4%BB%96%E7%AD%9B%E9%80%89');
+    const without=whole();without.tables=[];await act(async()=>filtered.resolve(ok(without)));expect(r.p.onPendingChange).toHaveBeenLastCalledWith(true);
+    const exact=whole();exact.tables=[{...exact.tables[0],open_seat_numbers:[3,5]}];await act(async()=>target.resolve(ok(exact)));
+    await waitFor(()=>expect(screen.getByRole('button',{name:'预留 3 号座位'})).toBeEnabled());expect(screen.getByRole('button',{name:'预留 4 号座位'})).toBeDisabled();expect(r.p.onPendingChange).toHaveBeenLastCalledWith(false);expect(writes(r)).toHaveLength(1);
   });
   it('keeps an already sent create ACK during maintenance and never replays it after READY returns',async()=>{
     const r=await setup(),response=deferred<Response>();r.fetcher.mockImplementation((path,init)=>init?.method==='GET'?Promise.resolve(ok(whole())):response.promise);
     const view=await prepare(r,'create');view.submit();expect(writes(r)).toHaveLength(1);
     view.rerender(<LivePokerLobby {...r.p} policy={{stage:'MAINTENANCE',recovery_only:true,mutation_blocked:true}}/>);
-    await act(async()=>response.resolve(ok(receipt('create'))));expect(screen.getByRole('region',{name:'原入桌操作'})).toHaveTextContent('WAITING');
+    await act(async()=>response.resolve(ok(receipt('create'))));openEntryStatus();expect(screen.getByRole('region',{name:'原入桌操作'})).toHaveTextContent('WAITING');
     expect(r.p.onPendingChange).toHaveBeenLastCalledWith(false);expect(screen.getByRole('button',{name:'预留 3 号座位'})).toBeDisabled();
     view.rerender(<LivePokerLobby {...r.p}/>);await act(async()=>{});expect(writes(r)).toHaveLength(1);
   });
@@ -189,9 +198,9 @@ describe('Live Lobby preserved ACK and latest retry conditions',()=>{
       if(path.endsWith('/reservation-query'))return Promise.resolve(ok(lease()));
       const kind=kindFor(path);if(kind==='buyin')after=true;return Promise.resolve(ok(receipt(kind)));
     });
-    const view=await prepare(r,'buyin');view.submit();await waitFor(()=>expect(screen.getByRole('button',{name:'继续核对原结果'})).toBeEnabled());
-    expect(r.p.onEnter).not.toHaveBeenCalled();expect(r.p.onPendingChange).toHaveBeenLastCalledWith(true);expect(screen.queryByRole('button',{name:'重试原请求'})).not.toBeInTheDocument();
-    correct=true;fireEvent.click(screen.getByRole('button',{name:'继续核对原结果'}));await waitFor(()=>expect(r.p.onEnter).toHaveBeenCalledTimes(1));expect(writes(r)).toHaveLength(2);
+    const view=await prepare(r,'buyin');vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});view.submit();await act(async()=>{});
+    expect(r.p.onEnter).not.toHaveBeenCalled();expect(r.p.onPendingChange).toHaveBeenLastCalledWith(true);openEntryStatus();expect(screen.getByText(/自动只读核对中/)).toBeInTheDocument();
+    correct=true;await act(async()=>vi.advanceTimersByTime(1_000));await act(async()=>{});expect(r.p.onEnter).toHaveBeenCalledTimes(1);expect(writes(r)).toHaveLength(2);
   });
   it('uses FOUND original receipts without another mutation and treats FAILED_NO_EFFECT as terminal',async()=>{
     const r=await setup();r.fetcher.mockImplementation((path,init)=>{
@@ -199,14 +208,13 @@ describe('Live Lobby preserved ACK and latest retry conditions',()=>{
       if(path.endsWith('/entry-receipt-query')){const body=JSON.parse(init!.body as string);return Promise.resolve(ok({user_id:'910001',kind:'buyin',mutation_id:body.mutation_id,state:'FOUND',receipt:{table_id:table,table_version:'9',duplicate:true,status:'FAILED_NO_EFFECT',failure_code:'WALLET_INSUFFICIENT'}}));}
       return path.endsWith('/buy-ins')?Promise.reject(Error('lost')):Promise.resolve(ok(receipt('reserve')));
     });
-    const view=await prepare(r,'buyin');view.submit();await waitFor(()=>expect(screen.getByRole('button',{name:'查询原操作回执'})).toBeEnabled());
-    fireEvent.click(screen.getByRole('button',{name:'查询原操作回执'}));await waitFor(()=>expect(r.p.onPendingChange).toHaveBeenLastCalledWith(false));
-    expect(screen.getByRole('region',{name:'原入桌操作'})).toHaveTextContent('FAILED_NO_EFFECT');expect(writes(r)).toHaveLength(2);expect(r.p.onEnter).not.toHaveBeenCalled();
+    const view=await prepare(r,'buyin');vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});view.submit();await act(async()=>{});await act(async()=>vi.advanceTimersByTime(1_000));await act(async()=>{});expect(r.p.onPendingChange).toHaveBeenLastCalledWith(false);
+    openEntryStatus();expect(screen.getByRole('region',{name:'原入桌操作'})).toHaveTextContent('FAILED_NO_EFFECT');expect(writes(r)).toHaveLength(2);expect(r.p.onEnter).not.toHaveBeenCalled();
   });
   it.each([
     ['create','owned'],['create','preset'],['create','active'],['create','maintenance'],
     ['reserve','seat'],['reserve','row'],['reserve','join'],['buyin','wallet'],['buyin','min'],['buyin','max'],['buyin','lease'],
-  ] as const)('rechecks %s retry against latest %s instead of the original render',async(kind,condition)=>{
+  ] as const)('keeps %s NOT_FOUND locked under latest %s and never resends',async(kind,condition)=>{
     const r=await setup();let checking=false;
     r.fetcher.mockImplementation((path,init)=>{
       if(init?.method==='GET'){
@@ -218,10 +226,9 @@ describe('Live Lobby preserved ACK and latest retry conditions',()=>{
       if(path.endsWith('/entry-receipt-query')){const body=JSON.parse(init!.body as string);return Promise.resolve(ok({user_id:'910001',kind:body.kind,mutation_id:body.mutation_id,state:'NOT_FOUND'}));}
       return kindFor(path)===kind?Promise.reject(Error('lost')):Promise.resolve(ok(receipt('reserve')));
     });
-    const view=await prepare(r,kind);if(condition==='max')fireEvent.click(screen.getByRole('button',{name:'最高买入'}));view.submit();await waitFor(()=>expect(screen.getByRole('button',{name:'查询原操作回执'})).toBeEnabled());const count=writes(r).length;
-    fireEvent.click(screen.getByRole('button',{name:'查询原操作回执'}));await waitFor(()=>expect(screen.getByRole('button',{name:'重试原请求'})).toBeEnabled());
-    checking=true;fireEvent.click(screen.getByRole('button',{name:'重试原请求'}));await waitFor(()=>expect(screen.getByRole('button',{name:'查询原操作回执'})).toBeEnabled());
-    expect(writes(r)).toHaveLength(count);expect(r.p.onPendingChange).toHaveBeenLastCalledWith(true);
+    const view=await prepare(r,kind);if(condition==='max')fireEvent.click(screen.getByRole('button',{name:'最高买入'}));vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});view.submit();await act(async()=>{});const count=writes(r).length;
+    await act(async()=>vi.advanceTimersByTime(1_000));checking=true;await act(async()=>vi.advanceTimersByTime(2_000));await act(async()=>{});
+    openEntryStatus();expect(screen.getByText(/NOT_FOUND 仅代表当前不可见/)).toBeInTheDocument();expect(screen.getByText(/自动只读核对中/)).toBeInTheDocument();expect(writes(r)).toHaveLength(count);expect(r.p.onPendingChange).toHaveBeenLastCalledWith(true);
   });
 });
 
@@ -236,11 +243,17 @@ describe('Live Lobby lifecycle and lease observation',()=>{
     fireEvent.change(screen.getByLabelText('搜索牌桌'),{target:{value:'valid-old'}});fireEvent.change(screen.getByLabelText('搜索牌桌'),{target:{value:'x'.repeat(41)}});
     await act(async()=>old.resolve(ok(whole())));expect(screen.getByText('HTTP 读取失败')).toBeInTheDocument();expect(screen.getByRole('button',{name:'创建牌桌'})).toBeDisabled();
   });
-  it('retains the original lease query target after a manual read failure, without treating it as live',async()=>{
+  it('automatically rechecks the original lease target with singleflight and clears only its own error',async()=>{
     const r=await setup();r.fetcher.mockImplementation((path,init)=>Promise.resolve(ok(init?.method==='GET'?whole():path.endsWith('/reservation-query')?lease():receipt('reserve'))));
-    await prepare(r,'buyin');r.fetcher.mockRejectedValueOnce(Error('offline'));fireEvent.click(screen.getByRole('button',{name:'查询当前预留'}));
-    await waitFor(()=>expect(screen.getByRole('button',{name:'确认买入并等待大盲'})).toBeDisabled());expect(screen.getByRole('button',{name:'查询当前预留'})).toBeEnabled();
-    fireEvent.click(screen.getByRole('button',{name:'查询当前预留'}));await waitFor(()=>expect(screen.getByRole('button',{name:'确认买入并等待大盲'})).toBeEnabled());
+    await prepare(r,'buyin');const buy=screen.getByLabelText('买入筹码'),count=reads(r).length,background=deferred<Response>(),leaseRefresh=deferred<Response>();fireEvent.change(buy,{target:{value:'450'}});buy.focus();
+    r.fetcher.mockImplementation((path,init)=>init?.method==='GET'?background.promise:path.endsWith('/reservation-query')?leaseRefresh.promise:Promise.resolve(ok(receipt('reserve'))));
+    act(()=>window.dispatchEvent(new Event('focus')));expect(reads(r)).toHaveLength(count+1);expect(r.fetcher.mock.calls.filter(([path])=>path.endsWith('/reservation-query'))).toHaveLength(2);expect(screen.getByRole('button',{name:'确认买入并等待大盲'})).toBeEnabled();
+    act(()=>window.dispatchEvent(new Event('focus')));expect(reads(r)).toHaveLength(count+1);expect(r.fetcher.mock.calls.filter(([path])=>path.endsWith('/reservation-query'))).toHaveLength(2);
+    await act(async()=>background.resolve(ok(whole())));expect(buy).toHaveValue('450');expect(document.activeElement).toBe(buy);expect(screen.getByRole('button',{name:'预留 3 号座位'})).toHaveClass('pk-seat-chosen');
+    await act(async()=>leaseRefresh.resolve(new Response(JSON.stringify({success:false,code:'TEMPORARY'}),{status:503})));await waitFor(()=>expect(screen.getByRole('button',{name:'确认买入并等待大盲'})).toBeDisabled());
+    expect(screen.queryByRole('button',{name:'查询当前预留'})).not.toBeInTheDocument();expect(screen.getByText('预留状态暂未核实；系统将在网络恢复后自动核对。')).toBeInTheDocument();expect(screen.queryByRole('region',{name:'服务端预留观察'})).not.toBeInTheDocument();openEntryStatus();expect(screen.getByRole('region',{name:'服务端预留观察'})).toBeInTheDocument();
+    r.fetcher.mockImplementation((path,init)=>Promise.resolve(ok(init?.method==='GET'?whole():path.endsWith('/reservation-query')?lease():receipt('reserve'))));act(()=>window.dispatchEvent(new Event('focus')));
+    await waitFor(()=>expect(screen.getByRole('button',{name:'确认买入并等待大盲'})).toBeEnabled());expect(screen.queryByText('预留状态暂未核实；系统将在网络恢复后自动核对。')).not.toBeInTheDocument();
     expect(r.fetcher.mock.calls.filter(([path])=>path.endsWith('/reservation-query')).map(([,init])=>init?.body)).toEqual(Array(3).fill(JSON.stringify({reservation_id:reservation})));expect(writes(r)).toHaveLength(1);
   });
   it.each(['success','error'] as const)('drops old-client late %s without decoding the old DTO or clearing new pending',async outcome=>{
@@ -274,16 +287,17 @@ describe('Live Lobby lifecycle and lease observation',()=>{
     });
     const view=await prepare(r,'reserve');view.submit();await act(async()=>{});expect(screen.getByRole('button',{name:'确认买入并等待大盲'})).toBeDisabled();
     const p=observed.current!;act(()=>p.onIntent({type:'buyin',table_id:table,reservation_id:reservation,seat_no:3,amount_units:'200000000',entry_mode:'WAIT_FOR_BB'},p.authority.scope));
-    expect(writes(r)).toHaveLength(1);expect(screen.getByRole('region',{name:'原入桌操作'})).toHaveTextContent('LEASE_ACTIVE');expect(r.p.onEnter).not.toHaveBeenCalled();
+    expect(writes(r)).toHaveLength(1);openEntryStatus();expect(screen.getByRole('region',{name:'原入桌操作'})).toHaveTextContent('LEASE_ACTIVE');expect(r.p.onEnter).not.toHaveBeenCalled();
   });
-  it('uses the original server deadline minus RTT and monotonic elapsed time, without timer I/O or keys',async()=>{
+  it('uses the original server deadline and automatically rechecks without minting keys or writes',async()=>{
     vi.useFakeTimers({toFake:['setInterval','clearInterval']});let now=100;vi.spyOn(performance,'now').mockImplementation(()=>now);const uuid=vi.spyOn(crypto,'randomUUID');
-    const r=await setup(),leaseRead=deferred<Response>();r.fetcher.mockImplementation((path,init)=>init?.method==='GET'?Promise.resolve(ok(whole())):path.endsWith('/reservation-query')?leaseRead.promise:Promise.resolve(ok(receipt('reserve'))));
+    const r=await setup(),leaseRead=deferred<Response>();let initial=true;r.fetcher.mockImplementation((path,init)=>{if(init?.method==='GET')return Promise.resolve(ok(whole()));if(path.endsWith('/reservation-query')){if(initial){initial=false;return leaseRead.promise;}const expired=lease();expired.reservation.valid=false;expired.reservation.durable_state='EXPIRED';return Promise.resolve(ok(expired));}return Promise.resolve(ok(receipt('reserve')));});
     const view=await prepare(r,'reserve');view.submit();await act(async()=>{});now=2100;await act(async()=>leaseRead.resolve(ok(lease())));
-    expect(screen.getByRole('region',{name:'服务端预留观察'})).toHaveTextContent('28 秒');expect(screen.getByRole('button',{name:'确认买入并等待大盲'})).toBeEnabled();
+    expect(screen.queryByRole('region',{name:'服务端预留观察'})).not.toBeInTheDocument();openEntryStatus();expect(screen.getByRole('region',{name:'服务端预留观察'})).toHaveTextContent('28 秒');expect(screen.getByRole('button',{name:'确认买入并等待大盲'})).toBeEnabled();
     const count=r.fetcher.mock.calls.length;vi.spyOn(Date,'now').mockReturnValue(0);now=31101;act(()=>vi.advanceTimersByTime(1000));
     expect(screen.getByRole('region',{name:'服务端预留观察'})).toHaveTextContent('0 秒');expect(screen.getByRole('button',{name:'确认买入并等待大盲'})).toBeDisabled();
-    expect(r.fetcher).toHaveBeenCalledTimes(count);expect(uuid).toHaveBeenCalledTimes(1);expect(screen.getByText('2026-09-06T12:00:30Z')).toBeInTheDocument();
+    expect(r.fetcher).toHaveBeenCalledTimes(count);await act(async()=>vi.advanceTimersByTime(29_000));await act(async()=>{});expect(r.fetcher.mock.calls.filter(([path])=>path.endsWith('/reservation-query'))).toHaveLength(2);
+    expect(writes(r)).toHaveLength(1);expect(uuid).toHaveBeenCalledTimes(1);expect(screen.getByText('2026-09-06T12:00:30Z')).toBeInTheDocument();
   });
   it.each(['create','reserve','buyin'] as const)('retains %s original key for both HTTP 503 and malformed positive acknowledgements',async kind=>{
     for(const failure of ['503','malformed']){
@@ -292,8 +306,8 @@ describe('Live Lobby lifecycle and lease observation',()=>{
         if(kindFor(path)!==kind)return Promise.resolve(ok(receipt('reserve')));
         return Promise.resolve(failure==='503'?new Response(JSON.stringify({success:false,code:'TEMPORARY'}),{status:503}):ok({...receipt(kind),table_version:'0'}));
       });
-      const view=await prepare(r,kind);view.submit();await waitFor(()=>expect(screen.getByRole('button',{name:'查询原操作回执'})).toBeEnabled());
-      expect(screen.getByRole('region',{name:'原入桌操作'})).toHaveTextContent(JSON.parse(writes(r).at(-1)![1]!.body as string).request_id);expect(r.p.onPendingChange).toHaveBeenLastCalledWith(true);expect(r.p.onEnter).not.toHaveBeenCalled();view.unmount();
+      const view=await prepare(r,kind);vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});view.submit();await act(async()=>{});
+      openEntryStatus();expect(screen.getByRole('region',{name:'原入桌操作'})).toHaveTextContent(JSON.parse(writes(r).at(-1)![1]!.body as string).request_id);expect(screen.getByText(/自动只读核对中/)).toBeInTheDocument();expect(r.p.onPendingChange).toHaveBeenLastCalledWith(true);expect(r.p.onEnter).not.toHaveBeenCalled();view.unmount();vi.useRealTimers();
     }
   });
   it('rejects invalid monetary / reservation inputs at the owner despite invoking a saved callback directly',async()=>{

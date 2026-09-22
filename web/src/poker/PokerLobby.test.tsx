@@ -85,7 +85,7 @@ describe('controlled Poker Lobby', () => {
     const {rerender}=render(<PokerLobby {...p}/>);
     expect(screen.getByRole('button',{name:'确认买入并等待大盲'})).toBeDisabled();
     fireEvent.click(screen.getByRole('button',{name:'预留 3 号座位'}));
-    expect(p.onIntent).toHaveBeenLastCalledWith({type:'reserve',table_id:tableID,seat_no:3},p.authority.scope);expect(screen.getByText('PG 空座提示：3、4、5、6（非预留）')).toBeInTheDocument();
+    expect(p.onIntent).toHaveBeenLastCalledWith({type:'reserve',table_id:tableID,seat_no:3},p.authority.scope);expect(screen.getByText('空座 3、4、5、6 · 以预留结果为准')).toBeInTheDocument();
     p.flow={...p.flow,reservation:{reservation_id:'reservation-1',seat_no:3,expires_at:'2026-09-06T12:00:30Z',valid:true},draft:{...p.flow.draft,buy_in_chips:'499'}};
     rerender(<PokerLobby {...p}/>); expect(screen.getByRole('button',{name:'确认买入并等待大盲'})).toBeDisabled();
     p.flow={...p.flow,draft:{...p.flow.draft,buy_in_chips:'500'}}; rerender(<PokerLobby {...p}/>);

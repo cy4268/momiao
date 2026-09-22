@@ -25,8 +25,8 @@ describe('controlled Poker Table',()=>{
   });
   it('a read-only socket keeps explicit owned-session HTTP top-up and safe-leave when domain capabilities allow them',()=>{
     const p=fixture();p.authority.can_control=false;const {rerender}=render(<PokerTable {...p}/>);
-    expect(screen.getByRole('button',{name:'提交补充筹码'})).toBeEnabled();fireEvent.click(screen.getByRole('button',{name:'提交补充筹码'}));expect(p.onIntent).toHaveBeenLastCalledWith({type:'topup',amount_units:'50000000'},expect.anything());
-    fireEvent.click(screen.getByRole('button',{name:'安全离座'}));expect(p.onUiChange).toHaveBeenLastCalledWith({...p.ui,confirm_leave:true});rerender(<PokerTable {...p} ui={{...p.ui,confirm_leave:true}}/>);fireEvent.click(screen.getByRole('button',{name:'确认安全离座'}));expect(p.onIntent).toHaveBeenLastCalledWith({type:'leave',return_to_lobby:true},expect.anything());
+    fireEvent.click(screen.getByRole('button',{name:'补充筹码'}));expect(screen.getByRole('button',{name:'提交补充筹码'})).toBeEnabled();fireEvent.click(screen.getByRole('button',{name:'提交补充筹码'}));expect(p.onIntent).toHaveBeenLastCalledWith({type:'topup',amount_units:'50000000'},expect.anything());
+    fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));fireEvent.click(screen.getByRole('button',{name:'安全离座'}));expect(p.onUiChange).toHaveBeenLastCalledWith({...p.ui,confirm_leave:true});rerender(<PokerTable {...p} ui={{...p.ui,confirm_leave:true}}/>);fireEvent.click(screen.getByRole('button',{name:'确认安全离座'}));expect(p.onIntent).toHaveBeenLastCalledWith({type:'leave',return_to_lobby:true},expect.anything());
     expect(screen.getByRole('button',{name:'跟注 30 Chips'})).toBeDisabled();expect(screen.getByRole('button',{name:'下手暂离'})).toBeDisabled();expect(p.onIntent).toHaveBeenCalledTimes(2);
   });
   it('offers explicit takeover in the existing LIVE read-only action tray without claiming receipt confirmation is a controller grant',()=>{
@@ -63,6 +63,13 @@ describe('controlled Poker Table',()=>{
     expect(screen.getByRole('region',{name:'主池'})).toHaveTextContent('80');
     expect(screen.getByRole('region',{name:'边池 1'})).toHaveTextContent('21');
     expect(screen.getAllByRole('listitem',{name:/号座位/})).toHaveLength(9);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByText('Server seed hash')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'公平验证'}));
+    expect(screen.getByRole('dialog',{name:'公平验证'})).toHaveTextContent('hash-only');
+    expect(screen.queryByLabelText('K 梅花')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('shows explicitly server-released showdown cards but keeps folded and unreleased hands hidden',()=>{
@@ -127,7 +134,7 @@ describe('controlled Poker Table',()=>{
 
   it('limits top-up to authority, requires explicit takeover, and expires only from supplied server time',()=>{
     const p=fixture();p.ui={...p.ui,top_up_chips:'201'};const {rerender}=render(<PokerTable {...p}/>);
-    expect(screen.getByRole('button',{name:'提交补充筹码'})).toBeDisabled();
+    fireEvent.click(screen.getByRole('button',{name:'补充筹码'}));expect(screen.getByRole('button',{name:'提交补充筹码'})).toBeDisabled();
     p.ui={...p.ui,top_up_chips:'100'};rerender(<PokerTable {...p}/>);
     fireEvent.click(screen.getByRole('button',{name:'提交补充筹码'}));
     expect(p.onIntent).toHaveBeenLastCalledWith({type:'topup',amount_units:'50000000'},expect.anything());

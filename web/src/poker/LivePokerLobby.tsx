@@ -21,7 +21,10 @@ interface Operation {
     phase: 'SENT' | 'UNKNOWN' | 'ACKNOWLEDGED' | 'RESOLVED';
     receipt?: PokerReceipt;
     seat?: number;
-    lookup?: 'FOUND' | 'NOT_FOUND';
+    recoveryAttempt: number;
+    recoveryTimer?: ReturnType<typeof setTimeout>;
+    recoveryDeferred?: boolean;
+    recoveryRead?: number;
 }
 interface Lease {
     table: string;
@@ -37,6 +40,8 @@ interface Owner {
     scope: PokerEntryScope;
     alive: boolean;
     readGeneration: number;
+    nextReadGeneration: number;
+    reading?: number;
     read?: PokerLobbyReadScope;
     accepted?: Admission;
     readState: PokerLobbyAuthority['read_state'];
@@ -44,12 +49,17 @@ interface Owner {
     filtered: boolean;
     flow: LobbyFlow;
     notice: string;
+    backgroundNotice?: string;
     operation?: Operation;
     busy: boolean;
     lease?: Lease;
+    leaseReading?: Lease;
+    leaseNotice?: string;
     entered: boolean;
 }
 const defaults = (): LobbyFilters => ({ query: '', visibility: 'ALL', open_seats_only: false, max_seats: 'ALL', blind_preset_id: 'ALL', lifecycle_state: 'ALL', spectators_only: false, sort: 'LOW_BLIND', limit: 50, cursor: null });
+const lobbyRefreshMS = 30_000;
+const receiptBackoffMS = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000] as const;
 const pending = (o: Owner) => !!o.operation && o.operation.phase !== 'RESOLVED';
 const remaining = (lease: Lease | undefined) => lease ? Math.max(0, lease.remaining - (performance.now() - lease.received)) : 0;
 const readMatches = (a: PokerLobbyReadScope, b: PokerLobbyReadScope) => a.user_id === b.user_id && a.session_generation === b.session_generation && a.request_generation === b.request_generation && a.query_key === b.query_key;
@@ -64,33 +74,100 @@ export function LivePokerLobby(p: LivePokerLobbyProps) {
     const fresh = (o: Owner, context?: PokerLobbyReadScope) => current(o) && o.readState === 'FRESH' && !!o.accepted && o.read === o.accepted.scope && (!context || readMatches(context, o.read));
     function show(o: Owner) { if (current(o))
         tick(n => n + 1); }
-    async function read(o: Owner): Promise<Admission | undefined> {
-        if (!current(o))
+    function stopRecovery(op: Operation | undefined) {
+        if (op?.recoveryTimer !== undefined) {
+            clearTimeout(op.recoveryTimer);
+            delete op.recoveryTimer;
+        }
+        if (op)
+            delete op.recoveryDeferred;
+    }
+    const recoveryAvailable = () => (typeof document === 'undefined' || document.visibilityState === 'visible') && (typeof navigator === 'undefined' || navigator.onLine);
+    function scheduleRecovery(o: Owner, op: Operation) {
+        if (!entryCurrent(o, op) || !pending(o) || op.recoveryTimer !== undefined || op.recoveryDeferred)
             return;
-        const request = ++o.readGeneration;
+        const delay = receiptBackoffMS[Math.min(op.recoveryAttempt, receiptBackoffMS.length - 1)];
+        op.recoveryAttempt++;
+        if (!recoveryAvailable()) {
+            op.recoveryDeferred = true;
+            return;
+        }
+        op.recoveryTimer = setTimeout(() => {
+            delete op.recoveryTimer;
+            if (!recoveryAvailable()) {
+                op.recoveryDeferred = true;
+                return;
+            }
+            if (entryCurrent(o, op) && pending(o))
+                void recover(o, op);
+        }, delay);
+    }
+    function wakeRecovery(o: Owner) {
+        const op = o.operation;
+        if (!recoveryAvailable() || !op || !entryCurrent(o, op) || !pending(o) || o.busy)
+            return;
+        stopRecovery(op);
+        void recover(o, op);
+    }
+    function clearBackgroundNotice(o: Owner) {
+        const notice = o.backgroundNotice;
+        delete o.backgroundNotice;
+        if (notice !== undefined && o.notice === notice)
+            o.notice = '';
+    }
+    function clearLeaseNotice(o: Owner) {
+        const notice = o.leaseNotice;
+        delete o.leaseNotice;
+        if (notice !== undefined && o.notice === notice)
+            o.notice = '';
+    }
+    async function read(o: Owner, background = false): Promise<Admission | undefined> {
+        if (!current(o) || background && o.reading !== undefined)
+            return;
+        const request = ++o.nextReadGeneration;
+        o.readGeneration = request;
+        o.reading = request;
         try {
             const query = o.filtered ? { ...o.filters } : undefined, scope = capturePokerLobbyScope(o.api, query, request);
-            o.read = scope;
-            o.readState = 'LOADING';
-            show(o);
-            const getCurrent = () => current(o) && o.readGeneration === request ? o.read ?? null : null;
+            if (!background) {
+                o.read = scope;
+                o.readState = 'LOADING';
+                show(o);
+            }
+            const getCurrent = () => current(o) && o.readGeneration === request ? scope : null;
             const snapshot = await readPokerHttpLobby(o.api, scope, getCurrent, query);
-            if (!snapshot || !current(o) || o.read !== scope || o.readGeneration !== request)
+            if (!snapshot || !current(o) || o.readGeneration !== request)
                 return;
+            o.read = scope;
             o.accepted = { snapshot, scope };
             o.readState = 'FRESH';
+            clearBackgroundNotice(o);
             const op = o.operation;
-            if (op?.command.kind === 'create' && op.phase === 'ACKNOWLEDGED' && op.receipt && entryCurrent(o, op) && join(o, op.receipt.table_id))
-                finish(o, op);
+            if (op?.phase === 'ACKNOWLEDGED' && op.receipt)
+                settleFromAdmission(o, op, o.accepted);
             show(o);
             return o.accepted;
         }
         catch {
             if (current(o) && o.readGeneration === request) {
-                o.readState = 'ERROR';
-                o.notice = '大厅读取尚未完成，请重新刷新。';
+                if (!background) {
+                    o.readState = 'ERROR';
+                    delete o.backgroundNotice;
+                    o.notice = '大厅读取尚未完成，请重新刷新。';
+                }
+                else {
+                    const notice = '后台刷新暂未完成，继续保留最近一次完整大厅状态。';
+                    if (!o.notice || o.notice === o.backgroundNotice) {
+                        o.notice = notice;
+                        o.backgroundNotice = notice;
+                    }
+                }
                 show(o);
             }
+        }
+        finally {
+            if (current(o) && o.reading === request)
+                delete o.reading;
         }
     }
     useEffect(() => {
@@ -103,15 +180,39 @@ export function LivePokerLobby(p: LivePokerLobbyProps) {
         catch {
             return;
         }
-        const o: Owner = { api: p.client, key, scope, alive: true, readGeneration: 0, readState: 'LOADING', filters: defaults(), filtered: false, flow: { kind: 'NONE' }, notice: '', busy: false, entered: false };
+        const o: Owner = { api: p.client, key, scope, alive: true, readGeneration: 0, nextReadGeneration: 0, readState: 'LOADING', filters: defaults(), filtered: false, flow: { kind: 'NONE' }, notice: '', busy: false, entered: false };
         ownerRef.current = o;
         setOwned(o);
         void read(o);
-        return () => { o.alive = false; if (ownerRef.current === o)
+        return () => { stopRecovery(o.operation); if (o.operation)
+            delete o.operation.recoveryRead; o.readGeneration = ++o.nextReadGeneration; o.alive = false; if (ownerRef.current === o)
             ownerRef.current = null; };
     }, [p.client, key]);
     useEffect(() => { if (!owned)
         return; const timer = setInterval(() => show(owned), 1000); return () => clearInterval(timer); }, [owned]);
+    useEffect(() => {
+        if (!owned)
+            return;
+        const refresh = () => {
+            if (recoveryAvailable() && current(owned)) {
+                void read(owned, true);
+                void refreshLease(owned);
+            }
+        };
+        const wake = () => {
+            if (!recoveryAvailable() || !current(owned))
+                return;
+            wakeRecovery(owned);
+            refresh();
+        };
+        const visible = () => { if (document.visibilityState === 'visible')
+            wake(); };
+        window.addEventListener('focus', wake);
+        window.addEventListener('online', wake);
+        document.addEventListener('visibilitychange', visible);
+        const timer = setInterval(refresh, lobbyRefreshMS);
+        return () => { clearInterval(timer); window.removeEventListener('focus', wake); window.removeEventListener('online', wake); document.removeEventListener('visibilitychange', visible); };
+    }, [owned]);
     function permitted(o: Owner, command?: PokerEntryCommand) {
         if (!fresh(o) || !policyReady())
             return false;
@@ -143,20 +244,24 @@ export function LivePokerLobby(p: LivePokerLobbyProps) {
         if (!entryCurrent(o, op) || op.phase === 'RESOLVED')
             return;
         op.phase = 'RESOLVED';
+        stopRecovery(op);
+        delete op.recoveryRead;
         if(op.command.kind==='create'&&op.command.password!==undefined)delete op.command.password;
         o.busy = false;
         latest.current.onPendingChange(false);
         show(o);
     }
-    async function queryLease(o: Owner, table: string, id: string, seat: number) {
+    async function queryLease(o: Owner, table: string, id: string, seat: number, expected?: Lease) {
         const start = performance.now(), scope = { ...o.scope };
-        const result = await readPokerReservation(o.api, scope, () => current(o) ? o.scope : null, table, id);
-        if (!result || !current(o))
+        const targetCurrent = () => current(o) && (!expected || o.lease === expected && !pending(o));
+        const result = await readPokerReservation(o.api, scope, () => targetCurrent() ? o.scope : null, table, id);
+        if (!result || !targetCurrent())
             return;
         if (result.state === 'FOUND' && result.reservation.seat_no !== seat)
             throw Error('reservation seat mismatch');
         const received = performance.now();
-        o.lease = { table, id, seat, result, received, remaining: result.state === 'FOUND' ? Math.max(0, Date.parse(result.reservation.expires_at) - Date.parse(result.reservation.checked_at) - (received - start)) : 0 };
+        o.lease = { table, id, seat, result, received, remaining: result.state === 'FOUND' && result.reservation.valid ? Math.max(0, Date.parse(result.reservation.expires_at) - Date.parse(result.reservation.checked_at) - (received - start)) : 0 };
+        clearLeaseNotice(o);
         if (o.flow.kind === 'JOIN' && o.flow.table_id === table) {
             const r = result.state === 'FOUND' ? result.reservation : undefined;
             o.flow = { ...o.flow, draft: { ...o.flow.draft, seat_no: seat }, reservation: r ? { reservation_id: id, seat_no: seat, expires_at: r.expires_at, valid: r.valid } : undefined };
@@ -169,20 +274,66 @@ export function LivePokerLobby(p: LivePokerLobbyProps) {
         o.filtered = !!table;
         return read(o);
     }
+    async function readOperationAdmission(o: Owner, op: Operation, table?: string): Promise<Admission | undefined> {
+        if (!entryCurrent(o, op) || !pending(o))
+            return;
+        const query = table ? { ...defaults(), query: table } : undefined;
+        const request = ++o.nextReadGeneration, scope = capturePokerLobbyScope(o.api, query, request);
+        op.recoveryRead = request;
+        const getCurrent = () => entryCurrent(o, op) && pending(o) && op.recoveryRead === request ? scope : null;
+        const snapshot = await readPokerHttpLobby(o.api, scope, getCurrent, query);
+        if (!snapshot || !getCurrent())
+            return;
+        return { snapshot, scope };
+    }
+    function settleFromAdmission(o: Owner, op: Operation, accepted: Admission) {
+        if (!entryCurrent(o, op) || op.phase !== 'ACKNOWLEDGED' || !op.receipt)
+            return false;
+        if (op.command.kind === 'create') {
+            if (!accepted.snapshot.tables.some(row => row.table_id === op.receipt!.table_id))
+                return false;
+            o.filters = { ...defaults(), query: op.receipt.table_id };
+            o.filtered = true;
+            o.readGeneration = accepted.scope.request_generation;
+            o.read = accepted.scope;
+            o.accepted = accepted;
+            o.readState = 'FRESH';
+            clearBackgroundNotice(o);
+            join(o, op.receipt.table_id);
+            finish(o, op);
+            return true;
+        }
+        if (op.command.kind !== 'buyin' || op.receipt.status !== 'CONFIRMED')
+            return false;
+        const active = accepted.snapshot.active_session;
+        if (active?.table_id !== op.command.table_id || active.session_id !== op.receipt.session_id || !active.can_reconnect || o.entered)
+            return false;
+        o.entered = true;
+        finish(o, op);
+        if (current(o))
+            latest.current.onEnter(op.command.table_id, accepted);
+        return true;
+    }
     async function acceptReceipt(o: Owner, op: Operation, receipt: PokerReceipt) {
         if (!entryCurrent(o, op))
             return;
         op.receipt = receipt;
         op.phase = 'ACKNOWLEDGED';
+        op.recoveryAttempt = 0;
+        stopRecovery(op);
+        if (op.command.kind === 'create') {
+            o.filters = { ...defaults(), query: receipt.table_id };
+            o.filtered = true;
+        }
         show(o);
         if (op.command.kind === 'create') {
-            const accepted = await targetRead(o, receipt.table_id);
-            if (accepted && entryCurrent(o, op) && pending(o) && join(o, receipt.table_id))
-                finish(o, op);
+            const accepted = await readOperationAdmission(o, op, receipt.table_id);
+            if (accepted)
+                settleFromAdmission(o, op, accepted);
         }
         else if (op.command.kind === 'reserve') {
             const result = await queryLease(o, op.command.table_id, receipt.reservation_id!, op.command.seat_no);
-            if (result)
+            if (result?.state === 'FOUND')
                 finish(o, op);
         }
         else if (receipt.status === 'FAILED_NO_EFFECT') {
@@ -190,17 +341,14 @@ export function LivePokerLobby(p: LivePokerLobbyProps) {
             await read(o);
         }
         else {
-            const accepted = await targetRead(o), active = accepted?.snapshot.active_session;
-            if (accepted && entryCurrent(o, op) && fresh(o) && active?.table_id === op.command.table_id && active.session_id === receipt.session_id && active.can_reconnect && !o.entered) {
-                o.entered = true;
-                finish(o, op);
-                if (current(o))
-                    latest.current.onEnter(op.command.table_id, accepted);
-            }
+            const accepted = await readOperationAdmission(o, op);
+            if (accepted)
+                settleFromAdmission(o, op, accepted);
         }
         if (entryCurrent(o, op) && pending(o)) {
-            o.notice = '原回执已确认，当前入桌条件仍待核对。';
+            o.notice = '原回执已确认，系统将继续自动核对当前入桌条件。';
             show(o);
+            scheduleRecovery(o, op);
         }
     }
     async function send(o: Owner, op: Operation) {
@@ -213,7 +361,7 @@ export function LivePokerLobby(p: LivePokerLobbyProps) {
             if (entryCurrent(o, op)) {
                 if (!op.receipt)
                     op.phase = 'UNKNOWN';
-                o.notice = '原操作结果尚未核实，请查询原回执。';
+                o.notice = '原操作结果尚未核实；系统将自动只读查询原回执，不会重发。';
                 show(o);
             }
         }
@@ -221,73 +369,83 @@ export function LivePokerLobby(p: LivePokerLobbyProps) {
             if (entryCurrent(o, op)) {
                 o.busy = false;
                 show(o);
+                if (pending(o))
+                    scheduleRecovery(o, op);
             }
         }
     }
-    async function recover(o: Owner, retry = false) {
-        const op = o.operation;
-        if (!op || !entryCurrent(o, op) || !pending(o) || o.busy || retry && (op.phase !== 'UNKNOWN' || op.lookup !== 'NOT_FOUND' || !policyReady()))
+    async function recover(o: Owner, op: Operation) {
+        if (!entryCurrent(o, op) || !pending(o))
             return;
+        if (o.busy) {
+            scheduleRecovery(o, op);
+            return;
+        }
         o.busy = true;
         show(o);
         try {
             if (op.receipt) {
-                await acceptReceipt(o, op, op.receipt);
+                if (op.command.kind === 'reserve') {
+                    const result = await queryLease(o, op.command.table_id, op.receipt.reservation_id!, op.command.seat_no);
+                    if (result?.state === 'FOUND')
+                        finish(o, op);
+                }
+                else if (op.receipt.status === 'FAILED_NO_EFFECT') {
+                    finish(o, op);
+                }
+                else {
+                    const accepted = await readOperationAdmission(o, op, op.command.kind === 'create' ? op.receipt.table_id : undefined);
+                    if (accepted)
+                        settleFromAdmission(o, op, accepted);
+                }
                 return;
             }
             const result = await readPokerEntryReceipt(o.api, op.scope, () => current(o) ? o.scope : null, op.command);
             if (!result || !entryCurrent(o, op))
                 return;
-            op.lookup = result.state;
             if (result.state === 'FOUND') {
                 await acceptReceipt(o, op, result.receipt);
                 return;
             }
-            o.notice = '原回执尚未读到，结果仍待核实。';
+            o.notice = 'NOT_FOUND 仅代表当前不可见；系统会保留原请求键并自动继续只读核对。';
             show(o);
-            if (!retry)
-                return;
-            const accepted = await targetRead(o, op.command.kind === 'create' ? undefined : op.command.table_id);
-            if (!accepted || !entryCurrent(o, op) || !permitted(o, op.command))
-                return;
-            if (op.command.kind === 'buyin') {
-                const result = await queryLease(o, op.command.table_id, op.command.reservation_id, op.seat!);
-                if (!result || !entryCurrent(o, op) || result.state !== 'FOUND' || !result.reservation.valid || remaining(o.lease) <= 0 || !permitted(o, op.command))
-                    return;
-            }
-            op.phase = 'SENT';
-            show(o);
-            await send(o, op);
         }
         catch {
             if (entryCurrent(o, op))
-                o.notice = '原记录暂未核实，请重新查询。';
+                o.notice = '原记录暂未核实；系统会按退避节奏继续只读查询。';
         }
         finally {
             if (entryCurrent(o, op)) {
                 o.busy = false;
                 show(o);
+                if (pending(o))
+                    scheduleRecovery(o, op);
             }
         }
     }
     async function refreshLease(o: Owner) {
         const lease = o.lease;
-        if (!current(o) || !lease || o.busy || pending(o))
+        if (!current(o) || !lease || o.leaseReading || pending(o))
             return;
-        o.busy = true;
-        show(o);
+        o.leaseReading = lease;
         try {
-            await queryLease(o, lease.table, lease.id, lease.seat);
+            const result = await queryLease(o, lease.table, lease.id, lease.seat, lease);
+            if (result && current(o))
+                clearLeaseNotice(o);
         }
         catch {
-            if (current(o)) {
+            if (current(o) && o.lease === lease && !pending(o)) {
                 o.lease = { ...lease, remaining: 0 };
-                o.notice = '预留状态暂未核实，请重新查询当前预留。';
+                const notice = '预留状态暂未核实；系统将在网络恢复后自动核对。';
+                if (!o.notice || o.notice === o.leaseNotice) {
+                    o.notice = notice;
+                    o.leaseNotice = notice;
+                }
             }
         }
         finally {
-            if (current(o)) {
-                o.busy = false;
+            if (current(o) && o.leaseReading === lease) {
+                delete o.leaseReading;
                 show(o);
             }
         }
@@ -395,7 +553,7 @@ export function LivePokerLobby(p: LivePokerLobbyProps) {
         if (!permitted(o, command))
             return;
         command.request_id = crypto.randomUUID();
-        const op: Operation = { command: structuredClone(command), scope: { ...o.scope }, phase: 'SENT', seat: value.type === 'buyin' ? value.seat_no : undefined };
+        const op: Operation = { command: structuredClone(command), scope: { ...o.scope }, phase: 'SENT', seat: value.type === 'buyin' ? value.seat_no : undefined, recoveryAttempt: 0 };
         o.operation = op;
         o.busy = true;
         o.notice = '';
@@ -410,7 +568,13 @@ export function LivePokerLobby(p: LivePokerLobbyProps) {
     const renderedEntry = o.scope;
     const row = o.flow.kind === 'JOIN' ? o.accepted.snapshot.tables.find(t => o.flow.kind === 'JOIN' && t.table_id === o.flow.table_id) : undefined;
     const flow: LobbyFlow = o.flow.kind === 'JOIN' ? { ...o.flow, seats: Array.from({ length: row?.max_seats ?? 0 }, (_, index) => ({ seat_no: index + 1, available: !!row?.open_seat_numbers.includes(index + 1) })), can_buy_in: remaining(o.lease) > 0 } : o.flow;
-    return <><PokerLobby snapshot={o.accepted.snapshot} authority={{ scope: o.read, read_state: o.readState }} entry_pending={pending(o)} entry_blocked={p.policy.stage !== 'READY' || p.policy.mutation_blocked || p.policy.recovery_only} filters={o.filters} flow={flow} notice={o.notice || undefined} onFiltersChange={next => { if (current(o)) {
+    const details = o.operation || o.lease ? <>
+      {o.operation && <section aria-label="原入桌操作"><p role="status">{o.operation.command.kind} · {o.operation.command.request_id} · {o.operation.receipt?.status ?? o.operation.phase}</p>
+        {pending(o) && <p>自动只读核对中，不会重发原请求。</p>}
+      </section>}
+      {o.lease && <section aria-label="服务端预留观察"><p role="status">预留剩余约 {Math.ceil(remaining(o.lease) / 1000)} 秒；状态由系统后台自动核对。</p></section>}
+    </> : undefined;
+    return <PokerLobby snapshot={o.accepted.snapshot} authority={{ scope: o.read, read_state: o.readState }} entry_pending={pending(o)} entry_blocked={p.policy.stage !== 'READY' || p.policy.mutation_blocked || p.policy.recovery_only} filters={o.filters} flow={flow} notice={o.notice || undefined} details={details} onFiltersChange={next => { if (current(o)) {
         o.filters = { ...next };
         o.filtered = true;
         void read(o);
@@ -420,6 +584,7 @@ export function LivePokerLobby(p: LivePokerLobbyProps) {
             o.scope = { ...o.scope, entry_generation: o.scope.entry_generation + 1 };
             o.operation = undefined;
             o.lease = undefined;
+            clearLeaseNotice(o);
             o.flow = kind === 'NONE' ? { kind: 'NONE' } : { kind: 'CREATE', draft: { name: '', visibility: 'PUBLIC', password: '', max_seats: 6, blind_preset_id: o.accepted!.snapshot.blind_presets[0]?.id ?? '', allow_spectators: true, chat_enabled: false } };
             show(o);
         }} onCreateDraftChange={draft => { if (current(o) && o.scope === renderedEntry && !pending(o) && o.flow.kind === 'CREATE') {
@@ -429,12 +594,5 @@ export function LivePokerLobby(p: LivePokerLobbyProps) {
         o.flow = { ...o.flow, draft: { ...draft } };
         show(o);
     } }} onIntent={(value, context) => { if (o.scope === renderedEntry)
-        intent(o, value, context); }}/>
-    {o.operation && <section aria-label="原入桌操作"><p role="status">{o.operation.command.kind} · {o.operation.command.request_id} · {o.operation.receipt?.status ?? o.operation.phase}</p>
-      {pending(o) && <><button disabled={o.busy} onClick={() => { void recover(o); }}>{o.operation.receipt ? '继续核对原结果' : '查询原操作回执'}</button>
-        {!o.operation.receipt && <button disabled={o.busy || o.operation.lookup !== 'NOT_FOUND' || !policyReady()} onClick={() => { void recover(o, true); }}>重试原请求</button>}</>}
-    </section>}
-    {o.lease && <section aria-label="服务端预留观察"><p role="status">预留剩余约 {Math.ceil(remaining(o.lease) / 1000)} 秒；仅作显示，请以服务端核验为准。</p>
-      <button disabled={o.busy || pending(o)} onClick={() => { void refreshLease(o); }}>查询当前预留</button></section>}
-  </>;
+        intent(o, value, context); }}/>;
 }

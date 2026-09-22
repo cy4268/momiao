@@ -66,6 +66,23 @@ func TestPublicCatalogRuntime(t *testing.T) {
 			owner, domain := localPokerDB(t)
 			ctx := context.Background()
 			f := &controlFixture{owner: owner, pool: domain}
+			lifecycleTables := map[string]string{}
+			if tc.name == "ready" {
+				for _, row := range []struct {
+					state string
+					owner int64
+				}{{"PAUSED", 910001}, {"RECOVERING", 910002}, {"CLOSING", 910003}, {"CLOSED", 910001}} {
+					id := uuid()
+					if _, err := owner.Exec(ctx, `INSERT INTO poker.tables(table_id,owner_newapi_user_id,name,max_seats,blind_preset_version,ruleset_version,lifecycle_state,accepting_players,allow_new_hands,closed_at)
+					 VALUES($1,$2,$3,2,'5-10','poker-cash-v1-20260906',$4,$5,$5,CASE WHEN $4='CLOSED' THEN clock_timestamp() END)`, id, row.owner, "Lifecycle "+row.state, row.state, row.state != "CLOSING" && row.state != "CLOSED"); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := owner.Exec(ctx, `INSERT INTO poker.seats(table_id,seat_no) SELECT $1,n FROM generate_series(1,2) n`, id); err != nil {
+						t.Fatal(err)
+					}
+					lifecycleTables[id] = row.state
+				}
+			}
 			if tc.change != "" {
 				if _, err := owner.Exec(ctx, tc.change); err != nil {
 					t.Fatal(err)
@@ -140,6 +157,33 @@ func TestPublicCatalogRuntime(t *testing.T) {
 				want := map[string]string{"PLAY": "READY", "MAINTENANCE": "MAINTENANCE", "TEMPORARILY_UNAVAILABLE": "CONFIG_INCOMPLETE"}[tc.want]
 				if err != nil || v.Service.State != want {
 					t.Fatal("public readiness drifted from whole Lobby", v.Service, err)
+				}
+				if tc.name == "ready" {
+					got := map[string]string{}
+					for _, table := range v.Tables {
+						if state, tracked := lifecycleTables[table.TableID]; tracked {
+							got[table.TableID] = state
+						}
+					}
+					if len(got) != 2 {
+						t.Fatalf("find-table lobby exposed a closing/closed row or hid a live row: %+v", got)
+					}
+					for id, state := range lifecycleTables {
+						_, visible := got[id]
+						if visible != (state == "PAUSED" || state == "RECOVERING") {
+							t.Fatalf("lifecycle visibility %s=%t", state, visible)
+						}
+						var durable bool
+						if err := owner.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM poker.tables WHERE table_id=$1)`, id).Scan(&durable); err != nil || !durable {
+							t.Fatalf("lobby projection deleted durable %s table: %v", state, err)
+						}
+					}
+					for _, state := range []string{"CLOSING", "CLOSED"} {
+						hidden, err := s.Lobby(ctx, 910001, LobbyFilter{LifecycleState: state})
+						if err != nil || len(hidden.Tables) != 0 {
+							t.Fatalf("explicit %s filter escaped find-table terminal exclusion: %+v %v", state, hidden.Tables, err)
+						}
+					}
 				}
 			}
 			t.Logf("runtime=%s failure=%t transaction_read_only=%s private_facts_unchanged=true lease_calls=0", got, tc.failure, readOnly)

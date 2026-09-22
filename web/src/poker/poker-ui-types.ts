@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 /** Viewer projections only. Never pass an engine State/Snapshot or raw events. */
 export type Units = string;
 export type ActionType = 'FOLD' | 'CHECK' | 'CALL' | 'BET' | 'RAISE' | 'ALL_IN';
@@ -121,7 +123,7 @@ export interface PokerTableProps {
   mutation_blocked?: boolean;
   /** Supplied by the parent's server-aligned clock; display only, never a timer command. */
   display_now?: string;
-  notice?: string;
+  notice?: string;recovery_status?:string;
   onUiChange: (next: TableUi) => void;
   onIntent: (intent: TableIntent, context: PokerIntentContext) => void;
   /** Read-only recovery callback, deliberately separate from mutation intents. */
@@ -188,6 +190,7 @@ export interface PokerLobbyProps {
   entry_blocked?:boolean;
   filters:LobbyFilters;flow:LobbyFlow;
   notice?: string;
+  details?: ReactNode;
   onFiltersChange: (next: LobbyFilters) => void;
   onFlowChange: (kind: 'NONE' | 'CREATE') => void;
   onCreateDraftChange: (next: CreateDraft) => void;

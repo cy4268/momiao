@@ -1,0 +1,62 @@
+{
+  "room": {
+    "src": "games/poker/room.960w.d75de2879c3a.webp",
+    "width": 960,
+    "height": 540,
+    "variants": [
+      {
+        "src": "games/poker/room.960w.d75de2879c3a.webp",
+        "width": 960
+      },
+      {
+        "src": "games/poker/room.1672w.20f69c62a843.webp",
+        "width": 1672
+      }
+    ]
+  },
+  "table": {
+    "src": "games/poker/table.800w.9f379884b667.webp",
+    "width": 800,
+    "height": 450,
+    "variants": [
+      {
+        "src": "games/poker/table.800w.9f379884b667.webp",
+        "width": 800
+      },
+      {
+        "src": "games/poker/table.1672w.8cebae1713da.webp",
+        "width": 1672
+      }
+    ]
+  },
+  "cardBack": {
+    "src": "games/poker/cardBack.96w.e79b9e9c9c9b.webp",
+    "width": 96,
+    "height": 144,
+    "variants": [
+      {
+        "src": "games/poker/cardBack.96w.e79b9e9c9c9b.webp",
+        "width": 96
+      },
+      {
+        "src": "games/poker/cardBack.240w.f034066a78b3.webp",
+        "width": 240
+      }
+    ]
+  },
+  "crest": {
+    "src": "games/poker/crest.96w.a6268c24d4a3.webp",
+    "width": 96,
+    "height": 96,
+    "variants": [
+      {
+        "src": "games/poker/crest.96w.a6268c24d4a3.webp",
+        "width": 96
+      },
+      {
+        "src": "games/poker/crest.240w.ed771ad34566.webp",
+        "width": 240
+      }
+    ]
+  }
+}

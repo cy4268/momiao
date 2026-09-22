@@ -87,6 +87,7 @@ func readLobbyTables(ctx context.Context, tx pgx.Tx, f LobbyFilter, cursor lobby
  FROM poker.tables t JOIN poker.blind_preset_versions b ON b.version=t.blind_preset_version
  LEFT JOIN poker.seats s ON s.table_id=t.table_id
  WHERE (t.name ILIKE $1 ESCAPE E'\\' OR t.table_id::text ILIKE $1 ESCAPE E'\\')
+ AND t.lifecycle_state NOT IN('CLOSING','CLOSED')
  AND ($2='ALL' OR t.access_mode=$2) AND ($3=0 OR t.max_seats=$3)
  AND ($4='ALL' OR t.blind_preset_version=$4) AND ($5='ALL' OR t.lifecycle_state=$5)
  AND (NOT $6 OR t.allow_spectators) GROUP BY t.table_id,b.version)
