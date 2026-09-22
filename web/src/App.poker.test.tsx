@@ -119,10 +119,13 @@ it('keeps live ownership and queries while Gate loading/error/maintenance only t
 it('releases the player hold only after the original Session is SETTLED, not leave ACK or an active query',async()=>{
   const r=await setup(whole(true));let done=false;r.f.respond=(path)=>path.endsWith('/safe-leave')?Promise.reject(Error('synthetic lost ACK')):path.endsWith('/sessions/'+session)?Promise.resolve(ok(done?settled():active())):undefined;
   await live(r);fireEvent.click(screen.getByRole('button',{name:'安全离座'}));fireEvent.click(screen.getByRole('button',{name:'确认安全离座'}));
-  await screen.findByText('原会话尚未完成出金。');fireEvent.click(screen.getByRole('button',{name:'test wallet navigation'}));
+  await screen.findByText('原会话尚未完成出金；系统将继续自动核对。');
+  expect(screen.queryByRole('button',{name:'核对原会话出金'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'test wallet navigation'}));
   await waitFor(()=>expect(screen.getByTestId('path')).toHaveTextContent('/poker/table/'+table));
-  done=true;r.f.read=()=>Promise.resolve(ok(whole()));fireEvent.click(screen.getByRole('button',{name:'核对原会话出金'}));
+  done=true;r.f.read=()=>Promise.resolve(ok(whole()));fireEvent.focus(window);
   await waitFor(()=>expect(screen.getByTestId('path').textContent).toBe('/poker'));expect(await screen.findByRole('region',{name:'Poker 大厅'})).toBeVisible();expect(Socket.all[0].readyState).toBe(3);
+  expect(pokerCalls(r).filter(([path])=>path.endsWith('/safe-leave'))).toHaveLength(1);
   fireEvent.click(screen.getByRole('button',{name:'test wallet navigation'}));await waitFor(()=>expect(screen.getByTestId('path').textContent).toBe('/wallet'));
 });
 it('lets a spectator return with no cashout or player navigation hold',async()=>{
@@ -155,11 +158,17 @@ it('preserves the original unknown entry key through navigation and receipt NOT_
     if(path.endsWith('/entry-receipt-query'))return Promise.resolve(ok({user_id:'910002',kind:'create',mutation_id:command.request_id,state:'NOT_FOUND'}));
   };
   mount(r,'/poker');fireEvent.click(await screen.findByRole('button',{name:'创建牌桌'}));fireEvent.change(screen.getByLabelText('牌桌名称'),{target:{value:'Route recovery'}});fireEvent.click(screen.getByRole('button',{name:'确认创建牌桌'}));
-  await waitFor(()=>expect(screen.getByRole('button',{name:'查询原操作回执'})).toBeEnabled());const key=command.request_id;
+  await screen.findByText('原操作结果尚未核实；系统将自动只读查询原回执，不会重发。');const key=command.request_id;
+  expect(screen.queryByRole('button',{name:'查询原操作回执'})).toBeNull();
+  expect(screen.queryByRole('region',{name:'原入桌操作'})).toBeNull();
   fireEvent.click(screen.getByRole('button',{name:'test wallet navigation'}));await waitFor(()=>expect(screen.getByTestId('path').textContent).toBe('/poker'));
-  fireEvent.click(screen.getByRole('button',{name:'查询原操作回执'}));await waitFor(()=>expect(screen.getByRole('button',{name:'重试原请求'})).toBeEnabled());
+  fireEvent.focus(window);await screen.findByText('NOT_FOUND 仅代表当前不可见；系统会保留原请求键并自动继续只读核对。');
+  const queries=pokerCalls(r).filter(([path])=>path.endsWith('/entry-receipt-query'));
+  expect(queries.length).toBeGreaterThan(0);expect(queries.every(([,init])=>JSON.parse(String(init?.body)).mutation_id===key)).toBe(true);
+  expect(screen.getByRole('button',{name:'确认创建牌桌'})).toBeDisabled();
   fireEvent.click(screen.getByRole('button',{name:'test browser back'}));await waitFor(()=>expect(screen.getByTestId('path').textContent).toBe('/poker'));
-  expect(screen.getByRole('region',{name:'原入桌操作'})).toHaveTextContent(key);expect(pokerCalls(r).filter(([p])=>p==='/api/v1/poker/tables')).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button',{name:'入桌状态'}));
+  expect(screen.getByRole('region',{name:'原入桌操作'})).toHaveTextContent(key);expect(screen.queryByRole('button',{name:'重试原请求'})).toBeNull();expect(pokerCalls(r).filter(([p])=>p==='/api/v1/poker/tables')).toHaveLength(1);
 });
 it('hands the successful create/reserve/buyin owner into the same player route hold',async()=>{
   const raw=whole();raw.tables[0].open_seat_numbers=[2,4,5,6];const r=await setup(raw),reservation='019a0000-0000-7000-8000-000000000031';let bought=false;

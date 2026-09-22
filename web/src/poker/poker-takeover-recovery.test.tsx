@@ -129,13 +129,13 @@ describe('R2 reentrant teardown and the documented R3 boundary',()=>{
   });
 });
 describe('R2 recovery controls preserve all ordinary mutation locks',()=>{
-  it('shows separate query/retry controls while the original query stays usable and the original action stays locked',async()=>{
+  it('keeps readonly queries automatic and exposes only eligible same-key retry inside folded status details',async()=>{
     const r=await auxiliaryUnknown();r.fetcher.mockResolvedValueOnce(ok(lookup(r)));await r.client.recheckTakeover();const p=props(r),query=vi.fn(),retry=vi.fn(),primary=vi.fn();
     const view=render(<PokerTable {...p} onQueryReceipt={primary} onQueryTakeover={query} onRetryTakeover={retry} onRetryPending={vi.fn()}/>);
-    fireEvent.click(screen.getByRole('button',{name:'核对接管回执'}));fireEvent.click(screen.getByRole('button',{name:'重试本次接管'}));expect(query).toHaveBeenCalledTimes(1);expect(retry).toHaveBeenCalledWith(context(r));
-    expect(screen.getByRole('button',{name:'重试原操作'})).toBeDisabled();fireEvent.click(screen.getByRole('button',{name:'核对原回执'}));expect(primary).toHaveBeenCalledTimes(1);expect(p.onIntent).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent('正在自动确认操作结果');expect(screen.queryByRole('button',{name:'核对接管回执'})).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'核对原回执'})).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'重试本次接管'})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'查看状态'}));fireEvent.click(screen.getByRole('button',{name:'重试本次接管'}));expect(query).not.toHaveBeenCalled();expect(primary).not.toHaveBeenCalled();expect(retry).toHaveBeenCalledWith(context(r));expect(screen.queryByRole('button',{name:'重试原操作'})).not.toBeInTheDocument();expect(p.onIntent).not.toHaveBeenCalled();
     view.rerender(<PokerTable {...p} authority={{...p.authority,control_recovery:{...p.authority.control_recovery!,querying:true,can_retry:false}}} onQueryReceipt={primary} onQueryTakeover={query} onRetryTakeover={retry}/>);
-    expect(screen.getByRole('button',{name:'核对接管回执'})).toBeDisabled();expect(screen.getByRole('button',{name:'重试本次接管'})).toBeDisabled();expect(screen.getByRole('button',{name:'核对原回执'})).not.toBeDisabled();
+    expect(screen.queryByRole('button',{name:'核对接管回执'})).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'重试本次接管'})).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'核对原回执'})).not.toBeInTheDocument();expect(query).not.toHaveBeenCalled();expect(primary).not.toHaveBeenCalled();
   });
 });
 
@@ -203,7 +203,8 @@ describe('R3 stopped transport remains explicitly recoverable',()=>{
   it('history-only controller banner stays neutral and preserves the legal action',async()=>{
     const r=await setup(),p=props(r);expect(p.authority).toMatchObject({pending:false,can_control:true});expect(p.authority.control_recovery).toBeUndefined();
     render(<PokerTable {...p} authority={{...p.authority,control_history:{count:1,querying:false}}}/>);
-    expect(screen.getByRole('status')).toHaveTextContent('历史接管结果待核对');expect(screen.getByRole('status')).not.toHaveTextContent('当前只读');
+    expect(screen.getByRole('status')).toHaveTextContent('正在自动确认操作结果');expect(screen.getByRole('status')).not.toHaveTextContent('当前只读');expect(screen.queryByText('还有 1 次旧连接接管结果自动确认中。')).not.toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'查看状态'}));expect(screen.getByRole('dialog',{name:'连接与操作状态'})).toHaveTextContent('还有 1 次旧连接接管结果自动确认中。');
+    fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));
     const call=screen.getByRole('button',{name:/^跟注 /});expect(call).not.toBeDisabled();fireEvent.click(call);
     expect(p.onIntent).toHaveBeenCalledWith({type:'action',action_type:'CALL',target_to_units:'0'},context(r));
   });
@@ -221,9 +222,9 @@ describe('R3 stopped transport remains explicitly recoverable',()=>{
       expect(r.sockets.flatMap(s=>s.sent).filter(t=>JSON.parse(t).type==='hand.action')).toHaveLength(1);
     }finally{vi.useRealTimers();}
   });
-  it('old queries remain clickable while READ_ONLY requests a fresh CLAIM_CONTROL before a separate takeover confirmation',async()=>{
+  it('keeps old reads automatic while READ_ONLY requests a fresh CLAIM_CONTROL before a separate takeover confirmation',async()=>{
     const r=await auxiliaryUnknown();await reconnect(r,'READ_ONLY');const p=props(r),query=vi.fn();
-    const view=render(<PokerTable {...p} onQueryPreviousTakeovers={query}/>);fireEvent.click(screen.getByRole('button',{name:'核对上次接管回执'}));expect(query).toHaveBeenCalledOnce();
+    const view=render(<PokerTable {...p} onQueryPreviousTakeovers={query}/>);expect(screen.getByRole('status')).toHaveTextContent('正在自动确认操作结果');expect(screen.queryByRole('button',{name:'核对上次接管回执'})).not.toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'查看状态'}));expect(screen.getByRole('dialog',{name:'连接与操作状态'})).toHaveTextContent('还有 1 次旧连接接管结果自动确认中。');expect(query).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));
     fireEvent.click(screen.getByRole('button',{name:'申请控制连接'}));expect(p.onIntent).toHaveBeenCalledWith({type:'reconnect',control_intent:'CLAIM_CONTROL'},context(r));
     await reconnect(r);expect(posts(r,'/take-over')).toHaveLength(1);p.onIntent.mockClear();
     view.rerender(<PokerTable {...props(r)} onIntent={p.onIntent} onUiChange={p.onUiChange} onQueryPreviousTakeovers={query}/>);
