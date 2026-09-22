@@ -9,6 +9,7 @@ import {RouletteRules} from './RouletteRules';
 import {findReceipt,newKey,pendingSlot,persist,readLobby,readPending,readRoom,rouletteError,rouletteNames,sendPending,stateNames,type Lobby,type Pending,type RouletteSlug} from './roulette-api';
 import './roulette.css';
 import './roulette-devil.css';
+import './roulette-pressure.css';
 
 type Owner={client:ApiClient;userID:string;generation:number;slug:RouletteSlug};
 export function RouletteLobby({client,userID,slug}:{client:ApiClient;userID:string;slug:RouletteSlug}){
@@ -72,8 +73,8 @@ export function RouletteLobby({client,userID,slug}:{client:ApiClient;userID:stri
  }
  const active=lobby?.game===slug?lobby:undefined;
  const createForm=<form className="roulette-create" onSubmit={e=>void create(e)}>
-  {devil&&<div className="roulette-create-art" aria-hidden="true"><img src={rouletteImage('shotgun')} alt=""/><RouletteArt name="magnifier"/><RouletteArt name="live"/></div>}
-  <p className="roulette-kicker">A SEAT AWAITS YOU</p><h2>{devil?'开启一场命运对决':'开一间新房'}</h2>
+  <div className="roulette-create-art" aria-hidden="true"><img src={rouletteImage(devil?'shotgun':'revolver')} alt=""/>{devil&&<><RouletteArt name="magnifier"/><RouletteArt name="live"/></>}</div>
+  <p className="roulette-kicker">A SEAT AWAITS YOU</p><h2>{devil?'开启一场命运对决':'创建圆桌'}</h2>
   <label>每人投入 / 筹码<input inputMode="decimal" value={stake} onChange={e=>setStake(e.target.value)} required pattern="[0-9]+([.][0-9]{1,6})?" maxLength={30}/></label>
   <p className="roulette-hint">{active?`最低 ${chips(active.minimum_units)} · 步长 ${chips(active.step_units)} 筹码`:'正在读取投入策略…'}</p>
   <label>开局人数{devil?<input value="2 人 · 双人对决" disabled/>:<select value={players} onChange={e=>setPlayers(Number(e.target.value))}>{[3,4,5,6].map(n=><option key={n} value={n}>{n} 人 · 全员准备后开局</option>)}</select>}</label>
@@ -81,17 +82,17 @@ export function RouletteLobby({client,userID,slug}:{client:ApiClient;userID:stri
   <button className="roulette-primary" disabled={!active||active.state!=='PLAY'||busy||!!pending||storageBlocked||!!active.own_round_id}>{pending?'正在同步创建结果…':active?.own_round_id?'请先返回当前房间':active&&active.state!=='PLAY'?'暂不接受新房':'创建房间 →'}</button>
   <p className="roulette-hint">创建和入座不扣款。准备时确认并托管；全员准备后开局，局内不追加筹码。</p>
  </form>;
- const rooms=<section className="roulette-rooms"><div className="roulette-section-title"><div><p className="roulette-kicker">FIND YOUR DUEL</p><h2>等待命运的房间</h2></div><span>{active?`${active.rooms.length} 间 · 当前页`:'正在读取…'}</span></div>
-  {active&&!active.rooms.length?<div className="roulette-empty"><RouletteArt name="compass"/><h3>今夜的第一场对决</h3><p>还没有开放房间。创建一间，邀请朋友落座吧。</p></div>:<div className="roulette-room-list" tabIndex={0} aria-label="房间列表">{active?.rooms.map((r,index)=><article key={r.id}><RouletteArt name={(['compass','lyre','lily','eagle'] as const)[index%4]} className="roulette-room-mark"/><div className="roulette-room-name"><h3>{r.players[0]?.name||'旅人'}的房间</h3><p>{r.players.length} / {r.target_players} 人 <span className={'room-state '+(r.state==='WAITING'?'is-waiting':'')}>{stateNames[r.state]}</span></p></div><div className="roulette-room-stake"><strong>{chips(r.stake_units)}</strong><small>每人筹码</small></div><Link to={'/roulette/rooms/'+r.id}>{r.state==='WAITING'?'查看房间':'旁观对局'} →</Link></article>)}</div>}
+ const rooms=<section className="roulette-rooms"><div className="roulette-section-title"><div><p className="roulette-kicker">{devil?'FIND YOUR DUEL':'FIND YOUR TABLE'}</p><h2>{devil?'等待命运的房间':'寻找圆桌'}</h2></div><span>{active?`${active.rooms.length} 间 · 当前页`:'正在读取…'}</span></div>
+  {active&&!active.rooms.length?<div className="roulette-empty"><RouletteArt name="compass"/><h3>{devil?'今夜的第一场对决':'圆桌正待落座'}</h3><p>还没有开放房间。创建一间，邀请朋友落座吧。</p></div>:<div className="roulette-room-list" tabIndex={0} aria-label="房间列表">{active?.rooms.map((r,index)=><article key={r.id}><RouletteArt name={(['compass','lyre','lily','eagle'] as const)[index%4]} className="roulette-room-mark"/><div className="roulette-room-name"><h3>{r.players[0]?.name||'旅人'}的房间</h3><p>{r.players.length} / {r.target_players} 人 <span className={'room-state '+(r.state==='WAITING'?'is-waiting':'')}>{stateNames[r.state]}</span></p></div><div className="roulette-room-stake"><strong>{chips(r.stake_units)}</strong><small>每人筹码</small></div><Link to={'/roulette/rooms/'+r.id}>{r.state==='WAITING'?'查看房间':'旁观对局'} →</Link></article>)}</div>}
   <div className="roulette-pagination">{cursor&&<button disabled={busy||!!pending} onClick={()=>setCursor('')}>返回首页</button>}{active?.next_cursor&&<button disabled={busy||!!pending} onClick={()=>setCursor(active.next_cursor!)}>下一页</button>}</div>
-  {devil&&<p className="roulette-lobby-note">同一片星空，不同的选择。<span>4 点生命 · 9 种道具 · 固定投入</span></p>}
+  <p className="roulette-lobby-note">{devil?'同一片星空，不同的选择。':'一把左轮，一圈同伴。'}<span>{devil?'4 点生命 · 9 种道具 · 固定投入':'3—6 人圆桌 · 六格弹巢 · 固定投入'}</span></p>
  </section>;
- return <div className={'roulette-page'+(devil?' roulette-devil-lobby':'')} style={devil?{'--roulette-room-art':`url("${rouletteImage('room')}")`,'--roulette-table-art':`url("${rouletteImage('table')}")`} as CSSProperties:undefined}>
+ return <div className={'roulette-page roulette-salon-lobby'+(devil?' roulette-devil-lobby':' roulette-pressure-lobby')} style={{'--roulette-room-art':`url("${rouletteImage('room')}")`,'--roulette-table-art':`url("${rouletteImage('table')}")`} as CSSProperties}>
   <nav className="roulette-breadcrumb" aria-label="轮盘导航"><Link to="/games">← 游戏目录</Link><span>CHALDEA ROYAL SALON</span><Link to="/history">游戏记录 ↗</Link></nav>
-  <header className="roulette-heading"><div><p className="roulette-kicker">{devil?'DUEL OF FATE · ROOM LOBBY':'A TABLE OF CHANCES · 多人博弈'}</p><h1>{devil?'命运对决 · ':''}{rouletteNames[slug]}</h1><p>{devil?'在星光落定之前，选好你的对手。':'一把左轮，一圈同伴。压力会增加，投入不会。'}</p></div><div className="roulette-switch"><Link aria-current={devil?'page':undefined} to="/roulette/devil-roulette">双人对决</Link><Link aria-current={!devil?'page':undefined} to="/roulette/pressure-roulette">圆桌危局</Link></div></header>
+  <header className="roulette-heading"><div><p className="roulette-kicker">{devil?'DUEL OF FATE · ROOM LOBBY':'A TABLE OF CHANCES · 多人博弈'}</p><h1>{devil?'命运对决 · ':'圆桌危局 · '}{rouletteNames[slug]}</h1><p>{devil?'在星光落定之前，选好你的对手。':'一把左轮，一圈同伴。压力会增加，投入不会。'}</p></div><div className="roulette-switch"><Link aria-current={devil?'page':undefined} to="/roulette/devil-roulette">双人对决</Link><Link aria-current={!devil?'page':undefined} to="/roulette/pressure-roulette">圆桌危局</Link></div></header>
   {notice&&<p className="roulette-notice" role="alert">{notice}</p>}
   {active?.own_round_id&&<div className="roulette-resume"><span>你的座位仍在等你。</span><Link to={'/roulette/rooms/'+active.own_round_id}>返回未结束房间 →</Link></div>}
-  {devil?<div className="roulette-devil-lobby-grid">{rooms}{createForm}</div>:<><section className="roulette-lobby-hero"><div className="roulette-preview"><RouletteArt name="compass" className="roulette-star"/><span className="roulette-kicker">MOMIAO / CHALDEA ROYAL SALON</span><img src="/roulette/pressure-revolver.png" className="roulette-revolver-preview" alt=""/><div className="roulette-preview-footer"><span>3—6 人 · 六格弹巢</span><span>固定投入 · 零抽水</span></div></div>{createForm}</section>{rooms}</>}
+  <div className="roulette-salon-lobby-grid">{rooms}{createForm}</div>
   <footer className="roulette-room-footer"><div><button onClick={()=>setPanel('rules')}>游戏规则</button><button onClick={()=>setPanel('fairness')}>公平验证</button>{pending&&<button onClick={()=>setPanel('recovery')}>创建状态</button>}</div><span>固定投入 · 准备前不扣款</span></footer>
   {panel==='rules'&&<Modal title="游戏规则" onClose={()=>setPanel(null)}><RouletteRules slug={slug}/></Modal>}
   {panel==='fairness'&&<Modal title="公平验证" onClose={()=>setPanel(null)}><div className="roulette-proof"><p>每间房在准备前公开服务器种子承诺，准备时绑定固定投入与以下版本。对局结束后，参与者从游戏记录核对种子与行动重放。</p>{active&&<dl><dt>规则版本</dt><dd>{active.binding.ruleset_version}</dd><dt>算法版本</dt><dd>{active.binding.algorithm_version}</dd><dt>配置 SHA-256</dt><dd>{active.binding.config_hash}</dd><dt>下注策略 SHA-256</dt><dd>{active.binding.wager_policy_hash}</dd></dl>}</div></Modal>}

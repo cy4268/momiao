@@ -23,5 +23,10 @@
     "src": "games/poker/room.1672w.20f69c62a843.webp",
     "width": 1672,
     "height": 941
+  },
+  "revolver": {
+    "src": "games/roulette/pressure-revolver.0c6baccd6d10.webp",
+    "width": 1586,
+    "height": 992
   }
 }
