@@ -1,0 +1,27 @@
+{
+  "table": {
+    "src": "games/roulette/salon-table-v2.013bfbfdd9f8.webp",
+    "width": 1536,
+    "height": 1024
+  },
+  "shotgun": {
+    "src": "games/roulette/devil-shotgun.b42d90fc71a7.webp",
+    "width": 2172,
+    "height": 724
+  },
+  "items": {
+    "src": "games/roulette/items-atlas-v2.574a41233f00.webp",
+    "width": 1254,
+    "height": 1254
+  },
+  "ornaments": {
+    "src": "games/roulette/salon-art-atlas-v2.11f4611d5280.webp",
+    "width": 1254,
+    "height": 1254
+  },
+  "room": {
+    "src": "games/poker/room.1672w.20f69c62a843.webp",
+    "width": 1672,
+    "height": 941
+  }
+}
