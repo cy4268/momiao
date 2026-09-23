@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { z } from 'zod';
 import type { ApiClient } from '../api';
 import { Alert, Empty, Loading, Modal } from '../ui';
 import { transactionStatus } from '../economy-api';
 import { chips } from '../games-api';
+import { assetUrl } from '../game-hall-assets';
+import diceArt from '../games/dice-art.json';
+import { HistoryArchive, HistoryCover } from './HistoryArchive';
 import { detailPath, handSchema, historyGet, idSchema, listQuery, pageSchema, readSearch, recordTypes, results, roundSchema, searchSchema, sessionSchema, statuses, transactionSchema, type Transaction } from './api';
 import './history.css';
 
@@ -56,7 +59,7 @@ function Title({ title, detail }: { title: string; detail: string }) {
 
 export function HistoryList({ client }: HistoryProps) {
   const location = useLocation();
-  try { readSearch(location.search); } catch { return <div className="history-page"><Title title="游戏记录" detail="查看你自己的游戏记录。" /><Alert>筛选链接无效，请检查记录编号与时间范围。<Link to="/history">清除筛选</Link></Alert></div>; }
+  try { readSearch(location.search); } catch { return <HistoryArchive title="游戏记录" detail="查看你自己的游戏记录。"><Alert>筛选链接无效，请检查记录编号与时间范围。<Link to="/history">清除筛选</Link></Alert></HistoryArchive>; }
   return <HistoryListContent key={location.search} client={client} />;
 }
 function HistoryListContent({ client }: HistoryProps) {
@@ -64,12 +67,16 @@ function HistoryListContent({ client }: HistoryProps) {
   const data = useHistory(client, '/api/v1/history?' + listQuery(location.search), pageSchema);
   const [filtersOpen, setFiltersOpen] = useState(false), [error, setError] = useState('');
   const restored = useRef(false);
+  const records = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!data.data || restored.current) return;
     restored.current = true;
     const saved = safeReturn(location.state);
     const frame = requestAnimationFrame(() => {
+      const filterFocus = z.object({ historyFilterFocus: z.enum(['more', 'record_type', 'game_slug']) }).safeParse(location.state);
+      if (filterFocus.success) document.getElementById('archive-filter-' + filterFocus.data.historyFilterFocus)?.focus({ preventScroll: true });
       if (saved.focus) document.getElementById('history-' + saved.focus)?.focus({ preventScroll: true });
+      if (records.current) records.current.scrollTop = saved.scroll;
       window.scrollTo(0, saved.scroll);
     });
     return () => cancelAnimationFrame(frame);
@@ -88,11 +95,17 @@ function HistoryListContent({ client }: HistoryProps) {
     }
     const parsed = searchSchema.safeParse(draft);
     if (!parsed.success) { setError('请检查记录编号，并确保开始时间早于结束时间。'); return; }
-    setError(''); setFiltersOpen(false); navigate('/history?' + new URLSearchParams(draft));
+    setError(''); setFiltersOpen(false); navigate('/history?' + new URLSearchParams(draft), { state: { historyFilterFocus: 'more' } });
   }
   function next(cursor: string) {
     const params = new URLSearchParams(location.search); params.set('cursor', cursor);
     navigate('/history?' + params, { state: { previousHistory: location.search } });
+  }
+  function quickFilter(key: 'record_type' | 'game_slug', value: string) {
+    const params = new URLSearchParams(location.search);
+    params.delete('cursor');
+    if (value) params.set(key, value); else params.delete(key);
+    navigate('/history' + (params.size ? '?' + params : ''), { state: { historyFilterFocus: key } });
   }
   const previous = z.object({ previousHistory: z.string() }).safeParse(location.state);
   const previousSearch = previous.success ? previous.data.previousHistory : '';
@@ -104,18 +117,21 @@ function HistoryListContent({ client }: HistoryProps) {
     <label>结果<select name="result" defaultValue={q.result || ''}><option value="">全部结果</option>{results.map(v => <option key={v} value={v}>{label(v)}</option>)}</select></label>
     <label>状态<select name="status" defaultValue={q.status || ''}><option value="">全部状态</option>{statuses.map(v => <option key={v} value={v}>{label(v)}</option>)}</select></label>
     <label className="history-filter-id">精确记录编号<input name="id" defaultValue={q.id || ''} maxLength={36} placeholder="完整的 Round / Session / Hand ID" /></label>
-    <div className="history-filter-actions"><button className="primary" type="submit">应用筛选</button><Link to="/history" onClick={() => setFiltersOpen(false)}>清除筛选</Link></div></form>;
-  return <div className="history-page"><Title title="游戏记录" detail="单局游戏与牌桌会话统一收录。手牌从会话详情进入，也可按记录类型单独筛选。" />
-    <section className="panel"><div className="section-heading"><h2>我的记录</h2><div className="history-actions"><button className="history-mobile-filter" onClick={() => setFiltersOpen(true)}>筛选记录</button><button disabled={data.loading} onClick={data.reload}>刷新</button></div></div>
-      <div className="history-desktop-filter">{filterForm}</div>{filtersOpen && <Modal title="筛选游戏记录" onClose={() => setFiltersOpen(false)}>{filterForm}</Modal>}
-      <Status {...data} />{data.data && (data.data.items.length ? <div className="history-records">{data.data.items.map(item => <article className="history-record" key={item.record_type + item.source_id}>
-        <div><small>{label(item.record_type)} · {when(item.occurred_at)}</small><h3>{item.snapshot.game_title}</h3><p>{item.snapshot.table_name || label(item.mode)} · {label(item.status)}</p><small>当时昵称：{item.snapshot.actor_display_name ?? '未记录'}</small></div>
+    <div className="history-filter-actions"><button className="primary" type="submit">应用筛选</button><Link to="/history" state={{ historyFilterFocus: 'more' }} onClick={() => setFiltersOpen(false)}>清除筛选</Link></div></form>;
+  return <HistoryArchive list title="游戏记录" detail="每一局经历，皆有迹可循。">
+    <section className="panel history-list-panel"><div className="archive-toolbar">
+      <label><span className="sr-only">快速筛选记录类型</span><select id="archive-filter-record_type" value={q.record_type || ''} onChange={e => quickFilter('record_type', e.target.value)}><option value="">全部记录</option>{recordTypes.map(v => <option key={v} value={v}>{label(v)}</option>)}</select></label>
+      <label><span className="sr-only">快速筛选游戏</span><select id="archive-filter-game_slug" value={q.game_slug || ''} onChange={e => quickFilter('game_slug', e.target.value)}><option value="">全部游戏</option>{q.game_slug && !data.data?.game_options.some(g => g.game_slug === q.game_slug) && <option value={q.game_slug}>{q.game_slug}</option>}{data.data?.game_options.map(g => <option key={g.game_slug} value={g.game_slug}>{g.game_title}{g.retired ? '（已退役）' : ''}</option>)}</select></label>
+      <button id="archive-filter-more" onClick={() => setFiltersOpen(true)}>更多筛选{Object.keys(q).some(key => !['record_type', 'game_slug', 'cursor'].includes(key)) ? ' · 已应用' : ''}</button><button disabled={data.loading} onClick={data.reload}>刷新记录</button>
+    </div>{filtersOpen && <Modal title="筛选游戏记录" onClose={() => setFiltersOpen(false)}>{filterForm}</Modal>}
+      <Status {...data} /><div className="history-records" role="region" aria-label="历史记录列表" tabIndex={0} ref={records}>{data.data && (data.data.items.length ? data.data.items.map(item => <article className="history-record" key={item.record_type + item.source_id}>
+        <div className="archive-record-title"><HistoryCover game={item.game_slug} /><div><small>{label(item.record_type)} · {label(item.status)}</small><h3>{item.snapshot.game_title}</h3><time>{when(item.occurred_at)}</time><p>{item.snapshot.table_name || label(item.mode)} · {item.snapshot.actor_display_name ?? '未记录昵称'}</p><code title={item.source_id}>{item.source_id}</code></div></div>
         <Fields values={item.record_type === 'POKER_SESSION' ? [['初始买入', money(item.initial_buyin_units)], ['累计补充', money(item.total_topup_units)], ['离桌返还', money(item.final_cashout_units)], ['净变化', money(item.net_change_units, true)]] : [['下注', money(item.stake_units)], ['派彩', money(item.payout_units)], ['净变化', money(item.net_change_units, true)], ['结果', label(item.result)]]} />
-        <Link id={'history-' + item.source_id} to={detailPath(item.record_type, item.source_id)} state={{ historyReturn: { search: location.search, scroll: window.scrollY, focus: item.source_id } }} onClick={event => { const saved = { historyReturn: { search: location.search, scroll: window.scrollY, focus: item.source_id } }; if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.button === 0) { event.preventDefault(); navigate(detailPath(item.record_type, item.source_id), { state: saved }); } }}>查看详情 →</Link><code>{item.source_id}</code>
-      </article>)}</div> : <Empty title="没有符合条件的记录">调整筛选，或到游戏目录开始游玩。读取失败不会显示成空记录。</Empty>)}
+        <Link id={'history-' + item.source_id} to={detailPath(item.record_type, item.source_id)} state={{ historyReturn: { search: location.search, scroll: records.current?.scrollTop || window.scrollY, focus: item.source_id } }} onClick={event => { const saved = { historyReturn: { search: location.search, scroll: records.current?.scrollTop || window.scrollY, focus: item.source_id } }; if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.button === 0) { event.preventDefault(); navigate(detailPath(item.record_type, item.source_id), { state: saved }); } }}>查看详情 →</Link>
+      </article>) : <Empty title="没有符合条件的记录">调整筛选，或到游戏目录开始游玩。读取失败不会显示成空记录。</Empty>)}</div>
       <nav className="pager" aria-label="历史记录分页"><button disabled={data.loading || !q.cursor} onClick={() => { try { readSearch(previousSearch); navigate('/history' + previousSearch); } catch { navigate('/history'); } }}>{previous.success ? '上一页' : '返回第一页'}</button><button disabled={data.loading || !data.data?.has_more || !data.data.next_cursor} onClick={() => next(data.data!.next_cursor!)}>下一页</button></nav>
       <p className="muted">金额单位为娱乐筹码；会话损益与其中手牌不重复累加。退役游戏与关闭牌桌的记录仍会保留。</p>
-    </section></div>;
+    </section></HistoryArchive>;
 }
 function localTime(value?: string) {
   if (!value) return '';
@@ -144,7 +160,7 @@ function Snapshot({ data }: { data: z.infer<typeof roundSchema>['metadata'] }) {
 const proofSchema = z.record(z.string(), z.json());
 function Proof({ client, path }: { client: ApiClient; path: string }) {
   const [open, setOpen] = useState(false);
-  return <section className="history-section"><h2>公平性记录</h2><p>仅展示服务端按公开时点与参与资格允许读取的内容。</p><button onClick={() => setOpen(v => !v)}>{open ? '收起公平性记录' : '读取公平性记录'}</button>{open && <ProofContent client={client} path={path} />}</section>;
+  return <details className="history-disclosure" onToggle={event => setOpen(event.currentTarget.open)}><summary>公平性记录</summary><p>仅展示服务端按公开时点与参与资格允许读取的内容。</p>{open && <ProofContent client={client} path={path} />}</details>;
 }
 function ProofContent({ client, path }: { client: ApiClient; path: string }) {
   const proof = useHistory(client, path + '/verify', proofSchema);
@@ -188,6 +204,18 @@ function CardNames({ cards }: { cards: number[] }) {
   const suits = ['梅花', '方块', '红桃', '黑桃'];
   return <span>{cards.map(card => card >= 0 && card < 52 ? suits[Math.floor(card / 13)] + ranks[card % 13] : '牌编号无效').join(' · ')}</span>;
 }
+const recordedDice = z.object({ dice: z.array(z.number().int().min(1).max(6)).length(3), total: z.number().int() }).refine(d => d.dice.reduce((a, b) => a + b, 0) === d.total);
+const dicePips: Record<number, number[]> = { 1: [5], 2: [1, 9], 3: [1, 5, 9], 4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9] };
+function RoundResult({ round }: { round: z.infer<typeof roundSchema> }) {
+  const dice = recordedDice.safeParse(round.game === 'dice' ? round.dice : undefined);
+  const recorded = <RecordedValues title="游戏结果" value={round.dice || round.scratch || round.summon || round.slot || round.blackjack} />;
+  return <section className="history-section archive-result"><h2>本局结果</h2>{dice.success ? <>
+    <div className="archive-dice" aria-label={`骰子点数 ${dice.data.dice.join('、')}，合计 ${dice.data.total} 点`} style={{ '--archive-die-face': `url("${assetUrl(diceArt.face.src)}")` } as CSSProperties}>
+      {dice.data.dice.map((face, index) => <div className="archive-die" key={index} aria-hidden="true">{Array.from({ length: 9 }, (_, pip) => <i className={dicePips[face].includes(pip + 1) ? 'is-pip' : ''} key={pip} />)}</div>)}
+    </div><p className="archive-dice-total">{dice.data.dice.join(' + ')} = {dice.data.total} 点</p>
+    <details className="history-disclosure"><summary>完整结果记录</summary>{recorded}</details>
+  </> : recorded}</section>;
+}
 export function HistoryRound({ client }: HistoryProps) {
   const { id = '' } = useParams();
   if (!idSchema.safeParse(id).success) return <Alert>记录编号无效。<Link to="/history">返回列表</Link></Alert>;
@@ -195,12 +223,13 @@ export function HistoryRound({ client }: HistoryProps) {
 }
 function RoundContent({ id, client }: { id: string; client: ApiClient }) {
   const path = '/api/v1/history/rounds/' + id, read = useHistory(client, path, roundSchema), d = read.data;
-  return <div className="history-page"><Back /><Title title={d?.metadata.game_title || '本局详情'} detail={'Round · ' + id} /><Status {...read} />{d && <section className="panel"><Snapshot data={d.metadata} />
-    <Fields values={[["状态", label(d.state)], ['恢复状态', d.recovery_state], ['开始时间', when(d.created_at)], ['结算时间', when(d.settled_at)], ['总下注', money(d.total_stake_units)], ['总派彩', money(d.total_payout_units)], ['净变化', money(d.net_change_units, true)], ['结果', label(d.common_result)]]} />
-    <section className="history-section"><h2>本局结果</h2><RecordedValues title="游戏结果" value={d.dice || d.scratch || d.summon || d.slot || d.blackjack} /></section>
-    <details><summary>本局输入与版本记录</summary><RecordedValues title="输入" value={d.input} /><RecordedValues title="公平性承诺" value={d.fairness} /></details>
-    <Transactions items={d.transactions} /><Proof client={client} path={path} /><Link to={'/games/' + encodeURIComponent(d.game)}>查看游戏入口 →</Link>
-  </section>}</div>;
+  return <HistoryArchive title={d?.metadata.game_title || '本局详情'} detail={'Round · ' + id} navigation={<Back />}><Status {...read} />{d && <section className="panel archive-detail-panel">
+    <div className="archive-round-heading"><HistoryCover game={d.game} /><div><h2>本局详情 · {label(d.common_result)}</h2><p>{label(d.state)} · {when(d.created_at)}</p></div></div>
+    <div className="archive-money"><Fields values={[["总下注", money(d.total_stake_units)], ['总派彩', money(d.total_payout_units)], ['净变化', money(d.net_change_units, true)]]} /></div>
+    <RoundResult round={d} />
+    <details className="history-disclosure"><summary>本局输入与版本记录</summary><Snapshot data={d.metadata} /><Fields values={[["状态", label(d.state)], ['恢复状态', d.recovery_state], ['开始时间', when(d.created_at)], ['结算时间', when(d.settled_at)]]} /><RecordedValues title="输入" value={d.input} /><RecordedValues title="公平性承诺" value={d.fairness} /></details>
+    <details className="history-disclosure"><summary>钱包交易</summary><Transactions items={d.transactions} /></details><Proof client={client} path={path} /><Link className="archive-entry" to={'/games/' + encodeURIComponent(d.game)}>查看游戏入口 →</Link>
+  </section>}</HistoryArchive>;
 }
 export function HistorySession({ client }: HistoryProps) {
   const { id = '' } = useParams();
@@ -209,14 +238,15 @@ export function HistorySession({ client }: HistoryProps) {
 }
 function SessionContent({ id, client }: { id: string; client: ApiClient }) {
   const location = useLocation(), { params, advance } = useDetailPaging('sessions');
+  const [fundingOpen, setFundingOpen] = useState(params.has('funding_cursor'));
   params.set('funding_limit', '25'); params.set('hand_limit', '25');
   const read = useHistory(client, '/api/v1/history/sessions/' + id + '?' + params, sessionSchema), d = read.data;
-  return <div className="history-page"><Back /><Title title={d?.metadata.table_name || '牌桌会话'} detail={'Session · ' + id} /><Status {...read} />{d && <section className="panel"><Snapshot data={d.metadata} />
+  return <HistoryArchive title={d?.metadata.table_name || '牌桌会话'} detail={'Session · ' + id} navigation={<Back />}><Status {...read} />{d && <section className="panel archive-detail-panel"><Snapshot data={d.metadata} />
     <Fields values={[["状态", label(d.state)], ['座位', d.seat_no], ['开始时间', when(d.started_at)], ['结束时间', when(d.ended_at)], ['结束原因', label(d.end_reason)], ['初始买入', money(d.initial_buyin_units)], ['补充筹码', money(d.confirmed_topup_units)], ['重新买入', money(d.confirmed_rebuy_units)], ['离桌返还', money(d.final_cashout_units)], ['已实现损益', money(d.realized_pl_units, true)]]} />
-    <section className="history-section"><h2>资金操作 · {d.funding_count} 笔</h2>{d.funding.map(f => <article className="history-funding" key={f.funding_operation_id}><strong>{label(f.kind)} · {money(f.amount_units)} 筹码</strong><p>{label(f.state)} · {when(f.created_at)}</p>{f.failure_code && <p>未确认原因：{f.failure_code}</p>}{f.transaction ? <Transactions items={[f.transaction]} /> : <p>尚无已确认钱包交易，不展示计划交易回链。</p>}</article>)}<URLCursorButtons cursor={params.get('funding_cursor')} change={cursor => advance('funding_cursor', cursor)} next={d.next_funding_cursor} disabled={read.loading} title="资金操作" /></section>
+    <details className="history-disclosure" open={fundingOpen} onToggle={e => setFundingOpen(e.currentTarget.open)}><summary>资金操作与钱包交易 · {d.funding_count} 笔</summary>{d.funding.map(f => <article className="history-funding" key={f.funding_operation_id}><strong>{label(f.kind)} · {money(f.amount_units)} 筹码</strong><p>{label(f.state)} · {when(f.created_at)}</p>{f.failure_code && <p>未确认原因：{f.failure_code}</p>}{f.transaction ? <Transactions items={[f.transaction]} /> : <p>尚无已确认钱包交易，不展示计划交易回链。</p>}</article>)}<URLCursorButtons cursor={params.get('funding_cursor')} change={cursor => { setFundingOpen(true); advance('funding_cursor', cursor); }} next={d.next_funding_cursor} disabled={read.loading} title="资金操作" /></details>
     <section className="history-section"><h2>手牌 · {d.hand_count} 手</h2>{d.hands.length ? <ol className="history-hand-list">{d.hands.map(hand => <li key={hand.hand_id}><Link to={detailPath('POKER_HAND', hand.hand_id)} state={{ ...location.state, parentSessionSearch: location.search }}>第 {hand.hand_no} 手 · {label(hand.state)} →</Link><time>{when(hand.created_at)}</time></li>)}</ol> : <p>本页没有手牌记录。</p>}<URLCursorButtons cursor={params.get('hand_cursor')} change={cursor => advance('hand_cursor', cursor)} next={d.next_hand_cursor} disabled={read.loading} title="手牌" /></section>
     <details><summary>当时的牌桌配置</summary><RecordedValues title="配置" value={d.configuration} /></details><p>会话损益以资金结算为准，不再加总其中手牌损益。</p><Link to={'/poker/table/' + d.table_id}>查看牌桌入口 →</Link>
-  </section>}</div>;
+  </section>}</HistoryArchive>;
 }
 export function HistoryHand({ client }: HistoryProps) {
   const { id = '' } = useParams();
@@ -228,11 +258,11 @@ function HandContent({ id, client }: { id: string; client: ApiClient }) {
   const path = '/api/v1/history/hands/' + id;
   params.set('limit', '50');
   const read = useHistory(client, path + '?' + params, handSchema), d = read.data;
-  return <div className="history-page"><Back parent={d ? { path: detailPath('POKER_SESSION', d.session_id), title: '所属会话' } : undefined} /><Title title={d ? `第 ${d.hand_no} 手` : '手牌详情'} detail={'Hand · ' + id} /><Status {...read} />{read.error && params.has('cursor') && <button onClick={() => advance('cursor')}>重新读取第一页</button>}{d && <section className="panel"><Snapshot data={d.metadata} />
+  return <HistoryArchive title={d ? `第 ${d.hand_no} 手` : '手牌详情'} detail={'Hand · ' + id} navigation={<Back parent={d ? { path: detailPath('POKER_SESSION', d.session_id), title: '所属会话' } : undefined} />}><Status {...read} />{read.error && params.has('cursor') && <button onClick={() => advance('cursor')}>重新读取第一页</button>}{d && <section className="panel archive-detail-panel"><Snapshot data={d.metadata} />
     <Fields values={[["状态", label(d.state)], ['开始时间', when(d.created_at)], ['结算时间', when(d.settled_at)], ['我的座位', d.seat_no], ['按钮位', d.button_seat], ['公开公共牌', d.board_cards.length ? <CardNames cards={d.board_cards} /> : '尚未发出']]} />
     <section className="history-section"><h2>参与者</h2>{d.participants.map(p => <article className="history-participant" key={p.seat_no}><h3>座位 {p.seat_no} · {p.display_name}</h3><p>昵称来源：{p.name_origin} · {p.folded ? '已弃牌' : '未弃牌'}</p><Fields values={[["起始筹码", money(p.initial_stack_units)], ['结束筹码', money(p.ending_stack_units)], ['净变化', money(p.net_change_units, true)], ['可见底牌', p.hole_cards?.length ? <CardNames cards={p.hole_cards} /> : p.public_hole_cards?.length ? <CardNames cards={p.public_hole_cards} /> : '未公开']]} /></article>)}</section>
     <section className="history-section"><h2>行动时间线</h2><ol className="history-timeline">{d.actions.map(a => <li key={a.sequence}><strong>{a.street} · {a.type}</strong><span>{a.seat_no === undefined ? '公共事件' : `座位 ${a.seat_no}`} · {money(a.delta_units)} 筹码 · 累计至 {money(a.to_units)}</span>{a.card !== undefined && <CardNames cards={[a.card]} />}<time>{when(a.at)}</time></li>)}</ol><URLCursorButtons cursor={params.get('cursor')} change={cursor => advance('cursor', cursor)} next={d.next_cursor} disabled={read.loading} title="行动" /></section>
     <section className="history-section"><h2>底池与结算</h2>{d.pots.map(p => <article key={p.index}><h3>{p.index === 0 ? '主池' : `边池 ${p.index}`} · {money(p.amount_units)} 筹码</h3><p>有资格座位：{p.eligible_seats.join('、')}</p><RecordedValues title="分配" value={p.awards} /></article>)}<RecordedValues title="未跟注退回" value={d.uncalled_returns} /><RecordedValues title="结算" value={d.settlement} /></section>
     <details><summary>当时的牌桌配置</summary><RecordedValues title="配置" value={d.configuration} /></details><Proof client={client} path={path} /><Link to={'/poker/table/' + d.table_id}>查看牌桌入口 →</Link>
-  </section>}</div>;
+  </section>}</HistoryArchive>;
 }

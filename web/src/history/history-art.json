@@ -1,0 +1,32 @@
+{
+  "background": {
+    "src": "backgrounds/history/background.1584w.963537daf763.webp",
+    "width": 1584,
+    "height": 991,
+    "variants": [
+      {
+        "src": "backgrounds/history/background.960w.0bfd33c36b76.webp",
+        "width": 960
+      },
+      {
+        "src": "backgrounds/history/background.1584w.963537daf763.webp",
+        "width": 1584
+      }
+    ]
+  },
+  "holmes": {
+    "src": "characters/sherlock-holmes/holmes.768w.a9533c4ed300.webp",
+    "width": 768,
+    "height": 1152,
+    "variants": [
+      {
+        "src": "characters/sherlock-holmes/holmes.384w.ed009d4c962a.webp",
+        "width": 384
+      },
+      {
+        "src": "characters/sherlock-holmes/holmes.768w.a9533c4ed300.webp",
+        "width": 768
+      }
+    ]
+  }
+}
