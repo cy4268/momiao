@@ -71,7 +71,7 @@ export function GamesCatalog({client}:{client:ApiClient}) {
     return <div className="games-catalog game-hall"><a className="skip-link" href="#games-catalog-content">跳至主要内容</a>
         <header className="portal-header">
             <Link to="/" className="brand hall-brand" aria-label="Chaldea Platform 首页"><span>CHALDEA</span><small>MOMIAO</small></Link>
-            <nav className="portal-global" aria-label="主导航"><Link to="/">首页</Link><Link to="/models">模型目录</Link><Link to="/entertainment" aria-current="page">娱乐</Link><Link to="/announcements">公告</Link></nav>
+            <nav className="portal-global" aria-label="主导航"><Link to="/">首页</Link><Link to="/models">模型目录</Link><Link to="/entertainment" aria-current="page">娱乐</Link><Link to="/rankings">排行榜</Link><Link to="/announcements">公告</Link></nav>
             <Link className="button hall-account" to={session.user?'/me':'/login'}>{session.user?'个人中心':'登录账户'}</Link>
         </header>
         <main id="games-catalog-content">

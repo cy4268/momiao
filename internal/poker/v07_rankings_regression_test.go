@@ -16,9 +16,11 @@ type v07RankingAssets struct {
 	failure  error
 	block    bool
 	entered  chan struct{}
+	reads    int
 }
 
 func (a *v07RankingAssets) ReadRankingAssets(ctx context.Context, user int64) (string, time.Time, error) {
+	a.reads++
 	if a.block {
 		select {
 		case a.entered <- struct{}{}:
@@ -49,14 +51,14 @@ func v07RankingPointer(t *testing.T, ctx context.Context, owner *pgxpool.Pool, m
 // built_at and snapshot_id are deliberately outside the canonical aggregate
 // digest. Copying every hashed field and entry therefore makes a valid aged
 // fixture without weakening the production immutability triggers.
-func v07AgedRankingSnapshot(t *testing.T, ctx context.Context, owner *pgxpool.Pool, source string) string {
+func v07AgedRankingSnapshot(t *testing.T, ctx context.Context, owner *pgxpool.Pool, source string, age time.Duration) string {
 	t.Helper()
 	var id string
 	v07Must(t, owner.QueryRow(ctx, `INSERT INTO rankings.snapshots(snapshot_id,domain,period,
 		period_start,period_end,activation_at,built_at,source_checked_at,status,build_kind,operation_id,aggregate_hash)
 		SELECT gen_random_uuid(),domain,period,period_start,period_end,activation_at,
-		 clock_timestamp()-interval '6 minutes',source_checked_at,status,build_kind,NULL,aggregate_hash
-		FROM rankings.snapshots WHERE snapshot_id=$1::uuid RETURNING snapshot_id::text`, source).Scan(&id))
+		 clock_timestamp()-$2::double precision * interval '1 second',source_checked_at,status,build_kind,NULL,aggregate_hash
+		FROM rankings.snapshots WHERE snapshot_id=$1::uuid RETURNING snapshot_id::text`, source, age.Seconds()).Scan(&id))
 	_, err := owner.Exec(ctx, `INSERT INTO rankings.entries(snapshot_id,metric,model_id,model_scope,
 		newapi_user_id,display_name,avatar_id,value,calls,errors,credits_units,models)
 		SELECT $2::uuid,metric,model_id,model_scope,newapi_user_id,display_name,avatar_id,
@@ -110,9 +112,22 @@ func TestV07RankingsPublicationAndRecovery(t *testing.T) {
 	if pointerID != firstID || pointerVersion != 1 {
 		t.Fatal("first routine build did not install version-one pointer")
 	}
+	var firstBuilt time.Time
+	v07Must(t, owner.QueryRow(ctx, `SELECT built_at FROM rankings.snapshots WHERE snapshot_id=$1::uuid`, firstID).Scan(&firstBuilt))
 	var snapshots, entries int64
 	v07Must(t, owner.QueryRow(ctx, `SELECT (SELECT count(*) FROM rankings.snapshots WHERE domain='ASSETS'),
 		(SELECT count(*) FROM rankings.entries WHERE snapshot_id=$1::uuid)`, firstID).Scan(&snapshots, &entries))
+	runCtx, stopRun := context.WithTimeout(ctx, 3*time.Second)
+	rankings.NewService(store, rankings.Options{ActivationTime: activation, Assets: assets}).Run(runCtx)
+	stopRun()
+	if time.Now().UTC().Truncate(time.Hour).Equal(firstBuilt.UTC().Truncate(time.Hour)) {
+		var scheduledSnapshots int64
+		v07Must(t, owner.QueryRow(ctx, `SELECT count(*) FROM rankings.snapshots WHERE domain='ASSETS'`).Scan(&scheduledSnapshots))
+		scheduledID, scheduledVersion := v07RankingPointer(t, ctx, owner, "TOTAL_ASSETS", "CURRENT", activation)
+		if scheduledSnapshots != snapshots || scheduledID != firstID || scheduledVersion != pointerVersion {
+			t.Fatal("minute worker rebuilt an already published snapshot in the same UTC hour")
+		}
+	}
 
 	assets.failure = errors.New("bounded synthetic asset source failure")
 	if failedID, buildErr := service.Build(ctx, "ASSETS", "CURRENT", ""); failedID != "" || !errors.Is(buildErr, rankings.ErrUnavailable) {
@@ -139,7 +154,7 @@ func TestV07RankingsPublicationAndRecovery(t *testing.T) {
 		t.Fatal("healthy source did not recover publication and private own-rank lookup")
 	}
 
-	agedCurrent := v07AgedRankingSnapshot(t, ctx, owner, recoveredID)
+	agedCurrent := v07AgedRankingSnapshot(t, ctx, owner, recoveredID, 6*time.Minute)
 	tag, err := owner.Exec(ctx, `UPDATE rankings.published_pointers SET snapshot_id=$1::uuid,
 		version=version+1,published_at=clock_timestamp() WHERE domain='ASSETS' AND metric='TOTAL_ASSETS'
 		AND period='CURRENT' AND activation_at=$2`, agedCurrent, activation)
@@ -149,18 +164,59 @@ func TestV07RankingsPublicationAndRecovery(t *testing.T) {
 	}
 	page, err = service.Read(ctx, query, 0)
 	v07Must(t, err)
-	if page.State != "STALE" || page.Total != 2 || page.Items[0].Value != "9007199254740993" {
-		t.Fatal("aged active-period snapshot was not served as STALE")
+	if page.State != "READY" || page.Total != 2 || page.Items[0].Value != "9007199254740993" {
+		t.Fatal("six-minute-old hourly snapshot was incorrectly stale")
+	}
+	overview, err := service.ReadOpsOverview(ctx)
+	v07Must(t, err)
+	assetStatusSeen := false
+	for _, status := range overview.AggregationStatus {
+		if status.Domain == "ASSETS" && status.Period == "CURRENT" {
+			assetStatusSeen = true
+			if status.State != "READY" {
+				t.Fatal("ops and public freshness disagreed within the hourly window")
+			}
+		}
+	}
+	if !assetStatusSeen {
+		t.Fatal("ops current asset status was missing")
+	}
+	staleCurrent := v07AgedRankingSnapshot(t, ctx, owner, recoveredID, 66*time.Minute)
+	tag, err = owner.Exec(ctx, `UPDATE rankings.published_pointers SET snapshot_id=$1::uuid,
+		version=version+1,published_at=clock_timestamp() WHERE domain='ASSETS' AND metric='TOTAL_ASSETS'
+		AND period='CURRENT' AND activation_at=$2`, staleCurrent, activation)
+	v07Must(t, err)
+	if tag.RowsAffected() != 1 {
+		t.Fatal("expired current fixture did not replace exactly one pointer")
+	}
+	page, err = service.Read(ctx, query, 0)
+	v07Must(t, err)
+	if page.State != "STALE" || page.Total != 2 {
+		t.Fatal("expired active-period snapshot was not served as STALE")
+	}
+	overview, err = service.ReadOpsOverview(ctx)
+	v07Must(t, err)
+	assetStatusSeen = false
+	for _, status := range overview.AggregationStatus {
+		if status.Domain == "ASSETS" && status.Period == "CURRENT" {
+			assetStatusSeen = true
+			if status.State != "STALE" {
+				t.Fatal("ops and public freshness disagreed after the hourly window")
+			}
+		}
+	}
+	if !assetStatusSeen {
+		t.Fatal("ops current asset status was missing")
 	}
 	agedPointer, agedVersion := v07RankingPointer(t, ctx, owner, "TOTAL_ASSETS", "CURRENT", activation)
 
 	historicalDate := historicalStart.Format("2006-01-02")
 	historicalID, err := service.Build(ctx, "GAMES", "DAY", historicalDate)
 	v07Must(t, err)
-	agedHistorical := v07AgedRankingSnapshot(t, ctx, owner, historicalID)
+	agedHistorical := v07AgedRankingSnapshot(t, ctx, owner, historicalID, 66*time.Minute)
 	tag, err = owner.Exec(ctx, `UPDATE rankings.published_pointers SET snapshot_id=$1::uuid,
 		version=version+1,published_at=clock_timestamp() WHERE domain='GAMES' AND metric='GAME_PROFIT'
-		AND period='DAY' AND activation_at=$2`, agedHistorical, activation)
+		AND period='DAY' AND activation_at=$2 AND period_start=$3`, agedHistorical, activation, historicalStart.UTC())
 	v07Must(t, err)
 	if tag.RowsAffected() != 1 {
 		t.Fatal("aged historical fixture did not replace exactly one pointer")
@@ -274,6 +330,69 @@ func TestV07RankingsPublicationAndRecovery(t *testing.T) {
 	}
 	if id, version := v07RankingPointer(t, ctx, owner, "TOTAL_ASSETS", "CURRENT", activation); id != agedPointer || version != agedVersion {
 		t.Fatal("lease recovery changed the public pointer")
+	}
+
+	// A maintenance-held build must not be published after its source check ages
+	// out, even though the immutable snapshot still belongs to this UTC hour.
+	window, operation := uuid(), uuid()
+	_, err = owner.Exec(ctx, `INSERT INTO ops.admin_operations(operation_id,actor_kind,newapi_user_id,
+		action,request_hash,details,result) VALUES($1,'OFFLINE',910001,'SYNTHETIC_RANKING_MAINTENANCE',
+		repeat('a',64),'{}','{}')`, operation)
+	v07Must(t, err)
+	_, err = owner.Exec(ctx, `INSERT INTO ops.maintenance_windows(maintenance_id,state,reason,
+		impact_snapshot,impact_hash,environment,activated_at,created_by,operation_id)
+		VALUES($1,'ACTIVE','synthetic ranking maintenance','{}',decode(repeat('a',64),'hex'),
+		'STAGING',clock_timestamp(),910001,$2)`, window, operation)
+	v07Must(t, err)
+	_, err = owner.Exec(ctx, `INSERT INTO ops.maintenance_window_scopes(maintenance_id,scope)
+		VALUES($1,'RANKINGS_PUBLISHING')`, window)
+	v07Must(t, err)
+	heldActivation := activation.Add(-time.Second)
+	heldService := rankings.NewService(store, rankings.Options{ActivationTime: heldActivation, Assets: assets})
+	assets.observed = time.Now().UTC().Add(-4*time.Minute - 55*time.Second)
+	heldID, err := heldService.Build(ctx, "ASSETS", "CURRENT", "")
+	v07Must(t, err)
+	if heldID == "" {
+		t.Fatal("maintenance did not retain an immutable routine build")
+	}
+	var expired bool
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		v07Must(t, owner.QueryRow(ctx, `SELECT source_checked_at < clock_timestamp()-interval '5 minutes'
+			FROM rankings.snapshots WHERE snapshot_id=$1::uuid`, heldID).Scan(&expired))
+		if expired {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !expired {
+		t.Fatal("maintenance fixture source check did not age past five minutes")
+	}
+	_, err = owner.Exec(ctx, `UPDATE ops.maintenance_windows SET state='COMPLETED',
+		ended_at=clock_timestamp(),ended_by=910001,state_version=state_version+1
+		WHERE maintenance_id=$1`, window)
+	v07Must(t, err)
+	assets.failure = errors.New("synthetic unavailable source after maintenance")
+	readsBefore := assets.reads
+	runCtx, stopRun = context.WithTimeout(ctx, 4*time.Second)
+	heldService.Run(runCtx)
+	stopRun()
+	page, err = heldService.Read(ctx, query, 0)
+	v07Must(t, err)
+	if assets.reads == readsBefore || page.State != "UNAVAILABLE" {
+		t.Fatal("worker published an old maintenance build without rechecking source health")
+	}
+	assets.failure = nil
+	assets.observed = time.Now().UTC()
+	assets.values[910002] = "27"
+	runCtx, stopRun = context.WithTimeout(ctx, 4*time.Second)
+	heldService.Run(runCtx)
+	stopRun()
+	heldPointer, _ := v07RankingPointer(t, ctx, owner, "TOTAL_ASSETS", "CURRENT", heldActivation)
+	page, err = heldService.Read(ctx, query, 910002)
+	v07Must(t, err)
+	if heldPointer == heldID || page.State != "READY" || page.MyRank == nil || page.MyRank.Value != "27" {
+		t.Fatal("healthy source did not replace stale maintenance build before publication")
 	}
 
 	t.Log("V07_RELEASED_RANKINGS: local PG fixture verified fail-closed reads, atomic publication, exact integers, stale semantics, retry and lease recovery; repair builds remained unpublished")

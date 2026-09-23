@@ -196,7 +196,7 @@ function Shell({ client, user, children }: { client: ApiClient; user: User; chil
                 <Link to="/dashboard" aria-current={domain === 'home' ? 'page' : undefined}>指挥台</Link>
                 <Link to="/models" aria-current={domain === 'models' ? 'true' : undefined}>模型目录</Link>
                 <Link to="/entertainment" aria-current={domain === 'experience' ? 'true' : undefined}>娱乐</Link>
-                <Link to="/announcements">公告</Link>
+                <Link to="/rankings">排行榜</Link><Link to="/announcements">公告</Link>
             </nav>
             <div className="portal-account"><Link className="asset-shortcut" to="/wallet" aria-label="资产快捷入口" aria-current={domain === 'assets' ? 'true' : undefined}><span aria-hidden="true">◇</span> 资产</Link><div className="account-wrap" ref={account} onKeyDown={e => { if (e.key === 'Escape' && menu) { setMenu(false); trigger.current?.focus(); } }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setMenu(false); }}>
             <button ref={trigger} className="account-button" aria-label="账户菜单" aria-expanded={menu} aria-controls="account-menu" onClick={() => setMenu(!menu)}><span className="avatar"><Crest /></span><span>{masterName}<small>Master 身份</small></span><span aria-hidden="true">⌄</span></button>

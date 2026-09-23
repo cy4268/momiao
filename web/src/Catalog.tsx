@@ -17,7 +17,7 @@ export function CatalogShell({client,title,children}:{client:ApiClient;title:str
     useEffect(()=>{document.title=title+' · Chaldea';main.current?.focus()},[location.pathname,title]);
     return <div className="catalog-shell"><a className="skip-link" href="#catalog-content">跳至主要内容</a>
         <header className="portal-header"><Link className="brand" to="/" aria-label="Chaldea Platform 首页"><Brand/></Link>
-            <nav className="portal-global" aria-label="主导航"><Link to="/">首页</Link><NavLink to="/models">模型目录</NavLink><Link to="/announcements">公告</Link></nav>
+            <nav className="portal-global" aria-label="主导航"><Link to="/">首页</Link><NavLink to="/models">模型目录</NavLink><Link to="/entertainment">娱乐</Link><Link to="/rankings">排行榜</Link><Link to="/announcements">公告</Link></nav>
             <Link className="button" to={session.user?'/me':'/login'}>{session.user?'个人中心':'登录账户'}</Link>
         </header>
         <nav className="portal-context" aria-label="模型服务导航"><NavLink to="/models">发现模型</NavLink><NavLink to="/api/access">API 接入</NavLink><Link to="/keys">密钥管理</Link><Link to="/logs">调用记录</Link>{session.user&&<Link to="/playground">文本测试</Link>}</nav>

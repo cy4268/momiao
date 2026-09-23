@@ -1,0 +1,28 @@
+{
+  "background": {
+    "src": "backgrounds/rankings/background-1672.1295d914dc99.webp",
+    "width": 1672,
+    "height": 941,
+    "variants": [
+      {
+        "src": "backgrounds/rankings/background-1000.a07b9a464cd2.webp",
+        "width": 1000
+      },
+      {
+        "src": "backgrounds/rankings/background-1672.1295d914dc99.webp",
+        "width": 1672
+      }
+    ]
+  },
+  "medallion": {
+    "src": "backgrounds/rankings/medallion-144.23ac94471930.webp",
+    "width": 144,
+    "height": 144,
+    "variants": [
+      {
+        "src": "backgrounds/rankings/medallion-144.23ac94471930.webp",
+        "width": 144
+      }
+    ]
+  }
+}

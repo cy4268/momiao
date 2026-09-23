@@ -1,0 +1,56 @@
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { expect, it } from 'vitest';
+import { fixtureClient } from '../m1-test-fixtures';
+import { Rankings } from './Rankings';
+
+it('keeps the public hourly leaderboard, exact values, filters and private own-rank journey', async () => {
+  const row = {rank:'1',display_name:'星海',avatar_id:'system-default',value:'9007199254740993',calls:'9',errors:'1',credits_units:'500000',models:[{model_id:'sample/model',display_name:'示例模型',calls:'9',errors:'1',credits_units:'500000'}]};
+  let state = 'READY';
+  const {client,fetcher} = fixtureClient(path => {
+    if (!path.startsWith('/api/v1/rankings')) return;
+    const url = new URL(path, 'https://example.test');
+    const metric = url.searchParams.get('metric')!;
+    return new Response(JSON.stringify({success:true,data:{state,metric,period:url.searchParams.get('period'),period_start:'2026-09-01T00:00:00Z',period_end:null,last_updated:'2026-09-23T10:00:00Z',items:[{...row,value:metric==='RP_CALLS'?'9007199254740993':row.value}],total:'51',page:Number(url.searchParams.get('page')||1),page_size:50,historical_periods:['2026-09-22'],...(url.pathname.endsWith('/me')?{my_rank:{...row,rank:'26',value:'500000'}}:{})}}));
+  });
+  const view = render(<MemoryRouter initialEntries={['/rankings']}><Rankings client={client}/></MemoryRouter>);
+  await screen.findByText('星海');
+  expect(screen.getByRole('heading',{name:'迦勒底排行榜'})).toBeInTheDocument();
+  expect(within(screen.getByRole('navigation',{name:'主导航'})).getAllByRole('link').map(link=>link.getAttribute('href'))).toEqual(['/dashboard','/models','/entertainment','/rankings','/announcements']);
+  expect(screen.getByText('每小时更新 · 公开榜单')).toBeInTheDocument();
+  expect(screen.getByText('18,014,398,509.481986')).toBeInTheDocument();
+  expect(fetcher.mock.calls.some(([path])=>path.startsWith('/api/v1/rankings/me'))).toBe(false);
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'统计口径'}));
+  expect(screen.getByRole('dialog',{name:'统计口径'})).toHaveTextContent('每小时');
+  fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'下一页'}));
+  await screen.findByText('共 51 位 · 第 2 页');
+  fireEvent.click(screen.getByRole('button',{name:'调用统计'}));
+  await screen.findByText('9,007,199,254,740,993');
+  expect(screen.getByText('10.00%')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('筛选模型 ID'),{target:{value:'sample/model'}});
+  fireEvent.click(screen.getByRole('button',{name:'应用'}));
+  await screen.findByText('星海');
+  expect(fetcher.mock.calls.some(([path])=>path.includes('model=sample%2Fmodel')&&path.includes('page=1'))).toBe(true);
+  fireEvent.change(screen.getByLabelText('周期'),{target:{value:'WEEK'}});
+  await screen.findByText('星海');
+  fireEvent.change(screen.getByLabelText('历史周期'),{target:{value:'2026-09-22'}});
+  await screen.findByText('星海');
+  expect(fetcher.mock.calls.some(([path])=>path.includes('period=WEEK')&&path.includes('date=2026-09-22'))).toBe(true);
+  await act(async()=>{await client.bootstrap()});
+  await screen.findByText('第 26 名');
+  expect(fetcher.mock.calls.some(([path])=>path.startsWith('/api/v1/rankings/me?'))).toBe(true);
+  state='STALE';
+  fireEvent.click(screen.getByRole('button',{name:'刷新排行'}));
+  await screen.findByText(/数据更新暂有延迟/);
+  expect(screen.getByText('星海')).toBeInTheDocument();
+  state='UNAVAILABLE';
+  fireEvent.click(screen.getByRole('button',{name:'刷新排行'}));
+  await screen.findByText('排行暂未开放或数据尚未就绪');
+  expect(screen.queryByText('星海')).not.toBeInTheDocument();
+  // Reading never mutates a snapshot. Refresh is deliberately a GET of the server publication.
+  expect(fetcher.mock.calls.filter(([path])=>path.startsWith('/api/v1/rankings')).every(([,init])=>!init?.method||init.method==='GET')).toBe(true);
+  view.unmount();
+});

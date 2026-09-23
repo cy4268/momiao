@@ -33,7 +33,7 @@ it('R1 separates desktop global routes, asset shortcut and account destinations'
     const { client } = fixtureClient();
     render(<MemoryRouter initialEntries={['/keys']}><App client={client} /></MemoryRouter>);
     const global = await screen.findByRole('navigation', { name: '主导航' });
-    expect(within(global).getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(['/dashboard', '/models', '/entertainment', '/announcements']);
+    expect(within(global).getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(['/dashboard', '/models', '/entertainment', '/rankings', '/announcements']);
     expect(within(global).getByRole('link', { name: '模型目录' })).toHaveAttribute('aria-current');
     expect(within(global).getByRole('link', { name: '娱乐' })).toHaveAttribute('href', '/entertainment');
     expect(within(global).getByRole('link', { name: '公告' })).toHaveAttribute('href', '/announcements');

@@ -20,16 +20,18 @@ type assetRow struct {
 
 type snapshotMeta struct {
 	id, domain, period, buildKind, operationID string
-	start, checked, built                    time.Time
-	end                                      *time.Time
-	activation                               time.Time
-	hash                                     []byte
+	start, checked, built                      time.Time
+	end                                        *time.Time
+	activation                                 time.Time
+	hash                                       []byte
 }
 
 type rankingQuerier interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
+
+const currentSnapshotMaxAge = 65 * time.Minute
 
 func (s *Service) enabled(now time.Time) bool {
 	return s != nil && s.store != nil && !s.activation.IsZero() && !s.activation.After(now)
@@ -362,8 +364,88 @@ func (s *Service) Build(ctx context.Context, domain, period, date string) (strin
 	return id, err
 }
 
+// The worker uses published state, not an in-memory ticker, to survive restarts.
+// An unpublished build is reusable only while its source check remains fresh.
+func (s *Service) scheduledSnapshot(ctx context.Context, tx pgx.Tx, domain, period string,
+	start, hour time.Time) (string, bool, error) {
+	metrics, err := metricsForDomain(domain)
+	if err != nil {
+		return "", false, err
+	}
+	var fresh bool
+	err = tx.QueryRow(ctx, `SELECT count(*)=$5 AND coalesce(bool_and(s.status='READY' AND s.built_at >= $6),false)
+		FROM rankings.published_pointers p JOIN rankings.snapshots s USING(snapshot_id)
+		WHERE p.domain=$1 AND p.period=$2 AND p.period_start=$3 AND p.activation_at=$4`,
+		domain, period, start, s.activation, len(metrics), hour).Scan(&fresh)
+	if err != nil || fresh {
+		return "", fresh, err
+	}
+	var id string
+	err = tx.QueryRow(ctx, `SELECT snapshot_id::text FROM rankings.snapshots
+		WHERE domain=$1 AND period=$2 AND period_start=$3 AND activation_at=$4
+		AND built_at >= $5 AND build_kind='ROUTINE' AND status='READY'
+		AND source_checked_at >= clock_timestamp()-interval '5 minutes'
+		AND source_checked_at <= clock_timestamp()+interval '1 minute'
+		AND octet_length(aggregate_hash)=32
+		ORDER BY built_at DESC,snapshot_id DESC LIMIT 1`,
+		domain, period, start, s.activation, hour).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	return id, false, err
+}
+
+func (s *Service) buildScheduled(ctx context.Context, domain, period string) error {
+	now := time.Now().UTC()
+	if !s.enabled(now) {
+		return ErrUnavailable
+	}
+	start, end, err := periodBounds(period, "", now, s.activation)
+	if err != nil {
+		return err
+	}
+	hour := now.Truncate(time.Hour)
+	var id string
+	var fresh bool
+	err = s.store.WithTx(ctx, func(tx pgx.Tx) error {
+		var readErr error
+		id, fresh, readErr = s.scheduledSnapshot(ctx, tx, domain, period, start, hour)
+		return readErr
+	})
+	if err != nil || fresh {
+		return err
+	}
+	if id == "" {
+		assets, checked, inputErr := s.buildInputs(ctx, domain, now)
+		if inputErr != nil {
+			return inputErr
+		}
+		err = s.store.WithTx(ctx, func(tx pgx.Tx) error {
+			lockKey := "rankings:scheduled:" + domain + ":" + period + ":" + start.Format(time.RFC3339Nano) + ":" + hour.Format(time.RFC3339Nano)
+			if _, lockErr := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, lockKey); lockErr != nil {
+				return lockErr
+			}
+			var readErr error
+			id, fresh, readErr = s.scheduledSnapshot(ctx, tx, domain, period, start, hour)
+			if readErr != nil || fresh || id != "" {
+				return readErr
+			}
+			id, readErr = s.buildSnapshotTx(ctx, tx, domain, period, start, end, checked, assets, "ROUTINE", "")
+			return readErr
+		})
+		if err != nil || fresh {
+			return err
+		}
+	}
+	if err = s.publishRoutine(ctx, id); errors.Is(err, platform.ErrMaintenanceActive) {
+		return nil
+	}
+	return err
+}
+
 // Run retains the existing minute worker and gives one durable repair job
-// priority on every pass. A successful repair build remains a shadow.
+// priority on every pass. Current routine snapshots advance once per UTC hour;
+// historical backfill and shadow repair retain their minute cadence.
 func (s *Service) Run(ctx context.Context) {
 	tick := time.NewTicker(time.Minute)
 	defer tick.Stop()
@@ -384,7 +466,7 @@ func (s *Service) Run(ctx context.Context) {
 					return
 				}
 				work, cancel = context.WithTimeout(ctx, 45*time.Second)
-				_, _ = s.Build(work, domain, period, "")
+				_ = s.buildScheduled(work, domain, period)
 				cancel()
 			}
 			if domain != "ASSETS" {

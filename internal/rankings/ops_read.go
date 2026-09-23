@@ -269,7 +269,7 @@ func (s *Service) ReadOpsOverview(ctx context.Context) (OpsOverview, error) {
 						status.LagSeconds = &lag
 						status.State = "READY"
 						if (end == nil || end.After(result.GeneratedAt)) &&
-							(result.GeneratedAt.Sub(meta.built) > 5*time.Minute || result.GeneratedAt.Sub(meta.checked) > 5*time.Minute) {
+							(result.GeneratedAt.Sub(meta.built) > currentSnapshotMaxAge || result.GeneratedAt.Sub(meta.checked) > currentSnapshotMaxAge) {
 							status.State = "STALE"
 						}
 						focus, exists := published[pointerID]

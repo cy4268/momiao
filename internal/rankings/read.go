@@ -77,7 +77,7 @@ func (s *Service) Read(ctx context.Context,q Query,ownUser int64) (Page,error) {
     AND s.status='READY'`,metricDomain(q.Metric),q.Metric,q.Period,start,s.activation).Scan(&id,&built,&checked)
   if errors.Is(e,pgx.ErrNoRows){return nil};if e!=nil{return e}
   result.State="READY";result.LastUpdated=&checked
-  if (end==nil||end.After(now))&&(now.Sub(built)>5*time.Minute||now.Sub(checked)>5*time.Minute){result.State="STALE"}
+  if (end==nil||end.After(now))&&(now.Sub(built)>currentSnapshotMaxAge||now.Sub(checked)>currentSnapshotMaxAge){result.State="STALE"}
   e=tx.QueryRow(ctx,`SELECT count(*) FROM rankings.entries WHERE snapshot_id=$1::uuid AND metric=$2 AND model_id=$3 AND model_scope=CASE WHEN $3='' THEN 'ALL' ELSE 'MODEL' END`,id,q.Metric,q.Model).Scan(&result.Total);if e!=nil{return e}
   rows,e:=tx.Query(ctx,orderedEntries+`SELECT ranking,display_name,avatar_id,value,calls,errors,credits_units,models FROM ordered ORDER BY ranking,newapi_user_id LIMIT 50 OFFSET $4`,id,q.Metric,q.Model,(q.Page-1)*50);if e!=nil{return e}
   for rows.Next(){row,scanErr:=scanEntry(rows);if scanErr!=nil{rows.Close();return scanErr};result.Items=append(result.Items,row)}
