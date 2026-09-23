@@ -46,6 +46,5 @@ export function SummonStage({round,animateRoundID,busy,loading,recovering}:{roun
         <div className="summon-status"><p ref={status} role="status" tabIndex={-1}>{recovering?'本局等待核对，暂不展示新卡面。':loading?'正在恢复召唤状态…':busy?'正在连接召唤阵…':result?revealed?`本轮 ${result.draws.length} 抽已揭晓 · 倍率以本局结果为准。`:'灵基显现中…':'等待召唤 · 每一次星光，独立回应。'}</p>
             {result&&!revealed&&<button type="button" onClick={()=>{setReveal({id:round!.id,phase:'done'});status.current?.focus();}}>全部揭晓 · 跳过演出</button>}
         </div>
-        <details className="summon-roster"><summary>固定卡面 · 0—5 星</summary><dl>{Object.entries(servants).map(([tier,s])=><div key={tier}><dt>{tier} · {s.stars} 星</dt><dd>{s.name}</dd></div>)}</dl><p>星级仅作卡面展示，不改变奖励倍率，也没有额外保底。</p></details>
     </div>;
 }

@@ -115,9 +115,18 @@ it('publishes commitment before manual wager, locks double click, then displays 
     const create=vi.spyOn(gameAPI,'createGame').mockReturnValue(new Promise(r=>resolve=r));
     const view=show();await screen.findByText('可用筹码');expect(create).not.toHaveBeenCalled();
     expect(await screen.findByRole('img',{name:'星月骰盅，仅在首次开局前展示'})).toBeVisible();
-    expect(screen.getByText(hash)).toBeInTheDocument();
+    expect(screen.queryByText(hash)).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading',{name:'规则与奖励'})).not.toBeInTheDocument();
+    const rulesButton=screen.getByRole('button',{name:'规则与奖励'});rulesButton.focus();fireEvent.click(rulesButton);
     expect(screen.getByRole('heading',{name:'规则与奖励'})).toBeVisible();
     expect(screen.queryByText('理论返还率')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));
+    expect(rulesButton).toHaveFocus();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'公平验证'}));
+    expect(within(screen.getByRole('dialog',{name:'公平验证'})).getByText(hash)).toBeVisible();
+    expect(screen.queryByRole('button',{name:'验证本局'})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));
     fireEvent.click(screen.getByRole('radio',{name:/小/}));
     fireEvent.click(screen.getByRole('button',{name:'掷骰'}));
     expect(screen.queryByRole('img',{name:'星月骰盅，仅在首次开局前展示'})).not.toBeInTheDocument();
@@ -241,12 +250,22 @@ it('keeps the pre-purchase scratch balance visible until reveal completes',async
     expect(screen.getByRole('img',{name:'未揭晓涂层'})).toBeVisible();
     expect(screen.queryByRole('img',{name:'赤铜果实'})).not.toBeInTheDocument();
     expect(screen.getByRole('button',{name:'购买刮刮卡'})).toBeDisabled();
+    expect(screen.queryByLabelText('本局结果')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'公平验证'}));
+    expect(screen.getByRole('dialog',{name:'公平验证'})).toBeVisible();
+    expect(screen.queryByRole('heading',{name:'复算本局'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'验证本局'})).not.toBeInTheDocument();
+    expect(within(screen.getByRole('dialog')).queryByText(/900/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));
     fireEvent.click(screen.getByRole('button',{name:'立即揭晓'}));
     await waitFor(()=>expect(within(balance()).getByText('900')).toBeVisible());
     expect(screen.getAllByRole('img',{name:'赤铜果实'})).toHaveLength(9);
     expect(screen.queryByRole('img',{name:'未揭晓涂层'})).not.toBeInTheDocument();
     expect(client.request).toHaveBeenCalledWith(`/api/v1/game-rounds/${id}/actions`,'POST',expect.objectContaining({action_type:'SCRATCH_REVEAL_COMPLETE'}),{'X-CSRF-Token':hash});
     expect(screen.getByRole('button',{name:'购买刮刮卡'})).toBeEnabled();
+    fireEvent.click(screen.getByRole('button',{name:'公平验证'}));
+    expect(screen.getByRole('button',{name:'验证本局'})).toBeEnabled();
+    fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));
 });
 it('disables each quick amount by its total cost, including tenfold',async()=>{
     const summonBoot={...bootstrap,game:{...bootstrap.game,slug:'summon',config:{...bootstrap.game.config!,prizes:[{tier:'T0',multiplier:0,weight:50000},{tier:'T5',multiplier:100,weight:50000}]}},available_units:'1500000000'};
@@ -258,9 +277,14 @@ it('disables each quick amount by its total cost, including tenfold',async()=>{
     expect(screen.getByRole('button',{name:'100'})).toBeEnabled();
     expect(screen.getByRole('button',{name:'500'})).toBeDisabled();
     expect(screen.getByRole('button',{name:'1000'})).toBeDisabled();
-    const rewards=screen.getByRole('table',{name:'完整奖励表'});
+    expect(screen.queryByRole('table',{name:'完整奖励表'})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'规则与奖励'}));
+    const rewards=within(screen.getByRole('dialog')).getByRole('table',{name:'完整奖励表'});
     expect(within(rewards).getAllByRole('columnheader').map(cell=>cell.textContent)).toEqual(['等级','总派彩倍数']);
     expect(within(rewards).getByRole('row',{name:'T5 ×100'})).toBeVisible();
+    expect(within(screen.getByRole('dialog')).getByText('固定卡面 · 0—5 星')).toBeVisible();
+    fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('img',{name:'待召唤的灵基卡背'})).toBeVisible();
     expect(screen.queryByRole('img',{name:'阿尔托莉雅·卡斯特'})).not.toBeInTheDocument();
     // Reuse the existing round and this case's prize values; art must not select a result.

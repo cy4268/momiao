@@ -1,16 +1,18 @@
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ApiClient, ApiError } from './api';
 import { Alert, Brand, Empty, Loading, Modal, useResource } from './ui';
 import { DiceStage, ScratchStage, SummonStage } from './games/DirectStages';
 import {SlotGame, SlotRules} from './games/SlotGame';
 import slotArt from './games/slot-art.json';
+import summonArt from './games/summon-art.json';
 import pokerArt from './poker/poker-art.json';
 import {BlackjackGame,BlackjackRules,type BlackjackCommand} from './games/BlackjackGame';
 import {blackjackActionStorage,findBlackjackAction,readBlackjackAction,type PendingBlackjackAction} from './games-api';
 import { chips, createGame, findPendingGame, gameError, gameNames, gameSlugs, gameUUID, outcomeNames, parseRound, pendingStorage, readGameBootstrap, readPending, units, wagerCost, type Commitment, type GameBootstrap, type GameConfig, type GameEntry, type GameInput, type GameRound, type GameSlug, type GameVerification, type PendingGame } from './games-api';
 import './games.css';
 import './game-hall.css';
+import './games/direct-salon.css';
 import { assetSrcSet, assetUrl, gameArt, hallArt, type ImageAsset } from './game-hall-assets';
 import { catalogAvailability, catalogQuerySchema, parseCatalogQuery, serializeCatalogQuery, parsePublicCatalog, type CatalogQuery } from './game-catalog-query';
 
@@ -213,16 +215,14 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
         }}finally{if(current()){lock.current=false;setBusy(false);}}
     }
     const copy=gameCopy[slug];
-    const foldedInformation=slug==='slot'||slug==='blackjack';
     const salonLayout=slug==='dice'||slug==='scratch'||slug==='summon';
-    const StageLayout=salonLayout?'div':Fragment;
-    return <div className={'direct-game game-'+slug}>
+    return <div className={'direct-game game-'+slug+(salonLayout?' direct-salon':'')}>
         {slug==='blackjack'&&<HallImage asset={pokerArt.room} className="blackjack-room" sizes="100vw"/>}
         {slug==='slot'&&<HallImage asset={slotArt.room} className="slot-room" sizes="100vw"/>}
         <header className="game-page-heading"><div><p className="eyebrow">CHALDEA / {copy.eyebrow}</p><h1>{gameNames[slug]}{slug==='slot'&&<small>王之宝库 · Slot</small>}</h1><p>{copy.intro}</p></div><div className="game-heading-links"><Link to="/games">所有游戏 ↗</Link><Link to="/history">游戏记录</Link><button onClick={()=>void load(pending,pendingAction)} disabled={busy||loading}>刷新恢复</button></div></header>
         {round?.recovery_state==='NEEDS_REVIEW'&&<Alert>本局状态需要核对，已暂停行动。请保留本局编号并联系管理员。</Alert>}
         {slug==='blackjack'?<BlackjackGame salon onRules={()=>setInfoPanel('rules')} snapshot={round?.blackjack||null} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} busy={busy||loading} recovering={!!pending||!!pendingAction} error={!pending&&!pendingAction?notice:null} disabledReason={!busy&&!loading&&!pending&&!pendingAction&&(activeBlackjack?actionBlocked:blocked)?'当前暂不可操作。':null} roundID={round?.id} onDeal={async()=>{await play()}} onAction={command=>performAction(command)} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={()=>setInfoPanel('fairness')}/>:null}
-        {slug==='blackjack'?null:slug==='slot'?<SlotGame salon onRules={()=>setInfoPanel('rules')} result={round?.slot||null} rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} error={!pending?notice:null} busy={busy||loading} recovering={!!pending} disabledReason={blocked&&!busy&&!loading&&!pending?'当前暂不可开局。':null} roundID={round?.id} onSpin={async()=>{await play()}} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={()=>setInfoPanel('fairness')}/>:<StageLayout {...(salonLayout?{className:slug+'-play-layout'}:{})}><section className={'game-stage '+(busy?'game-busy':'')} aria-label="游戏舞台">
+        {slug==='blackjack'?null:slug==='slot'?<SlotGame salon onRules={()=>setInfoPanel('rules')} result={round?.slot||null} rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version} availableUnits={bootstrap?.available_units||null} wagerChips={wager} onWagerChange={setWager} error={!pending?notice:null} busy={busy||loading} recovering={!!pending} disabledReason={blocked&&!busy&&!loading&&!pending?'当前暂不可开局。':null} roundID={round?.id} onSpin={async()=>{await play()}} onWallet={()=>navigate('/wallet')} onRewards={()=>navigate('/rewards')} onHistory={round?()=>navigate('/history/rounds/'+round.id):undefined} onFairness={()=>setInfoPanel('fairness')}/>:<div className={slug+'-play-layout'}><section className={'game-stage '+(busy?'game-busy':'')} aria-label="游戏舞台">
             <div className="game-stage-corners" aria-hidden="true"/>
             {slug==='dice'?<DiceStage key={userID} result={round?.dice} busy={busy} loading={loading} recovering={!!pending} onAnimatingChange={setDiceAnimating}/>:slug==='scratch'?<ScratchStage round={round} onComplete={()=>void completeScratch()} busy={busy}/>:<SummonStage key={userID} round={round} animateRoundID={summonAnimationID} busy={busy} loading={loading} recovering={!!pending}/>}
         </section>
@@ -240,9 +240,10 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
                 {bootstrap&&bootstrap.game.effective_runtime!=='PLAY'&&<p className="hint">{runtimeNames[bootstrap.game.effective_runtime]||'暂不可用'}，历史结果仍可查阅。</p>}
             </form>
         </section>
-        </StageLayout>}{loading&&!bootstrap&&<Loading/>}
-        {!foldedInformation&&round&&!revealIncomplete&&!(slug==='dice'&&(busy||diceAnimating||pending))&&<RoundReceipt round={round}/> }
-        {foldedInformation?infoPanel&&<Modal busy={seedSaving} title={infoPanel==='rules'?(slug==='blackjack'?'游戏规则':'奖表与固定规则'):'公平验证'} onClose={()=>setInfoPanel(null)}><div className="slot-dialog-content">{infoPanel==='rules'?slug==='blackjack'?<><BlackjackRules/><p>规则版本 {round?.ruleset_version||bootstrap?.game.config?.ruleset_version||'读取中'}</p>{round?.blackjack?.phase==='PLAYER_TURN'&&<p>长期未操作处理时间：<time dateTime={round.blackjack.auto_resolve_at}>{new Date(round.blackjack.auto_resolve_at).toLocaleString('zh-CN',{hour12:false})}</time>。最后成功行动后24小时由服务端处理。</p>}</>:<><SlotRules rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version}/><p>本局优先使用锁定的规则版本。插画仅对应原符号，不代表获得新币种或道具。</p><dl className="slot-symbol-key">{Object.entries(slotArt.symbols).map(([symbol,art])=><div key={symbol}><dt>{symbol}</dt><dd>{art.name}</dd></div>)}</dl></>:<>{bootstrap&&<FairnessControl client={client} slug={slug} bootstrap={bootstrap} disabled={blocked} onSavingChange={setSeedSaving} onChanged={()=>void load()}/>} {round?<DirectRoundVerification key={round.id} client={client} round={round}/>:<p>尚未开局；结算后可在这里验证本局。</p>}</>}</div></Modal>:<div className="game-information"><GameRules slug={slug} config={bootstrap?.game.config}/> {bootstrap&&<FairnessControl client={client} slug={slug} bootstrap={bootstrap} disabled={blocked} onChanged={()=>void load()}/>}</div>}
+        </div>}{loading&&!bootstrap&&<Loading/>}
+        {salonLayout&&round&&!revealIncomplete&&!(slug==='dice'&&(busy||diceAnimating||pending))&&<RoundReceipt round={round} compact/>}
+        {salonLayout&&<nav className="direct-tool-dock" aria-label="游戏信息"><button onClick={()=>setInfoPanel('rules')}>规则与奖励 <span aria-hidden="true">+</span></button><button onClick={()=>setInfoPanel('fairness')}>公平验证 <span aria-hidden="true">+</span></button><button disabled={!round||!!revealIncomplete} onClick={()=>round&&navigate('/history/rounds/'+round.id)}>本局记录 ↗</button></nav>}
+        {infoPanel&&<Modal busy={seedSaving} title={infoPanel==='rules'?(slug==='slot'?'奖表与固定规则':'游戏规则'):'公平验证'} onClose={()=>setInfoPanel(null)}><div className="slot-dialog-content">{infoPanel==='rules'?salonLayout?<GameRules slug={slug} config={bootstrap?.game.config}/>:slug==='blackjack'?<><BlackjackRules/><p>规则版本 {round?.ruleset_version||bootstrap?.game.config?.ruleset_version||'读取中'}</p>{round?.blackjack?.phase==='PLAYER_TURN'&&<p>长期未操作处理时间：<time dateTime={round.blackjack.auto_resolve_at}>{new Date(round.blackjack.auto_resolve_at).toLocaleString('zh-CN',{hour12:false})}</time>。最后成功行动后24小时由服务端处理。</p>}</>:<><SlotRules rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version}/><p>本局优先使用锁定的规则版本。插画仅对应原符号，不代表获得新币种或道具。</p><dl className="slot-symbol-key">{Object.entries(slotArt.symbols).map(([symbol,art])=><div key={symbol}><dt>{symbol}</dt><dd>{art.name}</dd></div>)}</dl></>:<>{bootstrap&&<FairnessControl client={client} slug={slug} bootstrap={bootstrap} disabled={blocked} onSavingChange={setSeedSaving} onChanged={()=>void load()}/>} {round&&!revealIncomplete?<DirectRoundVerification key={round.id} client={client} round={round}/>:<p>{revealIncomplete?'完成刮卡揭晓后，可在这里验证本局。':'尚未开局；结算后可在这里验证本局。'}</p>}</>}</div></Modal>}
     </div>;
 }
 
@@ -263,6 +264,7 @@ function GameRules({slug,config}:{slug:GameSlug;config?:GameConfig}) {
         {slug==='dice'?<p>三颗六面骰。小为 4–10 点，大为 11–17 点。任意豹子（3 颗相同）返还本次下注；猜中总派彩为下注的 2 倍，普通未中派彩为 0。</p>:slug==='scratch'?<p>九宫格出现 3 枚相同功能星纹，获得对应倍数的总派彩；未匹配时派彩为 0。结果在购买时确定，刮擦和立即揭晓只改变展示。</p>:<p>单抽与十连使用相同奖池。十连总消耗为基础下注的 10 倍，每抽独立，没有保底或共享修正；整轮结果按总派彩减总消耗计算。</p>}
         <p>总派彩包含本金，净变化 = 总派彩 − 总消耗。回本不计作净赢。</p>
         {config&&<>{config.prizes&&<table aria-label="完整奖励表"><thead><tr><th>等级</th><th>总派彩倍数</th></tr></thead><tbody>{config.prizes.map(p=><tr key={p.tier}><td>{p.tier}</td><td>×{p.multiplier}</td></tr>)}</tbody></table>}<small>规则版本 {config.ruleset_version} · 奖励表与当前配置一致。</small></>}
+        {slug==='summon'&&<details className="summon-roster"><summary>固定卡面 · 0—5 星</summary><dl>{Object.entries(summonArt.servants).map(([tier,s])=><div key={tier}><dt>{tier} · {s.stars} 星</dt><dd>{s.name}</dd></div>)}</dl><p>星级仅作卡面展示，不改变奖励倍率，也没有额外保底。</p></details>}
     </section>;
 }
 function FairnessControl({client,slug,bootstrap,disabled,onChanged,onSavingChange}:{client:ApiClient;slug:GameSlug;bootstrap:GameBootstrap;disabled:boolean;onChanged:()=>void;onSavingChange?:(saving:boolean)=>void}) {
@@ -276,14 +278,14 @@ function FairnessControl({client,slug,bootstrap,disabled,onChanged,onSavingChang
         {bootstrap.game.config&&<small>配置版本 {bootstrap.game.config.version_id}</small>}
     </section>;
 }
-export function RoundReceipt({round}:{round:GameRound}) {
+export function RoundReceipt({round,compact=false}:{round:GameRound;compact?:boolean}) {
     if(round.state!=='SETTLED')return <section className="round-receipt" aria-label="本局进行中"><div><p className="eyebrow">PLAYER TURN / 尚未结算</p><h2>{round.recovery_state==='NEEDS_REVIEW'?'本局等待核对':'继续当前牌局'}</h2><p>已投入 {chips(round.total_stake_units)} 筹码，最终派彩与净变化将在结算后显示。</p><Link className="button" to="/games/blackjack">返回牌桌恢复本局 →</Link></div></section>;
     const d=round.dice;
-    return <section className={'round-receipt result-'+round.common_result} aria-label="本局结果"><div><p className="eyebrow">SETTLED / 本局已结算</p><h2>{outcomeNames[round.common_result||'LOSS']} <strong>{chips(round.net_change_units,true)}</strong></h2>
+    return <section className={'round-receipt result-'+round.common_result+(compact?' compact-receipt':'')} aria-label="本局结果"><div>{!compact&&<p className="eyebrow">SETTLED / 本局已结算</p>}<h2>{outcomeNames[round.common_result||'LOSS']} <strong>{chips(round.net_change_units,true)}</strong></h2>
         {d&&<p>{d.dice.join('、')} · 合计 {d.total} 点 · 实际{d.triple?'豹子':d.side==='BIG'?'大':'小'} · 选择{d.choice==='BIG'?'大':'小'}{d.triple?'（返还下注）':''}</p>}
         {round.scratch&&<p>{round.scratch.reward.payout_multiplier==='0'?'未组成三枚相同星纹':`匹配三枚星纹 · 总派彩 ×${round.scratch.reward.payout_multiplier}`}</p>}
         {round.summon&&<p>{round.summon.draws.length} 抽已结算 · 最高等级 {round.summon.highest_tier} · 以整轮净变化判定结果</p>}
-        <Link className="text-link" to={'/history/rounds/'+round.id}>查看本局详情与公平验证 →</Link></div>
+        {!compact&&<Link className="text-link" to={'/history/rounds/'+round.id}>查看本局详情与公平验证 →</Link>}</div>
         <dl><div><dt>总消耗</dt><dd>{chips(round.total_stake_units)}</dd></div><div><dt>总派彩</dt><dd>{chips(round.total_payout_units)}</dd></div><div><dt>结算后余额</dt><dd>{chips(round.balance_after_units)}</dd></div></dl>
     </section>;
 }

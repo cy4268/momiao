@@ -106,6 +106,7 @@ it('saves only the guest catalog destination and returns through the original po
 it.each(['test wallet navigation','test browser back','test lobby navigation'])('keeps the same player owner through %s until a real safe exit',async name=>{
   const r=await setup(whole(true));await live(r);const socket=Socket.all[0];fireEvent.click(screen.getByRole('button',{name}));
   await waitFor(()=>expect(screen.getByTestId('path')).toHaveTextContent('/poker/table/'+table));
+  expect(screen.queryByText(/请先核对原入桌请求/)).not.toBeInTheDocument();
   expect(screen.getByRole('button',{name:'安全离座'})).toBeEnabled();expect(Socket.all).toHaveLength(1);expect(socket.readyState).toBe(1);expect(tickets(r)).toHaveLength(1);
   const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);expect(event.defaultPrevented).toBe(true);
 });
@@ -162,6 +163,8 @@ it('preserves the original unknown entry key through navigation and receipt NOT_
   expect(screen.queryByRole('button',{name:'查询原操作回执'})).toBeNull();
   expect(screen.queryByRole('region',{name:'原入桌操作'})).toBeNull();
   fireEvent.click(screen.getByRole('button',{name:'test wallet navigation'}));await waitFor(()=>expect(screen.getByTestId('path').textContent).toBe('/poker'));
+  expect(screen.queryByText(/完成安全离座后即可切换页面/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'安全离座'})).not.toBeInTheDocument();
   fireEvent.focus(window);await screen.findByText('NOT_FOUND 仅代表当前不可见；系统会保留原请求键并自动继续只读核对。');
   const queries=pokerCalls(r).filter(([path])=>path.endsWith('/entry-receipt-query'));
   expect(queries.length).toBeGreaterThan(0);expect(queries.every(([,init])=>JSON.parse(String(init?.body)).mutation_id===key)).toBe(true);

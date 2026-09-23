@@ -1,0 +1,93 @@
+/* Finish the three early live game rooms; history and other games keep their layouts. */
+.direct-salon .direct-tool-dock { display:flex; gap:8px; margin-top:12px; }
+.direct-salon .direct-tool-dock button { flex:1; display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:44px; padding:8px 16px; border:1px solid #b79a627a; border-radius:2px; background:#081a2d; font-size:13px; }
+.direct-salon .direct-tool-dock button:last-child { flex:0 0 auto; }
+.direct-tool-dock span { color:#e3c98f; font-size:18px; }
+.direct-game.direct-salon .compact-receipt { grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:16px; padding:10px 18px; margin:12px 0 0; }
+.direct-salon .compact-receipt h2 { margin:0; font-size:16px; }
+.direct-salon .compact-receipt h2 strong { font-size:24px; }
+.direct-salon .compact-receipt p { margin:4px 0 0; font-size:12px; }
+.direct-salon .compact-receipt dl { display:flex; gap:24px; margin:0; }
+.direct-salon .compact-receipt dt { font-size:11px; }
+.direct-salon .compact-receipt dd { font-size:22px; margin:4px 0 0; }
+.direct-salon .modal { width:min(780px,calc(100vw - 28px)); max-height:calc(100dvh - 32px); padding:22px; overflow:hidden; background:#0b1a2e; color:#e5e9f1; border:1px solid #c2a365; border-radius:3px; }
+.direct-salon .modal[open] { display:flex; flex-direction:column; }
+.direct-salon .modal::backdrop { background:#020914bd; backdrop-filter:blur(5px); }
+.direct-salon .modal-heading { flex:none; margin:0 0 14px; padding-bottom:12px; border-bottom:1px solid #a58e6066; }
+.direct-salon .modal-heading h2 { color:#eed7a6; }
+.direct-salon .modal .game-rules { padding:0; }
+.direct-salon .summon-roster { margin-top:20px; }
+@media (min-width:1000px) {
+ .portal-shell:has(.direct-salon) { height:100dvh; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; }
+ .portal-shell:has(.direct-salon) .portal-header { min-height:64px; padding:6px clamp(16px,2vw,38px); }
+ .portal-shell:has(.direct-salon) .main-content { min-height:0; }
+ .portal-shell:has(.direct-salon) .workspace-foot { padding:6px 24px; margin:0; font-size:10px; }
+ .direct-game.direct-salon { display:flex; flex-direction:column; gap:8px; height:100%; min-height:0; padding:12px clamp(16px,2vw,38px); }
+ .direct-salon .game-page-heading { flex:none; margin:0; gap:20px; }
+ .direct-salon .game-page-heading .eyebrow { margin:0 0 4px; }
+ .direct-salon .game-page-heading h1 { font-size:clamp(28px,2.7vw,40px); margin:0; line-height:1.25; }
+ .direct-salon .game-page-heading p:last-child { font-size:12px; margin:4px 0 0; }
+ .direct-salon :is(.dice-play-layout,.scratch-play-layout,.summon-play-layout) { flex:1; min-height:0; grid-template-columns:minmax(0,1fr) clamp(280px,25vw,380px); align-items:stretch; gap:16px; }
+ .direct-salon .summon-play-layout { padding:16px; }
+ .direct-salon .game-stage { min-height:0; height:100%; container-type:size; }
+ .direct-salon .dice-scene { min-height:0; }
+ .direct-salon .scratch-scene { padding:10px 12px; justify-content:center; }
+ .direct-salon .voucher-art-card { width:min(92%,720px,calc((100cqh - 94px)*1.2)); }
+ .direct-salon .voucher-controls { min-height:58px; flex:none; }
+ .direct-salon .summon-scene { min-height:0; height:100%; gap:12px; }
+ .direct-salon .summon-idle,.direct-salon .spirit-cards.single { width:min(84%,420px,calc((100cqh - 74px)*.7)); }
+ .direct-salon .spirit-cards.tenfold { width:min(100%,calc((100cqh - 88px)*1.75)); grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; }
+ .direct-salon .summon-status { flex:none; }
+ .direct-salon .game-console { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:18px; margin:0; gap:12px; }
+ .direct-salon .game-balance { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,2fr); align-items:center; gap:4px 8px; padding:0 0 10px; }
+ .direct-salon .game-balance>p { margin:0; }
+ .direct-salon .game-balance>strong { font-size:32px; line-height:1.1; text-align:right; }
+ .direct-salon .game-balance>div { grid-column:1/-1; margin:0; }
+ .direct-salon .game-balance a { min-height:28px; }
+ .direct-salon .wager-form { gap:8px; }
+ .direct-salon .wager-cost { gap:8px; padding:10px 0 4px; }
+ .direct-salon .game-play { min-height:52px!important; margin-top:auto; font-size:20px; }
+ .direct-salon .game-choice label { min-height:76px; }
+ .direct-salon .summon-mode label { margin:0; }
+ .direct-salon .compact-receipt,.direct-salon .direct-tool-dock { flex:none; margin:0; }
+ .direct-game.direct-salon .compact-receipt { margin:0; }
+}
+@media (min-width:1000px) and (max-height:900px) {
+ .direct-game.direct-salon { gap:6px; padding-block:8px; }
+ .direct-salon .game-page-heading h1 { font-size:28px; }
+ .direct-salon .game-page-heading p:last-child { font-size:11px; }
+ .direct-salon .game-console { padding:12px 16px; gap:8px; }
+ .direct-salon .game-balance { padding-bottom:6px; }
+ .direct-salon .game-balance>strong { font-size:28px; }
+ .direct-salon .game-balance>div { margin-top:0; }
+ .direct-salon .wager-form { gap:6px; }
+ .direct-salon .wager-form>label { flex-direction:row; align-items:center; justify-content:space-between; font-size:12px; }
+ .direct-salon .wager-form>label input { width:48%; min-height:40px; padding:6px 10px; }
+ .direct-salon .wager-quick button { min-height:36px; padding-block:6px; }
+ .direct-salon .game-choice { margin-top:0; }
+ .direct-salon .game-choice legend,.direct-salon .summon-mode legend { margin-bottom:4px; }
+ .direct-salon .game-choice label { min-height:56px; }
+ .direct-salon .game-choice strong { font-size:26px; }
+ .direct-salon .game-choice span { margin-top:0; font-size:12px; }
+ .direct-salon .wager-cost { gap:4px; padding:6px 0 2px; }
+ .direct-salon .game-play { min-height:48px!important; }
+ .direct-game.direct-salon .compact-receipt { padding-block:6px; }
+ .direct-salon .compact-receipt h2 strong,.direct-salon .compact-receipt dd { font-size:20px; }
+ .direct-salon .compact-receipt p { font-size:11px; margin-top:2px; }
+ .direct-salon .direct-tool-dock button { min-height:40px; padding-block:6px; }
+ .direct-salon .summon-play-layout { padding:10px 12px; }
+ .direct-salon.game-summon .wager-form { gap:4px; }
+ .direct-salon .summon-mode label { min-height:44px; padding-block:6px; }
+}
+@media (max-width:999px) {
+ .direct-salon :is(.dice-play-layout,.scratch-play-layout,.summon-play-layout) { grid-template-columns:minmax(0,1fr); }
+}
+@media (max-width:600px) {
+ .direct-salon .direct-tool-dock { flex-wrap:wrap; }
+ .direct-salon .direct-tool-dock button { min-width:40%; padding-inline:12px; }
+ .direct-salon .direct-tool-dock button:last-child { flex:1 1 100%; }
+ .direct-game.direct-salon .compact-receipt { grid-template-columns:minmax(0,1fr); gap:12px; padding:16px; }
+ .direct-salon .compact-receipt dl { justify-content:space-between; gap:10px; }
+ .direct-salon .compact-receipt dd { font-size:20px; }
+ .direct-salon .modal { padding:16px; }
+}

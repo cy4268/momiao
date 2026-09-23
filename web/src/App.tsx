@@ -73,7 +73,7 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
     const loading = <div className="session-loading"><Crest /><Loading /></div>;
     const announcementSession = (session.user?.id || 'guest') + ':' + client.getSessionGeneration() + ':' + session.ready;
     const routedSession=announcementSession+':'+location.pathname+location.search;
-    return <>{location.pathname !== '/' && <CriticalNotice client={client}/>}{location.pathname !== '/' && session.ready && !session.user && <AnnouncementEntry client={client} />}{pokerNotice&&held&&<p role="status">请先核对原入桌请求，或在原牌桌完成安全离座；当前牌桌状态已保留。</p>}<Routes location={effectiveLocation}>
+    return <>{location.pathname !== '/' && <CriticalNotice client={client}/>}{location.pathname !== '/' && session.ready && !session.user && <AnnouncementEntry client={client} />}{pokerNotice&&held&&<p role="status">{held.path==='/poker'?'入桌结果正在自动同步，已保留当前页面。':'当前牌桌会话仍在进行，安全离座后即可切换页面。'}</p>}<Routes location={effectiveLocation}>
         <Route path="/" element={<Home key={announcementSession} signedIn={!!session.user} client={client} />} />
         <Route path="/entertainment" element={<GamesCatalog key={announcementSession} client={client}/>} />
         <Route path="/games" element={<GamesCatalog key={announcementSession} client={client}/>} />
