@@ -6,6 +6,43 @@ import { bundle, failed, fixtureClient, ok, profile, user } from './m1-test-fixt
 
 function ProviderReturn() { const navigate = useNavigate(); return <button onClick={() => navigate('/welcome')}>test provider return</button>; }
 
+it('shares the Alter chamber while preserving live dashboard data, retry and personal account actions', async () => {
+    const native = { ...user, role: 10, quota: 7654321, used_quota: 123456, request_count: 42 };
+    let failLogs = false;
+    const { client, fetcher } = fixtureClient(p => {
+        if (p.includes('/auth/refresh')) return ok({ ...bundle, user: native });
+        if (p === '/api/user/self') return ok(native);
+        if (p.startsWith('/api/token/?')) return ok({ items: [], total: 3, page: 1, page_size: 5 });
+        if (p.startsWith('/api/log/self')) return failLogs ? failed() : ok({ items: [{ id: 1, type: 2, created_at: 1727000000, model_name: 'account-model', token_name: 'account-key', prompt_tokens: 321, completion_tokens: 123, quota: 444 }], total: 1, page: 1, page_size: 5 });
+    });
+    render(<MemoryRouter initialEntries={['/dashboard']}><App client={client} /></MemoryRouter>);
+    expect(await screen.findByText('account-model')).toBeVisible();
+    const main = screen.getByRole('main');
+    const background = main.querySelector<HTMLImageElement>('.chamber-background')!;
+    expect(background).not.toBeNull();
+    expect(background).toHaveAttribute('alt', '');
+    expect(background.getAttribute('src')).toContain('backgrounds/command-personal/');
+    const src = background.getAttribute('src');
+    expect(within(screen.getByRole('region', { name: '账户使用概览' })).getByText('7,654,321')).toBeVisible();
+    expect(screen.getByText('account-key')).toBeVisible();
+    fireEvent.click(within(main).getByRole('link', { name: /^个人中心/ }));
+    expect(await screen.findByRole('heading', { name: '个人中心', level: 1 })).toBeVisible();
+    const personalMain = screen.getByRole('main');
+    expect(personalMain.querySelector('.chamber-background')).toHaveAttribute('src', src);
+    const account = screen.getByRole('region', { name: '原生登录账户' });
+    expect(account).toHaveTextContent('Native Fixture · fixture-account');
+    expect(within(account).getByRole('link', { name: '账户与安全' })).toHaveAttribute('href', '/account');
+    expect(within(account).getByRole('button', { name: '退出登录' })).toBeEnabled();
+    expect(within(personalMain).getByRole('link', { name: '渠道管理' })).toHaveAttribute('href', '/admin/channels');
+    failLogs = true;
+    fireEvent.click(within(screen.getByRole('navigation', { name: '主导航' })).getByRole('link', { name: '指挥台' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('fixture unavailable');
+    failLogs = false;
+    fireEvent.click(screen.getByRole('button', { name: '重新加载' }));
+    expect(await screen.findByText('account-model')).toBeVisible();
+    expect(fetcher.mock.calls.some(([path, init]) => init?.method && init.method !== 'GET' && !path.includes('/auth/refresh'))).toBe(false);
+});
+
 it('shows verified Master identity separately from the native account and links the existing journey', async () => {
     const { client, fetcher } = fixtureClient();
     render(<MemoryRouter initialEntries={['/me']}><App client={client} /></MemoryRouter>);

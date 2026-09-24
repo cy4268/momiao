@@ -37,7 +37,7 @@ import { MasterProfile } from './MasterProfile';
 import { Home } from './Home';
 import { Announcements, AnnouncementDetail, AnnouncementEntry } from './Announcements';
 import { OpsAnnouncements } from './OpsAnnouncements';
-import { PersonalHub, MasterSummary, type MasterResource } from './PersonalHub';
+import { PersonalHub, MasterSummary, CommandChamber, type MasterResource } from './PersonalHub';
 import { Rewards } from './Rewards';
 import { readProfile, profileError } from './profile-api';
 import { Alert, Brand, Crest, Empty, Loading, Pager, date, number, role, useResource } from './ui';
@@ -218,12 +218,13 @@ function Dashboard({ client, user }: { client: ApiClient; user: User }) {
     const master = useOutletContext<MasterResource>();
     const r = useResource(async () => { const [self, keys, logs] = await Promise.all([client.loadSelf(), client.keys(1, 5), client.logs('p=1&page_size=5')]); return { self, keys, logs }; }, [client]);
     const current = r.data?.self || user;
-    return <><header className="page-heading"><div><p className="eyebrow">CHALDEA / COMMAND CENTER</p><h1>指挥台</h1><p>欢迎回来。管理连接，开始下一次创造。</p></div><Link className="button primary" to="/models">选择模型并测试 <span aria-hidden="true">↗</span></Link></header>
+    return <CommandChamber page="dashboard"><header className="page-heading"><div><p className="eyebrow">CHALDEA / COMMAND CENTER</p><h1>指挥台</h1><p>欢迎回来，御主。</p></div><Link className="button primary" to="/models">选择模型并测试 <span aria-hidden="true">↗</span></Link></header>
         <MasterSummary master={master} />
-        <div className="dashboard-paths"><Link to="/me">个人中心 →</Link><Link to="/rewards">领取每日奖励 →</Link><Link to="/wallet/activate">激活 API 额度 →</Link><span>原生登录身份：{current.display_name} · {current.username}</span></div>
-        <section className="account-ledger" aria-label="账户使用概览"><div><p>可用原生额度</p><strong>{number(current.quota)}</strong><span>原生单位</span></div><div><p>已用原生额度</p><strong>{number(current.used_quota)}</strong><span>原生单位</span></div><div><p>累计请求</p><strong>{number(current.request_count)}</strong><span>次调用</span></div><div><p>API 密钥</p><strong>{r.loading ? '…' : r.error ? '—' : number(r.data?.keys.total)}</strong><Link to="/keys">管理密钥 ↗</Link></div></section><p className="ledger-note">原生额度为当前服务的计量单位，与平台本地钱包独立。<Link className="text-link" to="/wallet">查看 Reserve API Credit 与可用筹码 →</Link></p>
-        <section className="panel recent"><div className="section-heading"><div><p className="eyebrow">RECENT ACTIVITY</p><h2>最近调用与活动</h2></div><Link className="text-link" to="/logs">查看全部 →</Link></div>{r.loading ? <Loading /> : r.error ? <><Alert>{r.error}</Alert><button onClick={r.reload}>重新加载</button></> : r.data && <>{r.data.keys.total === 0 && <div className="first-key"><div><strong>建立你的第一个连接</strong><p>创建一枚独立密钥，再将它添加到你信任的应用。</p></div><Link className="button" to="/keys">创建第一枚密钥 →</Link></div>}<LogTable items={r.data.logs.items} /></>}</section>
-    </>;
+        <div className="chamber-ledger"><section className="account-ledger" aria-label="账户使用概览"><div><p>可用原生额度</p><strong>{number(current.quota)}</strong><span>原生单位</span></div><div><p>已用原生额度</p><strong>{number(current.used_quota)}</strong><span>原生单位</span></div><div><p>累计请求</p><strong>{number(current.request_count)}</strong><span>次调用</span></div><div><p>API 密钥</p><strong>{r.loading ? '…' : r.error ? '—' : number(r.data?.keys.total)}</strong><Link to="/keys">管理密钥 ↗</Link></div></section><p className="ledger-note">原生额度与平台本地钱包独立。<Link className="text-link" to="/wallet">查看 Reserve API Credit 与可用筹码 →</Link></p></div>
+        <div className="dashboard-paths"><Link to="/me">个人中心 →</Link><Link to="/rewards">领取每日奖励 →</Link><Link to="/wallet/activate">激活 API 额度 →</Link></div>
+        <section className="panel recent"><div className="section-heading"><h2>最近调用与活动</h2><Link className="text-link" to="/logs">查看全部 →</Link></div><div className="chamber-activity" role="region" aria-label="最近调用内容" tabIndex={0}>{r.loading ? <Loading /> : r.error ? <><Alert>{r.error}</Alert><button onClick={r.reload}>重新加载</button></> : r.data && <>{r.data.keys.total === 0 && <div className="first-key"><div><strong>建立你的第一个连接</strong><p>创建一枚独立密钥，再将它添加到你信任的应用。</p></div><Link className="button" to="/keys">创建第一枚密钥 →</Link></div>}<LogTable items={r.data.logs.items} /></>}</div></section>
+        <p className="dashboard-native">原生登录身份：{current.display_name} · {current.username}</p>
+    </CommandChamber>;
 }
 const logTypes: Record<number, string> = { 1: '充值', 2: '消费', 3: '管理', 4: '系统', 5: '错误', 6: '退款', 7: '登录' };
 function LogTable({ items }: {

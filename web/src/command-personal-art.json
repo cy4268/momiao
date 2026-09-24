@@ -1,0 +1,28 @@
+{
+  "background": {
+    "src": "backgrounds/command-personal/background-1671.b83b081b8264.webp",
+    "width": 1671,
+    "height": 941,
+    "variants": [
+      {
+        "src": "backgrounds/command-personal/background-1000.37786c868ab0.webp",
+        "width": 1000
+      },
+      {
+        "src": "backgrounds/command-personal/background-1671.b83b081b8264.webp",
+        "width": 1671
+      }
+    ]
+  },
+  "emblem": {
+    "src": "backgrounds/command-personal/emblem-160.705ccbd80d75.webp",
+    "width": 160,
+    "height": 160,
+    "variants": [
+      {
+        "src": "backgrounds/command-personal/emblem-160.705ccbd80d75.webp",
+        "width": 160
+      }
+    ]
+  }
+}
