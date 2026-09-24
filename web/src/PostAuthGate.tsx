@@ -78,7 +78,7 @@ function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,child
   <div className="welcome-steps"><strong>01 核对账户</strong><span>02 Master 身份</span><span>03 迁移确认</span><span>04 权限与开放状态</span></div>
   {loading&&<Loading/>}
   {error&&<Alert>{error}</Alert>}
-  {!loading&&view?.stage==='MASTER_REQUIRED'&&<MasterProfile client={client} user={user} onSaved={()=>void load()}/>}
+  {!loading&&view?.stage==='MASTER_REQUIRED'&&<MasterProfile client={client} user={user} onSaved={()=>void load()} embedded/>}
   {!loading&&view?.stage==='MIGRATION_REQUIRED'&&notice&&<section aria-label="迁移确认"><p className="eyebrow">独立迁移通知 · 版本 {notice.required_migration_version}</p><h1>{notice.title}</h1><p style={{whiteSpace:'pre-wrap'}}>{notice.body}</p><p className="hint">此确认只记录你已了解已完成的迁移事实；不会重置额度、发放赠额、创建资料或迁移密钥。</p><button disabled={saving||reconcile} onClick={()=>void acknowledge()}>{saving?'正在确认…':'我已了解，继续'}</button></section>}
   {!loading&&view&&messages[view.stage]&&<Alert>{messages[view.stage]}</Alert>}
   {!loading&&<div className="auth-actions"><button disabled={saving} onClick={()=>void load()}>重新核对访问状态</button>{view?.stage!=='ACCOUNT_RESTRICTED'&&route!=='/dashboard'&&<Link to="/dashboard">返回指挥台入口</Link>}<button disabled={saving} onClick={()=>void client.logout().catch(()=>{})}>退出登录</button></div>}

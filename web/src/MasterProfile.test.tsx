@@ -4,6 +4,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import { App } from './App';
 import { ApiClient } from './api';
+import { assetUrl } from './game-hall-assets';
+import art from './command-personal-art.json';
 const user = { id: 1, username: 'native-user', display_name: 'Native User', role: 1 };
 const incomplete = { user_id: '1', short_account_id: 'CA-123456789ABC', status: 'INCOMPLETE', display_name: '', avatar_id: 'system-default', profile_version: '0', nickname_changed_at: null, next_rename_at: null, suggested_name: 'Master-CA-123456789ABC', avatars: [{ id: 'system-default', label: '系统默认头像', source: 'SYSTEM' }] };
 const complete = { ...incomplete, status: 'COMPLETE', display_name: 'Moonlit', profile_version: '1' };
@@ -66,6 +68,7 @@ it('sends PATCH with exact string version and renders server rename timestamps',
     await screen.findByDisplayValue('Moonlit'); edit('Moon II'); fireEvent.click(screen.getByRole('button', { name: '保存修改' }));
     await screen.findByText('资料已保存，并已核对最新状态。');
     expect(JSON.parse(String(writes(f)[0][1]?.body))).toEqual({ expected_version: '9007199254740993', display_name: 'Moon II' });
+    fireEvent.click(screen.getByRole('button', { name: '仅本人可见的账户信息' }));
     expect(screen.getByText('9007199254740994')).toBeVisible();
     expect(document.querySelector('time[datetime="2026-09-05T01:00:00Z"]')).toBeInTheDocument();
     expect(document.querySelector('time[datetime="2026-09-12T01:00:00Z"]')).toBeInTheDocument();
@@ -109,12 +112,13 @@ it('locks malformed successful writes rather than displaying another user identi
     await screen.findByText(/保存结果尚未确认/); expect(screen.getByRole('button', { name: '保存并初始化' })).toBeDisabled();
     expect(within(screen.getByRole('region', { name: '公开身份预览' })).queryByText('Moonlit')).not.toBeInTheDocument();
 });
-it('rejects foreign or malformed GET, recovers by read, and uses only the static Crest', async () => {
+it('rejects foreign or malformed GET, recovers by read, and uses only approved static art', async () => {
     let broken = true;
     setup(p => p === '/platform/v1/master-profile' ? ok(broken ? { ...complete, user_id: '2', avatar_id: 'https://external.invalid/a.png' } : complete) : undefined);
     await screen.findByText(/资料响应格式异常/); expect(screen.queryByLabelText('Master 昵称')).not.toBeInTheDocument();
     broken = false; fireEvent.click(screen.getByRole('button', { name: '刷新资料' })); await screen.findByDisplayValue('Moonlit');
-    expect(screen.getAllByRole('img', { name: '系统默认头像' }).length).toBeGreaterThan(0); expect(document.querySelector('img[src]')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: '系统默认头像' }).length).toBeGreaterThan(0);
+    for (const img of document.querySelectorAll('img[src]')) expect([assetUrl(art.background.src), assetUrl(art.emblem.src)]).toContain(img.getAttribute('src'));
 });
 it('changing accounts drops the old GET and clears drafts', async () => {
     let resolve!: (r: Response) => void; let account = '1';
@@ -155,9 +159,21 @@ it('a write followed by an older GET stays locked instead of falsely claiming pe
 });
 it('separates future public name/avatar usage from private account identifiers and metadata', async () => {
     setup(); await screen.findByLabelText('Master 昵称');
+    expect(document.querySelector('.identity-chamber.chamber-profile')).toBeInTheDocument();
+    expect(document.querySelector('.chamber-background')).toHaveAttribute('src', assetUrl(art.background.src));
+    expect(screen.getByRole('link', { name: 'Master 资料' })).toHaveAttribute('aria-current', 'page');
     const preview = screen.getByRole('region', { name: '公开身份预览' });
     expect(within(preview).queryByText('CA-123456789ABC')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const privateInfo = screen.getByRole('button', { name: '仅本人可见的账户信息' });
+    expect(privateInfo).toHaveAttribute('aria-expanded', 'false');
+    privateInfo.focus();
+    fireEvent.click(privateInfo);
     expect(within(screen.getByRole('region', { name: '仅本人可见的账户信息' })).getByText('CA-123456789ABC')).toBeVisible();
     expect(screen.getByText(/账户短 ID、版本与改名时间仅本人可见/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '关闭对话框' }));
+    expect(privateInfo).toHaveFocus();
+    expect(screen.queryByText('CA-123456789ABC')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '改名规则与资料说明' }));
     expect(screen.getByText(/昵称与头像会用于后续开放的游戏、排行等公开区域/)).toHaveTextContent('本轮仅保存资料和本人预览，不创建他人可访问的公开主页。');
 });

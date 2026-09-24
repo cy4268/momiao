@@ -25,7 +25,10 @@ it('ensures provisional Master only after the authoritative gate then rechecks b
  const c=new ApiClient(f);await c.login('a','b');saveRouteIntent('/wallet');
  const pending={kind:'EXCHANGE',key:'01990000-1111-7777-aaaa-000000000001',from_asset:'AVAILABLE_CHIPS',amount:'1'};sessionStorage.setItem('momiao.wallet.pending.12',JSON.stringify(pending));
  render(<MemoryRouter initialEntries={['/welcome']}><App client={c}/></MemoryRouter>);
- fireEvent.change(await screen.findByLabelText('Master 昵称'),{target:{value:'星之海'}});fireEvent.click(screen.getByRole('button',{name:'保存并初始化'}));
+ const name=await screen.findByLabelText('Master 昵称');
+ expect(screen.queryByRole('navigation',{name:'个人页面导航'})).not.toBeInTheDocument();
+ expect(document.querySelector('.welcome-page .command-chamber')).not.toBeInTheDocument();
+ fireEvent.change(name,{target:{value:'星之海'}});fireEvent.click(screen.getByRole('button',{name:'保存并初始化'}));
  await screen.findByRole('heading',{name:'我的钱包'});
  expect(f.mock.calls.findIndex(([p])=>p.startsWith('/platform/v1/access-gate?'))).toBeLessThan(f.mock.calls.findIndex(([p])=>p==='/platform/v1/admission/ensure'));
  expect(f.mock.calls.filter(([,i])=>i?.method==='POST').map(([p])=>p)).toEqual(['/api/user/login','/platform/v1/admission/ensure','/platform/v1/master-profile/initialize']);

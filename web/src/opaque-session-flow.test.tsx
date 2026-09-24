@@ -415,7 +415,9 @@ describe('opt-in opaque browser session flow', () => {
         const accountFetch = vi.fn().mockResolvedValueOnce(ok(authenticated())).mockResolvedValueOnce(ok(user)).mockResolvedValueOnce(ok({items:[]}));
         const accountClient = new ApiClient(accountFetch, { sessionMode: 'opaque' }); await accountClient.bootstrap();
         const account = render(<MemoryRouter><Account client={accountClient} /></MemoryRouter>);
-        expect(screen.getByRole('alert')).toHaveTextContent(/密码变更.*尚未接入/); account.unmount();
+        expect(screen.getByRole('alert')).toHaveTextContent(/密码变更.*尚未接入/);
+        expect(document.querySelector('.identity-chamber.chamber-security')).toBeInTheDocument();
+        expect(screen.queryByLabelText('新密码')).not.toBeInTheDocument(); account.unmount();
         const poker = render(<MemoryRouter initialEntries={['/poker']}><App client={accountClient} /></MemoryRouter>);
         expect(await screen.findByRole('alert')).toHaveTextContent(/Poker.*尚未接入/); poker.unmount();
         await waitFor(() => expect(accountFetch.mock.calls.map(([path]) => path)).toEqual(['/api/v1/session/bootstrap', '/api/user/self', '/api/v1/maintenance/notices']));

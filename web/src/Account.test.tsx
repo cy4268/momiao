@@ -15,7 +15,13 @@ it('shows actual read-only login identifier and first set requires a fresh proof
  const f=vi.fn(async(path:string)=>ok(path==='/api/user/login'?bundle:path==='/api/momiao/account'?{id:12,username:'native-readonly',has_password:false,discord_connected:true,two_fa_enabled:true}:path.includes('master-profile')?profile:status));const c=new ApiClient(withReadyAccessGate(f));await c.login('a','b');
  render(<MemoryRouter><Account client={c}/></MemoryRouter>);
  expect(await screen.findByText('native-readonly')).toBeVisible();expect(screen.queryByLabelText('用户名')).not.toBeInTheDocument();
+ expect(document.querySelector('.identity-chamber.chamber-security')).toBeInTheDocument();
+ expect(screen.getByRole('button',{name:'账户与会话说明'})).toHaveAttribute('aria-expanded','false');
+ expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
  expect(screen.getByRole('button',{name:'验证 Discord 并设置密码'})).toBeEnabled();expect(screen.queryByLabelText('新密码')).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'账户与会话说明'}));
+ expect(screen.getByRole('dialog',{name:'账户与会话说明'})).toHaveTextContent('成功后其他旧会话将失效');
+ expect(f.mock.calls.some(([path])=>path.includes('/password/'))).toBe(false);
 });
 it('uses a supplied in-memory proof for first set then clears it without replay',async()=>{
  const f=vi.fn(async(path:string)=>ok(path==='/api/user/login'?bundle:path==='/api/momiao/account'?{id:12,username:'native-readonly',has_password:false,discord_connected:true,two_fa_enabled:false}:path.includes('master-profile')?profile:path.includes('/password/set')?{...bundle,user:undefined,has_password:true}:status));const c=new ApiClient(withReadyAccessGate(f));await c.login('a','b');const clear=vi.fn();

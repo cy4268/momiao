@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { ApiClient, ApiError, type User } from './api';
 import { parseProfile, profileError, readProfile, type MasterProfileData } from './profile-api';
-import { Alert, Crest, Loading } from './ui';
+import { Alert, Loading } from './ui';
+import { IdentityChamber, IdentityDisclosure, IdentityEmblem } from './IdentityChamber';
 
-export function MasterProfile({ client, user, onSaved }: { client: ApiClient; user: User; onSaved?: () => void }) {
+export function MasterProfile({ client, user, onSaved, embedded = false }: { client: ApiClient; user: User; onSaved?: () => void; embedded?: boolean }) {
     useSyncExternalStore(client.subscribe, client.getSnapshot);
     const generation = client.getSessionGeneration();
     if (!Number.isSafeInteger(user.id) || user.id <= 0) return <Alert>账户标识格式异常，请重新登录后读取资料。</Alert>;
-    return <ProfileView key={`${user.id}:${generation}`} client={client} userID={String(user.id)} generation={generation} onSaved={onSaved} />;
+    return <ProfileView key={`${user.id}:${generation}`} client={client} userID={String(user.id)} generation={generation} onSaved={onSaved} embedded={embedded} />;
 }
-function ProfileView({ client, userID, generation, onSaved }: { client: ApiClient; userID: string; generation: number; onSaved?: () => void }) {
+function ProfileView({ client, userID, generation, onSaved, embedded }: { client: ApiClient; userID: string; generation: number; onSaved?: () => void; embedded: boolean }) {
     const [profile, setProfile] = useState<MasterProfileData>();
     const [name, setName] = useState('');
     const [preview, setPreview] = useState<string | null>(null);
@@ -75,9 +76,8 @@ function ProfileView({ client, userID, generation, onSaved }: { client: ApiClien
     }
     const disabled = loading || busy || uncertain || !!readError;
     const displayedName = preview ?? profile?.display_name ?? '';
-    return <div className="profile-page">
+    const content = <>
         <header className="page-heading"><div><p className="eyebrow">IDENTITY / MASTER PROFILE</p><h1>Master 资料</h1><p>为你的公开身份设定昵称，登录账户保持不变。</p></div><button onClick={() => void reload()} disabled={loading || busy}>刷新资料</button></header>
-        <p className="profile-scope">这是独立的 Master 展示资料，不修改原生用户名、密码或钱包。填写前，你仍可使用现有门户功能。</p>
         {notice && <Alert>{notice}</Alert>}{readError && <Alert>{readError} 请使用“刷新资料”重试读取。</Alert>}
         {saved && <p className="profile-notice" role="status">资料已保存，并已核对最新状态。</p>}
         {loading && <Loading />}
@@ -88,26 +88,33 @@ function ProfileView({ client, userID, generation, onSaved }: { client: ApiClien
                     <label htmlFor="master-name">Master 昵称</label><input id="master-name" value={name} onChange={e => { setName(e.target.value); setPreview(null); setSaved(false); }} disabled={disabled} autoComplete="off" required aria-describedby="master-name-help" placeholder="输入你想使用的昵称" />
                     <p className="hint" id="master-name-help">1–24 个字符，可使用文字、数字、空格及 _ - ·。不含表情或隐藏字符；规范化、重名与保留名由服务端校验。</p>
                     {profile.status === 'INCOMPLETE' && <p className="profile-suggestion">可选参考：<code>{profile.suggested_name}</code><br /><span>仅供参考，不会自动填入或保存。</span></p>}
-                    <div className="profile-avatar-option"><div className="profile-avatar" role="img" aria-label="系统默认头像"><Crest /></div><div><strong>系统默认头像</strong><small>SYSTEM / Crest</small><p>随资料保存，无需上传。</p></div><span className="profile-state">当前头像</span></div>
+                    <div className="profile-avatar-option"><div className="profile-avatar" role="img" aria-label="系统默认头像"><IdentityEmblem /></div><div><strong>系统默认头像</strong><small>SYSTEM / Crest</small><p>随资料保存，无需上传。</p></div></div>
                     <p className="hint">初始化后首次改名可立即进行；每次实际改名后需间隔 7 天。可改名时间以服务端为准。</p>
-                    <p className="hint">昵称与头像会用于后续开放的游戏、排行等公开区域。本轮仅保存资料和本人预览，不创建他人可访问的公开主页。</p>
                     <div className="profile-actions"><button type="button" onClick={() => setPreview(name)} disabled={disabled || !name.trim()}>预览资料</button><button className="primary" type="submit" disabled={disabled || !name.trim() || name === profile.display_name}>{busy ? '正在保存…' : profile.status === 'INCOMPLETE' ? '保存并初始化' : '保存修改'}</button></div>
                     {uncertain && <p className="hint">保存已暂停，等待成功读取最新资料。</p>}
                 </form>
             </section>
-            <div className="profile-identity-column"><section className="panel profile-preview" aria-label="公开身份预览">
+            <section className="panel profile-preview" aria-label="公开身份预览">
                 <p className="eyebrow">MASTER / IDENTITY PREVIEW</p><h2>公开身份预览</h2>
-                <div className="profile-preview-emblem" role="img" aria-label="系统默认头像"><Crest large /></div>
+                <div className="profile-preview-emblem" role="img" aria-label="系统默认头像"><IdentityEmblem /></div>
                 <h3 className="profile-display-name">{displayedName || '等待你的昵称'}</h3>
                 <p className="profile-preview-label">{preview !== null ? '未保存的预览' : profile.status === 'COMPLETE' ? '当前已保存资料' : '预览占位 · 尚未建立公开身份'}</p>
                 <p className="hint">公开身份只展示昵称与头像。此处为本人预览；只有明确保存才会写入资料。</p>
-            </section><section className="panel profile-private" aria-label="仅本人可见的账户信息">
-                <h2>仅本人可见的账户信息</h2>
+            </section>
+        </div>}
+        {profile && <IdentityDisclosure title="仅本人可见的账户信息"><section className="profile-private" aria-label="仅本人可见的账户信息">
                 <p className="hint">账户短 ID、版本与改名时间仅本人可见，不随昵称与头像公开展示。</p>
                 <dl className="profile-details"><div><dt>账户短 ID</dt><dd>{profile.short_account_id}</dd></div><div><dt>资料版本</dt><dd>{profile.profile_version}</dd></div><div><dt>上次实际改名</dt><dd>{profile.nickname_changed_at ? <ProfileTime value={profile.nickname_changed_at} /> : '尚无改名记录'}</dd></div><div><dt>下次可改名</dt><dd>{profile.next_rename_at ? <ProfileTime value={profile.next_rename_at} /> : profile.status === 'COMPLETE' ? '可立即改名' : '初始化后可改名'}</dd></div></dl>
                 <p className="hint">时间按设备所在时区显示。</p>
-            </section></div>
-        </div>}
-    </div>;
+            </section></IdentityDisclosure>}
+        <IdentityDisclosure title="改名规则与资料说明">
+            <p>这是独立的 Master 展示资料，不修改原生用户名、密码或钱包。填写前，你仍可使用现有门户功能。</p>
+            <h3>昵称与改名间隔</h3><p>1–24 个字符，可使用文字、数字、空格及 _ - ·。不含表情或隐藏字符；规范化、重名与保留名由服务端校验。</p>
+            <p>初始化后首次改名可立即进行；每次实际改名后需间隔 7 天。可改名时间以服务端为准。</p>
+            <h3>公开身份与本人预览</h3><p>昵称与头像会用于后续开放的游戏、排行等公开区域。本轮仅保存资料和本人预览，不创建他人可访问的公开主页。</p>
+            <p>预览不会保存。只有明确保存并成功读取最新资料后，才会显示保存完成；结果未确认时暂停再次提交。</p>
+        </IdentityDisclosure>
+    </>;
+    return embedded ? <div className="profile-page">{content}</div> : <IdentityChamber page="profile">{content}</IdentityChamber>;
 }
 function ProfileTime({ value }: { value: string }) { return <time dateTime={value}>{new Date(value).toLocaleString('zh-CN', { hour12: false })}</time>; }

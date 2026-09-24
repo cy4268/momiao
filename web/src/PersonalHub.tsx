@@ -7,7 +7,7 @@ import { assetSrcSet, assetUrl } from './game-hall-assets';
 import art from './command-personal-art.json';
 import './command-personal.css';
 
-export function CommandChamber({ page, children, className = '' }: { page: 'dashboard' | 'personal' | 'wallet' | 'rewards' | 'activation' | 'transaction'; children: ReactNode; className?: string }) {
+export function CommandChamber({ page, children, className = '' }: { page: 'dashboard' | 'personal' | 'wallet' | 'rewards' | 'activation' | 'transaction' | 'profile' | 'security'; children: ReactNode; className?: string }) {
     return <div className={'command-chamber chamber-' + page + ' ' + className}>
         <img className="chamber-background" src={assetUrl(art.background.src)} srcSet={assetSrcSet(art.background)} sizes="100vw" width={art.background.width} height={art.background.height} alt="" fetchPriority="high" />
         <div className="chamber-content">{children}</div>
