@@ -1,0 +1,17 @@
+{
+  "voucher": {
+    "src": "ui/wallet-rewards/voucher-320.74909e1b7a74.webp",
+    "width": 320,
+    "height": 320
+  },
+  "hourglass": {
+    "src": "ui/wallet-rewards/hourglass-320.9cf0af770049.webp",
+    "width": 320,
+    "height": 320
+  },
+  "supply": {
+    "src": "ui/wallet-rewards/supply-320.395894ad4d79.webp",
+    "width": 320,
+    "height": 320
+  }
+}

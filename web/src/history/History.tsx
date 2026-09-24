@@ -1,3 +1,4 @@
+import { WalletChamber } from '../WalletChamber';
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { z } from 'zod';
@@ -152,7 +153,7 @@ export function HistoryTransaction({ client }: HistoryProps) {
 }
 function TransactionContent({ id, client }: { id: string; client: ApiClient }) {
   const read = useHistory(client, '/api/v1/history/transactions/' + id, transactionSchema);
-  return <div className="history-page"><Back /><Title title="钱包交易详情" detail={'Transaction · ' + id} /><Link to="/wallet">← 返回钱包</Link><Status {...read} />{read.data && <section className="panel"><Fields values={[["交易类型", label(read.data.kind)], ['状态', label(read.data.status)], ['创建时间', when(read.data.created_at)], ['确认时间', when(read.data.confirmed_at)]]} /><Transactions items={[read.data]} /></section>}</div>;
+  return <WalletChamber page="transaction"><header className="page-heading"><div><p className="eyebrow">WALLET / TRANSACTION</p><h1>钱包交易详情</h1><p className="transaction-id">{id}</p></div><Link className="button" to="/wallet">← 返回钱包</Link></header><Back /><Status {...read} />{read.data && <section className="panel"><Fields values={[["交易类型", label(read.data.kind)], ['状态', label(read.data.status)], ['创建时间', when(read.data.created_at)], ['确认时间', when(read.data.confirmed_at)]]} /><Transactions items={[read.data]} /></section>}</WalletChamber>;
 }
 function Snapshot({ data }: { data: z.infer<typeof roundSchema>['metadata'] }) {
   return <p className="history-snapshot">当时昵称：{data.actor_display_name ?? '未记录'} · 快照来源：{data.metadata_origin} · {when(data.captured_at)}</p>;

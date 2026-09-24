@@ -17,6 +17,13 @@ it('claims fixed Shanghai-day rewards only on click, refreshes confirmed status,
     const button = await screen.findByRole('button', { name: '领取今日 500 额度' });
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('奖励中心');
     expect(screen.queryByLabelText('兑换数量')).not.toBeInTheDocument();
+    expect(document.querySelector('.finance-chamber .chamber-background')).toHaveAttribute('src', expect.stringContaining('command-personal/'));
+    expect(document.querySelectorAll('.reward-art')).toHaveLength(3);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '领取规则与记录说明' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('每天最多 24 次');
+    fireEvent.click(screen.getByRole('button', { name: '关闭对话框' }));
+
     expect(fetcher.mock.calls.some(c => c[0].includes('/claim'))).toBe(false);
     fireEvent.click(button); fireEvent.click(button);
     expect(await screen.findByRole('button', { name: '今日已领取' })).toBeDisabled();
