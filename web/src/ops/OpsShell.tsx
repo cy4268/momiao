@@ -7,6 +7,7 @@ import { assetUrl } from '../game-hall-assets';
 import art from './ops-art.json';
 import './ops.css';
 import './ops-chamber.css';
+import './ops-workbench.css';
 
 export const opsPages=[
  ['/ops','运营总览','operations.read'],['/ops/models','模型目录','models.read'],['/ops/announcements','公告','announcements.read'],
@@ -43,7 +44,7 @@ export function OpsShell({client}:{client:ApiClient}){
  {permissions.includes(opsPages[0][2])&&<NavLink end to="/ops">运营总览</NavLink>}
  {groups.map(group=><div className="ops-nav-group" key={group.title}><p>{group.title}</p>{group.pages.map(([path,label])=><NavLink key={path} to={path}>{label}</NavLink>)}</div>)}
  </nav></aside>
- <main id="ops-main" ref={main} tabIndex={-1} className="ops-main">{!artFailed&&<img className="ops-backdrop" src={assetUrl(art.background)} alt="" decoding="async" onError={()=>setArtFailed(true)}/>}<div className={'ops-workspace'+(overview?' ops-overview-workspace':'')}>{resource.loading?<Loading/>:resource.error?<><Alert>{resource.error}</Alert><button onClick={resource.reload}>重新核对权限</button></>:resource.data?<Outlet context={{client,bootstrap:resource.data,reload:resource.reload} satisfies OpsContext}/>:null}</div></main></div></div>;
+ <main id="ops-main" ref={main} tabIndex={-1} className="ops-main">{!artFailed&&<img className="ops-backdrop" src={assetUrl(art.background)} alt="" decoding="async" onError={()=>setArtFailed(true)}/>}<div className={'ops-workspace'+(overview?' ops-overview-workspace':' ops-workbench')}>{resource.loading?<Loading/>:resource.error?<><Alert>{resource.error}</Alert><button onClick={resource.reload}>重新核对权限</button></>:resource.data?<Outlet context={{client,bootstrap:resource.data,reload:resource.reload} satisfies OpsContext}/>:null}</div></main></div></div>;
 }
 export function OpsHome(){
  const {bootstrap}=useOps(),groups=visibleGroups(bootstrap.principal.permissions);

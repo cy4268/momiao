@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { expect, it } from 'vitest';
 import { OpsHome, OpsShell } from './ops/OpsShell';
 import { fixtureClient, ok, failed } from './m1-test-fixtures';
@@ -10,7 +10,7 @@ it('groups only permitted operations after a bootstrap retry and clears the dire
     const { client } = fixtureClient(path => path === '/api/v1/ops/bootstrap'
         ? unavailable ? failed() : ok({ principal, registry_version: '1', operations: [] }) : undefined);
     await client.login('ops', 'fixture');
-    const page = (value: typeof client) => <MemoryRouter initialEntries={['/ops']}><Routes><Route path='/ops' element={<OpsShell client={value} />}><Route index element={<OpsHome />} /></Route></Routes></MemoryRouter>;
+    const page = (value: typeof client) => <MemoryRouter initialEntries={['/ops']}><Routes><Route path='/ops' element={<OpsShell client={value} />}><Route index element={<OpsHome />} /><Route path='models' element={<><h1>模型管理内容</h1><Link to='/ops'>返回运营目录</Link></>} /></Route></Routes></MemoryRouter>;
     const view = render(page(client));
     expect(await screen.findByRole('alert')).toBeVisible();
     unavailable = false;
@@ -29,6 +29,16 @@ it('groups only permitted operations after a bootstrap retry and clears the dire
     expect(view.container.querySelector('.ops-backdrop')).toHaveAttribute('alt', '');
     fireEvent.error(view.container.querySelector('.ops-backdrop')!);
     expect(view.container.querySelector('.ops-backdrop')).not.toBeInTheDocument();
+
+    fireEvent.click(within(nav).getByRole('link', { name: '模型目录' }));
+    await screen.findByRole('heading', { name: '模型管理内容' });
+    expect(view.container.querySelector('.ops-workspace')).toHaveClass('ops-workbench');
+    expect(view.container.querySelector('.ops-shell')).not.toHaveClass('is-overview');
+    expect(screen.getByRole('main')).toHaveFocus();
+
+    fireEvent.click(screen.getByRole('link', { name: '返回运营目录' }));
+    await screen.findByRole('heading', { name: '运营工作台' });
+    expect(view.container.querySelector('.ops-workspace')).not.toHaveClass('ops-workbench');
 
     const revoked = fixtureClient(path => path === '/api/v1/ops/bootstrap'
         ? ok({ principal: { ...principal, permissions: [] }, registry_version: '1', operations: [] }) : undefined).client;

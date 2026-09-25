@@ -1,0 +1,623 @@
+/* Content and user workbench surfaces. Everything stays inside the ops shell. */
+.ops-workbench .ops-content-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 18px;
+  min-width: 0;
+}
+.ops-workbench .ops-content-section-heading::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: linear-gradient(90deg, #d6bd8870, transparent);
+}
+.ops-workbench .ops-content-section-heading h2 {
+  margin: 0;
+  flex: none;
+  color: #e6d2a8;
+  font: 400 19px/1.35 var(--display);
+}
+.ops-workbench .ops-content-section-heading .hint {
+  order: 1;
+  margin: 0;
+  white-space: nowrap;
+}
+.ops-workbench .ops-content-status,
+.ops-workbench .ops-content-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  border: 1px solid #547085;
+  border-radius: 3px;
+  background: #19334a;
+  color: #d9e4f0;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.ops-workbench .ops-content-status::before,
+.ops-workbench .ops-content-source::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+.ops-workbench :is(.ops-content-status,.ops-content-source)[data-state="PUBLISHED"],
+.ops-workbench :is(.ops-content-status,.ops-content-source)[data-state="CONFIGURED"],
+.ops-workbench :is(.ops-content-status,.ops-content-source)[data-state="VERIFIED"] {
+  border-color: #3d786c;
+  background: #113b39;
+  color: #83e8b5;
+}
+.ops-workbench .ops-content-status:is([data-state="PENDING_METADATA"],[data-state="SCHEDULED"],[data-state="VERIFYING"],[data-state="APPROVED"],[data-state="OPEN"]) {
+  border-color: #8b7448;
+  background: #383222;
+  color: #e6c878;
+}
+.ops-workbench .ops-content-status:is([data-state="REJECTED"],[data-state="WITHDRAWN"],[data-state="FAILED"]),
+.ops-workbench .ops-content-source:is([data-state="NOT_OBSERVED"],[data-state="NATIVE_HIDDEN"]) {
+  border-color: #8d5e5e;
+  background: #3a2930;
+  color: #f0aca6;
+}
+.ops-workbench .ops-content-status:is([data-state="HIDDEN"],[data-state="RETIRED"],[data-state="ARCHIVED"],[data-state="CLOSED"]) {
+  color: #b8c9db;
+}
+.ops-workbench .ops-embedded .catalog-ops-main,
+.ops-workbench .ops-embedded .announcement-ops-workspace > :is(main,section) {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+/* Model source snapshot, list, and metadata review. */
+.ops-workbench .catalog-ops-main > .section-heading {
+  margin-bottom: 18px;
+}
+.ops-workbench .catalog-ops-main > .section-heading h1 {
+  margin: 0 0 7px;
+  color: #f1e8d4;
+  font: 400 clamp(32px,3vw,44px)/1.2 var(--display);
+}
+.ops-workbench .catalog-ops-main > .section-heading p:last-child {
+  color: #c5d2df;
+}
+.ops-workbench .catalog-ops label {
+  color: #d9e4f0;
+}
+.ops-workbench :is(.catalog-ops-sync,.catalog-ops-list,.catalog-ops-editor) {
+  min-width: 0;
+  margin: 0 0 14px;
+  padding: 20px;
+  border: 1px solid #d6bd8870;
+  border-radius: 3px;
+  background: #10273df0;
+}
+.ops-workbench .catalog-ops-sync {
+  display: block;
+}
+.ops-workbench .catalog-ops-sync h2 {
+  margin: 0 0 16px;
+  color: #e6d2a8;
+  font: 400 19px/1.35 var(--display);
+}
+.ops-workbench .catalog-ops-sync-summary dl {
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  margin: 0;
+  border: 1px solid #3b5970;
+  background: #142f46;
+}
+.ops-workbench .catalog-ops-sync-summary dl > div {
+  display: block;
+  min-width: 0;
+  padding: 11px 14px;
+  border-right: 1px solid #3b5970;
+}
+.ops-workbench .catalog-ops-sync-summary dl > div:last-child {
+  border-right: 0;
+}
+.ops-workbench .catalog-ops-sync dt {
+  margin-bottom: 6px;
+  color: #a9bfd4;
+  font-size: 11px;
+}
+.ops-workbench .catalog-ops-sync dd {
+  color: #e9eef6;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+.ops-workbench .catalog-sync-result[data-state="VERIFIED"] {
+  color: #83e8b5;
+}
+.ops-workbench .catalog-sync-result[data-state="FAILED"] {
+  color: #f0aca6;
+}
+.ops-workbench .catalog-ops-sync > div:last-child {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+.ops-workbench .catalog-ops-sync .catalog-freshness {
+  margin: 0;
+  border-color: #4e9a7f;
+  background: #143834;
+  color: #d6f0e6;
+}
+.ops-workbench .catalog-ops-sync .catalog-freshness.warning {
+  border-color: #caa768;
+  background: #3b3326;
+  color: #f2dfbb;
+}
+.ops-workbench .catalog-ops-sync > div:last-child > .hint {
+  margin: 0;
+}
+.ops-workbench .catalog-ops-reason {
+  display: grid;
+  grid-template-columns: minmax(160px,.8fr) minmax(0,2fr) auto;
+  align-items: end;
+  gap: 14px;
+  padding: 16px 20px;
+  margin: 0 0 14px;
+  border: 1px solid #3f5b6f;
+  background: #10273df0;
+}
+.ops-workbench .catalog-ops-reason h2 {
+  margin: 0 0 5px;
+  color: #e6d2a8;
+  font: 400 17px/1.3 var(--display);
+}
+.ops-workbench .catalog-ops-reason .hint {
+  margin: 0;
+}
+.ops-workbench .catalog-ops-reason label {
+  min-width: 0;
+}
+.ops-workbench .catalog-ops-reason textarea {
+  min-height: 70px;
+}
+.ops-workbench .catalog-ops-filter {
+  display: grid;
+  grid-template-columns: minmax(0,2fr) minmax(180px,1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ops-workbench .catalog-ops-filter label {
+  min-width: 0;
+}
+.ops-workbench .catalog-ops-list .table-wrap,
+.ops-workbench .announcement-ops-list .table-scroll {
+  border: 1px solid #3d5870;
+  border-radius: 3px;
+}
+.ops-workbench .catalog-ops-list td:first-child strong,
+.ops-workbench .catalog-ops-editor > header h2 {
+  color: #f1e8d4;
+}
+.ops-workbench .catalog-ops-list td code {
+  color: #a9bfd4;
+}
+.ops-workbench .catalog-ops-list .pager {
+  margin-top: 18px;
+}
+.ops-workbench .catalog-ops-editor {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 18px;
+}
+.ops-workbench .catalog-ops-editor > :is(header,form) {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.ops-workbench .catalog-ops-editor > header .eyebrow {
+  margin: 0 0 5px;
+  color: #b8c8df;
+}
+.ops-workbench .catalog-ops-editor > header h2 {
+  margin: 0 0 5px;
+  font: 400 22px/1.3 var(--display);
+}
+.ops-workbench .catalog-ops-editor > header p:last-child,
+.ops-workbench .catalog-ops-editor > header code {
+  color: #bfd0df;
+}
+.ops-workbench .catalog-ops-editor fieldset {
+  min-width: 0;
+  border: 1px solid #456076;
+  border-radius: 3px;
+}
+.ops-workbench .catalog-ops-editor fieldset legend {
+  color: #e6d2a8;
+}
+.ops-workbench .catalog-ops-fields {
+  gap: 16px;
+}
+.ops-workbench .catalog-ops-source-price,
+.ops-workbench .catalog-ops-publication {
+  min-width: 0;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid #456076;
+  background: #132d44;
+}
+.ops-workbench .catalog-ops-source-price h3 {
+  margin-top: 0;
+  color: #e6d2a8;
+}
+.ops-workbench .catalog-ops-source-price .catalog-price-basis,
+.ops-workbench .catalog-ops-source-price .catalog-unknown,
+.ops-workbench .catalog-ops-source-price .catalog-price-list small,
+.ops-workbench .catalog-ops-source-price .hint {
+  color: #b8cbdc;
+}
+.ops-workbench .catalog-ops-source-price .catalog-price-list > div {
+  border-color: #456076;
+}
+.ops-workbench .catalog-ops-source-price .catalog-price-list strong {
+  color: #f1e8d4;
+}
+.ops-workbench .catalog-ops-editor > .text-link {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.ops-workbench .catalog-operation-receipt {
+  margin: 0 0 14px;
+  border-color: #4e9a7f;
+  background: #143834;
+  color: #d6f0e6;
+}
+.ops-workbench .catalog-operation-uncertain {
+  border-color: #caa768;
+  background: #3b3326;
+}
+.ops-workbench .catalog-impact-models > section {
+  border: 1px solid #456076;
+  background: #132d44;
+}
+.ops-workbench .catalog-impact-models :is(h3,dt) {
+  color: #afc3d4;
+}
+
+/* Announcement content and server-sanitized preview share one editing stage. */
+.ops-workbench .announcement-ops-list {
+  min-width: 0;
+  padding: 20px;
+  margin-bottom: 14px;
+  border: 1px solid #d6bd8870;
+  border-radius: 3px;
+  background: #10273df0;
+}
+.ops-workbench .announcement-ops-list-heading h2 {
+  font-size: 19px;
+}
+.ops-workbench .announcement-ops-list td strong {
+  color: #f1e8d4;
+}
+.ops-workbench .announcement-ops-list td small {
+  color: #b8cbdc;
+}
+.ops-workbench .announcement-editor {
+  display: grid;
+  grid-template-columns: minmax(0,1.2fr) minmax(300px,.8fr);
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  min-width: 0;
+}
+.ops-workbench .announcement-editor > header {
+  grid-column: 1 / -1;
+  padding: 18px 20px;
+  border: 1px solid #d6bd8870;
+  background: #10273df0;
+}
+.ops-workbench .announcement-editor-head .eyebrow {
+  margin: 0 0 5px;
+  color: #b8c8df;
+}
+.ops-workbench .announcement-editor-head h2 {
+  color: #f1e8d4;
+  font: 400 23px/1.3 var(--display);
+  margin: 0 0 6px;
+}
+.ops-workbench .announcement-editor-head .hint {
+  margin: 0;
+}
+.ops-workbench .announcement-editor > form {
+  grid-column: 1;
+  grid-row: 2 / span 2;
+  min-width: 0;
+  align-self: start;
+  padding: 20px;
+  border: 1px solid #d6bd8870;
+  background: #10273df0;
+}
+.ops-workbench .announcement-editor .announcement-content-fields > legend {
+  margin-bottom: 16px;
+  color: #e6d2a8;
+  font: 400 19px/1.35 var(--display);
+}
+.ops-workbench .announcement-editor-fields {
+  gap: 14px;
+}
+.ops-workbench .announcement-editor textarea {
+  line-height: 1.65;
+}
+.ops-workbench .announcement-editor .announcement-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.ops-workbench .announcement-ack-editor {
+  padding-top: 16px;
+  border-top: 1px solid #456076;
+}
+.ops-workbench .announcement-ack-editor h3 {
+  color: #e6d2a8;
+}
+.ops-workbench .announcement-ack-editor fieldset {
+  border-color: #456076;
+}
+.ops-workbench .announcement-editor-preview,
+.ops-workbench .announcement-editor > .announcement-publication {
+  grid-column: 2;
+  align-self: start;
+  min-width: 0;
+  margin: 0;
+  padding: 20px;
+  border: 1px solid #d6bd8870;
+  background: #10273df0;
+}
+.ops-workbench .announcement-editor-preview > div:first-child {
+  flex-wrap: wrap;
+  align-items: end;
+}
+.ops-workbench .announcement-editor-preview h3 {
+  margin: 0;
+  color: #e6d2a8;
+  font: 400 19px/1.35 var(--display);
+}
+.ops-workbench .announcement-editor-preview label {
+  flex: 0 1 130px;
+}
+.ops-workbench .announcement-preview-canvas {
+  max-width: 100%;
+  margin: 14px 0 0;
+  padding: 18px;
+  border-color: #57718a;
+  background: #0a1e33;
+  color: #e9eef6;
+}
+.ops-workbench .announcement-preview-canvas.mobile {
+  width: min(100%,390px);
+  margin-inline: auto;
+}
+.ops-workbench .announcement-preview-canvas .announcement-body pre {
+  background: #071b2d;
+  color: #ccdced;
+}
+.ops-workbench .catalog-special-price {
+  background: #1c374d;
+  color: #e9eef6;
+}
+.ops-workbench .announcement-preview-canvas.entry {
+  width: min(100%,600px);
+  margin-inline: auto;
+}
+.ops-workbench .announcement-editor > .announcement-publication {
+  border-top: 1px solid #d6bd8870;
+}
+.ops-workbench .announcement-publication legend {
+  padding: 0;
+  color: #e6d2a8;
+  font: 400 19px/1.35 var(--display);
+}
+.ops-workbench .announcement-placements {
+  gap: 10px 16px;
+}
+.ops-workbench .announcement-editor > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.ops-workbench .announcement-operation-receipt,
+.ops-workbench .announcement-confirmed-read {
+  margin: 0 0 14px;
+  padding: 14px 18px;
+  border: 1px solid #4e9a7f;
+  background: #143834;
+  color: #d6f0e6;
+}
+.ops-workbench .announcement-confirmed-read button {
+  margin-top: 8px;
+}
+.ops-workbench .announcement-impact div {
+  border-color: #456076;
+}
+
+/* User lookup and support case list/detail. */
+.ops-workbench :is(.ops-users-list,.ops-cases-list,.ops-case-create-panel,.ops-case-detail,.ops-user-moderation) {
+  min-width: 0;
+}
+.ops-workbench :is(.ops-users-list,.ops-cases-list) .filters {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+.ops-workbench .ops-cases-list .filters {
+  grid-template-columns: repeat(2,minmax(0,1fr));
+}
+.ops-workbench :is(.ops-users-list,.ops-cases-list) td strong {
+  display: block;
+  color: #f1e8d4;
+  font-weight: 500;
+}
+.ops-workbench .ops-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-width: 160px;
+}
+.ops-workbench .ops-inline-actions a {
+  display: inline-flex;
+  margin: 0;
+  min-height: 32px;
+  align-items: center;
+}
+.ops-workbench .ops-case-category {
+  display: block;
+  margin-bottom: 5px;
+}
+.ops-workbench .ops-case-create-panel > h2,
+.ops-workbench .ops-user-moderation .section-heading h2,
+.ops-workbench .ops-case-detail .section-heading h2 {
+  margin: 0 0 10px;
+  color: #e6d2a8;
+  font: 400 19px/1.35 var(--display);
+}
+.ops-workbench .ops-case-create-panel > label {
+  display: block;
+  max-width: 750px;
+}
+.ops-workbench .ops-case-create > summary {
+  color: #e6d2a8;
+  font-weight: 600;
+}
+.ops-workbench .ops-case-create fieldset,
+.ops-workbench .ops-user-moderation-fields,
+.ops-workbench .ops-case-detail-actions {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 12px 16px;
+  align-items: end;
+}
+.ops-workbench .ops-case-create fieldset > :is(p,button),
+.ops-workbench .ops-user-reason,
+.ops-workbench .ops-case-detail-actions > h3 {
+  grid-column: 1 / -1;
+}
+.ops-workbench .ops-case-create fieldset > button,
+.ops-workbench .ops-case-detail-actions > button {
+  justify-self: start;
+}
+.ops-workbench .ops-user-moderation-option {
+  align-self: stretch;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #456076;
+  background: #132d44;
+}
+.ops-workbench .ops-user-moderation-option h3 {
+  margin: 0 0 8px;
+  color: #e6d2a8;
+  font-size: 15px;
+}
+.ops-workbench .ops-user-moderation-option .hint {
+  min-height: 2.5em;
+}
+.ops-workbench .ops-user-moderation-option button {
+  margin-top: 12px;
+}
+.ops-workbench .ops-case-detail > .section-heading {
+  margin-bottom: 16px;
+}
+.ops-workbench .ops-case-detail > .ops-facts {
+  margin-bottom: 18px;
+}
+.ops-workbench .ops-case-detail-actions {
+  margin-top: 18px;
+}
+.ops-workbench .ops-case-detail-actions h3 {
+  margin: 14px 0 0;
+  color: #e6d2a8;
+}
+
+@media (max-width: 1250px) {
+  .ops-workbench .announcement-editor {
+    grid-template-columns: minmax(0,1fr);
+  }
+  .ops-workbench .announcement-editor > :is(form,.announcement-editor-preview,.announcement-publication) {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+@media (max-width: 760px) {
+  .ops-workbench :is(.catalog-ops-sync,.catalog-ops-list,.catalog-ops-editor,.announcement-ops-list) {
+    padding: 16px;
+  }
+  .ops-workbench .catalog-ops-sync-summary dl {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+  .ops-workbench .catalog-ops-sync-summary dl > div:nth-child(2) {
+    border-right: 0;
+  }
+  .ops-workbench .catalog-ops-sync-summary dl > div:nth-child(-n+2) {
+    border-bottom: 1px solid #3b5970;
+  }
+  .ops-workbench .catalog-ops-reason,
+  .ops-workbench .catalog-ops-filter,
+  .ops-workbench .catalog-ops-editor,
+  .ops-workbench :is(.ops-users-list,.ops-cases-list) .filters {
+    grid-template-columns: minmax(0,1fr);
+  }
+  .ops-workbench .catalog-ops-filter button,
+  .ops-workbench .catalog-ops-reason button {
+    justify-self: start;
+  }
+  .ops-workbench .catalog-ops-editor > :is(header,form,.text-link) {
+    grid-column: 1;
+  }
+  .ops-workbench .announcement-editor > :is(header,form,.announcement-editor-preview,.announcement-publication) {
+    padding: 16px;
+  }
+  .ops-workbench .announcement-editor-fields,
+  .ops-workbench .ops-case-create fieldset,
+  .ops-workbench .ops-user-moderation-fields,
+  .ops-workbench .ops-case-detail-actions {
+    grid-template-columns: minmax(0,1fr);
+  }
+  .ops-workbench .ops-user-reason,
+  .ops-workbench .ops-case-detail-actions > h3 {
+    grid-column: 1;
+  }
+}
+@media (max-width: 480px) {
+  .ops-workbench .catalog-ops-sync-summary dl {
+    grid-template-columns: minmax(0,1fr);
+  }
+  .ops-workbench .catalog-ops-sync-summary dl > div {
+    border-right: 0;
+    border-bottom: 1px solid #3b5970;
+  }
+  .ops-workbench .catalog-ops-sync-summary dl > div:last-child {
+    border-bottom: 0;
+  }
+  .ops-workbench .ops-content-section-heading {
+    flex-wrap: wrap;
+    gap: 5px 12px;
+  }
+  .ops-workbench .ops-content-section-heading::after {
+    display: none;
+  }
+  .ops-workbench .ops-content-section-heading .hint {
+    flex-basis: 100%;
+  }
+  .ops-workbench .announcement-editor-preview > div:first-child {
+    display: block;
+  }
+  .ops-workbench .announcement-editor-preview label {
+    display: block;
+    margin-top: 10px;
+  }
+}
