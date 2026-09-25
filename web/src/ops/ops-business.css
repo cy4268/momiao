@@ -1,0 +1,334 @@
+/* Business operations layouts. Every selector stays inside the admin workbench. */
+.ops-workbench .ops-business-section-note {
+  color: #adc0d4;
+  font-size: .76rem;
+  line-height: 1.4;
+  text-align: right;
+}
+.ops-workbench :is(.ops-business-list, .ops-business-detail, .ops-business-service,
+  .ops-business-sessions, .ops-business-ledger, .ops-business-transfers,
+  .ops-business-claims, .ops-business-aggregation, .ops-business-jobs,
+  .ops-business-record-search, .ops-business-record-detail) {
+  min-width: 0;
+}
+.ops-workbench :is(.ops-business-game-overview, .ops-business-poker-top,
+  .ops-business-poker-chat-grid, .ops-business-account-grid,
+  .ops-business-snapshot-grid) > * {
+  min-width: 0;
+}
+.ops-workbench .ops-business-game-overview,
+.ops-workbench .ops-business-poker-top,
+.ops-workbench .ops-business-poker-chat-grid,
+.ops-workbench .ops-business-account-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, .8fr);
+  align-items: start;
+  gap: 16px;
+  margin-top: 14px;
+}
+.ops-workbench .ops-business-facts,
+.ops-workbench .ops-business-poker-identity,
+.ops-workbench .ops-business-asset-summary {
+  min-width: 0;
+}
+.ops-workbench .ops-business-facts > h3,
+.ops-workbench .ops-business-asset-summary > h3 {
+  margin-top: 0;
+}
+.ops-workbench .ops-business-game-settings fieldset,
+.ops-workbench .ops-business-draft fieldset,
+.ops-workbench .ops-business-adjustment-form fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 14px;
+}
+.ops-workbench .ops-business-game-settings fieldset > legend,
+.ops-workbench .ops-business-draft fieldset > legend,
+.ops-workbench .ops-business-adjustment-form fieldset > legend {
+  color: #e4d1aa;
+}
+.ops-workbench .ops-business-game-settings fieldset > label:last-of-type,
+.ops-workbench .ops-business-draft fieldset > label:last-of-type,
+.ops-workbench .ops-business-adjustment-form fieldset > label:last-of-type {
+  grid-column: 1 / -1;
+}
+.ops-workbench .ops-business-game-settings fieldset > button,
+.ops-workbench .ops-business-draft fieldset > button,
+.ops-workbench .ops-business-adjustment-form fieldset > button {
+  justify-self: start;
+}
+.ops-workbench .ops-business-lifecycle,
+.ops-workbench .ops-business-draft,
+.ops-workbench .ops-business-review {
+  margin-top: 18px;
+}
+.ops-workbench .ops-business-review {
+  padding-top: 16px;
+  border-top: 1px solid rgba(214, 189, 136, .32);
+}
+.ops-workbench .ops-business-review > p {
+  color: #b8c9db;
+}
+.ops-workbench .ops-business-review > form {
+  margin-top: 12px;
+}
+.ops-workbench .ops-business-detail > h3 {
+  margin-top: 22px;
+  color: #e7d3ab;
+}
+.ops-workbench .ops-probability {
+  margin-block: 16px;
+  border-color: rgba(214, 189, 136, .38);
+  background: #0b2034;
+}
+.ops-workbench .ops-probability-binding > div,
+.ops-workbench .ops-probability-grid > div,
+.ops-workbench .ops-probability-empty {
+  border-color: #36536a;
+  background: #142d43;
+  color: #e9eef6;
+}
+.ops-workbench .ops-probability .section-heading > span {
+  border: 1px solid rgba(214, 189, 136, .55);
+  background: #24354a;
+  color: #f0d7a6;
+}
+.ops-workbench .ops-probability :is(dt, small, .hint) {
+  color: #b5c6d9;
+}
+.ops-workbench .ops-probability-binding code {
+  overflow-wrap: anywhere;
+}
+.ops-workbench .ops-business-poker-identity .ops-entry {
+  display: block;
+  min-height: 0;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid #36536a;
+  background: #142c42;
+}
+.ops-workbench .ops-business-poker-identity .ops-entry > :first-child {
+  margin-top: 0;
+}
+.ops-workbench .ops-business-poker-identity .ops-entry p {
+  margin: 6px 0;
+  color: #bfd0e2;
+  font-size: .8rem;
+}
+.ops-workbench .ops-business-poker-identity .ops-entry small {
+  color: #a9bdd2;
+  overflow-wrap: anywhere;
+}
+.ops-workbench .ops-business-poker-chat-grid {
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, .75fr);
+  padding-top: 16px;
+  border-top: 1px solid rgba(214, 189, 136, .32);
+}
+.ops-workbench .ops-business-poker-chat-grid h3 {
+  margin-top: 0;
+}
+.ops-workbench .ops-chat-review {
+  margin-bottom: 0;
+  max-height: 26rem;
+}
+.ops-workbench .ops-chat-review article {
+  padding: 10px 12px;
+  border: 1px solid #36536a;
+  border-left: 3px solid #d6bd88;
+  background: #132b40;
+}
+.ops-workbench .ops-chat-review p {
+  margin: 4px 0;
+}
+.ops-workbench .ops-business-chat-controls fieldset,
+.ops-workbench .ops-business-poker-controls fieldset {
+  margin-top: 0;
+}
+.ops-workbench .ops-business-economy-overview .ops-impact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.ops-workbench .ops-business-economy-overview .ops-impact > div,
+.ops-workbench .ops-business-asset-summary .ops-impact > div {
+  min-width: 0;
+}
+.ops-workbench .ops-business-account-filter {
+  display: flex;
+  align-items: end;
+}
+.ops-workbench .ops-business-account-filter > label {
+  flex: 0 1 280px;
+}
+.ops-workbench .ops-business-account-grid > .panel,
+.ops-workbench .ops-business-policy-grid > .panel + .panel,
+.ops-workbench .ops-business-snapshot-grid > .panel + .panel {
+  margin-top: 0;
+}
+.ops-workbench .ops-business-adjustment {
+  background: #0b2034;
+}
+.ops-workbench .ops-business-adjustment .hint {
+  margin-bottom: 8px;
+}
+.ops-workbench .ops-business-transfer-controls {
+  display: grid;
+  grid-template-columns: minmax(160px, .55fr) minmax(0, 1.45fr);
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.ops-workbench .ops-business-transfer-controls > label {
+  min-width: 0;
+}
+.ops-workbench .ops-business-transfer-controls textarea {
+  min-height: 44px;
+}
+.ops-workbench .ops-business-policy-region {
+  margin-bottom: 16px;
+}
+.ops-workbench .ops-business-policy-region > .section-heading {
+  margin-bottom: 10px;
+}
+.ops-workbench .ops-business-policy-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.ops-workbench .ops-business-policy {
+  min-width: 0;
+}
+.ops-workbench .ops-business-policy h2 {
+  margin-bottom: 8px;
+}
+.ops-workbench .ops-business-policy strong {
+  display: block;
+  color: #f0d7a6;
+  font-family: var(--display), Georgia, serif;
+  font-size: 1.1rem;
+  font-weight: 400;
+}
+.ops-workbench .ops-business-policy p {
+  margin: 6px 0;
+}
+.ops-workbench .ops-business-claim-filters,
+.ops-workbench .ops-business-record-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  gap: 10px 14px;
+}
+.ops-workbench .ops-business-claim-filters > label,
+.ops-workbench .ops-business-record-filters > label {
+  min-width: 0;
+}
+.ops-workbench .ops-business-claim-filters > button,
+.ops-workbench .ops-business-record-filters > button {
+  justify-self: start;
+  align-self: end;
+}
+.ops-workbench .ops-business-retry-reason {
+  display: block;
+  margin: 12px 0;
+}
+.ops-workbench .ops-business-retry-reason textarea {
+  width: min(100%, 640px);
+}
+.ops-workbench .ops-business-rebuild {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(214, 189, 136, .32);
+}
+.ops-workbench .ops-business-snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+.ops-workbench .ops-business-snapshot-grid .table-wrap {
+  overflow-x: auto;
+}
+.ops-workbench .ops-business-record-search .history-records {
+  margin-top: 10px;
+}
+.ops-workbench .ops-business-record-search .history-record {
+  grid-template-columns: minmax(170px, 1.1fr) minmax(260px, 1.5fr) auto;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #36536a;
+  background: #112a40;
+}
+.ops-workbench .ops-business-record-search .history-record + .history-record {
+  margin-top: 8px;
+}
+.ops-workbench .ops-business-record-search .history-record h3 {
+  color: #ecd9b2;
+  font-size: 1rem;
+}
+.ops-workbench .ops-business-record-search .history-record p,
+.ops-workbench .ops-business-record-search .history-record small {
+  color: #b4c7d9;
+}
+.ops-workbench .ops-business-record-search .history-record > small {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+}
+.ops-workbench .ops-business-record-search .history-record .ops-impact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.ops-workbench .ops-business-record-search .history-record .ops-impact dd {
+  overflow-wrap: anywhere;
+}
+.ops-workbench .ops-business-result-heading {
+  margin-top: 14px;
+}
+.ops-workbench :is(.ops-business-list, .ops-business-sessions, .ops-business-ledger,
+  .ops-business-transfers, .ops-business-claims, .ops-business-aggregation,
+  .ops-business-jobs) td button {
+  text-align: left;
+}
+@media (max-width: 1420px) {
+  .ops-workbench .ops-business-snapshot-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 1180px) {
+  .ops-workbench .ops-business-game-overview,
+  .ops-workbench .ops-business-poker-top,
+  .ops-workbench .ops-business-poker-chat-grid,
+  .ops-workbench .ops-business-account-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ops-workbench .ops-business-economy-overview .ops-impact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ops-workbench .ops-business-record-search .history-record {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .ops-workbench .ops-business-section-note { text-align: left; }
+  .ops-workbench .ops-business-policy-grid,
+  .ops-workbench .ops-business-claim-filters,
+  .ops-workbench .ops-business-record-filters,
+  .ops-workbench .ops-business-transfer-controls,
+  .ops-workbench .ops-business-economy-overview .ops-impact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ops-workbench .ops-business-game-settings fieldset,
+  .ops-workbench .ops-business-draft fieldset,
+  .ops-workbench .ops-business-adjustment-form fieldset {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ops-workbench .ops-business-record-search .history-record .ops-impact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ops-workbench .ops-business-claim-filters > button,
+  .ops-workbench .ops-business-record-filters > button {
+    justify-self: stretch;
+  }
+}
+@media (max-width: 460px) {
+  .ops-workbench .ops-business-record-search .history-record .ops-impact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
