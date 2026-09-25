@@ -3,6 +3,7 @@ import { ApiClient, ApiError, type Key, errorText } from './api';
 import { Alert, Empty, Loading, Modal, Pager, date, number, useResource } from './ui';
 import { Link, useLocation } from 'react-router-dom';
 import { catalogSelectionPath, selectedModel } from './catalog-api';
+import { ApiWorkbench } from './ApiWorkbench';
 import { keyPurposes, keyPurposeLabel, saveKeyPurpose, type KeyPurposeItem } from './key-purpose-api';
 const status = (key: Key) => ({ 1: '已启用', 2: '已停用', 3: '已过期', 4: '额度用尽' }[key.status] || '未知状态');
 type KeyBasicEdit = { id: number; name: string; remain_quota: number; unlimited_quota: boolean; expired_time: number };
@@ -47,18 +48,36 @@ export function Keys({ client }: {
         setBusy(false);
         reload();
     } }
-    return <><header className="page-heading"><div><p className="eyebrow">ACCESS / API KEYS</p><h1>密钥管理</h1><p>为每个应用创建独立密钥，按需设置额度和有效期。</p></div><button className="primary" onClick={() => { setNotice(''); setDialog({ kind: 'create' }); }}>创建 API 密钥</button></header>
- {modelID && <section className="panel"><p>已选择模型：<code>{modelID}</code></p><p className="hint">创建密钥需要你主动确认；模型选择不会替你创建或修改密钥。</p><Link className="text-link" to={catalogSelectionPath(modelID, false)}>继续查看 API 接入设置 →</Link></section>}
- {notice && <p className="notice" role="status">{notice}</p>}{error && <Alert>{error}</Alert>}
- <section className="panel"><div className="section-heading"><h2>我的密钥</h2><button disabled={resource.loading || busy} onClick={reload}>刷新列表</button></div><p className="hint">额度按原生单位显示，不代表平台 Reserve 或 API Credit。密钥默认隐藏。</p>
- {resource.loading ? <Loading /> : resource.error ? <><Alert>{resource.error}</Alert><button onClick={reload}>重新加载</button></> : resource.data && <>{resource.data.items.length === 0 ? <Empty title="还没有 API 密钥">点击“创建 API 密钥”，为你的第一个应用开启连接。</Empty> : <div className="table-wrap" tabIndex={0} role="region" aria-label="API 密钥列表"><table><thead><tr><th>名称 / 密钥</th><th>用途</th><th>状态</th><th>额度（原生单位）</th><th>创建 / 到期</th><th>操作</th></tr></thead><tbody>{resource.data.items.map(key => <tr key={key.id}><td><strong>{key.name || '未命名密钥'}</strong><code className="masked">{key.key || '••••••••••••'}</code></td><td>{purposes.loading?'读取中…':purposes.error?'用途暂不可用':<>{keyPurposeLabel(purposes.data?.find(row=>row.token_id===String(key.id))?.purpose||'UNCLASSIFIED')}{purposes.data?.find(row=>row.token_id===String(key.id))?.sync_state==='PENDING'&&<small>用途同步中</small>}</>}</td><td><span className={`badge ${key.status === 1 ? 'active' : ''}`}>{status(key)}</span></td><td><span>剩余 {key.unlimited_quota ? '不限额' : number(key.remain_quota)}</span><small>已用 {number(key.used_quota)}</small></td><td><time>{date(key.created_time)}</time><small>{date(key.expired_time)}</small></td><td><div className="row-actions"><button disabled={busy} onClick={() => setDialog({ kind: 'edit', key })}>编辑基础设置</button><button disabled={busy||purposes.loading||!!purposes.error} onClick={()=>setPurposeKey(key)}>修改用途</button><button disabled={busy} onClick={() => setDialog({ kind: 'reveal', key })}>查看密钥</button><button disabled={busy} onClick={() => void toggle(key)}>{key.status === 1 ? '停用' : '启用'}</button><button className="quiet" disabled={busy} onClick={() => setDialog({ kind: 'delete', key })}>删除</button></div></td></tr>)}</tbody></table></div>}<Pager page={page} total={resource.data.total} size={resource.data.page_size} onChange={setPage} disabled={busy}/></>}
- </section>{dialog?.kind === 'create' && <CreateKey client={client} onClose={() => setDialog(null)} onDone={() => { setDialog(null); setPage(1); reload(); setNotice('密钥已创建。在列表中选择“查看密钥”后再复制。'); }} onAmbiguous={reload}/>}
- {dialog?.kind === 'edit' && <EditKey client={client} token={dialog.key} onClose={() => setDialog(null)} onDone={() => { setDialog(null); reload(); setNotice('密钥基础设置已更新。'); }} onAmbiguous={reload}/>}
- {dialog?.kind === 'reveal' && <RevealKey client={client} token={dialog.key} onClose={() => setDialog(null)}/>}
- {dialog?.kind === 'delete' && <DeleteKey client={client} token={dialog.key} onClose={() => setDialog(null)} onDone={() => { setDialog(null); reload(); setNotice('密钥已删除。'); }} onAmbiguous={reload}/>}
- {purposeKey&&<PurposeDialog client={client} token={purposeKey} current={purposes.data?.find(row=>row.token_id===String(purposeKey.id))} onClose={()=>setPurposeKey(null)} onDone={()=>{setPurposeKey(null);reload();setNotice('用途已提交，实际生效状态请查看列表。');}}/>}
- </>;
+    return <ApiWorkbench page="keys">
+        <header className="page-heading"><div><p className="eyebrow">DA VINCI'S WORKSHOP / API KEYS</p><h1>密钥管理</h1><p>为不同应用分别配置密钥、额度与到期时间。</p></div><div className="workbench-heading-actions"><button disabled={resource.loading || busy} onClick={reload}>刷新列表</button><button className="primary" onClick={() => { setNotice(''); setDialog({ kind: 'create' }); }}>创建 API 密钥</button></div></header>
+        {modelID && <section className="api-model-selection"><p>已选择模型：<code>{modelID}</code></p><p className="hint">创建密钥需要你主动确认；模型选择不会替你创建或修改密钥。</p><Link className="text-link" to={catalogSelectionPath(modelID, false)}>继续查看 API 接入设置 →</Link></section>}
+        {notice && <p className="notice" role="status">{notice}</p>}{error && <Alert>{error}</Alert>}
+        <section className="api-ledger" aria-label="我的密钥"><p className="hint">额度按原生单位显示，不代表平台 Reserve 或 API Credit。密钥默认隐藏。</p>
+            {resource.loading ? <Loading /> : resource.error ? <><Alert>{resource.error}</Alert><button onClick={reload}>重新加载</button></> : resource.data && <>
+                {resource.data.items.length === 0 ? <Empty title="还没有 API 密钥">点击“创建 API 密钥”，为你的第一个应用开启连接。</Empty> : <div className="table-wrap" tabIndex={0} role="region" aria-label="API 密钥列表"><table className="key-table"><thead><tr><th>名称 / 密钥</th><th>用途</th><th>状态</th><th>额度（原生单位）</th><th>创建 / 到期</th><th>操作</th></tr></thead><tbody>
+                    {resource.data.items.map(key => {
+                        const purpose = purposes.data?.find(row => row.token_id === String(key.id));
+                        return <tr key={key.id}>
+                            <td data-label="名称 / 密钥"><strong>{key.name || '未命名密钥'}</strong><code className="masked">{key.key || '••••••••••••'}</code></td>
+                            <td data-label="用途">{purposes.loading ? '读取中…' : purposes.error ? '用途暂不可用' : <>{keyPurposeLabel(purpose?.purpose || 'UNCLASSIFIED')}{purpose?.sync_state === 'PENDING' && <small>用途同步中</small>}</>}</td>
+                            <td data-label="状态"><span className={`badge ${key.status === 1 ? 'active' : ''}`}>{status(key)}</span></td>
+                            <td data-label="额度（原生单位）"><span>剩余 {key.unlimited_quota ? '不限额' : number(key.remain_quota)}</span><small>已用 {number(key.used_quota)}</small></td>
+                            <td data-label="创建 / 到期"><time>{date(key.created_time)}</time><small>{date(key.expired_time)}</small></td>
+                            <td data-label="操作"><div className="key-actions"><button disabled={busy} onClick={() => setDialog({ kind: 'reveal', key })}>查看密钥</button><button disabled={busy} onClick={() => setDialog({ kind: 'edit', key })}>编辑基础设置</button><details className="key-more"><summary>更多</summary><div><button disabled={busy || purposes.loading || !!purposes.error} onClick={() => setPurposeKey(key)}>修改用途</button><button disabled={busy} onClick={() => void toggle(key)}>{key.status === 1 ? '停用' : '启用'}</button><button className="quiet" disabled={busy} onClick={() => setDialog({ kind: 'delete', key })}>删除</button></div></details></div></td>
+                        </tr>;
+                    })}
+                </tbody></table></div>}
+                <Pager page={page} total={resource.data.total} size={resource.data.page_size} onChange={setPage} disabled={busy}/>
+            </>}
+        </section>
+        {dialog?.kind === 'create' && <CreateKey client={client} onClose={() => setDialog(null)} onDone={() => { setDialog(null); setPage(1); reload(); setNotice('密钥已创建。在列表中选择“查看密钥”后再复制。'); }} onAmbiguous={reload}/>}
+        {dialog?.kind === 'edit' && <EditKey client={client} token={dialog.key} onClose={() => setDialog(null)} onDone={() => { setDialog(null); reload(); setNotice('密钥基础设置已更新。'); }} onAmbiguous={reload}/>}
+        {dialog?.kind === 'reveal' && <RevealKey client={client} token={dialog.key} onClose={() => setDialog(null)}/>}
+        {dialog?.kind === 'delete' && <DeleteKey client={client} token={dialog.key} onClose={() => setDialog(null)} onDone={() => { setDialog(null); reload(); setNotice('密钥已删除。'); }} onAmbiguous={reload}/>}
+        {purposeKey && <PurposeDialog client={client} token={purposeKey} current={purposes.data?.find(row => row.token_id === String(purposeKey.id))} onClose={() => setPurposeKey(null)} onDone={() => { setPurposeKey(null); reload(); setNotice('用途已提交，实际生效状态请查看列表。'); }}/>}
+    </ApiWorkbench>;
 }
+
 function CreateKey({ client, onClose, onDone, onAmbiguous }: {
     client: ApiClient;
     onClose: () => void;

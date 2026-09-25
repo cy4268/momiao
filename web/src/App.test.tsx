@@ -13,7 +13,7 @@ const list = { items: [], total: 0, page: 1, page_size: 10 };
 it.each([
     ['/dashboard', '/dashboard', []], ['/me', '/me', []],
     ['/rewards', '/wallet', ['/wallet', '/rewards']], ['/wallet/activate', '/wallet', ['/wallet', '/rewards']],
-    ['/keys', '/models', ['/models', '/keys', '/logs']],
+    ['/keys', '/models', ['/models', '/api/access', '/keys', '/logs']],
 ])('R1 keeps five bottom destinations and only the current context on %s', async (path, selected, contextPaths) => {
     const { client } = fixtureClient();
     render(<MemoryRouter initialEntries={[path as string]}><App client={client} /></MemoryRouter>);
@@ -108,8 +108,8 @@ it('prevents duplicate key creation and refreshes the list without revealing key
     expect(f.mock.calls.some(c => c[0].endsWith('/key'))).toBe(false);
 });
 it('shows list error and a retry action', async () => { const f = vi.fn(async (path: string) => path.includes('/refresh') ? ok(bundle) : path === '/api/user/self' ? ok(user) : new Response(JSON.stringify({ success: false, message: '列表暂不可用' }))); render(<MemoryRouter initialEntries={['/keys']}><App client={new ApiClient(withReadyAccessGate(f))}/></MemoryRouter>); expect(await screen.findByRole('alert')).toHaveTextContent('列表暂不可用'); expect(screen.getByRole('button', { name: '重新加载' })).toBeVisible(); });
-it('reveals only by explicit action, prefixes once and clears on navigation', async () => { const key = { id: 9, name: 'synthetic-key', key: 'abc***xyz', status: 1, created_time: 1, expired_time: -1, remain_quota: 100, used_quota: 0, unlimited_quota: false }; const f = vi.fn(async (path: string) => path.includes('/refresh') ? ok(bundle) : path === '/api/user/self' ? ok(user) : path === '/api/token/9/key' ? ok({ key: 'synthetic-plaintext' }) : path.startsWith('/api/log/self') ? ok(list) : ok({ ...list, items: [key], total: 1 })); render(<MemoryRouter initialEntries={['/keys']}><App client={new ApiClient(withReadyAccessGate(f))}/></MemoryRouter>); await screen.findByText('synthetic-key'); expect(f.mock.calls.some(c => c[0].endsWith('/key'))).toBe(false); fireEvent.click(screen.getByRole('button', { name: '查看密钥' })); expect(await screen.findByLabelText('完整 API 密钥')).toHaveValue('sk-synthetic-plaintext'); fireEvent.click(screen.getByRole('button', { name: '关闭' })); expect(screen.queryByLabelText('完整 API 密钥')).not.toBeInTheDocument(); fireEvent.click(screen.getByRole('button', { name: '查看密钥' })); await screen.findByLabelText('完整 API 密钥'); fireEvent.click(screen.getByRole('link', { name: /调用记录/ })); expect(screen.queryByLabelText('完整 API 密钥')).not.toBeInTheDocument(); });
-it('requires explicit delete confirmation and sends exact per-id route once', async () => { const key = { id: 9, name: 'synthetic-key', key: '***', status: 1, created_time: 1, expired_time: -1, remain_quota: 100, used_quota: 0, unlimited_quota: false }; const f = vi.fn(async (path: string, init?: RequestInit) => path.includes('/refresh') ? ok(bundle) : path === '/api/user/self' ? ok(user) : init?.method === 'DELETE' ? ok() : ok({ ...list, items: [key], total: 1 })); render(<MemoryRouter initialEntries={['/keys']}><App client={new ApiClient(withReadyAccessGate(f))}/></MemoryRouter>); fireEvent.click(await screen.findByRole('button', { name: '删除' })); expect(f.mock.calls.some(c => c[1]?.method === 'DELETE')).toBe(false); fireEvent.click(screen.getByRole('button', { name: '保留密钥' })); expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); fireEvent.click(screen.getByRole('button', { name: '删除' })); fireEvent.click(screen.getByRole('button', { name: '确认删除' })); await screen.findByText('密钥已删除。'); expect(f.mock.calls.filter(c => c[1]?.method === 'DELETE')).toHaveLength(1); expect(f.mock.calls.find(c => c[1]?.method === 'DELETE')?.[0]).toBe('/api/token/9'); });
+it('reveals only by explicit action, prefixes once and clears on navigation', async () => { const key = { id: 9, name: 'synthetic-key', key: 'abc***xyz', status: 1, created_time: 1, expired_time: -1, remain_quota: 100, used_quota: 0, unlimited_quota: false }; const f = vi.fn(async (path: string) => path.includes('/refresh') ? ok(bundle) : path === '/api/user/self' ? ok(user) : path === '/api/token/9/key' ? ok({ key: 'synthetic-plaintext' }) : path.startsWith('/api/log/self') ? ok(list) : ok({ ...list, items: [key], total: 1 })); render(<MemoryRouter initialEntries={['/keys']}><App client={new ApiClient(withReadyAccessGate(f))}/></MemoryRouter>); await screen.findByText('synthetic-key'); expect(document.querySelector('.api-workbench-background')).toHaveAttribute('alt',''); expect(f.mock.calls.some(c => c[0].endsWith('/key'))).toBe(false); fireEvent.click(screen.getByRole('button', { name: '查看密钥' })); expect(await screen.findByLabelText('完整 API 密钥')).toHaveValue('sk-synthetic-plaintext'); fireEvent.click(screen.getByRole('button', { name: '关闭' })); expect(screen.queryByLabelText('完整 API 密钥')).not.toBeInTheDocument(); fireEvent.click(screen.getByRole('button', { name: '查看密钥' })); await screen.findByLabelText('完整 API 密钥'); fireEvent.click(screen.getByRole('link', { name: /调用记录/ })); expect(screen.queryByLabelText('完整 API 密钥')).not.toBeInTheDocument(); });
+it('requires explicit delete confirmation and sends exact per-id route once', async () => { const key = { id: 9, name: 'synthetic-key', key: '***', status: 1, created_time: 1, expired_time: -1, remain_quota: 100, used_quota: 0, unlimited_quota: false }; const f = vi.fn(async (path: string, init?: RequestInit) => path.includes('/refresh') ? ok(bundle) : path === '/api/user/self' ? ok(user) : init?.method === 'DELETE' ? ok() : ok({ ...list, items: [key], total: 1 })); render(<MemoryRouter initialEntries={['/keys']}><App client={new ApiClient(withReadyAccessGate(f))}/></MemoryRouter>); fireEvent.click(await screen.findByText('更多', { selector: 'summary' })); fireEvent.click(screen.getByRole('button', { name: '删除' })); expect(f.mock.calls.some(c => c[1]?.method === 'DELETE')).toBe(false); fireEvent.click(screen.getByRole('button', { name: '保留密钥' })); expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); fireEvent.click(screen.getByRole('button', { name: '删除' })); fireEvent.click(screen.getByRole('button', { name: '确认删除' })); await screen.findByText('密钥已删除。'); expect(f.mock.calls.filter(c => c[1]?.method === 'DELETE')).toHaveLength(1); expect(f.mock.calls.find(c => c[1]?.method === 'DELETE')?.[0]).toBe('/api/token/9'); });
 it('ambiguous create blocks resubmission until the user checks the refreshed list', async () => {
     let listReads = 0;
     const f = vi.fn(async (path: string, init?: RequestInit) => {
@@ -133,7 +133,7 @@ it('ambiguous create blocks resubmission until the user checks the refreshed lis
     expect(f.mock.calls.some(c => c[0] === '/platform/v1/key-purposes' && c[1]?.method === 'POST')).toBe(false);
     await waitFor(() => expect(listReads).toBeGreaterThanOrEqual(2));
 });
-it('toggles exact status_only payload and paginates the native list', async () => { const key = { id: 9, name: 'synthetic-key', key: '***', status: 1, created_time: 1, expired_time: -1, remain_quota: 100, used_quota: 0, unlimited_quota: false }; const f = vi.fn(async (path: string) => path.includes('/refresh') ? ok(bundle) : path === '/api/user/self' ? ok(user) : ok({ ...list, items: [key], total: 11 })); render(<MemoryRouter initialEntries={['/keys']}><App client={new ApiClient(withReadyAccessGate(f))}/></MemoryRouter>); fireEvent.click(await screen.findByRole('button', { name: '停用' })); await screen.findByText('密钥已停用。'); const call = f.mock.calls.find(c => c[0].includes('status_only')) as unknown as [
+it('toggles exact status_only payload and paginates the native list', async () => { const key = { id: 9, name: 'synthetic-key', key: '***', status: 1, created_time: 1, expired_time: -1, remain_quota: 100, used_quota: 0, unlimited_quota: false }; const f = vi.fn(async (path: string) => path.includes('/refresh') ? ok(bundle) : path === '/api/user/self' ? ok(user) : ok({ ...list, items: [key], total: 11 })); render(<MemoryRouter initialEntries={['/keys']}><App client={new ApiClient(withReadyAccessGate(f))}/></MemoryRouter>); fireEvent.click(await screen.findByText('更多', { selector: 'summary' })); fireEvent.click(screen.getByRole('button', { name: '停用' })); await screen.findByText('密钥已停用。'); const call = f.mock.calls.find(c => c[0].includes('status_only')) as unknown as [
     string,
     RequestInit
 ]; expect(call[0]).toBe('/api/token/?status_only=true'); expect(call[1].method).toBe('PUT'); expect(JSON.parse(String(call[1].body))).toEqual({ id: 9, status: 2 }); fireEvent.click(await screen.findByRole('button', { name: '下一页' })); await waitFor(() => expect(f.mock.calls.some(c => c[0] === '/api/token/?p=2&page_size=10')).toBe(true)); });
@@ -210,4 +210,32 @@ it('redirects a mismatched old session to login without logging out the shared c
     expect(screen.queryByRole('button', { name: '账户菜单' })).not.toBeInTheDocument();
     expect(fetcher.mock.calls.filter(call => !String(call[0]).startsWith('/platform/v1/announcements/') && call[0] !== '/platform/v1/admission/config')).toHaveLength(2);
     expect(fetcher.mock.calls.some(call => call[0].includes('/auth/logout'))).toBe(false);
+});
+
+it('keeps native and RP usage separate with existing filter semantics and no model calls', async () => {
+    const { client, fetcher } = fixtureClient(path => {
+        if (path.startsWith('/api/log/self')) return ok({ ...list, total: 1, items: [{ id: 1, type: 2, created_at: 1727000000, model_name: 'account-model', token_name: 'account-key', prompt_tokens: 321, completion_tokens: 123, quota: 444 }] });
+        if (path.startsWith('/api/v1/usage/rp')) return ok({ items: [{ logical_request_id: 'fixture-request', token_id: '9', model_id: 'rp-model', model_name: 'RP model', request_kind: 'CHAT', provider_attempt_count: 2, final_status: 'SUCCESS', error_category: '', charged_raw_quota: '50000', charged_amount: '0.1', requested_at: '2026-09-06T00:00:00Z', completed_at: '2026-09-06T00:00:01Z' }], total: '1', page: 1, page_size: 50, has_more: false, observed_at: '2026-09-06T00:01:00Z' });
+    });
+    render(<MemoryRouter initialEntries={['/logs']}><App client={client}/></MemoryRouter>);
+    await screen.findByText('account-model');
+    expect(screen.getByRole('link', { name: '原生调用' })).toHaveAttribute('aria-current','page');
+    expect(screen.getByRole('columnheader', { name: '额度（原生单位）' })).toBeVisible();
+    fireEvent.change(screen.getByLabelText('模型名称'), { target: { value: 'account-model' } });
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-06' } });
+    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-09-06' } });
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }));
+    await waitFor(() => expect(fetcher.mock.calls.some(([path]) => path.startsWith('/api/log/self?') && new URLSearchParams(path.split('?')[1]).get('start_timestamp') === String(new Date('2026-09-06T00:00:00').getTime()/1000))).toBe(true));
+    fireEvent.click(screen.getByRole('link', { name: 'RP 调用' }));
+    await screen.findByText('RP model');
+    expect(screen.getByRole('link', { name: 'RP 调用' })).toHaveAttribute('aria-current','page');
+    expect(screen.getByRole('columnheader', { name: 'API Credit 消耗' })).toBeVisible();
+    expect(screen.queryByRole('columnheader', { name: '额度（原生单位）' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '下一页' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('模型 ID'), { target: { value: 'rp-model' } });
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-06' } });
+    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-09-06' } });
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }));
+    await waitFor(() => expect(fetcher.mock.calls.some(([path]) => { const q=new URLSearchParams(path.split('?')[1]); return path.startsWith('/api/v1/usage/rp?') && q.get('model')==='rp-model' && q.get('from')==='2026-09-05T16:00:00.000Z' && q.get('to')==='2026-09-06T16:00:00.000Z'; })).toBe(true));
+    expect(fetcher.mock.calls.some(([path]) => path.startsWith('/v1/') || path.startsWith('/pg/'))).toBe(false);
 });

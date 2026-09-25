@@ -3,6 +3,7 @@ import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigat
 import { api, ApiClient, type User, type UsageLog, errorText } from './api';
 import { Keys } from './Keys';
 import { RPUsage } from './RPUsage';
+import { ApiWorkbench, UsageNavigation } from './ApiWorkbench';
 import { Catalog, CatalogDetailPage, APIAccess } from './Catalog';
 import { OpsCatalog } from './OpsCatalog';
 import { OpsShell, OpsHome } from './ops/OpsShell';
@@ -171,7 +172,7 @@ function Shell({ client, user, children }: { client: ApiClient; user: User; chil
         : ['/wallet', '/wallet/activate', '/rewards'].includes(location.pathname) || location.pathname.startsWith('/wallet/transactions/') ? 'assets'
         : ['/me', '/account', '/account/security', '/master-profile', '/admin/channels'].includes(location.pathname) ? 'my'
         : location.pathname==='/poker' || location.pathname.startsWith('/games/') || location.pathname.startsWith('/roulette/') || location.pathname.startsWith('/history') ? 'experience' : 'home';
-    const contextLinks = domain === 'models' ? [['/models', '模型目录'], ['/keys', '密钥管理'], ['/logs', '调用记录']]
+    const contextLinks = domain === 'models' ? [['/models', '发现模型'], ['/api/access', 'API 接入'], ['/keys', '密钥管理'], ['/logs', '调用记录']]
         : domain === 'assets' ? [['/wallet', '我的钱包'], ['/rewards', '奖励中心']]
         : domain === 'experience' ? [['/games', '游戏目录'],['/games/dice', '命运骰盅'],['/games/scratch','星纹刮刮卡'],['/games/summon','圣晶召唤'],['/games/slot','月光回响'],['/games/blackjack','二十一点'],['/poker','Poker 大厅'],['/history','游戏记录']] : [];
     const [menu, setMenu] = useState(false);
@@ -227,12 +228,12 @@ function Dashboard({ client, user }: { client: ApiClient; user: User }) {
 const logTypes: Record<number, string> = { 1: '充值', 2: '消费', 3: '管理', 4: '系统', 5: '错误', 6: '退款', 7: '登录' };
 function LogTable({ items }: {
     items: UsageLog[];
-}) { return items.length === 0 ? <Empty title="暂无记录">开始使用 API 后，在这里查看真实调用和额度消耗；筛选后无结果时，可调整筛选条件。</Empty> : <div className="table-wrap" role="region" aria-label="个人调用记录" tabIndex={0}><table><thead><tr><th>时间 / 类型</th><th>模型</th><th>密钥名称</th><th>输入 / 输出 Tokens</th><th>额度（原生单位）</th></tr></thead><tbody>{items.map(log => <tr key={log.id}><td><time>{date(log.created_at)}</time><small>{logTypes[log.type] || '其他'}</small></td><td><strong>{log.model_name || '—'}</strong></td><td>{log.token_name || '—'}</td><td className="numeric">{number(log.prompt_tokens)} <span className="muted">/</span> {number(log.completion_tokens)}</td><td className="numeric">{number(log.quota)}</td></tr>)}</tbody></table></div>; }
+}) { return items.length === 0 ? <Empty title="暂无记录">开始使用 API 后，在这里查看真实调用和额度消耗；筛选后无结果时，可调整筛选条件。</Empty> : <div className="table-wrap" role="region" aria-label="个人调用记录" tabIndex={0}><table><thead><tr><th>时间 / 类型</th><th>模型</th><th>密钥名称</th><th>输入 / 输出 Tokens</th><th>额度（原生单位）</th></tr></thead><tbody>{items.map(log => <tr key={log.id}><td data-label="时间 / 类型"><time>{date(log.created_at)}</time><small>{logTypes[log.type] || '其他'}</small></td><td data-label="模型"><strong>{log.model_name || '—'}</strong></td><td data-label="密钥名称">{log.token_name || '—'}</td><td data-label="输入 / 输出 Tokens" className="numeric">{number(log.prompt_tokens)} <span className="muted">/</span> {number(log.completion_tokens)}</td><td data-label="额度（原生单位）" className="numeric">{number(log.quota)}</td></tr>)}</tbody></table></div>; }
 function Logs({ client }: {
     client: ApiClient;
 }) {
     const location=useLocation();
-    return new URLSearchParams(location.search).get('purpose')==='ROLEPLAY'?<RPUsage client={client}/>:<NativeLogs client={client}/>;
+    return <ApiWorkbench page="logs">{new URLSearchParams(location.search).get('purpose')==='ROLEPLAY'?<RPUsage client={client}/>:<NativeLogs client={client}/>}</ApiWorkbench>;
 }
 function NativeLogs({ client }: {
     client: ApiClient;
@@ -252,5 +253,5 @@ function NativeLogs({ client }: {
         p.set('start_timestamp', String(Math.floor(new Date(`${start}T00:00:00`).getTime() / 1000))); if (end)
         p.set('end_timestamp', String(Math.floor(new Date(`${end}T23:59:59`).getTime() / 1000))); setPage(1); setQuery(p.toString()); }
     function reset() { setType('0'); setModel(''); setStart(''); setEnd(''); setError(''); setPage(1); setQuery(''); }
-    return <><header className="page-heading"><div><p className="eyebrow">OBSERVE / USAGE LOGS</p><h1>调用记录</h1><p>查看个人活动、模型调用与原生额度消耗。</p></div><button onClick={r.reload} disabled={r.loading}>刷新记录</button></header><section className="panel"><form className="filters" onSubmit={filter}><label>记录类型<select value={type} onChange={e => setType(e.target.value)}><option value="0">全部类型</option>{Object.entries(logTypes).map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select></label><label className="model-filter">模型名称<input value={model} onChange={e => setModel(e.target.value)} maxLength={200} placeholder="完整模型名"/></label><label>开始日期<input type="date" value={start} onChange={e => setStart(e.target.value)}/></label><label>结束日期<input type="date" value={end} onChange={e => setEnd(e.target.value)}/></label><div className="filter-actions"><button type="submit" className="primary">应用筛选</button><button type="button" onClick={reset}>重置</button></div></form>{error && <Alert>{error}</Alert>}<p className="hint">时间按设备所在时区显示。仅展示调用元数据，不展示提示词或响应内容。</p>{r.loading ? <Loading /> : r.error ? <><Alert>{r.error}</Alert><button onClick={r.reload}>重新加载</button></> : r.data && <><LogTable items={r.data.items}/><Pager page={page} total={r.data.total} size={r.data.page_size} onChange={setPage}/></>}</section></>;
+    return <><header className="page-heading"><div><p className="eyebrow">DA VINCI'S WORKSHOP / USAGE LOGS</p><h1>调用记录</h1><p>查看个人活动、模型调用与原生额度消耗。</p></div><button onClick={r.reload} disabled={r.loading}>刷新记录</button></header><UsageNavigation/><section className="api-ledger"><form className="filters" onSubmit={filter}><label>记录类型<select value={type} onChange={e => setType(e.target.value)}><option value="0">全部类型</option>{Object.entries(logTypes).map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select></label><label className="model-filter">模型名称<input value={model} onChange={e => setModel(e.target.value)} maxLength={200} placeholder="完整模型名"/></label><label>开始日期<input type="date" value={start} onChange={e => setStart(e.target.value)}/></label><label>结束日期<input type="date" value={end} onChange={e => setEnd(e.target.value)}/></label><div className="filter-actions"><button type="submit" className="primary">应用筛选</button><button type="button" onClick={reset}>重置</button></div></form>{error && <Alert>{error}</Alert>}<p className="hint">时间按设备所在时区显示。仅展示调用元数据，不展示提示词或响应内容。</p>{r.loading ? <Loading /> : r.error ? <><Alert>{r.error}</Alert><button onClick={r.reload}>重新加载</button></> : r.data && <><LogTable items={r.data.items}/><Pager page={page} total={r.data.total} size={r.data.page_size} onChange={setPage}/></>}</section></>;
 }
