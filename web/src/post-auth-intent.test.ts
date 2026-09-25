@@ -70,11 +70,11 @@ it('removes the obsolete index-based format without interpreting it', () => {
 });
 
 it('rejects arbitrary URLs, unknown routes and extra or malformed data', () => {
-    for (const route of ['https://evil.example', '//evil.example', '/wallet?amount=1000', '/unknown']) {
+    for (const route of ['https://evil.example', '//evil.example', '/wallet?amount=1000', '/unknown', '/playground', '/playground?model=example']) {
         saveRouteIntent(route, 1000);
         expect(consumeRouteIntent(1001)).toBe('/dashboard');
     }
-    for (const data of [{ route: 2, expires: 1801000 }, { route: '/wallet', expires: 1801000, proof: 'synthetic' }, { route: '/wallet', expires: 9999999999 }]) {
+    for (const data of [{ route: 2, expires: 1801000 }, { route: '/playground', expires: 1801000 }, { route: '/wallet', expires: 1801000, proof: 'synthetic' }, { route: '/wallet', expires: 9999999999 }]) {
         sessionStorage.setItem('chaldea.post-auth.route.v2', JSON.stringify(data));
         expect(consumeRouteIntent(1001)).toBe('/dashboard');
     }

@@ -3,7 +3,6 @@ import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigat
 import { api, ApiClient, type User, type UsageLog, errorText } from './api';
 import { Keys } from './Keys';
 import { RPUsage } from './RPUsage';
-import { Playground } from './Models';
 import { Catalog, CatalogDetailPage, APIAccess } from './Catalog';
 import { OpsCatalog } from './OpsCatalog';
 import { OpsShell, OpsHome } from './ops/OpsShell';
@@ -131,7 +130,6 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="/wallet/activate" element={session.user && <QuotaActivation key={session.user.id + ':' + client.getSessionGeneration()} client={client} userID={String(session.user.id)} />} />
             <Route path="/wallet" element={<Wallet client={client} user={session.user!} />} />
             <Route path="/master-profile" element={<ProfileRoute client={client} user={session.user!} />} />
-            <Route path="/playground" element={<Playground client={client} user={session.user!} />} />
             <Route path="/admin/channels" element={<Channels client={client} user={session.user!} />} />
             <Route path="/keys" element={<Keys client={client} />} />
             <Route path="/logs" element={<Logs client={client} />} />
@@ -165,15 +163,15 @@ function ProfileRoute({ client, user }: { client: ApiClient; user: User }) {
 const pageTitles: Record<string, string> = {
     '/dashboard': '指挥台', '/me': '个人中心', '/rewards': '奖励中心', '/games/dice': '命运骰盅', '/games/scratch':'星纹刮刮卡', '/games/summon':'圣晶召唤', '/games/slot':'月光回响', '/games/blackjack':'二十一点', '/history':'游戏记录',
     '/master-profile': 'Master 资料', '/account': '账户与安全', '/account/security': '账户与安全', '/wallet/activate': '转入原生额度', '/wallet': '我的钱包', '/poker':'Poker 大厅',
-    '/models': '模型目录', '/playground': '文本测试', '/admin/channels': '渠道管理', '/keys': '密钥管理', '/logs': '调用记录',
+    '/models': '模型目录', '/admin/channels': '渠道管理', '/keys': '密钥管理', '/logs': '调用记录',
 };
 function Shell({ client, user, children }: { client: ApiClient; user: User; children?:ReactNode }) {
     const location = useLocation();
-    const domain = ['/models', '/keys', '/logs', '/playground'].includes(location.pathname) ? 'models'
+    const domain = ['/models', '/keys', '/logs'].includes(location.pathname) ? 'models'
         : ['/wallet', '/wallet/activate', '/rewards'].includes(location.pathname) || location.pathname.startsWith('/wallet/transactions/') ? 'assets'
         : ['/me', '/account', '/account/security', '/master-profile', '/admin/channels'].includes(location.pathname) ? 'my'
         : location.pathname==='/poker' || location.pathname.startsWith('/games/') || location.pathname.startsWith('/roulette/') || location.pathname.startsWith('/history') ? 'experience' : 'home';
-    const contextLinks = domain === 'models' ? [['/models', '模型目录'], ['/keys', '密钥管理'], ['/logs', '调用记录'], ['/playground', '文本测试']]
+    const contextLinks = domain === 'models' ? [['/models', '模型目录'], ['/keys', '密钥管理'], ['/logs', '调用记录']]
         : domain === 'assets' ? [['/wallet', '我的钱包'], ['/rewards', '奖励中心']]
         : domain === 'experience' ? [['/games', '游戏目录'],['/games/dice', '命运骰盅'],['/games/scratch','星纹刮刮卡'],['/games/summon','圣晶召唤'],['/games/slot','月光回响'],['/games/blackjack','二十一点'],['/poker','Poker 大厅'],['/history','游戏记录']] : [];
     const [menu, setMenu] = useState(false);
@@ -218,7 +216,7 @@ function Dashboard({ client, user }: { client: ApiClient; user: User }) {
     const master = useOutletContext<MasterResource>();
     const r = useResource(async () => { const [self, keys, logs] = await Promise.all([client.loadSelf(), client.keys(1, 5), client.logs('p=1&page_size=5')]); return { self, keys, logs }; }, [client]);
     const current = r.data?.self || user;
-    return <CommandChamber page="dashboard"><header className="page-heading"><div><p className="eyebrow">CHALDEA / COMMAND CENTER</p><h1>指挥台</h1><p>欢迎回来，御主。</p></div><Link className="button primary" to="/models">选择模型并测试 <span aria-hidden="true">↗</span></Link></header>
+    return <CommandChamber page="dashboard"><header className="page-heading"><div><p className="eyebrow">CHALDEA / COMMAND CENTER</p><h1>指挥台</h1><p>欢迎回来，御主。</p></div><Link className="button primary" to="/models">选择模型并接入 <span aria-hidden="true">↗</span></Link></header>
         <MasterSummary master={master} />
         <div className="chamber-ledger"><section className="account-ledger" aria-label="账户使用概览"><div><p>可用原生额度</p><strong>{number(current.quota)}</strong><span>原生单位</span></div><div><p>已用原生额度</p><strong>{number(current.used_quota)}</strong><span>原生单位</span></div><div><p>累计请求</p><strong>{number(current.request_count)}</strong><span>次调用</span></div><div><p>API 密钥</p><strong>{r.loading ? '…' : r.error ? '—' : number(r.data?.keys.total)}</strong><Link to="/keys">管理密钥 ↗</Link></div></section><p className="ledger-note">原生额度与平台本地钱包独立。<Link className="text-link" to="/wallet">查看 Reserve API Credit 与可用筹码 →</Link></p></div>
         <div className="dashboard-paths"><Link to="/me">个人中心 →</Link><Link to="/rewards">领取每日奖励 →</Link><Link to="/wallet/activate">激活 API 额度 →</Link></div>

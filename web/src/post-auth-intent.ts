@@ -1,6 +1,6 @@
 const key='chaldea.post-auth.route.v2';
 const obsoleteKey='chaldea.post-auth.route.v1';
-const routes=['/dashboard','/me','/wallet','/wallet/activate','/keys','/logs','/models','/api/access','/playground','/rewards','/games/dice','/games/scratch','/games/summon','/games/slot','/games/blackjack','/history','/master-profile','/account','/account/security','/admin/channels','/ops/announcements','/ops/models'];
+const routes=['/dashboard','/me','/wallet','/wallet/activate','/keys','/logs','/models','/api/access','/rewards','/games/dice','/games/scratch','/games/summon','/games/slot','/games/blackjack','/history','/master-profile','/account','/account/security','/admin/channels','/ops/announcements','/ops/models'];
 export function pokerRouteIntent(path:string):boolean {return path==='/poker'||path.length===49&&/^\/poker\/table\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(path);}
 export function rouletteRouteIntent(path:string):boolean{return path==='/roulette/devil-roulette'||path==='/roulette/pressure-roulette'||/^\/roulette\/rooms\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(path);}
 export function validModelID(id:unknown):id is string {return typeof id==='string'&&id.length>0&&id.trim()===id&&!/[\u0000-\u001f\u007f-\u009f]/u.test(id)&&!/[\uD800-\uDFFF]/u.test(id)&&new TextEncoder().encode(id).length<=255;}

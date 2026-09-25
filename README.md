@@ -13,7 +13,7 @@ The game hall loads responsive, versioned artwork directly from a CDN. Set `VITE
 The artwork manifest uses relative, content-hashed keys; host matching files under the configured base URL. Apply long-lived `public, max-age=31536000, immutable` caching to versioned assets and retain older hashes while deployed pages reference them. If an image fails to load, game titles, availability and navigation remain usable. The illustration source files and private delivery records are not part of this repository.
 
 
-一个从实际可用功能开始生长的开源 AI 平台。从 **登录 → 模型 → 在线测试 → 调用记录** 建立真实连接，并管理自己的 API 密钥和上游渠道，而不是静态页面或演示数据。
+一个从实际可用功能开始生长的开源 AI 平台。从 **登录 → 模型 → API 接入 → 调用记录** 建立真实连接，并管理自己的 API 密钥和上游渠道，而不是静态页面或演示数据。
 
 ## 当前功能
 
@@ -21,8 +21,7 @@ The artwork manifest uses relative, content-hashed keys; host matching files und
 - **指挥台**：真实账户身份、原生可用/已用额度、请求数、密钥数量及最近个人记录。
 - **密钥管理**：分页、创建、明确查看/复制、启停、确认删除；列表默认脱敏，离开弹窗清除页面中的明文。
 - **调用记录**：个人记录分页、类型/模型/日期筛选，只展示调用元数据。
-- **模型**：按实际可用分组列出启用的模型，支持搜索、复制模型 ID 和进入在线测试；不虚构价格或能力参数。
-- **在线测试**：使用原生登录态发送单轮文字请求，流式显示文本、停止生成和实际返回的用量；不额外创建永久 API 密钥，不在浏览器存储对话。
+- **模型**：按已发布家族展示模型，支持搜索、详情中选择具体模型 ID 与 API 接入；不虚构价格或能力参数。
 - **渠道管理**：管理员查看与启停；超级管理员新建、编辑基本 OpenAI 兼容渠道。已有密钥和未编辑的高级设置保持不变。
 - **交付层**：React + TypeScript 界面；单个 Go 服务提供 SPA、固定 Unix Socket 上游代理及存活探针。
 
@@ -95,11 +94,11 @@ MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 
 ## 接口与范围
 
-SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/playground`、`/admin/channels`、`/wallet`、`/wallet/activate`、`/master-profile`、`/games/dice`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
+SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/admin/channels`、`/wallet`、`/wallet/activate`、`/master-profile`、`/games/dice`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
 
-`/api/`、`/v1/` 及确切的 `/pg/chat/completions` 原样转发到固定原生服务，前端不复制认证规则。适配版本和真实请求载荷见 [原生接口契约](contracts/native-api.md)。[OpenAPI](contracts/openapi.json) 声明 momiao 自有的 `/healthz` 、`/platform/v1/wallet` 与 `/platform/v1/master-profile` 接口，不把原生 API 冒充为自有实现。
+未由门户处理的 `/api/` 与 `/v1/` 请求转发到固定原生服务；门户文本测试与 `/pg/chat/completions` 转发已移除，前端不复制认证规则。适配版本和真实请求载荷见 [原生接口契约](contracts/native-api.md)。[OpenAPI](contracts/openapi.json) 声明 momiao 自有的 `/healthz` 、`/platform/v1/wallet` 与 `/platform/v1/master-profile` 接口，不把原生 API 冒充为自有实现。
 
-代理 `/api/` 总上限 30 秒、`/v1/` 与在线测试总上限 5 分钟。它们是明确的工程上限，**不是并发容量或压测结论**；WebSocket 升级尚不支持。本版主动移除转发身份头，原生端看到的是内部代理地址，未宣称按真实客户端 IP 审计或限流。
+代理 `/api/` 总上限 30 秒、`/v1/` 总上限 5 分钟。它们是明确的工程上限，**不是并发容量或压测结论**；WebSocket 升级尚不支持。本版主动移除转发身份头，原生端看到的是内部代理地址，未宣称按真实客户端 IP 审计或限流。
 
 登录实际入口使用密码。二步验证有源码契约和自动化覆盖，尚未使用真实已绑定账户验收；OAuth、Passkey、注册、密码找回和 CAPTCHA 控件不在本次范围。
 

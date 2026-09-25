@@ -49,7 +49,6 @@ var browserRoutes = map[string]bool{
 	"/rankings":         true,
 	"/api/access":       true,
 	"/ops/models":       true,
-	"/playground":       true,
 	"/admin/channels":   true,
 }
 
@@ -158,7 +157,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		readPoker = nil
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		isRelay := strings.HasPrefix(r.URL.Path, "/v1/") || r.URL.Path == "/pg/chat/completions"
+		isRelay := strings.HasPrefix(r.URL.Path, "/v1/")
 		switch {
 		case opsAPIRoute(r.URL.Path):
 			serveOpsRoute(cfg.ops, w, r)

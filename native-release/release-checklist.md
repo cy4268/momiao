@@ -54,8 +54,9 @@ only from an approved current read-only inspection; historical snapshots may dri
   query or path encoding. Place explicit denials before any catch-all/native
   proxy if one is introduced. Deny normalized exact paths and descendant variants;
   reject ambiguous/double-encoded traversal rather than forwarding it.
-- The reviewed portal forwards only `/api/*`, `/v1/*` and exact
-  `/pg/chat/completions`, not `/internal/*`. Keep that allowlist. The raw private
+- The reviewed portal forwards unmatched `/api/*` and `/v1/*`, not `/internal/*`.
+  The retired `/playground` page and `/pg/chat/completions` relay must remain
+  unavailable; do not restore their former allowlist entries. The raw private
   Unix-to-TCP native bridge has no HTTP path filter: its 0600 socket is not a
   public ingress. Confirm the external connector targets the portal socket, not
   this unrestricted native bridge. Test denials externally and through the portal

@@ -50,10 +50,11 @@ it('shows verified Master identity separately from the native account and links 
     expect(await within(hub).findByText(profile.display_name)).toBeVisible();
     expect(screen.getByText('Native Fixture · fixture-account')).toBeVisible();
     const main = screen.getByRole('main');
-    for (const path of ['/master-profile', '/rewards', '/wallet', '/wallet/activate', '/keys', '/logs', '/playground']) {
+    for (const path of ['/master-profile', '/rewards', '/wallet', '/wallet/activate', '/keys', '/logs']) {
         expect(main.querySelector('a[href="' + path + '"]')).not.toBeNull();
     }
     expect(main.querySelector('a[href="/admin/channels"]')).toBeNull();
+    expect(main.querySelector('a[href="/playground"]')).toBeNull();
     expect(fetcher.mock.calls.some(c => c[0].includes('initialize'))).toBe(false);
 });
 it('does not use a suggested or native nickname as an initialized Master identity', async () => {

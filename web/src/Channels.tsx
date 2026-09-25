@@ -34,7 +34,7 @@ export function Channels({ client, user }: { client: ApiClient; user: User }) {
         catch (e) { if (mounted.current) { setError(channelError(e)); if (e instanceof ApiError && e.uncertain) setUncertain(true); } return false; }
         finally { lock.current = false; if (mounted.current) setBusy(false); }
     }
-    if (user.role < 10) return <Empty title="需要管理员权限">当前账户可继续使用模型目录与文本测试。</Empty>;
+    if (user.role < 10) return <Empty title="需要管理员权限">当前账户可继续使用模型目录与 API 接入。</Empty>;
     const blocked = loading || busy || uncertain || !data;
     return <><header className="page-heading"><div><p className="eyebrow">OPERATE / CHANNELS</p><h1>渠道管理</h1><p>查看原生渠道与启停状态；基础编辑仅支持类型 1。</p></div>{user.role === 100 && <button className="primary" disabled={blocked} onClick={() => setDialog({ kind: 'create' })}>新建渠道</button>}</header>
     {notice && <p className="notice" role="status">{notice}</p>}{error && !dialog && <Alert>{error}</Alert>}<section className="panel"><div className="section-heading"><h2>已配置渠道</h2><button disabled={loading || busy} onClick={refresh}>刷新列表</button></div><p className="hint">密钥不会读取或展示。历史测试耗时不是实时可用性或 SLA；高级设置保留在原生配置中。</p>

@@ -1,4 +1,3 @@
-import { readChat, aborted, modelFailure, type ChatInput, type ChatResult } from './chat';
 import { serializeCatalogQuery, type CatalogQuery } from './game-catalog-query';
 import { validateDiscordAuthorization, type AdmissionConfig, type AdmissionResult, type DiscordCallbackInput, type DiscordPurpose, type SensitiveProof } from './admission-api';
 import { opaqueLogoutConfirmed, parseOpaqueBootstrap, parseOpaqueLogin, parseOpaqueLogout, parseOpaqueDiscordStart, parseOpaqueAdmission, type OpaqueBootstrap, type OpaquePasswordProvider } from './opaque-session';
@@ -105,7 +104,6 @@ export class ApiClient {
         if (epoch !== this.epoch || this.snapshot.user) throw new ApiError('登录状态已改变，请重新读取公告。', 401);
         return result;
     }
-    private streams = new Set<AbortController>();
     private reads = new Set<AbortController>();
     private token = '';
     private sid = '';
@@ -136,7 +134,7 @@ export class ApiClient {
     getSessionGeneration = () => this.epoch;
     subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
     private publish(patch: Partial<Snapshot>) { this.snapshot = { ...this.snapshot, ...patch }; this.listeners.forEach(fn => fn()); }
-    private advanceSessionBoundary() { this.epoch++; this.streams.forEach(c => c.abort()); this.streams.clear(); this.reads.forEach(c => c.abort()); this.reads.clear(); }
+    private advanceSessionBoundary() { this.epoch++; this.reads.forEach(c => c.abort()); this.reads.clear(); }
     private clear(notice = '') { this.advanceSessionBoundary(); this.token = ''; this.sid = ''; this.expires = 0; this.publish({ user: null, ready: true, notice }); }
     private clearOpaqueFence(notice: string) { this.opaqueCSRF = ''; this.opaqueIdentity = ''; this.opaqueChainID = ''; this.opaqueState = 'UNINITIALIZED'; this.opaqueChallenge = undefined; this.opaqueMutationBlocked = false; this.clear(notice); }
     private accept(bundle: Bundle, epoch: number) { if (epoch !== this.epoch || this.snapshot.loggingOut)
@@ -630,40 +628,6 @@ export class ApiClient {
         const data = await this.request<Record<string, { ratio: number | string; desc: string }>>('/api/user/self/groups');
         if (!data || typeof data !== 'object' || Array.isArray(data) || Object.values(data).some(g => !g || typeof g.desc !== 'string' || !['number', 'string'].includes(typeof g.ratio))) throw new ApiError('分组响应格式异常，请重新加载。');
         return data;
-    }
-    async models(group: string): Promise<string[]> {
-        const data = await this.request<string[] | null>(`/api/user/models?group=${encodeURIComponent(group)}`);
-        if (data === null) return [];
-        if (!Array.isArray(data) || data.some(m => typeof m !== 'string' || !m)) throw new ApiError('模型列表响应格式异常，请重新加载。');
-        return [...new Set(data)].sort();
-    }
-    async playground(input: ChatInput, signal: AbortSignal, onUpdate: (r: ChatResult) => void): Promise<ChatResult> {
-        if (!input.model || !input.group || !input.prompt.trim() || input.prompt.length > 16000 || !Number.isInteger(input.maxTokens) || input.maxTokens < 1 || input.maxTokens > 4096) throw new ApiError('请选择模型与分组，输入 1–16000 字提示词及 1–4096 的整数输出预算。');
-        if (!this.snapshot.user || this.snapshot.loggingOut) throw new ApiError('请先登录。', 401);
-        const epoch = this.epoch;
-        const controller = new AbortController();
-        const stop = () => controller.abort();
-        signal.addEventListener('abort', stop, { once: true });
-        this.streams.add(controller);
-        let timedOut = false;
-        const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 300000);
-        const check = () => { if (signal.aborted || controller.signal.aborted || epoch !== this.epoch) throw aborted(); };
-        try {
-            check();
-            if (this.expires <= Date.now() / 1000 + 15) await this.refresh();
-            check();
-            const headers = this.headers(); headers.set('Content-Type', 'application/json'); headers.set('Accept', 'text/event-stream, application/json');
-            const response = await this.fetcher('/pg/chat/completions', { method: 'POST', headers, credentials: 'same-origin', cache: 'no-store', signal: controller.signal, body: JSON.stringify({ model: input.model, group: input.group, messages: [{ role: 'user', content: input.prompt }], stream: true, max_tokens: input.maxTokens }) });
-            check();
-            if (response.status === 401) { void response.body?.cancel().catch(() => {}); this.clear('登录已过期，请重新登录。'); throw modelFailure(401); }
-            return await readChat(response, controller.signal, r => { check(); onUpdate(r); });
-        } catch (e) {
-            if (e instanceof ApiError && e.status === 401) throw e;
-            if (timedOut) throw new ApiError('请求已达 5 分钟上限，响应可能不完整。', 0, 'STREAM_TIMEOUT');
-            if (controller.signal.aborted || signal.aborted || epoch !== this.epoch) throw aborted();
-            if (e instanceof ApiError) throw e;
-            throw modelFailure();
-        } finally { clearTimeout(timer); signal.removeEventListener('abort', stop); this.streams.delete(controller); }
     }
     keys = (page = 1, size = 10) => this.page<Key>(`/api/token/?p=${page}&page_size=${size}`);
     logs = (query = 'p=1&page_size=10') => this.page<UsageLog>(`/api/log/self?${query}`);

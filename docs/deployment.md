@@ -63,7 +63,7 @@ This revision has no automated database migration or automatic upstream fallback
 
 ## Native model traffic
 
-The portal forwards the exact `/pg/chat/completions` route to the same native socket with a five-minute total deadline; it does not forward arbitrary `/pg/` paths. Public API clients retain `/v1/` and their own API keys. Model calls require a configured, reachable and priced native channel.
+The portal no longer offers a browser text playground or forwards `/pg/chat/completions`. Public API clients retain `/v1/`, their own API keys and the five-minute total relay deadline. Model calls require a configured, reachable and priced native channel.
 
 For an outbound-isolated native namespace, a fixed-destination transport can keep that isolation intact: a loopback-only namespace listener connects through a private Unix socket to a host-side TLS connection for one upstream. Verify certificate trust and hostname/SNI, preserve the correct upstream HTTP Host, and keep the Unix directory/socket private. Use a dedicated unprivileged identity; do not grant the portal access to the transport or credentials. Reconcile the bridge when the native namespace changes, stopping it when the namespace is not ready. Do not add a generic forward proxy or change Docker/LXD firewall rules merely to serve the portal.
 

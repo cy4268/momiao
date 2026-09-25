@@ -23,7 +23,7 @@ export function CatalogShell({client,title,children}:{client:ApiClient;title:str
             <nav className="portal-global" aria-label="主导航"><Link to="/">首页</Link><NavLink to="/models">模型目录</NavLink><Link to="/entertainment">娱乐</Link><Link to="/rankings">排行榜</Link><Link to="/announcements">公告</Link></nav>
             <Link className="button" to={session.user?'/me':'/login'}>{session.user?'个人中心':'登录账户'}</Link>
         </header>
-        <nav className="portal-context" aria-label="模型服务导航"><NavLink to="/models">发现模型</NavLink><NavLink to="/api/access">API 接入</NavLink><Link to="/keys">密钥管理</Link><Link to="/logs">调用记录</Link>{session.user&&<Link to="/playground">文本测试</Link>}</nav>
+        <nav className="portal-context" aria-label="模型服务导航"><NavLink to="/models">发现模型</NavLink><NavLink to="/api/access">API 接入</NavLink><Link to="/keys">密钥管理</Link><Link to="/logs">调用记录</Link></nav>
         <main ref={main} tabIndex={-1} id="catalog-content" className="catalog-content">{children}</main>
         <footer className="workspace-foot"><span>CHALDEA / DA VINCI WORKSHOP</span><span>模型工房 · 发现你的下一位搭档</span></footer>
     </div>;

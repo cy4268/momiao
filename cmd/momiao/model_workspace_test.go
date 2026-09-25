@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestModelWorkspaceRoutes(t *testing.T) {
@@ -17,14 +16,14 @@ func TestModelWorkspaceRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := newPortalHandler(config{WebDir: root}, nil)
-	for _, path := range []string{"/models", "/playground", "/admin/channels"} {
+	for _, path := range []string{"/models", "/admin/channels"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
 		if w.Code != 200 || !strings.Contains(w.Body.String(), "workspace") {
 			t.Errorf("workspace route %s: %d", path, w.Code)
 		}
 	}
-	for _, path := range []string{"/admin", "/admin/settings", "/pg/unknown"} {
+	for _, path := range []string{"/admin", "/admin/settings", "/pg/unknown", "/playground", "/playground?model=example"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
 		if w.Code != 404 {
@@ -33,29 +32,30 @@ func TestModelWorkspaceRoutes(t *testing.T) {
 	}
 }
 
-func TestPlaygroundUsesNativeSessionAndRelayDeadline(t *testing.T) {
-	const body = `{"model":"fixture-model","messages":[{"role":"user","content":"hello"}],"stream":true}`
-	const stream = "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n"
+func TestRetiredPlaygroundNeverReachesNative(t *testing.T) {
+	calls := 0
 	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.Method != "POST" || r.URL.Path != "/pg/chat/completions" || r.Header.Get("Authorization") != "Bearer fixture-session" || r.Header.Get("X-Auth-Session") != "fixture-sid" {
-			t.Errorf("native playground request changed")
-		}
-		got, _ := io.ReadAll(r.Body)
-		if string(got) != body {
-			t.Errorf("playground payload changed")
-		}
-		deadline, ok := r.Context().Deadline()
-		if !ok || time.Until(deadline) < 4*time.Minute || time.Until(deadline) > 5*time.Minute {
-			t.Errorf("playground must use the bounded model-call deadline")
-		}
-		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(stream))}, nil
+		calls++
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("unexpected upstream call"))}, nil
 	})
-	r := httptest.NewRequest("POST", "/pg/chat/completions", strings.NewReader(body))
-	r.Header.Set("Authorization", "Bearer fixture-session")
-	r.Header.Set("X-Auth-Session", "fixture-sid")
-	w := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
-	newPortalHandler(config{WebDir: t.TempDir()}, transport).ServeHTTP(w, r)
-	if w.Code != 200 || w.Body.String() != stream || !w.Flushed || time.Until(w.writeDeadline) < 4*time.Minute {
-		t.Fatalf("playground stream not transparently forwarded: status=%d flushed=%v", w.Code, w.Flushed)
+	h := newPortalHandler(config{WebDir: t.TempDir()}, transport)
+	for _, tc := range []struct {
+		method string
+		status int
+	}{
+		{http.MethodGet, http.StatusNotFound},
+		{http.MethodPost, http.StatusMethodNotAllowed},
+	} {
+		r := httptest.NewRequest(tc.method, "/pg/chat/completions", strings.NewReader(`{"model":"fixture-model","stream":true}`))
+		r.Header.Set("Authorization", "Bearer fixture-session")
+		r.Header.Set("X-Auth-Session", "fixture-sid")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != tc.status {
+			t.Errorf("retired playground %s: got %d, want %d", tc.method, w.Code, tc.status)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("retired playground reached native upstream %d times", calls)
 	}
 }

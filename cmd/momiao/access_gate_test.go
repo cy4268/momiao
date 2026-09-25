@@ -36,7 +36,7 @@ func TestAccessGateCatalogRoutesAndScope(t *testing.T) {
 			t.Errorf("valid model navigation rejected: %s", route)
 		}
 	}
-	for _, route := range []string{"/api/access?intent=use", "/api/access?model_id=x&intent=delete", "/api/access?model_id=x&intent=use&intent=use", "/keys?model_id=x&intent=use", "/keys?model_id=x&model_id=y", "/api/access?model_id=x&token=secret", "/api/access?model_id=%FF", "/api/access?model_id=%GG", "/api/access?model_id=%20x", "/keys?model_id=x#fragment", "/api/access?"} {
+	for _, route := range []string{"/playground", "/playground?model=example", "/api/access?intent=use", "/api/access?model_id=x&intent=delete", "/api/access?model_id=x&intent=use&intent=use", "/keys?model_id=x&intent=use", "/keys?model_id=x&model_id=y", "/api/access?model_id=x&token=secret", "/api/access?model_id=%FF", "/api/access?model_id=%GG", "/api/access?model_id=%20x", "/keys?model_id=x#fragment", "/api/access?"} {
 		if gateRouteDomain(route) != "" {
 			t.Errorf("unbounded model navigation accepted: %s", route)
 		}

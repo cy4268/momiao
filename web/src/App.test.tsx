@@ -13,7 +13,7 @@ const list = { items: [], total: 0, page: 1, page_size: 10 };
 it.each([
     ['/dashboard', '/dashboard', []], ['/me', '/me', []],
     ['/rewards', '/wallet', ['/wallet', '/rewards']], ['/wallet/activate', '/wallet', ['/wallet', '/rewards']],
-    ['/keys', '/models', ['/models', '/keys', '/logs', '/playground']],
+    ['/keys', '/models', ['/models', '/keys', '/logs']],
 ])('R1 keeps five bottom destinations and only the current context on %s', async (path, selected, contextPaths) => {
     const { client } = fixtureClient();
     render(<MemoryRouter initialEntries={[path as string]}><App client={client} /></MemoryRouter>);
