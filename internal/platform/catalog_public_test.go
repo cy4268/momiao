@@ -128,13 +128,35 @@ func TestCatalogPublicFilterSortAndPriceUnits(t *testing.T) {
 	if got := read(CatalogFilter{Offset: 100, Limit: 2}); got.Total != 5 || len(got.Items) != 0 {
 		t.Fatal("past-end page lost total")
 	}
+	for offset := 0; offset < 3; offset++ {
+		got := read(CatalogFilter{GroupBy: "family", Limit: 1, Offset: offset})
+		wantLength := 1
+		if offset == 2 {
+			wantLength = 0
+		}
+		if got.Total != 2 || got.GroupBy != "family" || len(got.Items) != wantLength {
+			t.Fatal("family count or cross-page grouping wrong", offset, got.Total, len(got.Items))
+		}
+		if offset < 2 && got.Items[0].ModelID != []string{ids[2], ids[1]}[offset] {
+			t.Fatal("family representative did not preserve sort", offset)
+		}
+	}
+	if got := read(CatalogFilter{GroupBy: "family", Sort: "price", PriceDimension: "input"}); got.Total != 2 || got.Items[0].ModelID != ids[0] {
+		t.Fatal("family price sort did not choose the matching lowest same-unit model")
+	}
+	if got := read(CatalogFilter{GroupBy: "family", Tag: "writing"}); got.Total != 1 || got.Items[0].ModelID != ids[2] {
+		t.Fatal("family grouped before filtering")
+	}
+	if got := read(CatalogFilter{Family: "other"}); got.Total != 4 {
+		t.Fatal("ungrouped family detail lost model variants")
+	}
 	if got, err := s.PublicCatalog(ctx, CatalogFilter{Search: "bEtA " + prefix}, catalogTestPolicy); err != nil || got.Total != 1 || got.Items[0].ModelID != ids[1] {
 		t.Fatal("case-insensitive display name search wrong", err)
 	}
 	if got, err := s.PublicCatalog(ctx, CatalogFilter{Search: prefix + "/d"}, catalogTestPolicy); err != nil || got.Total != 1 {
 		t.Fatal("opaque ID search wrong", err)
 	}
-	for _, filter := range []CatalogFilter{{Sort: "price"}, {MinPrice: &max}, {PriceDimension: "total"}, {PriceDimension: "input", MinPrice: &max, MaxPrice: &min}, {Tag: "private-tag"}, {UnknownContext: true, MinContext: &floor}, {Limit: 101}} {
+	for _, filter := range []CatalogFilter{{GroupBy: "model"}, {Sort: "price"}, {MinPrice: &max}, {PriceDimension: "total"}, {PriceDimension: "input", MinPrice: &max, MaxPrice: &min}, {Tag: "private-tag"}, {UnknownContext: true, MinContext: &floor}, {Limit: 101}} {
 		if _, err := s.PublicCatalog(ctx, filter, catalogTestPolicy); !errors.Is(err, ErrCatalogInvalid) {
 			t.Fatal("ambiguous price/unit or unknown filter accepted", err)
 		}

@@ -78,7 +78,7 @@ func TestCatalogHTTPPublicAndStrictQueries(t *testing.T) {
 			t.Fatal(path, w.Code, w.Body)
 		}
 	}
-	for _, query := range []string{"?user_id=1", "?limit=-1", "?limit=101", "?limit=0", "?offset=1000001", "?q=a&q=b", "?recommended=maybe", "?min_context=1e3", "?unknown_context=false", "?x=%GG"} {
+	for _, query := range []string{"?user_id=1", "?limit=-1", "?limit=101", "?limit=0", "?offset=1000001", "?q=a&q=b", "?recommended=maybe", "?min_context=1e3", "?unknown_context=false", "?x=%GG", "?group_by=model", "?group_by=", "?group_by=family&group_by=family"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", "/platform/v1/models"+query, nil))
 		if w.Code != 400 {
@@ -86,8 +86,8 @@ func TestCatalogHTTPPublicAndStrictQueries(t *testing.T) {
 		}
 	}
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/platform/v1/models?q=100%25&recommended=true&min_context=100&price_dimension=input&min_price=0.000000001&sort=price", nil))
-	if w.Code != 200 || s.filter.Search != "100%" || !s.filter.RecommendedOnly || s.filter.MinPrice == nil || *s.filter.MinPrice != "0.000000001" {
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/platform/v1/models?q=100%25&recommended=true&min_context=100&price_dimension=input&min_price=0.000000001&sort=price&group_by=family", nil))
+	if w.Code != 200 || s.filter.Search != "100%" || !s.filter.RecommendedOnly || s.filter.MinPrice == nil || *s.filter.MinPrice != "0.000000001" || s.filter.GroupBy != "family" {
 		t.Fatal(w.Code, s.filter)
 	}
 	for _, path := range []string{"/platform/v1/models/detail", "/platform/v1/models/detail?model_id=x&group=default", "/platform/v1/models/access-config?base_url=https://evil.example"} {

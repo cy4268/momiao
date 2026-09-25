@@ -247,7 +247,7 @@ func catalogOpsFilter(q url.Values) (platform.CatalogOpsFilter, error) {
 }
 func catalogPublicFilter(q url.Values) (platform.CatalogFilter, error) {
 	var f platform.CatalogFilter
-	allowed := map[string]bool{"q": true, "availability": true, "family": true, "tag": true, "use_case": true, "recommended": true, "unknown_context": true, "min_context": true, "price_dimension": true, "min_price": true, "max_price": true, "sort": true, "offset": true, "limit": true}
+	allowed := map[string]bool{"q": true, "availability": true, "family": true, "tag": true, "use_case": true, "recommended": true, "unknown_context": true, "min_context": true, "price_dimension": true, "min_price": true, "max_price": true, "sort": true, "offset": true, "limit": true, "group_by": true}
 	for key := range q {
 		if !allowed[key] {
 			return f, platform.ErrCatalogInvalid
@@ -265,6 +265,12 @@ func catalogPublicFilter(q url.Values) (platform.CatalogFilter, error) {
 	f.UseCase = q.Get("use_case")
 	f.Sort = q.Get("sort")
 	f.PriceDimension = q.Get("price_dimension")
+	if value, ok := q["group_by"]; ok {
+		if value[0] != "family" {
+			return f, platform.ErrCatalogInvalid
+		}
+		f.GroupBy = "family"
+	}
 	for key, target := range map[string]*bool{"recommended": &f.RecommendedOnly, "unknown_context": &f.UnknownContext} {
 		if value, ok := q[key]; ok {
 			if value[0] != "true" {

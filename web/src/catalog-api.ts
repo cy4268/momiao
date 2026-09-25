@@ -47,10 +47,11 @@ function checkedModel(item:CatalogModel){if(!item||!validModelID(item.model_id)|
 export async function readCatalog(client:ApiClient,query=''){try{const page=await client.catalogRequest<CatalogPage>(catalogRoot+query);if(!page||!Array.isArray(page.items)||!Number.isSafeInteger(page.total)||!page.vocabulary||!page.freshness)throw new Error('模型目录响应格式异常。');page.items.forEach(item=>{checkedModel(item);if(item.publication_state!=='PUBLISHED')throw new Error('公开模型状态异常。')});return page;}catch(e){throw new Error(catalogError(e))}}
 export async function readCatalogDetail(client:ApiClient,id:string){try{const data=await client.catalogRequest<CatalogDetail>(catalogRoot+'/detail?'+new URLSearchParams({model_id:id}));checkedModel(data.item);if(data.item.model_id!==id||data.item.publication_state!=='PUBLISHED')throw new Error('模型响应不匹配。');return data;}catch(e){throw new Error(catalogError(e))}}
 export async function readPersonalPrice(client:ApiClient,id:string){try{const data=await client.request<CatalogPersonal>(catalogRoot+'/personal-price?'+new URLSearchParams({model_id:id}));if(!data||data.model_id!==id||!Array.isArray(data.quotes))throw new Error('本人报价响应不匹配。');return data;}catch(e){throw new Error(catalogError(e))}}
-export async function useCatalogModel(client:ApiClient,id:string,navigate:(path:string)=>void,login:CatalogLoginRequired){
+export async function useCatalogModel(client:ApiClient,id:string,navigate:(path:string)=>void,login:CatalogLoginRequired,isCurrent:()=>boolean=()=>true){
  if(!validModelID(id))throw new Error('无效的模型 ID。');const snap=client.getSnapshot();if(!snap.ready)throw new Error('正在确认登录状态，请稍后重试。');if(!snap.user){login(catalogSelectionPath(id));return}
  const epoch=client.getSessionGeneration(),route=catalogSelectionPath(id);const gate=await readAccessGate(client,route);
+ if(!isCurrent())return;
  if(epoch!==client.getSessionGeneration()||!client.getSnapshot().user)throw new Error('登录状态已改变，请重新选择模型。');
  if(gate.stage!=='READY'){saveRouteIntent(route);navigate('/welcome');return;}
- const keys=await client.keys(1,1);if(epoch!==client.getSessionGeneration()||!client.getSnapshot().user)throw new Error('登录状态已改变，请重新选择模型。');navigate(keys.total>0?catalogSelectionPath(id,false):'/keys?'+new URLSearchParams({model_id:id}).toString());
+ const keys=await client.keys(1,1);if(!isCurrent())return;if(epoch!==client.getSessionGeneration()||!client.getSnapshot().user)throw new Error('登录状态已改变，请重新选择模型。');navigate(keys.total>0?catalogSelectionPath(id,false):'/keys?'+new URLSearchParams({model_id:id}).toString());
 }

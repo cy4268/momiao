@@ -12,11 +12,11 @@ import (
 )
 
 type CatalogFilter struct {
-	Search, Availability, Family, Tag, UseCase, PriceDimension, Sort string
-	RecommendedOnly, UnknownContext                                  bool
-	MinContext                                                       *int64
-	MinPrice, MaxPrice                                               *string
-	Offset, Limit                                                    int
+	Search, Availability, Family, Tag, UseCase, PriceDimension, Sort, GroupBy string
+	RecommendedOnly, UnknownContext                                           bool
+	MinContext                                                                *int64
+	MinPrice, MaxPrice                                                        *string
+	Offset, Limit                                                             int
 }
 type CatalogPage struct {
 	Items          []CatalogModel    `json:"items"`
@@ -27,6 +27,7 @@ type CatalogPage struct {
 	Vocabulary     CatalogVocabulary `json:"vocabulary"`
 	PriceDimension string            `json:"price_dimension"`
 	PriceUnit      string            `json:"price_unit"`
+	GroupBy        string            `json:"group_by,omitempty"`
 }
 type CatalogOpsFilter struct {
 	Search, State string
@@ -63,6 +64,9 @@ func validateCatalogFilter(f *CatalogFilter) bool {
 		f.Sort = "recommended"
 	}
 	f.Search = strings.TrimSpace(f.Search)
+	if f.GroupBy != "" && f.GroupBy != "family" {
+		return false
+	}
 	if !catalogSearchValid(f.Search) || f.Limit < 1 || f.Limit > 100 || f.Offset < 0 || f.Offset > 1000000 || !slices.Contains([]string{"recommended", "name", "context", "price"}, f.Sort) || !slices.Contains([]string{"", "CONFIGURED", "NATIVE_HIDDEN", "NOT_OBSERVED"}, f.Availability) {
 		return false
 	}
@@ -115,6 +119,7 @@ func (s *Store) PublicCatalog(ctx context.Context, filter CatalogFilter, policy 
 	page.Limit = filter.Limit
 	page.PriceDimension = filter.PriceDimension
 	page.PriceUnit = catalogPriceUnit(filter.PriceDimension)
+	page.GroupBy = filter.GroupBy
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return page, err
@@ -126,11 +131,20 @@ func (s *Store) PublicCatalog(ctx context.Context, filter CatalogFilter, policy 
 	}
 	page.Freshness = catalogFreshness(status, policy, time.Now())
 	args := []any{filter.PriceDimension, page.PriceUnit, filter.Search, filter.Availability, filter.RecommendedOnly, filter.Family, filter.Tag, filter.UseCase, filter.MinContext, filter.UnknownContext, filter.MinPrice, filter.MaxPrice}
-	if err = tx.QueryRow(ctx, "SELECT count(*)"+catalogPublicSelection, args...).Scan(&page.Total); err != nil {
+	count := "count(*)"
+	if filter.GroupBy == "family" {
+		count = "count(DISTINCT m.family)"
+	}
+	if err = tx.QueryRow(ctx, "SELECT "+count+catalogPublicSelection, args...).Scan(&page.Total); err != nil {
 		return page, err
 	}
 	order := map[string]string{"recommended": `p.recommended DESC,p.sort_order ASC,lower(m.display_name) COLLATE "C",m.model_id COLLATE "C"`, "name": `lower(m.display_name) COLLATE "C",m.model_id COLLATE "C"`, "context": `m.context_length DESC NULLS LAST,lower(m.display_name) COLLATE "C",m.model_id COLLATE "C"`, "price": `price.amount ASC NULLS LAST,lower(m.display_name) COLLATE "C",m.model_id COLLATE "C"`}[filter.Sort]
-	rows, err := tx.Query(ctx, "SELECT "+catalogModelColumns+catalogPublicSelection+" ORDER BY "+order+" LIMIT $13 OFFSET $14", append(args, filter.Limit, filter.Offset)...)
+	selection := catalogPublicSelection
+	if filter.GroupBy == "family" {
+		// Select representatives from the complete filtered set, not one page.
+		selection += " AND m.model_id IN (SELECT model_id FROM (SELECT m.model_id,row_number() OVER (PARTITION BY m.family ORDER BY " + order + ") AS family_rank" + catalogPublicSelection + ") grouped WHERE family_rank=1)"
+	}
+	rows, err := tx.Query(ctx, "SELECT "+catalogModelColumns+selection+" ORDER BY "+order+" LIMIT $13 OFFSET $14", append(args, filter.Limit, filter.Offset)...)
 	if err != nil {
 		return page, err
 	}

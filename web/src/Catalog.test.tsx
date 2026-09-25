@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import { Catalog, CatalogDetailPage, APIAccess, CatalogPersona, CatalogPriceTable } from './Catalog';
@@ -26,9 +26,28 @@ it('binds the key-page Gate to the exact selected model query',async()=>{
 });
 it('reads the public catalog and applies explicit same-dimension price and context filters',async()=>{
  const paths:string[]=[];const c=new ApiClient(async path=>{paths.push(path);return ok(page)});
- browser('/models',<Catalog client={c}/>);expect(await screen.findByRole('heading',{name:'月海合成模型'})).toBeInTheDocument();expect(screen.getByText('0.00000000001')).toBeInTheDocument();
+ browser('/models',<Catalog client={c}/>);expect(await screen.findByRole('heading',{name:'Gemini'})).toBeInTheDocument();expect(screen.queryByText('0.00000000001')).not.toBeInTheDocument();expect(screen.queryByText('月海合成模型')).not.toBeInTheDocument();expect(paths[0]).toContain('group_by=family');
+ fireEvent.click(screen.getByRole('button',{name:'搜索与筛选'}));
  fireEvent.change(screen.getByLabelText('名称或模型 ID'),{target:{value:'组织'}});fireEvent.change(screen.getByLabelText('比较价格维度'),{target:{value:'input'}});fireEvent.change(screen.getByLabelText('最低价格'),{target:{value:'0.00000001'}});fireEvent.click(screen.getByLabelText('仅显示未知 context'));fireEvent.click(screen.getByRole('button',{name:'应用筛选'}));
  await waitFor(()=>expect(paths.at(-1)).toContain('price_dimension=input'));expect(paths.at(-1)).toContain('min_price=0.00000001');expect(paths.at(-1)).toContain('unknown_context=true');
+});
+it('selects exact channel model IDs inside one family without retaining stale detail',async()=>{
+ const second={...model,model_id:'渠道/second',metadata:{...model.metadata,display_name:'第二个型号'}};
+ let resolve!:(r:Response)=>void;const pending=new Promise<Response>(r=>resolve=r);const paths:string[]=[];
+ let finishGate!:(r:Response)=>void;const pendingGate=new Promise<Response>(r=>finishGate=r);
+ const c=new ApiClient(async path=>{paths.push(path);if(path==='/api/user/login')return ok(bundle);if(path.startsWith('/platform/v1/access-gate?'))return pendingGate;if(path.includes('/personal-price?'))return ok({model_id:new URLSearchParams(path.split('?')[1]).get('model_id'),quotes:[],basis:'current_user_group_reference_not_token_selection',observed_at:model.last_seen_at});if(path.includes('/detail?'))return path.includes(encodeURIComponent(second.model_id))?pending:ok({item:model,vocabulary:page.vocabulary,api_base_url:'https://api.example/v1'});return ok({...page,items:[model,second],total:2})});
+ await c.login('one','x');paths.length=0;
+ browser('/models?view=family&family=gemini&recommended=true&q=old-search',<Catalog client={c}/>);
+ expect(await screen.findByRole('link',{name:'查看接入示例 →'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(model.model_id));
+ expect(paths.find(p=>!p.includes('/detail?'))).toBe('/platform/v1/models?family=gemini');
+ fireEvent.click(screen.getByRole('button',{name:'使用此模型'}));
+ fireEvent.click(screen.getByRole('button',{name:new RegExp(second.metadata.display_name)}));
+ expect(screen.queryByRole('link',{name:'查看接入示例 →'})).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'使用此模型'})).not.toBeInTheDocument();
+ resolve(ok({item:second,vocabulary:page.vocabulary,api_base_url:'https://api.example/v1'}));
+ expect(await screen.findByRole('link',{name:'查看接入示例 →'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(second.model_id));
+ await act(async()=>finishGate(ok({user_id:'1',route:'/api/access?model_id='+encodeURIComponent(model.model_id)+'&intent=use',stage:'MIGRATION_UNVERIFIED'})));
+ expect(screen.getByRole('link',{name:'查看接入示例 →'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(second.model_id));
+ expect(paths.some(p=>p.includes('/api/token/'))).toBe(false);
 });
 it('shows unavailable source and unknown context without inventing a price or use action',async()=>{
  const expired={...model,can_use:false,availability_state:'NOT_OBSERVED',price:{...model.price,dimensions:[]},freshness:{...model.freshness,state:'EXPIRED'}};
@@ -56,7 +75,7 @@ it('labels conditional request pricing and keeps its own unit',()=>{
 });
 it('keeps the persona slot usable after both approved local images fail',()=>{
  const view=render(<CatalogPersona model={{...model,metadata:{...model.metadata,asset_id:'synthetic-approved'}}} assets={[{asset_id:'synthetic-approved',src:'/assets/models/test-master.webp',fallback:'/assets/models/test-fallback.webp',focal_point:[0.5,0.5],safe_area:0.08,status:'PRODUCTION_READY',rights_status:'LICENSED_OR_APPROVED'}]}/>);
- const image=view.container.querySelector('img')!;expect(image).toHaveAttribute('src','/assets/models/test-master.webp');fireEvent.error(image);expect(image).toHaveAttribute('src','/assets/models/test-fallback.webp');fireEvent.error(image);expect(view.container.querySelector('img')).toBeNull();expect(screen.getByLabelText('模型家族几何标识')).toBeInTheDocument();
+ const image=view.container.querySelector('img')!;expect(image).toHaveAttribute('src','/assets/models/test-master.webp');fireEvent.error(image);expect(image).toHaveAttribute('src','/assets/models/test-fallback.webp');fireEvent.error(image);expect(view.container.querySelector('img')).toBeNull();expect(screen.getByLabelText('模型家族形象未载入')).toBeInTheDocument();
 });
 it('labels retained price and endpoint observation separately from the later missing-source check',async()=>{
  const missing={...model,can_use:false,availability_state:'NOT_OBSERVED',last_seen_at:'2026-09-01T00:00:00Z'};
