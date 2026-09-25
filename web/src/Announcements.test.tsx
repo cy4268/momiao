@@ -12,6 +12,10 @@ describe('announcements', () => {
         const fetcher = vi.fn(async (path: string) => ok({ items: path.includes('search=missing') ? [] : [notice], has_more: false }));
         render(<MemoryRouter><Announcements client={new ApiClient(fetcher)} /></MemoryRouter>);
         expect(await screen.findByRole('link', { name: '观测站更新' })).toHaveAttribute('href', '/announcements/' + notice.announcement_id);
+        expect(screen.getByRole('region', { name: '公告列表' })).toHaveAttribute('tabindex', '0');
+        const backdrop = document.querySelector('.announcement-backdrop');
+        expect(backdrop).toHaveAttribute('alt', '');
+        expect(backdrop?.getAttribute('src')).toMatch(/assets\/announcements\/mash-communications-[a-f0-9]+\.webp$/);
         fireEvent.change(screen.getByLabelText('搜索公告'), { target: { value: 'missing' } }); fireEvent.click(screen.getByRole('button', { name: '应用筛选' }));
         expect(await screen.findByText('没有符合条件的公告')).toBeVisible();
         expect(fetcher.mock.calls.some(([path]) => path.includes('search=missing'))).toBe(true);
@@ -19,7 +23,10 @@ describe('announcements', () => {
     it('anonymous detail refresh reads canonical HTML without POST and authenticated render posts exact revision', async () => {
         const anonymous = vi.fn(async () => ok(notice));
         const view = render(<MemoryRouter initialEntries={['/announcements/' + notice.announcement_id]}><Routes><Route path='/announcements/:id' element={<AnnouncementDetail client={new ApiClient(anonymous)} />} /></Routes></MemoryRouter>);
-        expect(await screen.findByText('服务端净化后的正文。')).toBeVisible(); expect(anonymous).toHaveBeenCalledTimes(1); view.unmount();
+        expect(await screen.findByText('服务端净化后的正文。')).toBeVisible();
+        expect(screen.getByRole('region', { name: '公告正文' })).toHaveAttribute('tabindex', '0');
+        expect(screen.getByRole('region', { name: '公告正文' })).toContainElement(screen.getByText('服务端净化后的正文。'));
+        expect(anonymous).toHaveBeenCalledTimes(1); view.unmount();
         const { client, fetcher } = fixtureClient((path, init) => path === announcementRoot + '/' + notice.announcement_id ? ok({ ...notice, notification_revision: 3 }) : path.endsWith('/reads') ? ok({ notification_revision: 3, read_at: '2026-09-06T00:00:00Z' }) : undefined);
         await client.bootstrap();
         render(<MemoryRouter initialEntries={['/announcements/' + notice.announcement_id]}><Routes><Route path='/announcements/:id' element={<AnnouncementDetail client={client} />} /></Routes></MemoryRouter>);
