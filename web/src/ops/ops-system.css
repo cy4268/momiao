@@ -1,0 +1,127 @@
+/* System/audit page details only. The shared .ops-workbench theme stays in OpsShell. */
+.ops-workbench .page-heading.ops-system-heading {
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(214, 189, 136, .35);
+}
+.ops-workbench .ops-system-heading h1 { font-family: var(--display, Marcellus, Georgia, serif); }
+.ops-workbench :is(.ops-system-list, .ops-system-editor, .ops-system-detail, .ops-system-health, .ops-system-audit-summary, .ops-system-audit-evidence, .ops-system-lookup, .ops-system-receipt, .ops-system-timeline-panel, .ops-system-recovery) { min-width: 0; }
+.ops-workbench :is(.ops-system-list, .ops-system-editor, .ops-system-detail, .ops-system-health, .ops-system-audit-summary, .ops-system-audit-evidence, .ops-system-lookup, .ops-system-receipt, .ops-system-timeline-panel, .ops-system-recovery) > h2 {
+  color: #e9d7ad;
+  font: 400 21px/1.35 var(--display, Marcellus, Georgia, serif);
+  margin: 0 0 16px;
+}
+.ops-workbench .ops-system-list .section-heading { flex-wrap: wrap; }
+.ops-workbench .ops-system-list .section-heading h2 { color: #e9d7ad; font-family: var(--display, Marcellus, Georgia, serif); font-weight: 400; }
+.ops-workbench .ops-system-list .table-wrap,
+.ops-workbench .ops-system-health .table-wrap {
+  max-width: 100%;
+  max-height: min(55dvh, 600px);
+  overflow: auto;
+  border: 1px solid rgba(214, 189, 136, .29);
+  scrollbar-color: #7088a0 #10273d;
+}
+.ops-workbench :is(.ops-system-list, .ops-system-health) th { position: sticky; top: 0; z-index: 1; background: #1c374d; color: #d6dfed; }
+.ops-workbench :is(.ops-system-list, .ops-system-health) tbody th { position: static; background: transparent; }
+.ops-workbench :is(.ops-system-list, .ops-system-health) td,
+.ops-workbench :is(.ops-system-list, .ops-system-health) tbody th { border-color: rgba(160, 184, 207, .23); }
+.ops-workbench :is(.ops-system-list, .ops-system-health) td :is(a,button) { overflow-wrap: anywhere; }
+.ops-workbench .ops-system-list :is(td,th),
+.ops-workbench .ops-system-health :is(td,th) { overflow-wrap: anywhere; }
+.ops-workbench .ops-system-list td[data-severity="CRITICAL"],
+.ops-workbench .ops-system-list td[data-state="DISABLED"] { color: #f0b5ad; }
+.ops-workbench .ops-system-list td[data-severity="WARNING"],
+.ops-workbench .ops-system-list td[data-state="SCHEDULED"] { color: #eed49a; }
+.ops-workbench .ops-system-list td[data-state="ACTIVE"] strong { color: #9de2bd; }
+.ops-workbench .ops-system-list .hint { margin: 12px 0 0; }
+.ops-workbench .ops-system-more { margin-top: 14px; }
+
+.ops-workbench .ops-system-cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); }
+.ops-workbench .ops-system-card { min-width: 0; border-left: 2px solid #d6bd88; }
+.ops-workbench .ops-system-card h2 { color: #e9d7ad; font: 400 20px/1.35 var(--display, Marcellus, Georgia, serif); }
+.ops-workbench .ops-system-card p { margin-bottom: 16px; }
+.ops-workbench .ops-system-card p strong { color: #f1dcaa; font-variant-numeric: tabular-nums; font-size: 20px; }
+.ops-workbench .ops-system-card a { display: inline-flex; min-height: 40px; align-items: center; }
+
+.ops-workbench .ops-system-health-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(214, 189, 136, .34);
+  background: #1c374d;
+}
+.ops-workbench .ops-system-health-summary::before,
+.ops-workbench .ops-system-health-result::before {
+  content: '';
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #9caec4;
+}
+.ops-workbench .ops-system-health-summary.is-ready::before,
+.ops-workbench .ops-system-health-result.is-ready::before { background: #86dfa9; }
+.ops-workbench .ops-system-health-summary.is-unavailable::before,
+.ops-workbench .ops-system-health-result.is-unavailable::before { background: #eeae9f; }
+.ops-workbench .ops-system-health-summary.is-unknown::before,
+.ops-workbench .ops-system-health-result.is-unknown::before { background: #e5c37b; }
+.ops-workbench .ops-system-health-result { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+.ops-workbench .ops-system-health-result::before { width: 7px; height: 7px; }
+.ops-workbench .ops-system-observed { color: #b7c9dc; font-size: 12px; margin: 0 0 15px; }
+.ops-workbench .ops-system-health .hint { padding: 12px 15px; margin: 14px 0 0; border: 1px solid rgba(214, 189, 136, .25); background: #112b40; }
+.ops-workbench .ops-system-links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+.ops-workbench .ops-system-links a { display: inline-flex; align-items: center; min-height: 42px; padding: 8px 14px; border: 1px solid rgba(214, 189, 136, .55); text-decoration: none; }
+
+.ops-workbench .ops-system-editor > form > fieldset { min-width: 0; }
+.ops-workbench .ops-system-editor form :is(input,select,textarea) { max-width: 100%; }
+.ops-workbench .ops-system-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+.ops-workbench .ops-system-choice-grid legend { margin-bottom: 8px; }
+.ops-workbench .ops-system-choice-grid label,
+.ops-workbench .ops-system-checkbox { display: flex; flex-direction: row; align-items: flex-start; gap: 9px; margin: 0; font-weight: 400; }
+.ops-workbench .ops-system-choice-grid input[type=checkbox],
+.ops-workbench .ops-system-checkbox input[type=checkbox] { flex: none; width: 17px; height: 17px; min-height: 17px; margin-top: 2px; }
+.ops-workbench .filters.ops-system-time-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ops-workbench .ops-system-editor :is(details,fieldset) { min-width: 0; }
+.ops-workbench .ops-system-editor details > summary { color: #f0dbac; }
+.ops-workbench .ops-system-editor .ops-facts { margin-bottom: 14px; }
+
+.ops-workbench .ops-system-detail-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 18px; }
+.ops-workbench .ops-system-detail-grid > div,
+.ops-workbench .ops-system-snapshot-grid > div { min-width: 0; padding: 16px; border: 1px solid rgba(214, 189, 136, .26); background: #10273d; }
+.ops-workbench .ops-system-detail-grid h3,
+.ops-workbench .ops-system-snapshot-grid h3 { color: #dfc999; font: 400 18px/1.35 var(--display, Marcellus, Georgia, serif); margin: 0 0 12px; }
+.ops-workbench .ops-system-detail > fieldset { margin-top: 18px; }
+.ops-workbench :is(.ops-system-detail-events, .ops-system-timeline-panel) .ops-timeline { list-style: none; border-left: 1px solid rgba(214, 189, 136, .42); padding: 0 0 0 18px; margin: 0; }
+.ops-workbench :is(.ops-system-detail-events, .ops-system-timeline-panel) .ops-timeline li { position: relative; padding: 0 0 20px 12px; border: 0; }
+.ops-workbench :is(.ops-system-detail-events, .ops-system-timeline-panel) .ops-timeline li::before { content: ''; position: absolute; left: -23px; top: 6px; width: 8px; height: 8px; border-radius: 50%; background: #d6bd88; }
+.ops-workbench :is(.ops-system-detail-events, .ops-system-timeline-panel) .ops-timeline p { margin: 7px 0 0; }
+.ops-workbench :is(.ops-system-detail-events, .ops-system-timeline-panel) .ops-timeline :is(time,small) { color: #b7c9dc; overflow-wrap: anywhere; }
+.ops-workbench .ops-system-receipt-grid { min-width: 0; }
+.ops-workbench .ops-system-audit-summary .ops-impact { margin-bottom: 15px; }
+.ops-workbench .ops-system-snapshot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.ops-workbench .ops-system-snapshot-grid > div:last-child { grid-column: 1 / -1; }
+.ops-workbench .ops-system-snapshot-grid .ops-facts { min-width: 0; }
+.ops-workbench .ops-system-audit-evidence > h2 { margin-bottom: 16px; }
+.ops-workbench .ops-system-recovery { border-left: 3px solid #d6bd88; }
+.ops-workbench .ops-system-recovery [role=status] { color: #a7e4c4; }
+
+@media (min-width: 1100px) {
+  .ops-workspace.ops-workbench > .ops-system-receipt-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 16px; align-items: start; }
+  .ops-workspace.ops-workbench > .ops-system-receipt-grid > .panel + .panel { margin-top: 0; }
+}
+@media (max-width: 900px) {
+  .ops-workbench .ops-system-list .table-wrap,
+  .ops-workbench .ops-system-health .table-wrap { max-height: none; overflow: auto; }
+  .ops-workbench .ops-system-detail-grid,
+  .ops-workbench .ops-system-snapshot-grid,
+  .ops-workbench .filters.ops-system-time-grid { grid-template-columns: minmax(0, 1fr); }
+  .ops-workbench .ops-system-snapshot-grid > div:last-child { grid-column: auto; }
+}
+@media (max-width: 520px) {
+  .ops-workbench .ops-system-choice-grid { grid-template-columns: minmax(0, 1fr); }
+  .ops-workbench .ops-system-health table { min-width: 0; }
+  .ops-workbench .ops-system-health-result { white-space: normal; }
+  .ops-workbench .ops-system-links a { flex: 1 1 100%; }
+}

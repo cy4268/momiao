@@ -20,6 +20,7 @@
   overflow-wrap: anywhere;
 }
 .ops-shell:not(.is-overview) .ops-backdrop { opacity: .92; }
+.ops-shell:not(.is-overview) .ops-sidebar { scrollbar-color: #748299 #11263a; }
 .ops-shell:not(.is-overview) .ops-main { padding: 24px 28px; }
 .ops-workbench .page-heading { margin: 0 0 20px; gap: 14px 24px; align-items: end; }
 .ops-workbench .page-heading > div { min-width: 0; }

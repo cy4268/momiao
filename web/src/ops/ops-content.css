@@ -417,6 +417,9 @@
 .ops-workbench .announcement-editor > .announcement-publication {
   border-top: 1px solid #d6bd8870;
 }
+.ops-workbench .announcement-publication .announcement-editor-fields {
+  grid-template-columns: minmax(0, 1fr);
+}
 .ops-workbench .announcement-publication legend {
   padding: 0;
   color: #e6d2a8;
