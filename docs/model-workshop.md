@@ -20,6 +20,6 @@ Desktop pages keep a single viewport with internal scrolling for long lists/deta
 
 ## Focused verification
 
-Reuse `npm test -- src/Catalog.test.tsx`, `TestCatalogHTTPPublicAndStrictQueries`, and `TestCatalogPublicFilterSortAndPriceUnits` (with the existing isolated PostgreSQL test setup). One additional frontend regression covers exact channel selection and a late access response; existing assertions cover grouping before pagination, normal ungrouped behavior, anonymous access, quote privacy and placeholder-only cURL copying.
+Reuse `npm test -- src/Catalog.test.tsx`, `TestCatalogHTTPPublicAndStrictQueries`, and `TestCatalogPublicFilterSortAndPriceUnits` (with the existing isolated PostgreSQL test setup). One additional frontend regression covers exact channel selection and a late access response; existing assertions cover grouping before pagination, normal ungrouped behavior, anonymous access, quote privacy and placeholder-only cURL copying. Existing Home/Workspace navigation assertions also follow the new directory heading and grouped public URL; their private-read and prompt-clearing checks remain intact.
 
 This stage does not deploy the website or merge the feature branch. Deploy the paired backend/frontend revision together at the eventual release; the directory requires the optional grouping support.
