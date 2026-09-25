@@ -1,0 +1,154 @@
+.ops-shell {
+  --ops-gold: #d6bd88;
+  --ops-line: rgba(205, 179, 124, .4);
+  --ops-text: #e9eef6;
+  --ops-header-height: 72px;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: #09192b;
+  color: var(--ops-text);
+}
+.ops-backdrop {
+  position: absolute;
+  inset: var(--ops-header-height) 0 0;
+  z-index: -2;
+  width: 100%;
+  height: calc(100% - var(--ops-header-height));
+  object-fit: cover;
+  object-position: right top;
+  opacity: .15;
+  pointer-events: none;
+}
+.ops-shell.is-overview .ops-backdrop { opacity: 1; }
+.ops-shell > .skip-link { background: #0a1d31; color: #fff; z-index: 10; }
+.ops-header {
+  min-height: var(--ops-header-height);
+  padding: 10px 24px;
+  gap: 24px;
+  border-color: var(--ops-line);
+  background: rgba(6, 20, 35, .95);
+}
+.ops-header .brand { color: var(--ops-text); flex-shrink: 0; }
+.ops-header .royal-beacon { color: var(--ops-gold); width: 42px; height: 42px; }
+.ops-header .brand-wordmark { font-size: 25px; }
+.ops-header .brand small { color: #adbfda; font-size: 8px; }
+.ops-header .ops-badge { color: var(--ops-gold); font-size: 10px; letter-spacing: .24em; }
+.ops-account { margin-left: auto; display: flex; align-items: center; gap: 20px; font-size: 12px; }
+.ops-account > span { border-left: 1px solid var(--ops-line); padding-left: 20px; color: #c4cedd; }
+.ops-account a { color: var(--ops-text); min-height: 44px; display: inline-flex; align-items: center; }
+.ops-shell .ops-layout {
+  grid-template-columns: 204px minmax(0, 1fr);
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+}
+.ops-sidebar { min-height: 0; overflow-y: auto; padding: 12px 0 24px; border-color: var(--ops-line); background: rgba(7, 23, 39, .96); }
+.ops-sidebar nav { display: grid; gap: 10px; }
+.ops-nav-group { padding-top: 12px; border-top: 1px solid rgba(205, 179, 124, .2); }
+.ops-nav-group p { margin: 0 18px 8px; font-size: 11px; color: var(--ops-gold); letter-spacing: .08em; }
+.ops-sidebar nav a {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 7px 22px;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #cbd8e8;
+}
+.ops-sidebar nav a.active { background: #203a51; color: #fff1d1; border-left-color: var(--ops-gold); }
+.ops-sidebar nav a:hover { color: #fff; background: #1b334c; }
+.ops-menu-toggle { display: none; }
+.ops-shell .ops-main {
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+  scrollbar-color: #748299 #11263a;
+}
+.ops-main:focus { outline: none; }
+.ops-main:focus-visible { outline: 2px solid var(--ops-gold); outline-offset: -4px; }
+.ops-workspace { min-width: 0; padding: 24px; background: #f4f0e8; color: #17202d; border: 1px solid var(--ops-line); }
+.is-overview .ops-main { padding-right: clamp(250px, 36vw, 760px); }
+.ops-overview-workspace { padding: 0; border: 0; color: var(--ops-text); background: transparent; }
+.ops-overview .page-heading { display: block; margin: 0 0 16px; padding: 0; }
+.ops-overview .page-heading h1 { margin: 0 0 10px; font-family: var(--display); font-weight: 400; font-size: clamp(30px, 3vw, 44px); line-height: 1.2; color: #f3e7ca; }
+.ops-overview .page-heading .eyebrow { margin: 0 0 10px; color: #c4d1e4; font-size: 10px; letter-spacing: .16em; }
+.ops-overview .page-heading p:last-child { margin: 0; font-size: 12px; line-height: 1.6; color: #ccd7e8; }
+.ops-entry-group { padding: 10px; margin-bottom: 10px; border: 1px solid var(--ops-line); background: rgba(8, 28, 46, .95); box-shadow: inset 0 0 0 3px rgba(210, 185, 133, .035); border-radius: 5px; }
+.ops-entry-group h2 { display: flex; align-items: center; gap: 14px; margin: 0 0 10px; font-family: var(--display); font-weight: 400; font-size: 18px; line-height: 1.3; color: #e5d2a4; }
+.ops-entry-group h2::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--ops-line), transparent); }
+.ops-overview .ops-entry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ops-overview .ops-entry { min-width: 0; min-height: 44px; padding: 10px 14px; border: 1px solid #35516a; border-radius: 3px; background: linear-gradient(110deg, #1c374d, #10283d); font-size: 13px; line-height: 1.4; color: var(--ops-text); box-shadow: inset 0 1px rgba(255, 255, 255, .025); }
+.ops-entry strong { font-weight: 400; overflow-wrap: anywhere; }
+.ops-entry > span { color: #d4c397; flex-shrink: 0; }
+.ops-overview .ops-entry:hover { border-color: var(--ops-gold); background: #25445b; color: #fff4da; }
+.ops-directory-note { font-size: 11px; margin: 12px 0 0; color: #b5c8df; line-height: 1.5; }
+.ops-directory-note[role=status] { padding: 20px; border: 1px solid var(--ops-line); background: #10273d; }
+.ops-overview-workspace > .alert { color: #f2dfbb; background: #302d27; border-color: #c2a15d; }
+.ops-overview-workspace > button { margin-top: 12px; color: #f3e7ca; border-color: var(--ops-gold); background: #142c42; }
+.ops-overview-workspace > .loading { padding: 20px; color: #d5e0ef; background: #10273d; }
+.ops-sidebar :focus-visible, .ops-header :focus-visible, .ops-overview :focus-visible { outline: 3px solid #e2cb92; outline-offset: -3px; }
+@media (min-width: 901px) {
+  /* Maintenance notices remain visible above the shell, within the same viewport. */
+  #root:has(> .ops-shell) { display: flex; flex-direction: column; height: 100dvh; }
+  #root > .ops-shell { flex: 1 1 0; height: auto; min-height: 320px; }
+}
+@media (min-width: 901px) and (max-height: 800px) {
+  .ops-shell { --ops-header-height: 64px; }
+  .ops-header { padding-block: 6px; }
+  .ops-shell .ops-main { padding-top: 16px; padding-bottom: 16px; }
+  .ops-overview .page-heading { margin-bottom: 14px; }
+  .ops-overview .page-heading h1 { font-size: 32px; margin-bottom: 6px; }
+  .ops-entry-group { padding: 10px; margin-bottom: 9px; }
+  .ops-entry-group h2 { font-size: 16px; margin-bottom: 8px; }
+  .ops-overview .ops-entry-grid { gap: 6px; }
+}
+@media (min-width: 901px) and (max-width: 1200px) {
+  .ops-shell .ops-layout { grid-template-columns: 178px minmax(0, 1fr); }
+  .is-overview .ops-main { padding-left: 18px; padding-right: 28vw; }
+  .ops-overview .ops-entry { padding-inline: 10px; font-size: 12px; }
+}
+@media (max-width: 900px) {
+  .ops-shell { display: block; height: auto; min-height: 100dvh; overflow: visible; }
+  .ops-backdrop { opacity: .1; }
+  .is-overview .ops-backdrop { position: static; display: block; height: 300px; width: calc(100% + 32px); margin: -20px -16px 24px; object-position: right top; }
+  .ops-header { padding: 10px 16px; flex-wrap: wrap; gap: 4px 16px; }
+  .ops-header .brand-wordmark { font-size: 22px; }
+  .ops-header .ops-badge { display: none; }
+  .ops-account { gap: 12px; font-size: 11px; flex-wrap: wrap; }
+  .ops-account > span { padding-left: 12px; }
+  .ops-shell .ops-layout { display: block; }
+  .ops-sidebar { padding: 0 16px; overflow: visible; border-right: 0; border-bottom: 1px solid var(--ops-line); }
+  .ops-menu-toggle { width: 100%; display: flex; justify-content: space-between; border: 0; padding: 10px 0; border-radius: 0; font-weight: 400; color: #e7d5ad; background: transparent; }
+  .ops-menu-toggle:hover { background: transparent; color: #fff1d1; }
+  .ops-sidebar nav { display: none; padding: 0 0 16px; overflow: visible; }
+  .ops-sidebar nav.is-open { display: grid; }
+  .ops-nav-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; }
+  .ops-nav-group p { grid-column: 1 / -1; margin-left: 12px; }
+  .ops-sidebar nav a { white-space: normal; min-height: 44px; padding-inline: 12px; font-size: 12px; }
+  .ops-shell .ops-main, .is-overview .ops-main { padding: 20px 16px max(28px, env(safe-area-inset-bottom)); overflow: visible; }
+  .ops-overview .page-heading { margin-bottom: 18px; }
+  .ops-overview .page-heading h1 { font-size: 32px; }
+  .ops-overview .page-heading p:last-child { font-size: 12px; }
+  .ops-workspace { padding: 18px 14px; }
+  .ops-overview-workspace { padding: 0; }
+  .ops-entry-group { padding: 12px; }
+  .ops-overview .ops-entry { padding-inline: 10px; font-size: 12px; }
+  .ops-main .filters > label { min-width: 0; flex: 1 1 180px; }
+  .ops-main .ops-workspace .page-heading { flex-wrap: wrap; }
+}
+@media (max-width: 420px) {
+  .ops-header .brand-wordmark { font-size: 20px; }
+  .ops-header .royal-beacon { width: 34px; height: 34px; }
+  .ops-account { margin: 0; width: 100%; justify-content: space-between; }
+  .is-overview .ops-backdrop { width: calc(100% + 24px); margin-inline: -12px; }
+  .ops-shell .ops-main { padding-inline: 12px; }
+  .ops-overview .ops-entry-grid { gap: 6px; }
+}
