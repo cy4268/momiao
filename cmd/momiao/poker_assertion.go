@@ -45,18 +45,20 @@ func assertionCanonical(key,issuer,audience,request,method,uri string,iat,exp ui
 	var n [8]byte;binary.BigEndian.PutUint64(n[:],iat);b.Write(n[:]);binary.BigEndian.PutUint64(n[:],exp);b.Write(n[:])
 	if method!=strings.ToUpper(method)||!lp(request)||!lp(method)||!lp(uri)||len(hash)!=sha256.Size{return nil,errPokerConfig};b.Write(hash);return b.Bytes(),nil
 }
-func signPokerRequest(r *http.Request,body []byte,keys pokerTicketKeys)error{
+func signPokerRequest(r *http.Request,body []byte,keys pokerTicketKeys)error{return signServiceRequest(r,body,keys,"platform","poker")}
+func signServiceRequest(r *http.Request,body []byte,keys pokerTicketKeys,issuer,audience string)error{
 	if r==nil||r.URL==nil||len(keys.private)!=ed25519.PrivateKeySize{return errPokerConfig}
 	var random [16]byte;if _,err:=rand.Read(random[:]);err!=nil{return errPokerConfig};id:=hex.EncodeToString(random[:])
 	iat:=uint64(time.Now().Unix());exp:=iat+30;hash:=sha256.Sum256(body)
-	canonical,err:=assertionCanonical(keys.active,"platform","poker",id,r.Method,r.URL.RequestURI(),iat,exp,hash[:]);if err!=nil{return err}
-	values:=[]string{keys.active,"platform","poker",strconv.FormatUint(iat,10),strconv.FormatUint(exp,10),id,hex.EncodeToString(hash[:]),base64.RawURLEncoding.EncodeToString(ed25519.Sign(keys.private,canonical))}
+	canonical,err:=assertionCanonical(keys.active,issuer,audience,id,r.Method,r.URL.RequestURI(),iat,exp,hash[:]);if err!=nil{return err}
+	values:=[]string{keys.active,issuer,audience,strconv.FormatUint(iat,10),strconv.FormatUint(exp,10),id,hex.EncodeToString(hash[:]),base64.RawURLEncoding.EncodeToString(ed25519.Sign(keys.private,canonical))}
 	for i,name:=range pokerAssertionHeaders{r.Header.Set(pokerAssertionPrefix+name,values[i])};return nil
 }
-func verifyPokerRequest(r *http.Request,body []byte,keys map[string]ed25519.PublicKey)error{
+func verifyPokerRequest(r *http.Request,body []byte,keys map[string]ed25519.PublicKey)error{return verifyServiceRequest(r,body,keys,"platform","poker")}
+func verifyServiceRequest(r *http.Request,body []byte,keys map[string]ed25519.PublicKey,issuer,audience string)error{
 	if r==nil||r.URL==nil{return errPokerConfig};values:=make([]string,len(pokerAssertionHeaders))
 	for i,name:=range pokerAssertionHeaders{v:=r.Header.Values(pokerAssertionPrefix+name);if len(v)!=1||len(v[0])==0||len(v[0])>512{return errPokerConfig};values[i]=v[0]}
-	key:=keys[values[0]];if len(key)!=ed25519.PublicKeySize||values[1]!="platform"||values[2]!="poker"{return errPokerConfig}
+	key:=keys[values[0]];if len(key)!=ed25519.PublicKeySize||values[1]!=issuer||values[2]!=audience{return errPokerConfig}
 	iat,e1:=strconv.ParseUint(values[3],10,64);exp,e2:=strconv.ParseUint(values[4],10,64);now:=uint64(time.Now().Unix())
 	if e1!=nil||e2!=nil||strconv.FormatUint(iat,10)!=values[3]||strconv.FormatUint(exp,10)!=values[4]||iat>now+5||iat+30!=exp||exp+5<now{return errPokerConfig}
 	id,e:=hex.DecodeString(values[5]);if e!=nil||len(id)!=16||hex.EncodeToString(id)!=values[5]{return errPokerConfig}

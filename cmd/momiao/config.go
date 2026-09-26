@@ -17,6 +17,8 @@ import (
 )
 
 type config struct {
+ EconomyReadSocket string
+ economicObserver platform.NativeQuotaObserver
 	RecoveryLock              bool
 	RecoveryAuthProbes        bool
 	ProcessRole               string

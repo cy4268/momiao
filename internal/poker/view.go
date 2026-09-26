@@ -2,6 +2,7 @@ package poker
 
 import (
 	"context"
+ "github.com/cy4268/momiao/internal/platform"
 	"encoding/hex"
 	"github.com/cy4268/momiao/internal/poker/engine"
 	"github.com/jackc/pgx/v5"
@@ -50,6 +51,7 @@ type SeatView struct {
 	RebuyDeadlineAt      *time.Time `json:"rebuy_deadline_at,omitempty"`
 }
 type HandView struct {
+ EconomySettlement *platform.PayoutCapView `json:"economy_settlement,omitempty"`
 	HandID           string     `json:"hand_id"`
 	HandVersion      string     `json:"hand_version"`
 	Street           string     `json:"street"`
@@ -218,6 +220,8 @@ func (s *Service) view(ctx context.Context, table string, user int64, passwordAu
 			return v, err
 		}
 		v.Hand = &HandView{HandID: t.HandID, HandVersion: "0", Street: status, ButtonSeat: t.Button, BoardCards: []int{}, PotUnits: "0", Pots: []PotView{}, ActionSequence: "0", ServerSeedHash: hex.EncodeToString(seedHash), DeckHash: hex.EncodeToString(deckHash)}
+		v.Hand.EconomySettlement,err=handCapView(ctx,tx,t.HandID,user)
+ if err!=nil{return v,err}
 		if status != "COMMITTED" {
 			e, err = s.restoreEngine(ctx, tx, t.HandID)
 			if err != nil {

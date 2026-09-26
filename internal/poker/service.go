@@ -3,6 +3,7 @@ package poker
 
 import (
 	"context"
+ "github.com/cy4268/momiao/internal/platform"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -47,6 +48,7 @@ type LeaseStore interface {
 	Release(context.Context, string, int, string) error
 }
 type Options struct {
+ EconomyObserver platform.NativeQuotaObserver
 	Pool                *pgxpool.Pool
 	Keyring             Keyring
 	Leases              LeaseStore

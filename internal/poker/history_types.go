@@ -78,6 +78,7 @@ type HistoryHandSummary struct {
 	SettledAt *time.Time `json:"settled_at"`
 }
 type HistoryHandDetail struct {
+	EconomySettlement *platform.PayoutCapView `json:"economy_settlement,omitempty"`
 	HistoryHandSummary
 	TableID       string               `json:"table_id"`
 	SessionID     string               `json:"session_id"`

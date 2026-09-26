@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cy4268/momiao/internal/historyaccess"
+	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/poker/engine"
 	"github.com/cy4268/momiao/internal/poker/fairness"
 	"github.com/jackc/pgx/v5"
@@ -66,16 +67,17 @@ func (r *HistoryReader) historyHand(ctx context.Context, tx pgx.Tx, viewer, subj
 	var sequence uint64
 	var deckCursor, owners int
 	var owned bool
+	var economicVersion string
 	err := tx.QueryRow(ctx, `SELECT h.hand_id::text,h.table_id::text,h.hand_no,h.state,h.button_seat,h.hand_version,h.event_sequence,
 	 h.created_at,h.settled_at,h.setup_cipher,h.snapshot_cipher,h.snapshot_hash,p.session_id::text,p.seat_no,
 	 s.newapi_user_id=p.newapi_user_id AND s.seat_no=p.seat_no AND s.table_id=h.table_id,count(*) OVER(),
 	 f.server_seed_hash,f.deck_hash,f.effective_client_seed_hash,f.algorithm_version,f.deck_version,f.deal_sequence_version,
-	 f.next_deck_index,f.full_fairness_reveal_at,clock_timestamp()
+	 f.next_deck_index,f.full_fairness_reveal_at,clock_timestamp(),coalesce(h.economic_policy_version,'')
 	 FROM poker.hands h JOIN poker.hand_participants p USING(hand_id) JOIN poker.sessions s USING(session_id)
 	 LEFT JOIN poker.hand_fairness f USING(hand_id) WHERE h.hand_id=$1 AND p.newapi_user_id=$2`, id, subject).Scan(
 		&d.ID, &d.TableID, &d.Number, &d.State, &d.Button, &d.Version, &sequence, &d.CreatedAt, &d.SettledAt,
 		&sealed, &snapshot, &hash, &d.SessionID, &d.Seat, &owned, &owners, &seedHash, &deckHash, &effectiveHash,
-		&d.Fairness.AlgorithmVersion, &d.Configuration.DeckVersion, &d.Configuration.DealVersion, &deckCursor, &d.Fairness.RevealAt, &d.ReadAt)
+		&d.Fairness.AlgorithmVersion, &d.Configuration.DeckVersion, &d.Configuration.DealVersion, &deckCursor, &d.Fairness.RevealAt, &d.ReadAt, &economicVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return historyaccess.ErrNotFound
 	}
@@ -107,6 +109,9 @@ func (r *HistoryReader) historyHand(ctx context.Context, tx pgx.Tx, viewer, subj
 	deckSum := sha256.Sum256(cards)
 	effective, err := fairness.Effective(d.TableID, id, setup.Contributions)
 	if err != nil || !equal(deckSum[:], deckHash) || !equal(effective[:], effectiveHash) {
+		return historyaccess.ErrUnavailable
+	}
+	if setup.EconomicVersion != economicVersion {
 		return historyaccess.ErrUnavailable
 	}
 	validBlind := false
@@ -205,6 +210,39 @@ func (r *HistoryReader) historyHand(ctx context.Context, tx pgx.Tx, viewer, subj
 	}
 	if err = r.historyHandFacts(ctx, tx, id, state, d); err != nil {
 		return err
+	}
+
+	if d.State == "SETTLED" {
+		policy, err := platform.ResolveEconomicPolicyInTx(ctx, tx, economicVersion)
+		if err != nil {
+			return err
+		}
+		paid, gross := handContributions(state)
+		for i, player := range state.Players {
+			user, err := strconv.ParseInt(player.PlayerID, 10, 64)
+			if err != nil {
+				return err
+			}
+			c, err := platform.LoadCapSettlementInTx(ctx, tx, "POKER_HAND", id, user)
+			if err != nil {
+				return err
+			}
+			if policy.Version == "" {
+				if c != nil {
+					return historyaccess.ErrUnavailable
+				}
+				continue
+			}
+			if c == nil || c.PolicyVersion != policy.Version || c.PolicyHash != policy.Hash || c.StakeUnits != paid[player.SeatNo] || c.GrossPayoutUnits != gross[player.SeatNo] || c.WithheldUnits > player.Stack {
+				return historyaccess.ErrUnavailable
+			}
+			ending, net := player.Stack-c.WithheldUnits, player.Stack-c.WithheldUnits-player.InitialStack
+			d.Participants[i].Ending, d.Participants[i].Net = &ending, &net
+			if user == subject {
+				v := c.PublicView()
+				d.EconomySettlement = &v
+			}
+		}
 	}
 	return historyTimeline(subject, id, d.Version, state.Events, public, viewerSeat, q, d)
 }

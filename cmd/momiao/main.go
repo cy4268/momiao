@@ -107,40 +107,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		if err != nil { return errCatalogAssetConfig }
 		cfg.keyPurposes = store
 		cfg.rpUsage = store
-		if cfg.GameFairnessKeyringFile != "" {
-			keyring, err := games.ReadKeyring(cfg.GameFairnessKeyringFile)
-			if err != nil {
-				return errors.New("game fairness startup failed")
-			}
-			cfg.games, err = games.NewService(store, keyring)
-			if err != nil {
-				return errors.New("game fairness startup failed")
-			}
-			cfg.roulette, err = roulette.NewService(store, roulette.Keyring{Active:keyring.Active, Keys:keyring.Keys})
-			if err != nil { return errors.New("roulette startup failed") }
-			rouletteCtx, stopRoulette := context.WithCancel(ctx)
-			rouletteDone := make(chan struct{})
-			go func(){ defer close(rouletteDone); cfg.roulette.RunWorker(rouletteCtx) }()
-			defer func(){ stopRoulette(); <-rouletteDone }()
-			if cfg.History.Enabled {
-				if sessionApp == nil {
-					return errHistoryStartup
-				}
-				application, err := openHistoryApplication(ctx, cfg.History, sessionApp.pool, cfg.sessions, cfg.games, store, cfg.roulette)
-				if err != nil {
-					return errHistoryStartup
-				}
-				defer application.Close()
-				cfg.history = application.handler
-				cfg.readiness["history_reader"] = application.readerPool.Ping
-				cfg.readiness["history_worker_database"] = application.workerPool.Ping
-				cfg.readiness["history_poker_reader"] = application.pokerPool.Ping
-			}
-			gamesCtx, stopGames := context.WithCancel(ctx)
-			gamesDone := make(chan struct{})
-			go func() { defer close(gamesDone); cfg.games.RunWorker(gamesCtx) }()
-			defer func() { stopGames(); <-gamesDone }()
-		}
 		if cfg.CatalogReaderKeyFile != "" {
 			key, err := readCatalogKey(cfg.CatalogReaderKeyFile)
 			if err != nil {
@@ -172,19 +138,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		go func() { defer close(maintenanceDone); runMaintenanceWorker(maintenanceCtx, store, cfg.OpsEnvironment, maintenanceHealth) }()
 		defer func() { stopMaintenance(); <-maintenanceDone }()
 		}
-		if cfg.AdmissionEnabled {
-			key, err := readRegistrationReaderKey(cfg.RegistrationReaderKeyFile)
-			if err != nil {
-				return errors.New("admission startup failed")
-			}
-			cfg.admission = store
-			transport := newNativeTransport(cfg.NewAPISocket)
-			defer transport.CloseIdleConnections()
-			workerCtx, cancel := context.WithCancel(ctx)
-			done := make(chan struct{})
-			go func() { defer close(done); runAdmissionWorker(workerCtx, store, transport, key) }()
-			defer func() { cancel(); <-done }()
-		}
 		if cfg.NativeQuotaKeyFile != "" {
 			key, err := readPokerReaderKey(cfg.NativeQuotaKeyFile)
 			if err != nil {
@@ -197,6 +150,8 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 				return errors.New("native quota port startup failed")
 			}
 			cfg.nativeQuota = native
+            cfg.economicObserver=native
+            if err=store.ConfigureEconomicObserver(native);err!=nil{return errors.New("economy observer startup failed")}
 			unifiedAssets, err = platform.NewUnifiedAssetReader(store, native)
 			if err != nil { return errors.New("asset reader startup failed") }
 			rankingAssets = unifiedAssets
@@ -244,11 +199,76 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			}
 			defer native.Close()
 			cfg.nativeQuota = native
+            cfg.economicObserver=native
+            if err=store.ConfigureEconomicObserver(native);err!=nil{return errors.New("economy observer startup failed")}
+
+            unifiedAssets,err=platform.NewUnifiedAssetReader(store,native)
+            if err!=nil{return errors.New("asset reader startup failed")}
+            rankingAssets=unifiedAssets
+            cfg.economy,err=platform.NewEconomyService(store,unifiedAssets)
+            if err!=nil{return errors.New("economy startup failed")}
 			workerCtx, cancel := context.WithCancel(ctx)
 			done := make(chan struct{})
 			go func() { defer close(done); runQuotaWorker(workerCtx, store, native) }()
 			defer func() { cancel(); <-done }()
 		}
+		if cfg.GameFairnessKeyringFile != "" {
+			keyring, err := games.ReadKeyring(cfg.GameFairnessKeyringFile)
+			if err != nil {
+				return errors.New("game fairness startup failed")
+			}
+			cfg.games, err = games.NewServiceWithEconomy(store, keyring,cfg.economicObserver)
+			if err != nil {
+				return errors.New("game fairness startup failed")
+			}
+			cfg.roulette, err = roulette.NewServiceWithEconomy(store, roulette.Keyring{Active:keyring.Active, Keys:keyring.Keys},cfg.economicObserver)
+			if err != nil { return errors.New("roulette startup failed") }
+			rouletteCtx, stopRoulette := context.WithCancel(ctx)
+			rouletteDone := make(chan struct{})
+			go func(){ defer close(rouletteDone); cfg.roulette.RunWorker(rouletteCtx) }()
+			defer func(){ stopRoulette(); <-rouletteDone }()
+			if cfg.History.Enabled {
+				if sessionApp == nil {
+					return errHistoryStartup
+				}
+				application, err := openHistoryApplication(ctx, cfg.History, sessionApp.pool, cfg.sessions, cfg.games, store, cfg.roulette)
+				if err != nil {
+					return errHistoryStartup
+				}
+				defer application.Close()
+				cfg.history = application.handler
+				cfg.readiness["history_reader"] = application.readerPool.Ping
+				cfg.readiness["history_worker_database"] = application.workerPool.Ping
+				cfg.readiness["history_poker_reader"] = application.pokerPool.Ping
+			}
+			gamesCtx, stopGames := context.WithCancel(ctx)
+			gamesDone := make(chan struct{})
+			go func() { defer close(gamesDone); cfg.games.RunWorker(gamesCtx) }()
+			defer func() { stopGames(); <-gamesDone }()
+		}
+		if cfg.AdmissionEnabled {
+			key, err := readRegistrationReaderKey(cfg.RegistrationReaderKeyFile)
+			if err != nil {
+				return errors.New("admission startup failed")
+			}
+			cfg.admission = store
+			transport := newNativeTransport(cfg.NewAPISocket)
+			defer transport.CloseIdleConnections()
+			workerCtx, cancel := context.WithCancel(ctx)
+			done := make(chan struct{})
+			go func() { defer close(done); runAdmissionWorker(workerCtx, store, transport, key) }()
+			defer func() { cancel(); <-done }()
+		}
+
+        if cfg.EconomyReadSocket!="" {
+            if cfg.economicObserver==nil{return errPokerStartup}
+            keys,err:=readPokerPublicKeys(cfg.PokerPeerKeyringFile);if err!=nil{return errPokerStartup}
+            listener,err:=openListener(config{ListenSocket:cfg.EconomyReadSocket});if err!=nil{return errPokerStartup}
+            readCtx,stopRead:=context.WithCancel(ctx);readDone:=make(chan struct{})
+            server:=&http.Server{Handler:newEconomyQuotaReadHandler(cfg.economicObserver,keys),ReadHeaderTimeout:time.Second,ReadTimeout:2*time.Second,WriteTimeout:2*time.Second,IdleTimeout:10*time.Second,MaxHeaderBytes:8192}
+            go func(){defer close(readDone);if err:=serve(readCtx,server,listener,cfg.ShutdownTimeout);err!=nil{cancelRun(errors.New("economy read listener failed"))}}()
+            defer func(){stopRead();<-readDone;_=listener.Close()}()
+        }
 		cfg.rankings = rankings.NewService(store, rankings.Options{
 			Assets: rankingAssets,
 			ActivationTime: cfg.RankingActivationTime, SourceInstanceID: cfg.AttributionSourceInstanceID,

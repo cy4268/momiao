@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cy4268/momiao/internal/platform"
 	"io"
 	"sort"
 	"strconv"
@@ -18,10 +19,11 @@ import (
 )
 
 type handSetup struct {
-	Config        engine.Config
-	Seats         []engine.Seat
-	Sessions      map[int]string
-	Contributions []fairness.Contribution
+	EconomicVersion string `json:",omitempty"`
+	Config          engine.Config
+	Seats           []engine.Seat
+	Sessions        map[int]string
+	Contributions   []fairness.Contribution
 }
 
 func selectParticipants(t *tableRow, seats []seatRow) ([]seatRow, int, error) {
@@ -135,12 +137,31 @@ func (s *Service) prepareHand(user int64, key string) tableMutation {
 		if err != nil {
 			return Receipt{}, err
 		}
+
+		policy, err := platform.ActiveEconomicPolicyInTx(ctx, tx)
+		if err != nil {
+			return Receipt{}, err
+		}
+		users := make([]int64, 0, len(participants))
+		for _, p := range participants {
+			users = append(users, p.User)
+		}
+		if err = platform.LockEconomyUsersInTx(ctx, tx, users...); err != nil {
+			return Receipt{}, err
+		}
+		if policy.Version != "" {
+			for _, u := range users {
+				if _, err = platform.ReadUnifiedAssetsInTx(ctx, tx, s.opts.EconomyObserver, u); err != nil {
+					return Receipt{}, err
+				}
+			}
+		}
 		id := uuid()
 		seed := make([]byte, 32)
 		if _, err = io.ReadFull(rand.Reader, seed); err != nil {
 			return Receipt{}, err
 		}
-		setup := handSetup{Sessions: map[int]string{}}
+		setup := handSetup{EconomicVersion: policy.Version, Sessions: map[int]string{}}
 		for _, p := range participants {
 			setup.Seats = append(setup.Seats, engine.Seat{SeatNo: p.Seat, PlayerID: decimal(p.User), Stack: p.Stack, ConsecutiveTimeouts: p.Timeouts})
 			setup.Sessions[p.Seat] = p.Session
@@ -173,7 +194,7 @@ func (s *Service) prepareHand(user int64, key string) tableMutation {
 		if err != nil {
 			return Receipt{}, err
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO poker.hands(hand_id,table_id,hand_no,state,button_seat,runtime_epoch,setup_cipher) VALUES($1,$2,$3,'COMMITTED',$4,$5,$6)`, id, t.ID, t.HandNo+1, button, t.Epoch, sealed)
+		_, err = tx.Exec(ctx, `INSERT INTO poker.hands(hand_id,table_id,hand_no,state,button_seat,runtime_epoch,setup_cipher,economic_policy_version) VALUES($1,$2,$3,'COMMITTED',$4,$5,$6,NULLIF($7,''))`, id, t.ID, t.HandNo+1, button, t.Epoch, sealed, policy.Version)
 		if err != nil {
 			return Receipt{}, err
 		}
@@ -314,12 +335,23 @@ func (s *Service) persistEngine(ctx context.Context, tx pgx.Tx, t *tableRow, e *
 	}
 	hash := sha256.Sum256(plain)
 	var oldSequence int
-	var oldState string
-	if err = tx.QueryRow(ctx, "SELECT event_sequence,state FROM poker.hands WHERE hand_id=$1 FOR UPDATE", t.HandID).Scan(&oldSequence, &oldState); err != nil {
+	var oldState, economicVersion string
+	if err = tx.QueryRow(ctx, "SELECT event_sequence,state,coalesce(economic_policy_version,'') FROM poker.hands WHERE hand_id=$1 FOR UPDATE", t.HandID).Scan(&oldSequence, &oldState, &economicVersion); err != nil {
 		return err
 	}
 	if oldSequence > len(state.Events) {
 		return ErrInvalid
+	}
+
+	if oldState == "SETTLED" {
+		if state.Street != engine.Settled || oldSequence != len(state.Events) {
+			return ErrInvalid
+		}
+		return nil
+	}
+	withheld, err := s.settleHandCap(ctx, tx, t.HandID, economicVersion, state)
+	if err != nil {
+		return err
 	}
 	for _, event := range state.Events[oldSequence:] {
 		body, _ := json.Marshal(event)
@@ -348,7 +380,7 @@ func (s *Service) persistEngine(ctx context.Context, tx pgx.Tx, t *tableRow, e *
 		return err
 	}
 	for _, p := range state.Players {
-		_, err = tx.Exec(ctx, "UPDATE poker.sessions sess SET current_stack_units=$3 FROM poker.hand_participants hp WHERE hp.hand_id=$1 AND hp.seat_no=$2 AND sess.session_id=hp.session_id", t.HandID, p.SeatNo, p.Stack)
+		_, err = tx.Exec(ctx, "UPDATE poker.sessions sess SET current_stack_units=$3 FROM poker.hand_participants hp WHERE hp.hand_id=$1 AND hp.seat_no=$2 AND sess.session_id=hp.session_id", t.HandID, p.SeatNo, p.Stack-withheld[p.SeatNo])
 		if err != nil {
 			return err
 		}

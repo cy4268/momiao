@@ -6,6 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/cy4268/momiao/internal/historyaccess"
+	"github.com/cy4268/momiao/internal/platform"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -226,12 +230,29 @@ func TestRealPGCashTableFundingAndRecovery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
 	applyLocalPasswordProfileGrants(t, ctx, owner, pool)
+
+	// Real Native read port on the same isolated PG, with distinct runtime roles.
+	if _, err := owner.Exec(ctx, `CREATE TABLE public.users(id bigint PRIMARY KEY,quota bigint NOT NULL DEFAULT 0,status int NOT NULL DEFAULT 1,deleted_at timestamptz);`+platform.NativeQuotaMigration, pgx.QueryExecModeSimpleProtocol); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE momiao_quota.settings SET enabled=true; INSERT INTO public.users(id) VALUES(910001),(910002);
+ INSERT INTO economy.wallet_balances(newapi_user_id,asset_type,balance_units) SELECT u,'RESERVE_API_CREDIT',50000000000000000-1500000000 FROM unnest(ARRAY[910001,910002]::bigint[]) u;
+ UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton;`, pgx.QueryExecModeSimpleProtocol); err != nil {
+		t.Fatal(err)
+	}
+	conn := owner.Config().ConnConfig
+	nativeURL := url.URL{Scheme: "postgres", User: url.UserPassword(conn.User, conn.Password), Host: net.JoinHostPort(conn.Host, strconv.Itoa(int(conn.Port))), Path: "/" + conn.Database, RawQuery: "sslmode=disable"}
+	native, err := platform.OpenNativeQuota(ctx, nativeURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer native.Close()
 	var commits atomic.Int64
 	key := make([]byte, 32)
 	for i := range key {
 		key[i] = byte(i + 1)
 	}
-	opts := Options{Pool: pool, Keyring: Keyring{Current: "poker-test-v1", Keys: map[string][]byte{"poker-test-v1": key}}, Leases: &fixtureLeases{entries: map[string]leaseEntry{}}, MailboxCapacity: 8, AfterCommit: func(tableID string, version uint64) {
+	opts := Options{Pool: pool, EconomyObserver: native, Keyring: Keyring{Current: "poker-test-v1", Keys: map[string][]byte{"poker-test-v1": key}}, Leases: &fixtureLeases{entries: map[string]leaseEntry{}}, MailboxCapacity: 8, AfterCommit: func(tableID string, version uint64) {
 		var committed uint64
 		if err := owner.QueryRow(context.Background(), "SELECT table_version FROM poker.tables WHERE table_id=$1", tableID).Scan(&committed); err != nil || committed < version {
 			t.Error("publication before durable COMMIT")
@@ -382,8 +403,37 @@ func TestRealPGCashTableFundingAndRecovery(t *testing.T) {
 	}
 	_ = owner.QueryRow(ctx, "SELECT count(*) FROM economy.wallet_ledger WHERE biz_type='POKER_FUNDING'").Scan(&ledgerCount)
 	_ = owner.QueryRow(ctx, "SELECT count(*) FROM poker.settlements WHERE hand_id=$1", started.HandID).Scan(&settlements)
-	if walletSum != 6000*engine.UnitsPerChip || stackSum != 0 || ledgerCount != 5 || settlements != 1 {
+	if walletSum != 2*platform.AssetCapUnits-5*engine.UnitsPerChip || stackSum != 0 || ledgerCount != 5 || settlements != 1 {
 		t.Fatalf("funding closure: wallet=%d stack=%d ledger=%d settlements=%d", walletSum, stackSum, ledgerCount, settlements)
+	}
+
+	var withheld int64
+	var capCount int
+	if err := owner.QueryRow(ctx, `SELECT count(*),coalesce(sum(withheld_units),0) FROM economy.cap_settlements WHERE source_kind='POKER_HAND' AND source_id=$1`, started.HandID).Scan(&capCount, &withheld); err != nil || capCount != 2 || withheld != 5*engine.UnitsPerChip {
+		t.Fatal("hand cap closure", capCount, withheld, err)
+	}
+	// A replay reuses the original action without a second credit or destruction.
+	if _, err := recovered.Act(ctx, ActCommand{UserID: actorUser, Key: "g3-fold-action-0001", TableID: table, HandID: started.HandID, Kind: engine.Fold}); err == nil {
+		t.Fatal("cashout must revoke action control")
+	}
+ replayTx,err:=owner.Begin(ctx);if err!=nil{t.Fatal(err)}
+ replayEngine,err:=recovered.restoreEngine(ctx,replayTx,started.HandID);if err!=nil{t.Fatal(err)}
+ if err=recovered.persistEngine(ctx,replayTx,&tableRow{ID:table,HandID:started.HandID},replayEngine);err!=nil{t.Fatal(err)}
+ if err=replayTx.Commit(ctx);err!=nil{t.Fatal(err)}
+ if err=owner.QueryRow(ctx,"SELECT coalesce(sum(current_stack_units),0) FROM poker.sessions WHERE table_id=$1",table).Scan(&stackSum);err!=nil || stackSum!=0{t.Fatal("settled replay restored raw credited chips",stackSum,err)}
+	history, err := NewHistoryReader(owner, opts.Keyring)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range []int64{910001, 910002} {
+		detail, err := history.HandDetail(ctx, historyaccess.Own(user), started.HandID, HistoryHandQuery{})
+		if err != nil || detail.EconomySettlement == nil || detail.Settlement == nil || detail.Settlement.Paid != detail.Settlement.Awarded+detail.Settlement.Returned {
+			t.Fatal("raw proof / actual cap history", detail, err)
+		}
+		raw, _ := json.Marshal(detail)
+		if strings.Contains(string(raw), "TotalBeforeUnits") || strings.Contains(string(raw), "total_before_units") {
+			t.Fatal("private assets leaked")
+		}
 	}
 	if commits.Load() == 0 {
 		t.Fatal("no post-commit publication")
@@ -569,9 +619,10 @@ func TestRealPGLifecycleAndRebuySameSession(t *testing.T) {
 }
 
 func TestRealPGBuyInLeaseLossWhileWalletLocked(t *testing.T) {
-	owner, pool := localPokerDB(t)
+	owner, pool := v06PokerDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
+	applyLocalPasswordProfileGrants(t, ctx, owner, pool)
 	leases := &fixtureLeases{entries: map[string]leaseEntry{}}
 	s, err := legacyTestNew(Options{Pool: pool, Keyring: Keyring{Current: "test", Keys: map[string][]byte{"test": make([]byte, 32)}}, Leases: leases, MailboxCapacity: 8})
 	if err != nil {
@@ -592,6 +643,9 @@ func TestRealPGBuyInLeaseLossWhileWalletLocked(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rollback(held)
+	if err = platform.LockEconomyUsersInTx(ctx, held, 910001); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = held.Exec(ctx, "SELECT balance_units FROM economy.wallet_balances WHERE newapi_user_id=910001 AND asset_type='AVAILABLE_CHIPS' FOR UPDATE"); err != nil {
 		t.Fatal(err)
 	}

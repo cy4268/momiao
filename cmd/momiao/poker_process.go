@@ -28,12 +28,15 @@ var pokerSessionHash = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // A separate process is the deployment composition. Embedded mode remains for
 // existing callers; remote mode never opens a second Poker service or lease pool.
 func loadPokerProcessConfig(cfg *config, lookup func(string) (string, bool)) error {
-	remote, hasRemote := lookup("MOMIAO_POKER_REMOTE_SOCKET")
+	readSocket, hasRead := lookup("MOMIAO_ECONOMY_READ_SOCKET")
+ remote, hasRemote := lookup("MOMIAO_POKER_REMOTE_SOCKET")
 	key, hasKey := lookup("MOMIAO_POKER_SERVICE_KEYRING_FILE")
 	peer,hasPeer:=lookup("MOMIAO_POKER_PEER_KEYRING_FILE")
-	if !hasRemote && !hasKey && !hasPeer && cfg.ProcessRole != "poker" { return nil }
+	if !hasRead && !hasRemote && !hasKey && !hasPeer && cfg.ProcessRole != "poker" { return nil }
 	if !hasKey || !filepath.IsAbs(key) || !hasPeer || !filepath.IsAbs(peer) || pokerPathKey(key)==pokerPathKey(peer) { return errPokerConfig }
-	cfg.PokerServiceKeyringFile = filepath.Clean(key)
+	if !hasRead || !filepath.IsAbs(readSocket) || pokerPathKey(readSocket)==pokerPathKey(cfg.ListenSocket) || pokerPathKey(readSocket)==pokerPathKey(cfg.NewAPISocket) || (cfg.RefillSocket!="" && pokerPathKey(readSocket)==pokerPathKey(cfg.RefillSocket)) || (hasRemote && pokerPathKey(readSocket)==pokerPathKey(remote)) { return errPokerConfig }
+ cfg.EconomyReadSocket=filepath.Clean(readSocket)
+ cfg.PokerServiceKeyringFile = filepath.Clean(key)
 	cfg.PokerPeerKeyringFile = filepath.Clean(peer)
 	if cfg.ProcessRole == "poker" {
 		if hasRemote || cfg.ListenSocket == "" || cfg.ListenSocket == cfg.NewAPISocket { return errPokerConfig }
@@ -53,7 +56,11 @@ func runPokerProcess(ctx context.Context, cfg config, logger *log.Logger) error 
 	if err!=nil||!distinctPokerPublicKeys(keys,signer.public){return errPokerStartup}
 	ticketKeys,err:=readPokerPublicKeys(cfg.Poker.TicketKeyringFile)
 	if err!=nil||!distinctPokerPublicKeys(keys,ticketKeys)||!distinctPokerPublicKeys(signer.public,ticketKeys){return errPokerStartup}
-	app, err := openPokerApplication(ctx, cfg)
+	transport := newNativeTransport(cfg.EconomyReadSocket)
+ defer transport.CloseIdleConnections()
+ cfg.economicObserver,err=newEconomyQuotaObserver(transport,signer)
+ if err!=nil{return errPokerStartup}
+ app, err := openPokerApplication(ctx, cfg)
 	if err != nil || app == nil { return errPokerStartup }
 	defer app.Close()
 	opsRPC:=newPokerOpsRPCHandler(app.service)

@@ -143,7 +143,7 @@ func openPokerApplication(ctx context.Context, cfg config) (app *pokerApplicatio
 		return nil, err
 	}
 	var target atomic.Pointer[pt.Handler]
-	serviceOptions := poker.Options{
+	serviceOptions := poker.Options{EconomyObserver:cfg.economicObserver,
 		Pool: a.pokerPool, Keyring: state,
 		ValidateSession: func(ctx context.Context, s poker.AuthSession) error {
 			return live(ctx, pt.Principal{UserID: s.UserID, SessionIDHash: s.SessionIDHash, SessionVersion: s.SessionVersion, SecurityEpoch: s.SecurityEpoch})

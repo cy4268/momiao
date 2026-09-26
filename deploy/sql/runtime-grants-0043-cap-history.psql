@@ -1,0 +1,23 @@
+-- Read-only history role. No wallet/native mutation capability.
+\set ON_ERROR_STOP on
+\if :{?apply_grants}
+\else
+ \set apply_grants false
+\endif
+\if :apply_grants
+BEGIN;
+SET LOCAL ROLE :"schema_owner";
+SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_roles r,pg_catalog.pg_roles o
+ WHERE r.rolname=:'runtime_role' AND o.rolname=current_user AND NOT o.rolcanlogin AND NOT o.rolsuper
+ AND r.rolcanlogin AND NOT r.rolsuper AND NOT r.rolcreatedb AND NOT r.rolcreaterole
+ AND NOT r.rolreplication AND NOT r.rolbypassrls AND NOT pg_catalog.pg_has_role(r.oid,o.oid,'MEMBER')) AS role_ok \gset
+\if :role_ok
+GRANT USAGE ON SCHEMA economy TO :"runtime_role";
+GRANT SELECT ON economy.policy_versions,economy.cap_settlements TO :"runtime_role";
+COMMIT;
+\else
+ DO $$BEGIN RAISE EXCEPTION 'history role separation is invalid'; END$$;
+\endif
+\else
+ \echo 'Dry run: apply_grants=true is required.'
+\endif
