@@ -44,10 +44,11 @@ it('refreshes the displayed Shanghai day at the server reset without claiming',a
  expect(view.request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(0);
 });
 it('checks a claim made elsewhere when the tab regains focus without POST',async()=>{
- let claimed=false;
- const {request}=setup(()=>receipt,()=>({...daily,claimed,transaction_id:claimed?receipt.id:null}));
- await screen.findByRole('button',{name:'领取今日 500 额度'});
+ let claimed=false;let view!:ReturnType<typeof setup>;
+ // Flush the initial read and its focus-listener effect before simulating a returning tab.
+ await act(async()=>{view=setup(()=>receipt,()=>({...daily,claimed,transaction_id:claimed?receipt.id:null}))});
+ expect(screen.getByRole('button',{name:'领取今日 500 额度'})).toBeEnabled();
  claimed=true;fireEvent.focus(window);
  expect(await screen.findByRole('button',{name:'今日已领取'})).toBeDisabled();
- expect(request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(0);
+ expect(view.request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(0);
 });
