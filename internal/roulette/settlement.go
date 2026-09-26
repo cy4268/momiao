@@ -13,6 +13,13 @@ import (
 )
 
 func lockWallets(ctx context.Context, tx pgx.Tx, players []participant) error {
+	users := make([]int64, 0, len(players))
+	for _, p := range players {
+		users = append(users, p.User)
+	}
+	if err := platform.LockEconomyUsersInTx(ctx, tx, users...); err != nil {
+		return err
+	}
 	players = slices.Clone(players)
 	slices.SortFunc(players, func(a, b participant) int {
 		if a.User < b.User {

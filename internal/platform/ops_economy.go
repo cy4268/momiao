@@ -486,6 +486,9 @@ func (handler economyAdjustmentOpsHandler) Prepare(ctx context.Context, tx pgx.T
 		return OpsPreparedMaterial{}, err
 	}
 	if lock {
+		if err = LockEconomyUsersInTx(ctx, tx, user); err != nil {
+			return OpsPreparedMaterial{}, err
+		}
 		if err = lockIdentity(ctx, tx, "business", "ADMIN_ADJUSTMENT_V1", request.OperationID); err != nil {
 			return OpsPreparedMaterial{}, err
 		}
@@ -511,6 +514,21 @@ func (handler economyAdjustmentOpsHandler) Prepare(ctx context.Context, tx pgx.T
 	}
 	if delta < 0 && delta < -balance || delta > 0 && balance > math.MaxInt64-delta || version == math.MaxInt64 {
 		return OpsPreparedMaterial{}, ErrOpsConflict
+	}
+	if delta > 0 {
+		policy, e := ActiveEconomicPolicyInTx(ctx, tx)
+		if e != nil {
+			return OpsPreparedMaterial{}, e
+		}
+		if policy.Version != "" {
+			assets, e := ReadUnifiedAssetsInTx(ctx, tx, handler.store.economicObserver, user)
+			if e != nil {
+				return OpsPreparedMaterial{}, e
+			}
+			if assets.TotalUnits >= policy.AssetCapUnits || delta > policy.AssetCapUnits-assets.TotalUnits {
+				return OpsPreparedMaterial{}, ErrAssetCap
+			}
+		}
 	}
 	after := balance + delta
 	beforeSnapshot := walletSnapshot(user, input.Asset, balance, version)

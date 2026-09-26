@@ -188,11 +188,11 @@ func (s *Store) RecoverRegistrationGrant(ctx context.Context) (found bool, err e
 		return found, err
 	}
 	var entry LedgerEntry
-	entry, err = applyInTx(ctx, tx, Mutation{UserID: user, Asset: ReserveAPICredit, DeltaUnits: RegistrationGrantAmount, BizType: "INITIAL_GRANT_REGISTRATION", BizID: biz, EntryType: "INITIAL_GRANT_REGISTRATION", IdempotencyKey: biz})
+	entry, err = s.applyRewardInTx(ctx, tx, Mutation{UserID: user, Asset: ReserveAPICredit, DeltaUnits: RegistrationGrantAmount, BizType: "INITIAL_GRANT_REGISTRATION", BizID: biz, EntryType: "INITIAL_GRANT_REGISTRATION", IdempotencyKey: biz})
 	if err != nil {
 		return found, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO rewards.registration_issuances(claim_id,newapi_user_id,biz_id,direction,amount_units,asset_type,policy_version,transaction_id,ledger_entry_id) VALUES($1,$2,$3,'ISSUE',500000000,'RESERVE_API_CREDIT',$4,$5,$6)`, claim, user, biz, policy, entry.TransactionID, entry.ID); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO rewards.registration_issuances(claim_id,newapi_user_id,biz_id,direction,amount_units,asset_type,policy_version,transaction_id,ledger_entry_id) VALUES($1,$2,$3,'ISSUE',$7,'RESERVE_API_CREDIT',$4,$5,NULLIF($6,'')::uuid)`, claim, user, biz, policy, entry.TransactionID, entry.ID, entry.DeltaUnits); err != nil {
 		return found, err
 	}
 	if _, err = tx.Exec(ctx, "UPDATE rewards.registration_grants SET status='CONFIRMED',transaction_id=$2,confirmed_at=clock_timestamp() WHERE claim_id=$1", claim, entry.TransactionID); err != nil {

@@ -162,7 +162,7 @@ func nativeExchangeReceipt(r NativeQuotaReceipt, id string, user, delta int64, q
 	}
 	return nil
 }
-func queryExchangeEffect(ctx context.Context, native NativeQuotaOperator, id string, user, delta int64) (NativeQuotaReceipt, error) {
+func queryExchangeEffect(ctx context.Context, native NativeQuotaObserver, id string, user, delta int64) (NativeQuotaReceipt, error) {
 	r, err := native.QueryQuotaOperation(ctx, id, user)
 	if err != nil {
 		return r, err
@@ -340,8 +340,8 @@ func retryAPIChips(ctx context.Context, tx pgx.Tx, p apiChipsExchange, cause err
 	return cause
 }
 
-func apiChipsInFlight(ctx context.Context, tx pgx.Tx, native NativeQuotaOperator, user int64) (int64, error) {
-	rows, err := tx.Query(ctx, `SELECT `+apiChipsColumns+` FROM economy.api_chips_exchanges WHERE newapi_user_id=$1 AND status NOT IN('CONFIRMED','COMPENSATED','FAILED_NO_EFFECT')`, user)
+func apiChipsInFlight(ctx context.Context, tx pgx.Tx, native NativeQuotaObserver, user int64) (int64, error) {
+	rows, err := tx.Query(ctx, `SELECT `+apiChipsColumns+` FROM economy.cap_pending_exchanges_read($1)`, user)
 	if err != nil {
 		return 0, err
 	}

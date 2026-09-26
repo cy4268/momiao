@@ -17,10 +17,13 @@ var NativeQuotaMigration string
 
 type NativeQuota struct{ pool *pgxpool.Pool }
 
-type NativeQuotaOperator interface {
+type NativeQuotaObserver interface {
 	ReadNativeQuota(context.Context, int64) (NativeQuotaSnapshot, error)
-	ApplyRawQuotaDelta(context.Context, string, int64, int64) (NativeQuotaReceipt, error)
 	QueryQuotaOperation(context.Context, string, int64) (NativeQuotaReceipt, error)
+}
+type NativeQuotaOperator interface {
+	NativeQuotaObserver
+	ApplyRawQuotaDelta(context.Context, string, int64, int64) (NativeQuotaReceipt, error)
 	Credit(context.Context, string, int64, int64) (NativeQuotaReceipt, error)
 }
 

@@ -25,20 +25,20 @@ var (
 )
 
 type HourlyReward struct {
-	UserID          int64      `json:"user_id,string"`
-	RewardHour      time.Time  `json:"reward_hour"`
-	BusinessDate    string     `json:"business_date"`
-	Timezone        string     `json:"timezone"`
-	NextResetAt     time.Time  `json:"next_reset_at"`
-	Amount          string     `json:"amount"`
-	AmountUnits     int64      `json:"amount_units,string"`
-	Asset           Asset      `json:"asset"`
-	PolicyVersion   string     `json:"policy_version"`
-	Claimed         bool       `json:"claimed"`
-	TransactionID   *string    `json:"transaction_id"`
-	ClaimsToday     int        `json:"claims_today"`
-	DailyLimit      int        `json:"daily_limit"`
-	Accumulation    bool       `json:"accumulation"`
+	UserID        int64     `json:"user_id,string"`
+	RewardHour    time.Time `json:"reward_hour"`
+	BusinessDate  string    `json:"business_date"`
+	Timezone      string    `json:"timezone"`
+	NextResetAt   time.Time `json:"next_reset_at"`
+	Amount        string    `json:"amount"`
+	AmountUnits   int64     `json:"amount_units,string"`
+	Asset         Asset     `json:"asset"`
+	PolicyVersion string    `json:"policy_version"`
+	Claimed       bool      `json:"claimed"`
+	TransactionID *string   `json:"transaction_id"`
+	ClaimsToday   int       `json:"claims_today"`
+	DailyLimit    int       `json:"daily_limit"`
+	Accumulation  bool      `json:"accumulation"`
 }
 
 type ReliefReward struct {
@@ -119,7 +119,7 @@ func hourlyMutation(user int64, hour time.Time, key string) Mutation {
 	}
 }
 
-func hourlyClaimInTx(ctx context.Context, tx pgx.Tx, user int64, hour time.Time, key string) (*Transaction, error) {
+func (s *Store) hourlyClaimInTx(ctx context.Context, tx pgx.Tx, user int64, hour time.Time, key string) (*Transaction, error) {
 	var id string
 	err := tx.QueryRow(ctx, `SELECT transaction_id::text FROM rewards.hourly_claims
  WHERE newapi_user_id=$1 AND reward_hour=$2`, user, hour).Scan(&id)
@@ -129,7 +129,7 @@ func hourlyClaimInTx(ctx context.Context, tx pgx.Tx, user int64, hour time.Time,
 	if err != nil {
 		return nil, err
 	}
-	entry, err := applyInTx(ctx, tx, hourlyMutation(user, hour, key))
+	entry, err := s.applyRewardInTx(ctx, tx, hourlyMutation(user, hour, key))
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +170,7 @@ func (s *Store) ClaimHourlyReward(ctx context.Context, user int64, key string) (
 		return Transaction{}, err
 	}
 	hour, _ := shanghaiHour(now)
-	if existing, lookupErr := hourlyClaimInTx(ctx, tx, user, hour, key); lookupErr != nil {
+	if existing, lookupErr := s.hourlyClaimInTx(ctx, tx, user, hour, key); lookupErr != nil {
 		return Transaction{}, lookupErr
 	} else if existing != nil {
 		return *existing, tx.Commit(ctx)
@@ -185,7 +185,7 @@ func (s *Store) ClaimHourlyReward(ctx context.Context, user int64, key string) (
 	}
 	hour, _ = shanghaiHour(now)
 	day, _ := shanghaiDay(now)
-	if existing, lookupErr := hourlyClaimInTx(ctx, tx, user, hour, key); lookupErr != nil {
+	if existing, lookupErr := s.hourlyClaimInTx(ctx, tx, user, hour, key); lookupErr != nil {
 		return Transaction{}, lookupErr
 	} else if existing != nil {
 		return *existing, tx.Commit(ctx)
@@ -198,12 +198,12 @@ func (s *Store) ClaimHourlyReward(ctx context.Context, user int64, key string) (
 	if claims >= HourlyDailyLimit {
 		return Transaction{}, ErrHourlyDailyLimit
 	}
-	entry, err := applyInTx(ctx, tx, hourlyMutation(user, hour, key))
+	entry, err := s.applyRewardInTx(ctx, tx, hourlyMutation(user, hour, key))
 	if err != nil {
 		return Transaction{}, err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO rewards.hourly_claims(newapi_user_id,reward_hour,business_date,policy_version,amount_units,asset_type,transaction_id)
-	 VALUES($1,$2,$3,1,$4,'RESERVE_API_CREDIT',$5)`, user, hour, day, HourlyRewardAmount, entry.TransactionID); err != nil {
+	 VALUES($1,$2,$3,1,$4,'RESERVE_API_CREDIT',$5)`, user, hour, day, entry.DeltaUnits, entry.TransactionID); err != nil {
 		return Transaction{}, err
 	}
 	result, err := transactionInTx(ctx, tx, user, entry.TransactionID)
@@ -239,7 +239,7 @@ func (service *EconomyService) ReadReliefReward(ctx context.Context, user int64)
 		UserID: user, Amount: "300", AmountUnits: ReliefRewardAmount, Asset: ReserveAPICredit, PolicyVersion: "1",
 		Threshold: "10", ThresholdUnits: ReliefAssetThreshold, CurrentTotalAssets: assets.TotalAmount,
 		CurrentTotalAssetsUnits: assets.TotalUnits, AssetsObservedAt: assets.ObservedAt,
-		Eligible: assets.TotalUnits < ReliefAssetThreshold && (next == nil || !now.Before(*next)),
+		Eligible:        assets.TotalUnits < ReliefAssetThreshold && (next == nil || !now.Before(*next)),
 		CooldownSeconds: int64(ReliefCooldown / time.Second), NextEligibleAt: next, LastTransactionID: id, Accumulation: false,
 	}, nil
 }
@@ -303,6 +303,9 @@ func (service *EconomyService) ClaimReliefReward(ctx context.Context, user int64
 		return Transaction{}, err
 	}
 	biz := "relief:" + claimID
+	if err = LockEconomyUsersInTx(ctx, tx, user); err != nil {
+		return Transaction{}, err
+	}
 	// readUnifiedAssetsInTx locks both wallets. Take applyInTx's global lock
 	// prefix first so a reused idempotency key cannot invert the lock order.
 	if err = lockIdentity(ctx, tx, "business", "RELIEF_REWARD_V1", biz); err != nil {
@@ -322,18 +325,18 @@ func (service *EconomyService) ClaimReliefReward(ctx context.Context, user int64
 	if err = tx.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&now); err != nil {
 		return Transaction{}, err
 	}
-	entry, err := applyInTx(ctx, tx, Mutation{UserID: user, Asset: ReserveAPICredit, DeltaUnits: ReliefRewardAmount,
+	entry, err := service.Store.applyRewardInTx(ctx, tx, Mutation{UserID: user, Asset: ReserveAPICredit, DeltaUnits: ReliefRewardAmount,
 		BizType: "RELIEF_REWARD_V1", BizID: biz, EntryType: "RELIEF_REWARD", IdempotencyKey: key})
 	if err != nil {
 		return Transaction{}, err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO rewards.relief_claims(relief_claim_id,newapi_user_id,policy_version,total_assets_units,
 	 active_quota_units,reserve_units,available_chips_units,poker_stack_units,poker_pot_units,quota_transfer_in_flight_units,
-	 assets_observed_at,native_observed_at,amount_units,asset_type,transaction_id,claimed_at,cooldown_until)
-	 VALUES($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'RESERVE_API_CREDIT',$13,$14::timestamptz,$14::timestamptz+interval '4 hours')`,
+	 assets_observed_at,native_observed_at,amount_units,asset_type,transaction_id,claimed_at,cooldown_until,single_player_in_flight_units,roulette_escrow_units)
+	 VALUES($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'RESERVE_API_CREDIT',$13,$14::timestamptz,$14::timestamptz+interval '4 hours',$15,$16)`,
 		claimID, user, assets.TotalUnits, assets.ActiveQuotaUnits, assets.ReserveUnits, assets.AvailableChipsUnits,
 		assets.PokerStackUnits, assets.PokerPotUnits, assets.QuotaTransferInFlightUnits, assets.ObservedAt,
-		assets.NativeObservedAt, ReliefRewardAmount, entry.TransactionID, now)
+		assets.NativeObservedAt, entry.DeltaUnits, entry.TransactionID, now, assets.SinglePlayerInFlightUnits, assets.RouletteEscrowUnits)
 	if err != nil {
 		return Transaction{}, err
 	}

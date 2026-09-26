@@ -51,7 +51,10 @@ func (s *Service) Create(ctx context.Context, user int64, slug, key, commitmentI
 			return err
 		}
 		if err := platform.RequireNoMaintenance(ctx, tx, "CHALDEA_USER_WRITES", "DIRECT_PLAY_NEW_ROUNDS"); err != nil {
-			if errors.Is(err, platform.ErrMaintenanceActive) { return ErrMaintenance }; return err
+			if errors.Is(err, platform.ErrMaintenanceActive) {
+				return ErrMaintenance
+			}
+			return err
 		}
 		runtime, err := resolveRuntime(ctx, tx, slug, true)
 		if err != nil {
@@ -93,6 +96,9 @@ func (s *Service) Create(ctx context.Context, user int64, slug, key, commitmentI
 			return ErrCommitmentInvalid
 		}
 		var before, seq, version int64
+		if err = platform.LockEconomyUsersInTx(ctx, tx, user); err != nil {
+			return err
+		}
 		err = tx.QueryRow(ctx, `SELECT balance_units,ledger_seq,version FROM economy.wallet_balances WHERE newapi_user_id=$1 AND asset_type='AVAILABLE_CHIPS' FOR UPDATE`, user).Scan(&before, &seq, &version)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return platform.ErrWalletNotFound

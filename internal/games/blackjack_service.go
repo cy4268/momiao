@@ -22,6 +22,9 @@ func databaseNow(ctx context.Context, tx pgx.Tx) (time.Time, error) {
 	return now.UTC(), err
 }
 func lockedChips(ctx context.Context, tx pgx.Tx, user int64) (int64, int64, int64, error) {
+	if err := platform.LockEconomyUsersInTx(ctx, tx, user); err != nil {
+		return 0, 0, 0, err
+	}
 	var balance, sequence, version int64
 	err := tx.QueryRow(ctx, `SELECT balance_units,ledger_seq,version FROM economy.wallet_balances WHERE newapi_user_id=$1 AND asset_type='AVAILABLE_CHIPS' FOR UPDATE`, user).Scan(&balance, &sequence, &version)
 	if errors.Is(err, pgx.ErrNoRows) {

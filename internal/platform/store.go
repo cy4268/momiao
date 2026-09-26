@@ -35,7 +35,10 @@ var (
 	ErrInvalidPage         = errors.New("invalid ledger page")
 )
 
-type Store struct{ pool *pgxpool.Pool }
+type Store struct {
+	pool             *pgxpool.Pool
+	economicObserver NativeQuotaObserver
+}
 
 // OpenLazy validates connection configuration without requiring an available database.
 // Queries acquire connections on demand, so a wallet outage does not prevent portal startup.
@@ -247,13 +250,23 @@ func applyInTx(ctx context.Context, tx pgx.Tx, m Mutation) (LedgerEntry, error) 
 	if err != nil {
 		return LedgerEntry{}, err
 	}
-	// Shared lock order: business identity, user-scoped idempotency, then wallet.
+	if err = LockEconomyUsersInTx(ctx, tx, m.UserID); err != nil {
+		return LedgerEntry{}, err
+	}
+	// Shared lock order: account, business identity, idempotency, then wallet.
 	// Hash collisions only serialize unrelated work; SQL uniqueness stays authoritative.
 	if err = lockIdentity(ctx, tx, "business", m.BizType, m.BizID); err != nil {
 		return LedgerEntry{}, err
 	}
 	if err = lockIdentity(ctx, tx, "idempotency", m.UserID, fmt.Sprintf("%x", key)); err != nil {
 		return LedgerEntry{}, err
+	}
+	var reserved bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM economy.reward_request_keys WHERE newapi_user_id=$1 AND key_hash=$2)`, m.UserID, key[:]).Scan(&reserved); err != nil {
+		return LedgerEntry{}, err
+	}
+	if reserved {
+		return LedgerEntry{}, ErrIdempotencyConflict
 	}
 	var stored []byte
 	var entryID string

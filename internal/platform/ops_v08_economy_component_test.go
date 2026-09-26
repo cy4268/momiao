@@ -179,6 +179,23 @@ func TestV08OpsEconomyAdjustment(t *testing.T) {
 		t.Fatalf("overflow prepare=%v, want ErrOpsConflict", err)
 	}
 	v08EconomyAssertAbsent(t, service, actor, overflowID)
+	if err = s.ConfigureEconomicObserver(&exchangeNative{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.pool.Exec(ctx, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`); err != nil {
+		t.Fatal(err)
+	}
+	mustEnsure(t, s, 70)
+	mustApply(t, s, mutation(70, "cap-admin-initial", AssetCapUnits-100))
+	rejected := announcementID(t)
+	_, err = service.Prepare(ctx, actor.UserID, v08EconomyRequest(actor, rejected, "ECONOMY_ADJUSTMENT", "WALLET", "70", "2", `{"asset":"RESERVE_API_CREDIT","delta_units":"101","reference":"over capacity"}`))
+	if !errors.Is(err, ErrAssetCap) {
+		t.Fatalf("over-cap adjustment: %v", err)
+	}
+	v08EconomyAssertAbsent(t, service, actor, rejected)
+	if _, err = service.Operation(ctx, actor.UserID, actor.Epoch, issue.Operation.OperationID); err != nil {
+		t.Fatal("old receipt", err)
+	}
 }
 
 type v08TransferState struct {

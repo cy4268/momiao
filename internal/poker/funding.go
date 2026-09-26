@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/cy4268/momiao/internal/platform"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -133,6 +134,30 @@ func insertFunding(ctx context.Context, tx pgx.Tx, t *tableRow, seat int, sessio
 var errLeaseLost = errors.New("RESERVATION_LEASE_LOST")
 
 func applyFunding(ctx context.Context, tx pgx.Tx, t *tableRow, id, kind string, afterApply func(context.Context, pgx.Tx) error) (Receipt, error) {
+	// A closing table can cash out several accounts in one transaction. Acquire
+	// the whole affected set in user order before the first wallet gateway.
+	rows, err := tx.Query(ctx, `SELECT newapi_user_id FROM poker.sessions WHERE table_id=$1 AND state<>'SETTLED'
+	 UNION SELECT newapi_user_id FROM poker.funding_operations WHERE table_id=$1 AND state='PENDING' ORDER BY newapi_user_id`, t.ID)
+	if err != nil {
+		return Receipt{}, err
+	}
+	users := []int64{}
+	for rows.Next() {
+		var user int64
+		if err = rows.Scan(&user); err != nil {
+			rows.Close()
+			return Receipt{}, err
+		}
+		users = append(users, user)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return Receipt{}, err
+	}
+	if err = platform.LockEconomyUsersInTx(ctx, tx, users...); err != nil {
+		return Receipt{}, err
+	}
 	// SQL identifiers are code-owned constants. No generic wallet mutation exists.
 	query := "SELECT economy.poker_buy_in_apply($1,$2,$3)"
 	if kind == "TOP_UP" || kind == "REBUY" {

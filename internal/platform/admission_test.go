@@ -217,4 +217,28 @@ func TestRegistrationAdmissionIntegration(t *testing.T) {
 			t.Fatal("legacy invented grant", err)
 		}
 	})
+	// A capped registration is still a complete, immutable issuance receipt.
+	if err := s.ConfigureEconomicObserver(&exchangeNative{}); err != nil {
+		t.Fatal(err)
+	}
+	execute(`UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`)
+	t.Cleanup(func() {
+		_, _ = s.pool.Exec(ctx, `UPDATE economy.policy_runtime SET active_version=NULL WHERE singleton`)
+	})
+	const cappedUser int64 = 730031
+	mustEnsure(t, s, cappedUser)
+	mustApply(t, s, mutation(cappedUser, "capped-registration-initial", AssetCapUnits))
+	ingest(receipt(cursor+1, cappedUser))
+	if found, err := s.RecoverRegistrationGrant(ctx); err != nil || !found {
+		t.Fatal("zero registration receipt", found, err)
+	}
+	if scalar(`SELECT count(*) FROM rewards.registration_issuances WHERE newapi_user_id=$1 AND amount_units=0 AND ledger_entry_id IS NULL`, cappedUser) != 1 {
+		t.Fatal("missing zero issuance")
+	}
+	if w, err := s.ReadWallet(ctx, cappedUser, ReserveAPICredit); err != nil || w.BalanceUnits != AssetCapUnits {
+		t.Fatal(w, err)
+	}
+	if rows, err := s.Transactions(ctx, cappedUser, ""); err != nil || len(rows) != 1 || rows[0].AmountUnits != 0 {
+		t.Fatal("zero registration history", rows, err)
+	}
 }

@@ -82,6 +82,22 @@ func gameTestStores(t *testing.T) (*platform.Store, *platform.Store) {
 			t.Fatal(err)
 		}
 	}
+	rawCap, err := os.ReadFile("../../deploy/sql/runtime-grants-0041-economy-cap.psql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	capLines := []string{}
+	for _, line := range strings.Split(string(rawCap), "\n") {
+		if strings.HasPrefix(line, "GRANT ") {
+			capLines = append(capLines, line)
+		}
+	}
+	if err = owner.WithTx(ctx, func(tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, strings.ReplaceAll(strings.Join(capLines, "\n"), `:"runtime_role"`, pgx.Identifier{connection.RuntimeRole}.Sanitize()), pgx.QueryExecModeSimpleProtocol)
+		return e
+	}); err != nil {
+		t.Fatal(err)
+	}
 	runtime, err := platform.Open(ctx, connection.RuntimeURL)
 	if err != nil {
 		t.Fatal("isolated runtime connection failed")

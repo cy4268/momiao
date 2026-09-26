@@ -269,6 +269,16 @@ func TestAPIChipsAmbiguousRecoveryAndRefillFence(t *testing.T) {
 	}
 	assertExchangeWallets(t, s, n, 893004, 0, 50, 0)
 	assertExchangeAssets(t, service.assets, 893004, 150, 100)
+	n.unknown = true
+	if assets, err := service.assets.ReadUnifiedAssets(ctx, 893004); err == nil || assets.TotalUnits != 0 {
+		t.Fatal("unknown Native effect certified a total", assets, err)
+	}
+	n.unknown = false
+	n.forged = true
+	if _, err := service.assets.ReadUnifiedAssets(ctx, 893004); err == nil {
+		t.Fatal("foreign operation receipt certified assets")
+	}
+	n.forged = false
 	got, err := s.FindOperation(ctx, 893004, "EXCHANGE", key)
 	if err != nil || got.ID != r.ID || got.Status != "PENDING" {
 		t.Fatal(got, err)

@@ -19,6 +19,19 @@ func TestShanghaiDay(t *testing.T) {
 }
 
 func TestEconomyIntegration(t *testing.T) {
+	policy := EconomicPolicy{Version: "economy-cap-v1", AssetCapUnits: 50000000000000000}
+	for _, tc := range []struct{ total, stake, payout, quantum, credited, withheld, after int64 }{
+		{49999999950000000, 50000000, 250000000, 1, 100000000, 150000000, 50000000000000000},
+		{50000000000000000, 50000000, 250000000, 1, 50000000, 200000000, 50000000000000000},
+		{50000000000000000, 50000000, 0, 1, 0, 0, 49999999950000000},
+		{50000000000000000, 50000000, 50000000, 1, 50000000, 0, 50000000000000000},
+		{49999999999999999, 500000, 1000000, 500000, 500000, 500000, 49999999999999999},
+	} {
+		got, err := CapPayout(policy, tc.total, tc.stake, tc.payout, tc.quantum)
+		if err != nil || got.CreditedPayoutUnits != tc.credited || got.WithheldUnits != tc.withheld || got.TotalAfterUnits != tc.after {
+			t.Fatalf("capped settlement: %+v, %v; expected %+v", got, err, tc)
+		}
+	}
 	s := integrationStore(t)
 	ctx := context.Background()
 	u := int64(830001)
@@ -151,5 +164,46 @@ func TestEconomyIntegration(t *testing.T) {
 	current, err := s.ReadDaily(ctx, v)
 	if err != nil || current.Claimed {
 		t.Fatal(current, err)
+	}
+	// Daily and hourly grants share the same remaining asset capacity. Zero
+	// effects still consume the claim and replay across request keys.
+	if err := s.ConfigureEconomicObserver(&exchangeNative{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = s.pool.Exec(ctx, `UPDATE economy.policy_runtime SET active_version=NULL WHERE singleton`)
+	})
+	capUser := u + 30
+	mustEnsure(t, s, capUser)
+	mustApply(t, s, mutation(capUser, "cap-initial", policy.AssetCapUnits-50000000))
+	errCh := make(chan error, 2)
+	go func() { k, _ := uuidV7(); _, e := s.ClaimDaily(ctx, capUser, k); errCh <- e }()
+	go func() { k, _ := uuidV7(); _, e := s.ClaimHourlyReward(ctx, capUser, k); errCh <- e }()
+	for range 2 {
+		if e := <-errCh; e != nil {
+			t.Fatal(e)
+		}
+	}
+	cappedWallet, e := s.ReadWallet(ctx, capUser, ReserveAPICredit)
+	if e != nil || cappedWallet.BalanceUnits != policy.AssetCapUnits {
+		t.Fatal("concurrent capacity", cappedWallet, e)
+	}
+	for range 2 {
+		k, _ := uuidV7()
+		result, e := s.ClaimDaily(ctx, capUser, k)
+		if e != nil || result.AmountUnits > 50000000 {
+			t.Fatal("capped daily replay", result, e)
+		}
+		found, e := s.FindOperation(ctx, capUser, "DAILY", k)
+		if e != nil || found == nil || found.ID != result.ID {
+			t.Fatal("zero claim key lookup", found, e)
+		}
+	}
+	cappedWallet, e = s.ReadWallet(ctx, capUser, ReserveAPICredit)
+	if e != nil || cappedWallet.BalanceUnits != policy.AssetCapUnits {
+		t.Fatal("replay changed balance", cappedWallet, e)
 	}
 }

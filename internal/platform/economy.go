@@ -48,9 +48,9 @@ type Transaction struct {
 
 const transactionSelect = `SELECT t.transaction_id::text,t.newapi_user_id,t.biz_id,t.operation_type,t.status,
  CASE WHEN l2.ledger_entry_id IS NULL THEN '' ELSE l.asset_type END,
- coalesce(l2.asset_type,l.asset_type),abs(l.delta_units),t.created_at,t.confirmed_at,NULL::bigint,NULL::bigint,NULL::bigint,''::text
+ coalesce(l2.asset_type,l.asset_type,'RESERVE_API_CREDIT'),coalesce(abs(l.delta_units),0),t.created_at,t.confirmed_at,NULL::bigint,NULL::bigint,NULL::bigint,''::text
  FROM economy.asset_transactions t
- JOIN economy.wallet_ledger l ON l.transaction_id=t.transaction_id AND l.leg_no=1
+ LEFT JOIN economy.wallet_ledger l ON l.transaction_id=t.transaction_id AND l.leg_no=1
  LEFT JOIN economy.wallet_ledger l2 ON l2.transaction_id=t.transaction_id AND l2.leg_no=2 `
 
 func scanTransaction(row pgx.Row) (Transaction, error) {
@@ -132,7 +132,9 @@ func findOperation(ctx context.Context, tx pgx.Tx, user int64, kind, key string)
 	}
 	hash := sha256.Sum256([]byte(key))
 	var id string
-	err := tx.QueryRow(ctx, `SELECT l.transaction_id::text FROM platform_meta.mutation_idempotency_records i JOIN economy.wallet_ledger l ON l.ledger_entry_id=i.resource_id WHERE i.newapi_user_id=$1 AND i.scope=$2 AND i.key_hash=$3`, user, operationScope(kind), hash[:]).Scan(&id)
+	err := tx.QueryRow(ctx, `SELECT id FROM (
+ SELECT l.transaction_id::text id FROM platform_meta.mutation_idempotency_records i JOIN economy.wallet_ledger l ON l.ledger_entry_id=i.resource_id WHERE i.newapi_user_id=$1 AND i.scope=$2 AND i.key_hash=$3
+ UNION SELECT transaction_id::text FROM economy.reward_request_keys WHERE newapi_user_id=$1 AND key_hash=$3 AND $2='wallet.apply.v1') r`, user, operationScope(kind), hash[:]).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -224,11 +226,11 @@ func (s *Store) ClaimDaily(ctx context.Context, user int64, key string) (Transac
 	}
 	day, _ := shanghaiDay(now)
 	m := Mutation{UserID: user, Asset: ReserveAPICredit, DeltaUnits: DailyAmount, BizType: "DAILY_REWARD_V1", BizID: fmt.Sprintf("daily:%d:%s", user, day), EntryType: "DAILY_REWARD", IdempotencyKey: key}
-	entry, err := applyInTx(ctx, tx, m)
+	entry, err := s.applyRewardInTx(ctx, tx, m)
 	if err != nil {
 		return Transaction{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO rewards.daily_checkins(newapi_user_id,checkin_date,policy_version,amount_units,asset_type,transaction_id) VALUES($1,$2,1,250000000,'RESERVE_API_CREDIT',$3) ON CONFLICT (newapi_user_id,checkin_date) DO NOTHING`, user, day, entry.TransactionID)
+	_, err = tx.Exec(ctx, `INSERT INTO rewards.daily_checkins(newapi_user_id,checkin_date,policy_version,amount_units,asset_type,transaction_id) VALUES($1,$2,1,$4,'RESERVE_API_CREDIT',$3) ON CONFLICT (newapi_user_id,checkin_date) DO NOTHING`, user, day, entry.TransactionID, entry.DeltaUnits)
 	if err != nil {
 		return Transaction{}, err
 	}
@@ -243,7 +245,8 @@ func (s *Store) Exchange(ctx context.Context, user int64, key string, from Asset
 	return s.exchange(ctx, nil, user, key, from, amount)
 }
 func (service *EconomyService) Exchange(ctx context.Context, user int64, key string, from Asset, amount int64) (Transaction, error) {
-	return service.Store.exchange(ctx, service.assets.native, user, key, from, amount)
+	native, _ := service.assets.native.(NativeQuotaOperator)
+	return service.Store.exchange(ctx, native, user, key, from, amount)
 }
 func (s *Store) exchange(ctx context.Context, native NativeQuotaOperator, user int64, key string, from Asset, amount int64) (Transaction, error) {
 	if user <= 0 || !ValidOperationKey(key) || !validAsset(from) || amount <= 0 {

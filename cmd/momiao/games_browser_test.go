@@ -92,6 +92,7 @@ func gameBrowserStores(t *testing.T) (*platform.Store, *platform.Store) {
 			grantPaths = append(grantPaths, "../../deploy/sql/runtime-grants-0016-blackjack.psql")
 		}
 	}
+	grantPaths = append(grantPaths, "../../deploy/sql/runtime-grants-0041-economy-cap.psql")
 	for _, path := range grantPaths {
 		raw, e := os.ReadFile(path)
 		if e != nil {

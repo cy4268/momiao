@@ -183,6 +183,18 @@ func localPokerDB(t *testing.T, skipMigrations ...string) (*pgxpool.Pool, *pgxpo
 	}
 	if len(skipMigrations) == 0 {
 		applyLobbyGrants(t, ownerPool, runtimePool)
+		cmd = exec.CommandContext(ctx, psql, "-X", "-q", "-h", c.Host, "-p", strconv.Itoa(c.Port), "-U", c.User, "-d", db, "-v", "schema_owner="+owner, "-v", "runtime_role="+runtime, "-v", "apply_grants=true", "-f", filepath.Join("..", "..", "deploy", "sql", "runtime-grants-0041-economy-cap.psql"))
+		cmd.Env = append(os.Environ(), "PGPASSWORD="+c.Password)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("0041 runtime grants: %s", output)
+		}
+		var healthy, forbidden bool
+		if err := runtimePool.QueryRow(ctx, `SELECT healthy FROM economy.cap_local_assets_read(910001)`).Scan(&healthy); err != nil || !healthy {
+			t.Fatal("cap aggregate runtime", healthy, err)
+		}
+		if err := runtimePool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'economy.quota_transfers','UPDATE') OR has_table_privilege(current_user,'economy.cap_settlements','UPDATE') OR has_table_privilege(current_user,'economy.policy_runtime','UPDATE')`).Scan(&forbidden); err != nil || forbidden {
+			t.Fatal("cap runtime authority broadened", forbidden, err)
+		}
 	}
 	for _, user := range []int64{910001, 910002, 910003} {
 		_, err = ownerPool.Exec(ctx, `INSERT INTO identity.account_refs(newapi_user_id) VALUES($1);`, user)
@@ -210,9 +222,10 @@ func pokerTestPSQL() string {
 }
 
 func TestRealPGCashTableFundingAndRecovery(t *testing.T) {
-	owner, pool := localPokerDB(t)
+	owner, pool := v06PokerDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
+	applyLocalPasswordProfileGrants(t, ctx, owner, pool)
 	var commits atomic.Int64
 	key := make([]byte, 32)
 	for i := range key {
