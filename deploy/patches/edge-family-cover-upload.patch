@@ -1,0 +1,85 @@
+--- a/integration/v1/cmd/b01-runtime/main.go
++++ b/integration/v1/cmd/b01-runtime/main.go
+@@ -1453,10 +1453,29 @@
+ 			_, _ = io.WriteString(w, "{\"success\":false,\"code\":\"EDGE_UPSTREAM_UNAVAILABLE\"}\n")
+ 		},
+ 	}
++	uploadProxy := *proxy
++	uploadTransport := proxy.Transport.(*http.Transport).Clone()
++	uploadTransport.ResponseHeaderTimeout = 95 * time.Second
++	uploadProxy.Transport = uploadTransport
+ 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+ 		stripForwarding(r.Header)
+ 		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+ 		w.Header().Set("X-Content-Type-Options", "nosniff")
++		if r.Method == http.MethodPost && r.URL.EscapedPath() == "/platform/v1/ops/models/family-covers/upload" && r.URL.RawQuery == "" && !r.URL.ForceQuery {
++			controller := http.NewResponseController(w)
++			deadline := time.Now().Add(95 * time.Second)
++			if err := controller.SetReadDeadline(deadline); err != nil {
++				proxy.ErrorHandler(w, r, err)
++				return
++			}
++			if err := controller.SetWriteDeadline(deadline); err != nil {
++				proxy.ErrorHandler(w, r, err)
++				return
++			}
++			r.Body = http.MaxBytesReader(w, r.Body, 9<<20)
++			uploadProxy.ServeHTTP(w, r)
++			return
++		}
+ 		proxy.ServeHTTP(w, r)
+ 	})
+ }
+--- a/integration/v1/cmd/b01-runtime/main_test.go
++++ b/integration/v1/cmd/b01-runtime/main_test.go
+@@ -295,6 +295,9 @@
+ 	seen := make(chan http.Header, 1)
+ 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+ 		seen <- r.Header.Clone()
++		if r.Method == http.MethodPost && r.URL.Path == "/platform/v1/ops/models/family-covers/upload" {
++			time.Sleep(11 * time.Second)
++		}
+ 		w.Header().Set("Content-Type", "application/json")
+ 		_, _ = io.WriteString(w, `{"ok":true}`)
+ 	}))
+@@ -317,6 +320,23 @@
+ 			}
+ 		}
+ 	}
++	edgeServer := httptest.NewUnstartedServer(edge)
++	edgeServer.Config.ReadTimeout = 2 * time.Second
++	edgeServer.Config.WriteTimeout = 2 * time.Second
++	edgeServer.StartTLS()
++	defer edgeServer.Close()
++	client := edgeServer.Client()
++	client.Timeout = 20 * time.Second
++	response, err := client.Post(edgeServer.URL+"/platform/v1/ops/models/family-covers/upload", "application/octet-stream", strings.NewReader("cover"))
++	if err != nil {
++		t.Fatalf("cover upload cut off by the old gateway deadline: %v", err)
++	}
++	defer response.Body.Close()
++	if response.StatusCode != http.StatusOK {
++		t.Fatalf("cover upload status=%d", response.StatusCode)
++	}
++	<-seen
++
+ }
+ 
+ func TestEdgeBoundaryIsExactContainerPublishTarget(t *testing.T) {
+@@ -324,11 +344,11 @@
+ 		listen, target string
+ 		ok             bool
+ 	}{
+-		{"0.0.0.0:18443", "http://127.0.0.1:8080", true},
+-		{"127.0.0.1:18443", "http://127.0.0.1:8080", false},
+-		{"0.0.0.0:18444", "http://127.0.0.1:8080", false},
+-		{"0.0.0.0:18443", "http://127.0.0.1:8081", false},
+-		{"127.0.0.1:18443", "http://platform:8080", false},
++		{"0.0.0.0:18444", "http://127.0.0.1:8080", true},
++		{"127.0.0.1:18444", "http://127.0.0.1:8080", false},
++		{"0.0.0.0:18443", "http://127.0.0.1:8080", false},
++		{"0.0.0.0:18444", "http://127.0.0.1:8081", false},
++		{"0.0.0.0:18444", "http://platform:8080", false},
+ 	} {
+ 		if err := validateEdgeBoundary(tc.listen, tc.target); (err == nil) != tc.ok {
+ 			t.Fatalf("listen=%q target=%q ok=%v err=%v", tc.listen, tc.target, tc.ok, err)
