@@ -2,6 +2,8 @@ package poker
 
 import (
 	"context"
+ "encoding/json"
+ "strings"
 	"errors"
 	"testing"
 	"time"
@@ -112,6 +114,18 @@ func TestV07RankingsPublicationAndRecovery(t *testing.T) {
 	if pointerID != firstID || pointerVersion != 1 {
 		t.Fatal("first routine build did not install version-one pointer")
 	}
+
+ // Badge ownership follows stable identity, not a nickname or numeric snapshot.
+ campaign:=uuid()
+ _,err=owner.Exec(ctx,`INSERT INTO economy.gambler_campaigns(campaign_id,phase,cutoff_at) VALUES($1,'SNAPSHOT_PREPARING',clock_timestamp())`,campaign);v07Must(t,err)
+ _,err=owner.Exec(ctx,`INSERT INTO economy.gambler_campaign_accounts(campaign_id,newapi_user_id,snapshot_member,snapshot_assets,snapshot_digest,eligible) VALUES($1,910001,true,'{"total_units":"500000000000001"}',repeat('a',64),true)`,campaign);v07Must(t,err)
+ _,err=owner.Exec(ctx,`UPDATE economy.gambler_campaigns SET phase='SNAPSHOT_READY',snapshot_sealed_at=clock_timestamp(),snapshot_target_hash=repeat('b',64),version=version+1 WHERE campaign_id=$1`,campaign);v07Must(t,err)
+ _,err=owner.Exec(ctx,`INSERT INTO identity.account_badges(newapi_user_id,badge_code,campaign_id) VALUES(910001,'gambler-ruler-202609',$1) ON CONFLICT DO NOTHING`,campaign);v07Must(t,err)
+ _,err=owner.Exec(ctx,`UPDATE identity.master_profiles SET display_name='Renamed synthetic' WHERE newapi_user_id=910001`);v07Must(t,err)
+ page,err=service.Read(ctx,query,0);v07Must(t,err)
+ if len(page.Items[0].Badges)!=1 || page.Items[0].Badges[0].Name!="赌怪" || len(page.Items[1].Badges)!=0 || page.Items[0].DisplayName!="Renamed synthetic" {t.Fatal("badge ownership and nickname",page.Items)}
+ public,_:=json.Marshal(page); for _,forbidden:=range []string{"newapi_user_id","500000000000001","snapshot_assets","campaign_id"}{if strings.Contains(string(public),forbidden){t.Fatal("badge leaked qualification",forbidden)}}
+ if id,v:=v07RankingPointer(t,ctx,owner,"TOTAL_ASSETS","CURRENT",activation);id!=pointerID || v!=pointerVersion{t.Fatal("badge read rebuilt numeric snapshot")}
 	var firstBuilt time.Time
 	v07Must(t, owner.QueryRow(ctx, `SELECT built_at FROM rankings.snapshots WHERE snapshot_id=$1::uuid`, firstID).Scan(&firstBuilt))
 	var snapshots, entries int64

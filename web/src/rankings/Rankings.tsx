@@ -9,12 +9,15 @@ import './rankings.css';
 
 const labels:Record<string,string>={TOTAL_ASSETS:'总资产',GAME_PROFIT:'游戏净盈利',BIGGEST_WIN:'单局最高净收益',TOTAL_WAGERED:'累计下注',POKER_PROFIT:'德州已实现盈利',RP_CALLS:'成功调用',RP_ERRORS:'失败调用',RP_CREDITS:'实际消耗'};
 type Model={model_id:string;display_name:string;calls:string;errors:string;credits_units:string};
-type Row={rank:string;display_name:string;avatar_id:string;value:string;calls:string;errors:string;credits_units:string;models:Model[]};
+type Badge={code:string;name:string;icon_path:string;description:string};
+type Row={badges?:Badge[];rank:string;display_name:string;avatar_id:string;value:string;calls:string;errors:string;credits_units:string;models:Model[]};
 type Page={state:'READY'|'STALE'|'UNAVAILABLE';metric:string;period:string;period_start:string;period_end:string|null;last_updated:string|null;items:Row[];total:string;page:number;page_size:number;historical_periods:string[];my_rank?:Row};
 const decimal=(value:unknown):value is string=>typeof value==='string'&&/^-?(0|[1-9][0-9]{0,37})$/.test(value);
 const unsigned=(value:unknown):value is string=>decimal(value)&&!value.startsWith('-');
+const gamblerBadge:Badge={code:'gambler-ruler-202609',name:'赌怪',icon_path:'ui/badges/gambler-ruler.e0c69ec268a86ee0.png',description:'纪念资产调整前总资产超过十亿的御主'};
 function checkRow(row:Row){
     if(!row||!unsigned(row.rank)||BigInt(row.rank)<1n||typeof row.display_name!=='string'||row.avatar_id!=='system-default'||!decimal(row.value)||!unsigned(row.calls)||!unsigned(row.errors)||!unsigned(row.credits_units)||!Array.isArray(row.models))throw new Error('排行响应格式异常。');
+    if(row.badges!==undefined&&(!Array.isArray(row.badges)||row.badges.length>1||row.badges.some(badge=>!badge||badge.code!==gamblerBadge.code||badge.icon_path!==gamblerBadge.icon_path||badge.name!==gamblerBadge.name||badge.description!==gamblerBadge.description)))throw new Error('勋章响应格式异常。');
     for(const model of row.models)if(!model||typeof model.model_id!=='string'||typeof model.display_name!=='string'||!unsigned(model.calls)||!unsigned(model.errors)||!unsigned(model.credits_units))throw new Error('模型排行响应格式异常。');
 }
 async function read(client:ApiClient,query:URLSearchParams,mine:boolean){
@@ -33,6 +36,10 @@ function Models({row,metric}:{row:Row;metric:string}){
     const positive=sorted.filter(model=>BigInt(model[field])>0n);
     const top=positive.slice(0,3),other=positive.slice(3).reduce((sum,model)=>sum+BigInt(model[field]),0n);
     return <><span>{top.map(model=>model.display_name||model.model_id).join(' · ')||'—'}{other>0n&&` · Other ${field==='credits_units'?credits(other.toString()):count(other.toString())}`}</span>{sorted.length>0&&<details><summary>完整模型分布</summary><ul>{sorted.map(model=><li key={model.model_id}><strong>{model.display_name||model.model_id}</strong><code>{model.model_id}</code><small>成功 {count(model.calls)} · 失败 {count(model.errors)} · {credits(model.credits_units)} Credit</small></li>)}</ul></details>}</>;
+}
+function PersonalMedal({badge}:{badge:Badge}){
+    const [open,setOpen]=useState(false),[failed,setFailed]=useState(false);
+    return <><button className="ranking-personal-medal" aria-label="赌怪勋章说明" aria-haspopup="dialog" onClick={()=>setOpen(true)}>{!failed&&<img src={assetUrl(badge.icon_path)} width={32} height={32} alt="阿尔托莉雅·Ruler 赌场兔女郎勋章" onError={()=>setFailed(true)}/>}<span>{badge.name}</span></button>{open&&<Modal title={badge.name} onClose={()=>setOpen(false)}><p>{badge.description}</p><p>永久纪念勋章，与当前名次或余额无关；各榜单展示当前持有状态。</p></Modal>}</>;
 }
 export function Rankings({client}:{client:ApiClient}) {
     const session=useSyncExternalStore(client.subscribe,client.getSnapshot);
@@ -83,7 +90,7 @@ export function Rankings({client}:{client:ApiClient}) {
                 {data.state==='STALE'&&<Alert>数据更新暂有延迟，以下保留上次快照，请留意更新时间。</Alert>}
                 {data.items.length===0?<Empty title="当前筛选暂无上榜记录">试试其他指标、周期或模型。指标为零的用户不进入对应榜单。</Empty>:<table><thead><tr><th scope="col">排名</th><th scope="col">御主</th><th scope="col">{labels[metric]}<small>{unit}</small></th>{rp&&<><th scope="col">错误率 / 总请求</th><th scope="col">实际消耗<small>Credit</small></th><th scope="col">模型分布</th></>}</tr></thead><tbody>{data.items.map((row,index)=><tr key={index}>
                   <td className="ranking-position"><span className={'ranking-rank'+(['1','2','3'].includes(row.rank)?' ranking-medal rank-'+row.rank:'')}>{['1','2','3'].includes(row.rank)&&<img src={assetUrl(art.medallion.src)} width={44} height={44} alt=""/>}<span>{row.rank}</span></span></td>
-                  <th scope="row" className="ranking-master">{row.display_name}</th><td className="ranking-value" data-label={labels[metric]}>{valueText(metric,row.value)}</td>{rp&&<><td data-label="错误率 / 总请求">{errorRate(row)}<small>{count((BigInt(row.calls)+BigInt(row.errors)).toString())} 次请求</small></td><td data-label="实际消耗 · Credit">{credits(row.credits_units)}</td><td className="ranking-models" data-label="模型分布"><Models row={row} metric={metric}/></td></>}
+                  <th scope="row" className="ranking-master"><span className="ranking-owner">{row.display_name}{row.badges?.map(badge=><PersonalMedal key={badge.code} badge={badge}/>)}</span></th><td className="ranking-value" data-label={labels[metric]}>{valueText(metric,row.value)}</td>{rp&&<><td data-label="错误率 / 总请求">{errorRate(row)}<small>{count((BigInt(row.calls)+BigInt(row.errors)).toString())} 次请求</small></td><td data-label="实际消耗 · Credit">{credits(row.credits_units)}</td><td className="ranking-models" data-label="模型分布"><Models row={row} metric={metric}/></td></>}
                 </tr>)}</tbody></table>}
               </>}
             </div>

@@ -1,11 +1,12 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
 import { expect, it } from 'vitest';
 import { fixtureClient } from '../m1-test-fixtures';
 import { Rankings } from './Rankings';
 
 it('keeps the public hourly leaderboard, exact values, filters and private own-rank journey', async () => {
-  const row = {rank:'1',display_name:'星海',avatar_id:'system-default',value:'9007199254740993',calls:'9',errors:'1',credits_units:'500000',models:[{model_id:'sample/model',display_name:'示例模型',calls:'9',errors:'1',credits_units:'500000'}]};
+  const row = {badges:[{code:'gambler-ruler-202609',name:'赌怪',icon_path:'ui/badges/gambler-ruler.e0c69ec268a86ee0.png',description:'纪念资产调整前总资产超过十亿的御主'}],rank:'1',display_name:'星海',avatar_id:'system-default',value:'9007199254740993',calls:'9',errors:'1',credits_units:'500000',models:[{model_id:'sample/model',display_name:'示例模型',calls:'9',errors:'1',credits_units:'500000'}]};
   let state = 'READY';
   const {client,fetcher} = fixtureClient(path => {
     if (!path.startsWith('/api/v1/rankings')) return;
@@ -15,6 +16,14 @@ it('keeps the public hourly leaderboard, exact values, filters and private own-r
   });
   const view = render(<MemoryRouter initialEntries={['/rankings']}><Rankings client={client}/></MemoryRouter>);
   await screen.findByText('星海');
+  const medal=screen.getByRole('button',{name:'赌怪勋章说明'});
+  expect(medal.closest('th')).toHaveTextContent('星海');
+  fireEvent.error(within(medal).getByRole('img'));
+  expect(within(medal).getByText('赌怪')).toBeInTheDocument();
+  medal.focus();await userEvent.keyboard('{Enter}');
+  expect(screen.getByRole('dialog',{name:'赌怪'})).toHaveTextContent('纪念资产调整前总资产超过十亿的御主');
+  fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));
+  expect(medal).toHaveFocus();
   expect(screen.getByRole('heading',{name:'迦勒底排行榜'})).toBeInTheDocument();
   expect(within(screen.getByRole('navigation',{name:'主导航'})).getAllByRole('link').map(link=>link.getAttribute('href'))).toEqual(['/dashboard','/models','/entertainment','/rankings','/announcements']);
   expect(screen.getByText('每小时更新 · 公开榜单')).toBeInTheDocument();
@@ -30,6 +39,7 @@ it('keeps the public hourly leaderboard, exact values, filters and private own-r
   fireEvent.click(screen.getByRole('button',{name:'调用统计'}));
   await screen.findByText('9,007,199,254,740,993');
   expect(screen.getByText('10.00%')).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'赌怪勋章说明'})).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('筛选模型 ID'),{target:{value:'sample/model'}});
   fireEvent.click(screen.getByRole('button',{name:'应用'}));
   await screen.findByText('星海');
@@ -38,6 +48,7 @@ it('keeps the public hourly leaderboard, exact values, filters and private own-r
   await screen.findByText('星海');
   fireEvent.change(screen.getByLabelText('历史周期'),{target:{value:'2026-09-22'}});
   await screen.findByText('星海');
+  expect(screen.getByRole('button',{name:'赌怪勋章说明'})).toBeInTheDocument();
   expect(fetcher.mock.calls.some(([path])=>path.includes('period=WEEK')&&path.includes('date=2026-09-22'))).toBe(true);
   await act(async()=>{await client.bootstrap()});
   await screen.findByText('第 26 名');

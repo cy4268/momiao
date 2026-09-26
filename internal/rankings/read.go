@@ -17,7 +17,14 @@ type Model struct {
  Errors string `json:"errors"`
  CreditsUnits string `json:"credits_units"`
 }
+type PublicBadge struct {
+ Code string `json:"code"`
+ Name string `json:"name"`
+ IconPath string `json:"icon_path"`
+ Description string `json:"description"`
+}
 type Entry struct {
+ Badges []PublicBadge `json:"badges"`
  Rank int64 `json:"rank,string"`
  DisplayName string `json:"display_name"`
  AvatarID string `json:"avatar_id"`
@@ -46,17 +53,20 @@ func metricDomain(metric string) string {
 }
 const orderedEntries = `WITH ordered AS (
  SELECT rank() OVER(ORDER BY e.value DESC) ranking,e.newapi_user_id,p.display_name,p.avatar_id,
-  e.value::text,e.calls::text,e.errors::text,e.credits_units::text,e.models
+  e.value::text,e.calls::text,e.errors::text,e.credits_units::text,e.models,
+ EXISTS(SELECT 1 FROM identity.account_badges b WHERE b.newapi_user_id=e.newapi_user_id AND b.badge_code='gambler-ruler-202609') has_gambler_badge
  FROM rankings.entries e JOIN identity.master_profiles p USING(newapi_user_id)
  WHERE e.snapshot_id=$1::uuid AND e.metric=$2 AND e.model_id=$3
   AND e.model_scope=CASE WHEN $3='' THEN 'ALL' ELSE 'MODEL' END
 ) `
 
 func scanEntry(row pgx.Row) (Entry,error) {
- var entry Entry;var raw []byte
- err:=row.Scan(&entry.Rank,&entry.DisplayName,&entry.AvatarID,&entry.Value,&entry.Calls,&entry.Errors,&entry.CreditsUnits,&raw)
+ var entry Entry;var raw []byte;var gambler bool
+ err:=row.Scan(&entry.Rank,&entry.DisplayName,&entry.AvatarID,&entry.Value,&entry.Calls,&entry.Errors,&entry.CreditsUnits,&raw,&gambler)
  if err==nil {err=json.Unmarshal(raw,&entry.Models)}
  if entry.Models==nil{entry.Models=[]Model{}}
+ entry.Badges=[]PublicBadge{}
+ if gambler {entry.Badges=append(entry.Badges,PublicBadge{"gambler-ruler-202609","赌怪","ui/badges/gambler-ruler.e0c69ec268a86ee0.png","纪念资产调整前总资产超过十亿的御主"})}
  return entry,err
 }
 
@@ -79,11 +89,11 @@ func (s *Service) Read(ctx context.Context,q Query,ownUser int64) (Page,error) {
   result.State="READY";result.LastUpdated=&checked
   if (end==nil||end.After(now))&&(now.Sub(built)>currentSnapshotMaxAge||now.Sub(checked)>currentSnapshotMaxAge){result.State="STALE"}
   e=tx.QueryRow(ctx,`SELECT count(*) FROM rankings.entries WHERE snapshot_id=$1::uuid AND metric=$2 AND model_id=$3 AND model_scope=CASE WHEN $3='' THEN 'ALL' ELSE 'MODEL' END`,id,q.Metric,q.Model).Scan(&result.Total);if e!=nil{return e}
-  rows,e:=tx.Query(ctx,orderedEntries+`SELECT ranking,display_name,avatar_id,value,calls,errors,credits_units,models FROM ordered ORDER BY ranking,newapi_user_id LIMIT 50 OFFSET $4`,id,q.Metric,q.Model,(q.Page-1)*50);if e!=nil{return e}
+  rows,e:=tx.Query(ctx,orderedEntries+`SELECT ranking,display_name,avatar_id,value,calls,errors,credits_units,models,has_gambler_badge FROM ordered ORDER BY ranking,newapi_user_id LIMIT 50 OFFSET $4`,id,q.Metric,q.Model,(q.Page-1)*50);if e!=nil{return e}
   for rows.Next(){row,scanErr:=scanEntry(rows);if scanErr!=nil{rows.Close();return scanErr};result.Items=append(result.Items,row)}
   e=rows.Err();rows.Close();if e!=nil{return e}
   if ownUser>0 {
-   row,readErr:=scanEntry(tx.QueryRow(ctx,orderedEntries+`SELECT ranking,display_name,avatar_id,value,calls,errors,credits_units,models FROM ordered WHERE newapi_user_id=$4`,id,q.Metric,q.Model,ownUser))
+   row,readErr:=scanEntry(tx.QueryRow(ctx,orderedEntries+`SELECT ranking,display_name,avatar_id,value,calls,errors,credits_units,models,has_gambler_badge FROM ordered WHERE newapi_user_id=$4`,id,q.Metric,q.Model,ownUser))
    if readErr==nil{result.MyRank=&row}else if !errors.Is(readErr,pgx.ErrNoRows){return readErr}
   }
   if q.Period=="DAY"||q.Period=="WEEK" {
