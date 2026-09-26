@@ -76,24 +76,25 @@ func catalogPublicPrice(p CatalogPrice) CatalogPublicPrice {
 }
 
 type CatalogModel struct {
-	ModelID           string             `json:"model_id"`
-	Metadata          CatalogMetadata    `json:"metadata"`
-	PublicationState  string             `json:"publication_state"`
-	Recommended       bool               `json:"recommended"`
-	SortOrder         int                `json:"sort_order"`
-	Version           int64              `json:"version,string"`
-	MetadataVersion   int64              `json:"metadata_version,string"`
-	PublishedAt       *time.Time         `json:"published_at"`
-	RetiredAt         *time.Time         `json:"retired_at"`
-	UpdatedAt         time.Time          `json:"updated_at"`
-	AvailabilityState string             `json:"availability_state"`
-	SourceObservedAt  time.Time          `json:"source_observed_at"`
-	LastSeenAt        time.Time          `json:"last_seen_at"`
-	EndpointStatus    string             `json:"endpoint_status"`
-	Endpoints         []CatalogEndpoint  `json:"endpoints"`
-	Price             CatalogPublicPrice `json:"price"`
-	CanUse            bool               `json:"can_use"`
-	Freshness         CatalogFreshness   `json:"freshness"`
+	FamilyCover       *CatalogFamilyCover `json:"family_cover,omitempty"`
+	ModelID           string              `json:"model_id"`
+	Metadata          CatalogMetadata     `json:"metadata"`
+	PublicationState  string              `json:"publication_state"`
+	Recommended       bool                `json:"recommended"`
+	SortOrder         int                 `json:"sort_order"`
+	Version           int64               `json:"version,string"`
+	MetadataVersion   int64               `json:"metadata_version,string"`
+	PublishedAt       *time.Time          `json:"published_at"`
+	RetiredAt         *time.Time          `json:"retired_at"`
+	UpdatedAt         time.Time           `json:"updated_at"`
+	AvailabilityState string              `json:"availability_state"`
+	SourceObservedAt  time.Time           `json:"source_observed_at"`
+	LastSeenAt        time.Time           `json:"last_seen_at"`
+	EndpointStatus    string              `json:"endpoint_status"`
+	Endpoints         []CatalogEndpoint   `json:"endpoints"`
+	Price             CatalogPublicPrice  `json:"price"`
+	CanUse            bool                `json:"can_use"`
+	Freshness         CatalogFreshness    `json:"freshness"`
 }
 type CatalogChoice struct {
 	Value string `json:"value"`

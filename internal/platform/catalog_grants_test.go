@@ -63,6 +63,9 @@ func catalogRuntimeStore(t *testing.T, owner *Store) *Store {
  GRANT SELECT,INSERT,UPDATE ON catalog.model_catalog_metadata,catalog.model_catalog_publication,catalog.model_availability_mappings TO %[1]s;
  GRANT SELECT,UPDATE ON catalog.model_sync_state TO %[1]s;
  GRANT SELECT,INSERT ON catalog.model_sync_snapshots,catalog.model_sync_attempts,catalog.model_metadata_revisions,catalog.historical_model_identity TO %[1]s;
+ GRANT SELECT,INSERT ON catalog.family_cover_assets TO %[1]s;
+ GRANT SELECT ON catalog.family_covers TO %[1]s;
+ GRANT UPDATE(asset_id,version,updated_at) ON catalog.family_covers TO %[1]s;
  GRANT UPDATE(effective_until) ON catalog.historical_model_identity TO %[1]s;`, quoted)
 	if _, err = owner.pool.Exec(ctx, grants); err != nil {
 		t.Fatal("minimal runtime grants failed", err)

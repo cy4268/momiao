@@ -3,6 +3,8 @@ package platform
 import (
 	"context"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -214,6 +216,34 @@ func TestCatalogOpsCommitFailureDoesNotPartiallyPublishOrAudit(t *testing.T) {
 	if err = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM ops.admin_operations WHERE operation_id=$1)`, c.OperationID).Scan(&audit); err != nil || audit {
 		t.Fatal("failed commit partially audited", err)
 	}
+	before, err := s.CatalogFamilyCovers(ctx, p.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cover := before.Items[0]
+	reset := CatalogFamilyCoverCommand{OperationID: announcementID(t), Epoch: p.Epoch, Action: "RESET", Family: cover.Family, ExpectedVersion: cover.Version, Reason: "Fail commit atomically"}
+	cp, err := s.PrepareCatalogFamilyCover(ctx, p.UserID, reset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.ExecuteCatalogFamilyCover(ctx, p.UserID, reset, cp.ID, true)
+	if err == nil || result.OperationID != "" {
+		t.Fatal("failed cover commit returned success", err)
+	}
+	after, err := s.CatalogFamilyCovers(ctx, p.UserID)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatal("failed cover commit changed binding", err)
+	}
+	if err = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM ops.admin_operations WHERE operation_id=$1)`, reset.OperationID).Scan(&audit); err != nil || audit {
+		t.Fatal("failed cover commit retained audit", err)
+	}
+	upload := CatalogCoverUploadCommand{OperationID: announcementID(t), Epoch: p.Epoch, Family: "other", Alt: "Uncommitted", RightsStatus: "ORIGINAL_GENERATED", RightsNote: "Test", Reason: "Commit failure"}
+	if r, e := s.RegisterCatalogCoverUpload(ctx, p.UserID, upload, CatalogCoverUploadImage{SHA256: strings.Repeat("d", 64), ContentType: "image/png", Extension: "png", Size: 100, Width: 10, Height: 10}); e == nil || r.OperationID != "" {
+		t.Fatal("failed upload commit returned success", e)
+	}
+	if err = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM catalog.family_cover_assets WHERE sha256=$1 AND family='other')`, strings.Repeat("d", 64)).Scan(&audit); err != nil || audit {
+		t.Fatal("failed upload committed asset", err)
+	}
 }
 func TestCatalogOpsRunsUnderRuntimeGrants(t *testing.T) {
 	owner, p, model := catalogOpsFixture(t)
@@ -230,5 +260,40 @@ func TestCatalogOpsRunsUnderRuntimeGrants(t *testing.T) {
 	catalogConfirm(t, runtimeStore, p, catalogCommand(t, owner, p, model, "PUBLISH"))
 	if _, err = runtimeStore.PublicCatalogModel(ctx, model.ModelID, catalogTestPolicy); err != nil {
 		t.Fatal("runtime public projection failed", err)
+	}
+	page, err := runtimeStore.CatalogFamilyCovers(ctx, p.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cover := page.Items[0]
+	upload := CatalogCoverUploadCommand{OperationID: announcementID(t), Epoch: p.Epoch, Family: cover.Family, Alt: "Runtime cover", RightsStatus: "ORIGINAL_GENERATED", RightsNote: "Test", Reason: "Grant acceptance"}
+	asset, err := runtimeStore.RegisterCatalogCoverUpload(ctx, p.UserID, upload, CatalogCoverUploadImage{SHA256: strings.Repeat("c", 64), ContentType: "image/webp", Extension: "webp", Size: 100, Width: 10, Height: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := CatalogFamilyCoverCommand{OperationID: announcementID(t), Epoch: p.Epoch, Action: "SET", Family: cover.Family, AssetID: asset.AssetID, ExpectedVersion: cover.Version, Reason: "Runtime publish"}
+	cp, err := runtimeStore.PrepareCatalogFamilyCover(ctx, p.UserID, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtimeStore.ExecuteCatalogFamilyCover(ctx, p.UserID, c, cp.ID, true)
+	if err != nil || result.Cover.Image.AssetID != asset.AssetID {
+		t.Fatal("runtime cover publish failed", err)
+	}
+	for _, sql := range []string{`CREATE TABLE catalog.forbidden_cover_ddl(id int)`, `UPDATE catalog.family_cover_assets SET alt='rewritten'`, `DELETE FROM catalog.family_cover_assets`, `DELETE FROM catalog.family_covers`, `UPDATE ops.admin_operations SET details='{}'`} {
+		if _, err = runtimeStore.pool.Exec(ctx, sql); err == nil {
+			t.Fatal("cover runtime crossed grant boundary")
+		}
+	}
+	c.OperationID = announcementID(t)
+	c.Action = "RESET"
+	c.AssetID = ""
+	c.ExpectedVersion = result.Cover.Version
+	cp, err = runtimeStore.PrepareCatalogFamilyCover(ctx, p.UserID, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runtimeStore.ExecuteCatalogFamilyCover(ctx, p.UserID, c, cp.ID, true); err != nil {
+		t.Fatal(err)
 	}
 }

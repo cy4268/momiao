@@ -88,7 +88,11 @@ func (s *Store) PublicCatalogModel(ctx context.Context, id string, policy Catalo
 	if err != nil {
 		return m, err
 	}
-	return m, tx.Commit(ctx)
+	models := []CatalogModel{m}
+	if err = attachCatalogCovers(ctx, tx, models); err != nil {
+		return m, err
+	}
+	return models[0], tx.Commit(ctx)
 }
 func (s *Store) OpsCatalogModel(ctx context.Context, userID int64, id string, policy CatalogPolicy) (AnnouncementPrincipal, CatalogModel, error) {
 	var p AnnouncementPrincipal
@@ -113,5 +117,9 @@ func (s *Store) OpsCatalogModel(ctx context.Context, userID int64, id string, po
 	if err != nil {
 		return p, m, err
 	}
-	return p, m, tx.Commit(ctx)
+	models := []CatalogModel{m}
+	if err = attachCatalogCovers(ctx, tx, models); err != nil {
+		return p, m, err
+	}
+	return p, models[0], tx.Commit(ctx)
 }

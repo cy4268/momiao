@@ -164,6 +164,9 @@ func (s *Store) PublicCatalog(ctx context.Context, filter CatalogFilter, policy 
 	if err = rows.Err(); err != nil {
 		return page, err
 	}
+	if err = attachCatalogCovers(ctx, tx, page.Items); err != nil {
+		return page, err
+	}
 	return page, tx.Commit(ctx)
 }
 func (s *Store) OpsCatalog(ctx context.Context, userID int64, filter CatalogOpsFilter, policy CatalogPolicy) (CatalogOpsPage, error) {
@@ -214,6 +217,9 @@ func (s *Store) OpsCatalog(ctx context.Context, userID int64, filter CatalogOpsF
 	}
 	rows.Close()
 	if err = rows.Err(); err != nil {
+		return page, err
+	}
+	if err = attachCatalogCovers(ctx, tx, page.Items); err != nil {
 		return page, err
 	}
 	return page, tx.Commit(ctx)
