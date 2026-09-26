@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { ApiClient, ApiError } from './api';
 import { amountUnits } from './economy-api';
 import { readWallet } from './wallet-api';
-import { maxNativeUnits, parseNativeQuota, parseTransfer, parseTransferPending, parseTransfers, transferError, transferStatus, type Transfer, type TransferPending } from './quota-api';
+import { maxTransferUnits, parseNativeQuota, parseTransfer, parseTransferPending, parseTransfers, transferError, transferStatus, type Transfer, type TransferPending } from './quota-api';
 import { Alert, Empty, Loading, useResource } from './ui';
 
 export function QuotaActivation({client,userID}:{client:ApiClient;userID:string}) {
@@ -31,7 +31,7 @@ export function QuotaActivation({client,userID}:{client:ApiClient;userID:string}
  },[client,userID,tracking?.id]);
  const balance=r.data?.wallet.wallets.find(w=>w.asset==='RESERVE_API_CREDIT');
  const units=amountUnits(amount);
- const valid=units!==null && units<=maxNativeUnits && !!balance && units<=BigInt(balance.balance_units);
+ const valid=units!==null && units<=maxTransferUnits && !!balance && units<=BigInt(balance.balance_units);
  const blocked=busy || pending!==null || storageError || r.loading || !!r.error || !r.data?.native.enabled || !!unresolved || receipt?.status==='PENDING' || receipt?.status==='NEEDS_REVIEW';
  function finish(value:unknown,p:TransferPending){
   const t=parseTransfer(value,userID);if(BigInt(t.amount_units)!==amountUnits(p.amount))throw new Error('Receipt amount mismatch');
@@ -66,7 +66,7 @@ export function QuotaActivation({client,userID}:{client:ApiClient;userID:string}
    {!r.data.wallet.initialized?<Empty title="先建立钱包">请返回钱包页初始化，领取的每日签到额度将进入 Reserve。</Empty>:<section className="wallet-balances" aria-label="划转两端余额"><article className="panel wallet-balance"><BalanceEmblem /><div><p className="eyebrow">FROM / RESERVE</p><h2>储备 API Credit</h2><p className="wallet-amount">{balance?.amount}</p><p className="hint">可转入的来源余额</p></div></article><article className="panel wallet-balance"><BalanceEmblem /><div><p className="eyebrow">TO / ACTIVE</p><h2>原生可用 API Credit</h2><p className="wallet-amount">{r.data.native.amount}</p><p className="hint">{r.data.native.raw_quota} 原生单位 · 随 API 使用变化</p></div></article></section>}
    {!r.data.native.enabled && <Alert>额度划转暂未启用；已有回执仍可查看。</Alert>}
   </>}
-  <section className="panel finance-exchange"><form className="exchange-form" onSubmit={submit}><label>转入数量<input inputMode="decimal" maxLength={30} value={amount} disabled={blocked} onChange={e=>setAmount(e.target.value)} placeholder="例如 100"/></label><p className="hint">最小步长 0.000002 API Credit；只使用 Reserve，不自动兑换筹码。</p>{amount && <p aria-live="polite">{!valid?'请填写可精确表示、且不超过来源余额的数量。':`扣除 ${amount} Reserve API Credit，转入 ${amount} 原生可用 API Credit。`}</p>}<button className="primary" disabled={blocked || !valid}>确认转入原生额度</button>{(unresolved||tracking) && <p className="hint">上一笔划转尚在处理或核对中，新划转暂缓。后台会继续处理原请求。</p>}</form></section>
+  <section className="panel finance-exchange"><form className="exchange-form" onSubmit={submit}><label>转入数量<input inputMode="decimal" maxLength={30} value={amount} disabled={blocked} onChange={e=>setAmount(e.target.value)} placeholder="例如 100"/></label><p className="hint">最小步长 0.000002，单笔最多 4294.967294 API Credit；只使用 Reserve，不自动兑换筹码。</p>{amount && <p aria-live="polite">{!valid?'请填写可精确表示、且不超过来源余额的数量。':`扣除 ${amount} Reserve API Credit，转入 ${amount} 原生可用 API Credit。`}</p>}<button className="primary" disabled={blocked || !valid}>确认转入原生额度</button>{(unresolved||tracking) && <p className="hint">上一笔划转尚在处理或核对中，新划转暂缓。后台会继续处理原请求。</p>}</form></section>
   <section className="panel finance-history finance-transfers"><p className="eyebrow">RECENT / TRANSFERS</p><h2>最近 20 笔划转</h2><p className="hint">已退回表示目标未入账、Reserve 已恢复；待人工核对时请保留交易编号。</p>{r.data && !r.loading && !r.error && (r.data.history.length===0?<Empty title="暂无划转">主动确认转入后，这里会显示进度与回执。</Empty>:<div className="table-wrap" role="region" aria-label="原生额度划转记录" tabIndex={0}><table><thead><tr><th>时间 / 编号</th><th>API Credit</th><th>状态</th></tr></thead><tbody>{r.data.history.map(t=><tr key={t.id}><td><time dateTime={t.created_at}>{new Date(t.created_at).toLocaleString('zh-CN',{hour12:false})}</time><small className="transaction-id">{t.id}</small></td><td className="numeric">{t.amount}</td><td>{transferStatus[t.status]}{t.reason && <small>{t.reason}</small>}</td></tr>)}</tbody></table></div>)}</section>
  </WalletChamber>;
 }

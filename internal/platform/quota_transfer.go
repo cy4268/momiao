@@ -86,6 +86,10 @@ func (s *Store) CreateQuotaTransfer(ctx context.Context, user int64, key string,
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return QuotaTransfer{}, err
 	}
+	// Resolve accepted historical keys before applying the current Native limit.
+	if amount > MaxNativeQuotaDelta {
+		return QuotaTransfer{}, ErrInvalidMutation
+	}
 	if pending, err := unresolvedAPIChips(ctx, tx, user); err != nil {
 		return QuotaTransfer{}, err
 	} else if pending {
@@ -191,18 +195,46 @@ func (s *Store) ProcessQuotaTransferByID(ctx context.Context, native NativeQuota
 }
 
 func settleQuotaTransfer(ctx context.Context, tx pgx.Tx, native NativeQuotaOperator, v QuotaTransfer) (QuotaTransfer, error) {
-	receipt, err := native.Credit(ctx, v.ID, v.UserID, v.AmountUnits)
+	var receipt NativeQuotaReceipt
+	var err error
+	rejection := ""
+	if v.AmountUnits > MaxNativeQuotaDelta {
+		// The signed Native port rejects this amount before sending an apply.
+		// Never apply it again; first preserve any receipt from a legacy adapter.
+		receipt, err = native.QueryQuotaOperation(ctx, v.ID, v.UserID)
+		if err == nil {
+			if receipt.ID != v.ID || receipt.UserID != v.UserID {
+				return QuotaTransfer{}, ErrNativeQuotaDependency
+			}
+			switch receipt.Result {
+			case "NOT_APPLIED":
+				if receipt.DeltaRawQuota != 0 || receipt.Before != nil || receipt.After != nil {
+					return QuotaTransfer{}, ErrNativeQuotaDependency
+				}
+				rejection = "AMOUNT_OUT_OF_RANGE"
+			case "APPLIED":
+				// Checked against the original amount below, never compensated.
+			default:
+				return QuotaTransfer{}, ErrNativeQuotaDependency
+			}
+		}
+	} else {
+		receipt, err = native.Credit(ctx, v.ID, v.UserID, v.AmountUnits)
+	}
 	if err != nil {
 		return QuotaTransfer{}, err
 	} // Unknown target outcome stays PENDING; never replace its operation ID.
 	status, reason := "CONFIRMED", ""
 	if receipt.Result != "APPLIED" {
-		switch receipt.Result {
-		case "ACCOUNT_RESTRICTED", "SOURCE_INCOMPATIBLE", "BALANCE_OVERFLOW":
-		default:
-			return QuotaTransfer{}, errors.New("unrecognized native outcome")
+		if rejection == "" {
+			switch receipt.Result {
+			case "ACCOUNT_RESTRICTED", "SOURCE_INCOMPATIBLE", "BALANCE_OVERFLOW":
+			default:
+				return QuotaTransfer{}, errors.New("unrecognized native outcome")
+			}
+			rejection = receipt.Result
 		}
-		status, reason = "REFUNDED", receipt.Result
+		status, reason = "REFUNDED", rejection
 		sub, e := tx.Begin(ctx)
 		if e != nil {
 			return QuotaTransfer{}, e
@@ -217,7 +249,8 @@ func settleQuotaTransfer(ctx context.Context, tx pgx.Tx, native NativeQuotaOpera
 		} else if e = sub.Commit(ctx); e != nil {
 			return QuotaTransfer{}, e
 		}
-	} else if receipt.Before == nil || receipt.After == nil || *receipt.Before < 0 || *receipt.After-*receipt.Before != v.AmountUnits {
+	} else if receipt.ID != v.ID || receipt.UserID != v.UserID || receipt.DeltaRawQuota != v.AmountUnits ||
+		receipt.Before == nil || receipt.After == nil || *receipt.Before < 0 || *receipt.After < *receipt.Before || *receipt.After-*receipt.Before != v.AmountUnits {
 		return QuotaTransfer{}, errors.New("invalid native receipt")
 	}
 	v, err = scanTransfer(tx.QueryRow(ctx, `UPDATE economy.quota_transfers SET status=$2,reason=$3,native_before=$4,native_after=$5,updated_at=clock_timestamp() WHERE transfer_id=$1 RETURNING `+transferColumns, v.ID, status, reason, receipt.Before, receipt.After))

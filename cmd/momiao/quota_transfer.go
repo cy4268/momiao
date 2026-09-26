@@ -101,6 +101,10 @@ func newQuotaHandler(origin string, store quotaTransferStore, native nativeQuota
 				}
 				result = old
 			} else {
+				if units > platform.MaxNativeQuotaDelta {
+					walletError(w, 400, "INVALID_AMOUNT")
+					return
+				}
 				snapshot, e := native.ReadNativeQuota(ctx, user)
 				if e != nil || !snapshot.Enabled {
 					walletError(w, 503, "QUOTA_TRANSFER_UNAVAILABLE")

@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"sync"
 	"testing"
@@ -213,5 +214,114 @@ func TestQuotaTransferIntegration(t *testing.T) {
 	key5, _ := uuidV7()
 	if _, err = s.CreateQuotaTransfer(ctx, user, key5, before.BalanceUnits+1); !errors.Is(err, ErrInsufficientBalance) {
 		t.Fatal(err)
+	}
+}
+
+func TestQuotaTransferOutOfRangeRecovery(t *testing.T) {
+	s := integrationStore(t)
+	ctx := context.Background()
+	const oversized int64 = 2_750_500_000
+	for _, applied := range []bool{false, true} {
+		user := int64(870002)
+		if applied {
+			user++
+		}
+		mustEnsure(t, s, user)
+		id, _ := uuidV7()
+		mustApply(t, s, mutation(user, "legacy-large-reserve-"+id, oversized+50_000_000))
+		key, _ := uuidV7()
+		hash := sha256.Sum256([]byte(key))
+		// Reproduce a durable request accepted by the old JS-safe amount guard.
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = applyInTx(ctx, tx, Mutation{UserID: user, Asset: ReserveAPICredit, DeltaUnits: -oversized, BizType: "NATIVE_QUOTA_TRANSFER", BizID: id + ":debit", EntryType: "RESERVE_TO_ACTIVE_DEBIT", IdempotencyKey: "quota:" + id + ":debit"})
+		if err == nil {
+			_, err = tx.Exec(ctx, `INSERT INTO economy.quota_transfers(transfer_id,newapi_user_id,request_key_hash,amount_units,status) VALUES($1,$2,$3,$4,'PENDING')`, id, user, hash[:], oversized)
+		}
+		if err != nil {
+			rollback(tx)
+			t.Fatal(err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		native := &exchangeNative{}
+		if applied {
+			before, after := int64(0), oversized
+			native.effects = map[string]NativeQuotaReceipt{id: {ID: id, UserID: user, DeltaRawQuota: oversized, Before: &before, After: &after, Result: "APPLIED"}}
+		} else {
+			// An ambiguous or foreign receipt must neither refund nor release the request.
+			for _, forged := range []bool{false, true} {
+				native.unknown, native.forged = !forged, forged
+				if _, err = s.ProcessQuotaTransfer(ctx, native); err == nil {
+					t.Fatal("unreliable legacy outcome was settled")
+				}
+				pending, _ := s.QuotaTransferByKey(ctx, user, key)
+				wallet, _ := s.ReadWallet(ctx, user, ReserveAPICredit)
+				if pending.Status != "PENDING" || wallet.BalanceUnits != 50_000_000 || len(native.effects) != 0 {
+					t.Fatal("unknown outcome changed source or destination", pending, wallet)
+				}
+			}
+			native.unknown, native.forged = false, false
+		}
+		if worked, err := s.ProcessQuotaTransfer(ctx, native); err != nil || !worked {
+			t.Fatal("legacy queue head did not settle", worked, err)
+		}
+		got, err := s.QuotaTransferByKey(ctx, user, key)
+		wantStatus, wantRefund := "REFUNDED", 1
+		if applied {
+			wantStatus, wantRefund = "CONFIRMED", 0
+		}
+		if err != nil || got.Status != wantStatus {
+			t.Fatalf("legacy result=%+v err=%v want=%s", got, err, wantStatus)
+		}
+		if !applied && (got.Reason != "AMOUNT_OUT_OF_RANGE" || len(native.effects) != 0) {
+			t.Fatal("oversized request was applied instead of refunded", got, native.effects)
+		}
+		replay, err := s.CreateQuotaTransfer(ctx, user, key, oversized)
+		if err != nil || replay.ID != id || replay.Status != wantStatus {
+			t.Fatal("old key replay was blocked or replaced", replay, err)
+		}
+		if worked, err := s.ProcessQuotaTransfer(ctx, native); err != nil || worked {
+			t.Fatal("settled request was retried", worked, err)
+		}
+		var refunds int
+		if err = s.pool.QueryRow(ctx, `SELECT count(*) FROM economy.wallet_ledger WHERE newapi_user_id=$1 AND biz_id=$2`, user, id+":refund").Scan(&refunds); err != nil || refunds != wantRefund {
+			t.Fatal("legacy refund must occur exactly once, only if not applied", refunds, err)
+		}
+		if applied {
+			continue
+		}
+		newKey, _ := uuidV7()
+		if _, err = s.CreateQuotaTransfer(ctx, user, newKey, 1<<31); !errors.Is(err, ErrInvalidMutation) {
+			t.Fatal("new out-of-range transfer accepted", err)
+		}
+		wallet, _ := s.ReadWallet(ctx, user, ReserveAPICredit)
+		if wallet.BalanceUnits != oversized+50_000_000 {
+			t.Fatal("rejection or duplicate recovery changed Reserve", wallet)
+		}
+		manual, err := s.CreateQuotaTransfer(ctx, user, newKey, 50_000_000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = s.ProcessQuotaTransfer(ctx, native); err != nil {
+			t.Fatal("valid transfer behind old queue head did not progress", err)
+		}
+		manual, err = s.ProcessQuotaTransferByID(ctx, native, manual.ID, user)
+		if err != nil || manual.Status != "CONFIRMED" || len(native.effects) != 1 {
+			t.Fatal("manual settlement or replay", manual, err)
+		}
+		// Simulated consumption drops Active below LOW; the existing refill path must resume.
+		native.quota = 0
+		service, err := NewActiveQuotaRefillService(s, native, ActiveQuotaRefillPolicy{Enabled: true, LowWatermark: 10_000_000, TargetWatermark: 50_000_000, MaxActiveBuffer: 500_000_000})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := service.Refill(ctx, ActiveQuotaRefillRequest{UserID: user, RequestID: "after-legacy-refund-refill", RequiredRawQuota: 1})
+		if err != nil || result.Result != ActiveQuotaRefilled || native.quota != 50_000_000 || len(native.effects) != 2 {
+			t.Fatal("automatic refill stayed blocked after recovery", result, err)
+		}
 	}
 }

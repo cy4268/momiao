@@ -1,6 +1,6 @@
 # Reserve → native Active quota
 
-Current slice: explicit, one-way, fee-free transfer from Reserve into native API quota. No automatic refill, reverse transfer, ordinary credit-purchase shop or game payout. `/wallet/activate` uses the existing authenticated portal; opening it never moves assets.
+This contract covers explicit, one-way, fee-free transfer from Reserve into native API quota. Request-time automatic refill uses the separate refill service and the same durable transfer path. No reverse transfer, ordinary credit-purchase shop or game payout. `/wallet/activate` uses the existing authenticated portal; opening it never moves assets.
 
 ## HTTP
 
@@ -13,21 +13,27 @@ All routes verify the current native identity through the fixed upstream. Body/q
 | `GET /platform/v1/quota-transfers/by-key?key=UUID` | Own original receipt or `null` |
 | `POST /platform/v1/quota-transfers` | `202` durable intent; same-key replay `200` original receipt |
 
-POST body: exactly `{"idempotency_key":"lowercase UUID","amount":"100"}`. Requires exact configured HTTPS Origin, JSON content type, max 2048 UTF-8 bytes, no duplicate/unknown fields. Positive exact decimal with at most six fractional digits; no rounding. 500,000 atomic units = 1 API Credit; native raw units map 1:1. Technical request/target ceiling: 9,007,199,254,740,991 raw units (current native browser precision), not a business entitlement or load limit.
+POST body: exactly `{"idempotency_key":"lowercase UUID","amount":"100"}`. Requires exact configured HTTPS Origin, JSON content type, max 2048 UTF-8 bytes, no duplicate/unknown fields. Positive exact decimal with at most six fractional digits; no rounding. 500,000 atomic units = 1 API Credit; native raw units map 1:1. Each **new** transfer is limited to 2,147,483,647 raw units (4,294.967294 API Credit), matching the signed native quota port. Over-limit requests are rejected before a source debit. Historical receipt decoding and same-key replay retain the previous 9,007,199,254,740,991 raw-unit range; a changed amount with the same key is still a conflict.
 
 Receipt fields: `id`, `user_id`, `amount_units`, `amount`, `status`, `reason`, `native_before`, `native_after`, `created_at`, `updated_at`. Before/after are nullable signed integer strings. For CONFIRMED, after = before + requested units; they describe the historical target transaction, not the current balance after subsequent API usage.
 
 States:
 - `PENDING`: source debit and durable intent committed; a worker continues independently of the browser.
 - `CONFIRMED`: target-local journal confirms the exact addition.
-- `REFUNDED`: target durably rejected the operation and the exact Reserve debit was refunded atomically with local completion.
+- `REFUNDED`: target rejected the operation, or a legacy over-limit request was verified not applied, and the exact Reserve debit was refunded atomically with local completion.
 - `NEEDS_REVIEW`: target rejected, but local refund hit a storage bound. Original operation remains locked for operator reconciliation; never imply refunded.
 
 `409`: insufficient Reserve, wallet absent, another unresolved transfer, or same key/different amount. `400`: invalid fields/amount; `401/403`: native identity/origin rejection; `405/415`: method/content type; `503`: unavailable dependency/configuration. Errors contain only stable codes, not database details.
 
 The browser persists the non-secret original key and amount before POST. Uncertain responses lock new submissions; explicit GET lookup precedes any same-key retry. Only GET polling is automatic. A confirmed same-key receipt remains replayable when new transfers are disabled. One unresolved transfer per account prevents accumulating ambiguous transfers.
 
-## Source-backed target adapter
+## Current signed-port recovery
+
+The signed native port rejects deltas above 2,147,483,647 before execution. For an older over-limit `PENDING` transfer, the worker only queries the **original** operation ID; it never submits another credit. A matching `APPLIED` receipt confirms the original transfer. A matching `NOT_APPLIED` receipt with no delta or balance fields permits the original debit to be refunded once, with reason `AMOUNT_OUT_OF_RANGE`. Errors, `UNKNOWN`, mismatched identities, malformed receipts and inconsistent amounts remain pending, never treated as failed credits. Stop the old platform worker before starting the replacement during rollout; retain the original native operation journal and fences.
+
+Automatic refill remains request-triggered, not a timer on the wallet page. An unresolved transfer prevents another debit for that account; settling its original request releases that guard without changing refill policy.
+
+## Historical SQL target adapter
 
 Pinned native revision: `f116414284162ad15d8925f7bca494c109b83e93`; image digest `sha256:54a0b10924aa75fa5b5947208b820ced66b6ef4b445b35f122b31d80676aba2b`.
 

@@ -38,6 +38,8 @@ func TestQuotaTransferHTTP(t *testing.T) {
 		{"POST", "/platform/v1/quota-transfers", `{"idempotency_key":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","amount":"1","amount":"2"}`, 400},
 		{"POST", "/platform/v1/quota-transfers", `{"idempotency_key":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","amount":"1","user_id":"2"}`, 400},
 		{"POST", "/platform/v1/quota-transfers", `{"idempotency_key":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","amount":"0.000001"}`, 400},
+		{"POST", "/platform/v1/quota-transfers", `{"idempotency_key":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","amount":"4294.967296"}`, 400},
+		{"POST", "/platform/v1/quota-transfers", `{"idempotency_key":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","amount":"5501"}`, 400},
 		{"GET", "/platform/v1/quota-transfers/by-key?key=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "", 200},
 		{"GET", "/platform/v1/native-quota", "", 200},
 		{"GET", "/platform/v1/native-quota?user_id=2", "", 400},

@@ -9,5 +9,7 @@ it('validates exact native quota and original transfer receipts',()=>{
  expect(parseTransfer(t,'1').id).toBe(t.id);
  for(const change of [{user_id:'2'},{amount:'1.000001'},{native_after:'500004'},{status:'UNKNOWN'},{amount_units:'-1'}])expect(()=>parseTransfer({...t,...change},'1')).toThrow();
  expect(parseTransferPending(JSON.stringify({key:t.id,amount:'0.000002'}))?.amount).toBe('0.000002');
+ expect(parseTransfer({...t,amount:'5501',amount_units:'2750500000',status:'REFUNDED',native_before:null,native_after:null},'1').amount).toBe('5501');
+ expect(parseTransferPending(JSON.stringify({key:t.id,amount:'5501'}))?.amount).toBe('5501');
  expect(()=>parseTransferPending(JSON.stringify({key:t.id,amount:'0.000001'}))).toThrow();
 });

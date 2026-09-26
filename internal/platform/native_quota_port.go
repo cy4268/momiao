@@ -18,6 +18,10 @@ import (
 
 const nativeQuotaPortMaxResponse = 16 << 10
 
+// MaxNativeQuotaDelta is the signed Native port's per-operation limit. Historical
+// transfer receipts retain their original wider storage range.
+const MaxNativeQuotaDelta int64 = 1<<31 - 1
+
 var ErrNativeQuotaDependency = errors.New("native quota dependency unavailable")
 
 type NativeQuotaPort struct {
@@ -122,7 +126,9 @@ func decodeQuotaJSON(raw []byte, target any) error {
 }
 
 func validateQuotaUser(user int64) bool { return user > 0 && user <= 1<<31-1 }
-func validateQuotaDelta(delta int64) bool { return delta != 0 && delta >= -(1<<31-1) && delta <= 1<<31-1 }
+func validateQuotaDelta(delta int64) bool {
+	return delta != 0 && delta >= -MaxNativeQuotaDelta && delta <= MaxNativeQuotaDelta
+}
 
 func validQuotaResult(result string) bool {
 	switch result {
