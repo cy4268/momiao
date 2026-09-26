@@ -29,9 +29,15 @@ var errCatalogAssetUpload = errors.New("CATALOG_ASSET_UPLOAD_FAILED")
 
 func loadCatalogAssetConfig(lookup func(string) (string, bool)) (catalogAssetConfig, error) {
 	var c catalogAssetConfig
-	c.AccountID, _ = lookup("MOMIAO_CATALOG_ASSET_R2_ACCOUNT_ID")
-	c.Bucket, _ = lookup("MOMIAO_CATALOG_ASSET_R2_BUCKET")
-	c.CredentialsFile, _ = lookup("MOMIAO_CATALOG_ASSET_R2_CREDENTIALS_FILE")
+	if value, ok := lookup("MOMIAO_CATALOG_ASSET_R2_ACCOUNT_ID"); ok {
+		c.AccountID = value
+	}
+	if value, ok := lookup("MOMIAO_CATALOG_ASSET_R2_BUCKET"); ok {
+		c.Bucket = value
+	}
+	if value, ok := lookup("MOMIAO_CATALOG_ASSET_R2_CREDENTIALS_FILE"); ok {
+		c.CredentialsFile = value
+	}
 	if c == (catalogAssetConfig{}) {
 		return c, nil
 	}

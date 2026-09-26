@@ -185,3 +185,5 @@ npm run build
 执行中补充 `MOMIAO_ASSET_CDN_ORIGIN`：实际 Go portal 的默认 CSP 为 self-only，必须明确允许同一 HTTPS CDN origin（仅 img-src），否则静态预览成功也不代表真实服务器可显示。其它 CSP 与认证行为不变。
 
 源码回退包仅作用于独立副本，不降级数据库。旧基线在单独匹配的基线测试库通过；旧二进制对已含 0040 的库明确拒绝启动，已在部署说明中记录。
+
+CI 补充核对：既有 `TestConfigOverridesAndValidation` 暴露 R2 配置读取忽略 lookup 的存在标记。修正三项读取均仅接受 `ok=true` 的值，保留该测试原样；仅额外运行此既有配置用例与原密钥配置用例，RED→GREEN。未增加测试声明或本地全套运行。
