@@ -473,6 +473,11 @@ func (handler economyAdjustmentOpsHandler) Prepare(ctx context.Context, tx pgx.T
 	if handler.store == nil || tx == nil {
 		return OpsPreparedMaterial{}, ErrOpsUnavailable
 	}
+	// An Ops adjustment must not change a frozen cohort between batch checks.
+	if err := lockIdentity(ctx, tx, "gambler-campaign", GamblerCampaignID); err != nil { return OpsPreparedMaterial{}, err }
+	var frozen bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM economy.gambler_campaigns WHERE phase IN('SNAPSHOT_PREPARING','RESET_PREPARING','RESET_READY','RESET_RUNNING') OR phase='COMPLETED' AND policy_activated_at IS NULL)`).Scan(&frozen); err != nil { return OpsPreparedMaterial{}, err }
+	if frozen { return OpsPreparedMaterial{}, ErrGamblerBlocked }
 	user, err := canonicalTargetUser(request.Target)
 	if err != nil {
 		return OpsPreparedMaterial{}, err

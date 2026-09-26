@@ -116,6 +116,10 @@ func (s *Store) PlanActiveQuotaRefill(ctx context.Context, native NativeQuotaOpe
 		return ActiveQuotaRefillPlan{}, err
 	}
 	defer rollback(tx)
+	// Fence only new acceptance; retries of an accepted transfer may drain.
+	var accepted bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM economy.quota_transfers WHERE newapi_user_id=$1 AND request_key_hash=$2)`, request.UserID, keyHash[:]).Scan(&accepted); err != nil { return ActiveQuotaRefillPlan{}, err }
+	if !accepted { if err = RequireNoMaintenance(ctx, tx, "CHALDEA_USER_WRITES", "WALLET_EXCHANGE"); err != nil { return ActiveQuotaRefillPlan{}, err } }
 	if err = lockIdentity(ctx, tx, "quota-transfer-user", request.UserID); err != nil {
 		return ActiveQuotaRefillPlan{}, err
 	}

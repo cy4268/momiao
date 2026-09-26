@@ -51,6 +51,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 	var sessionApp *sessionApplication
 	var runtimeStore *platform.Store
 	var opsEconomy *platform.OpsEconomyService
+	var campaign *platform.GamblerCampaignService
 	var pokerOpsPort PokerOpsPort
 	var pokerControl *sessionPokerControl
 	if cfg.Session.Enabled && cfg.Poker.Enabled {
@@ -131,12 +132,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		defer func() { stopAnnouncements(); <-announcementsDone }()
 		if cfg.OpsEnvironment != "" {
 		cfg.maintenanceNotices=newMaintenanceNoticesHandler(store,cfg.OpsEnvironment)
-		maintenanceCtx, stopMaintenance := context.WithCancel(ctx)
-		maintenanceDone := make(chan struct{})
-		maintenanceHealth := &maintenanceWorkerHealth{}
-		cfg.readiness["maintenance_worker"] = maintenanceHealth.check
-		go func() { defer close(maintenanceDone); runMaintenanceWorker(maintenanceCtx, store, cfg.OpsEnvironment, maintenanceHealth) }()
-		defer func() { stopMaintenance(); <-maintenanceDone }()
+
 		}
 		if cfg.NativeQuotaKeyFile != "" {
 			key, err := readPokerReaderKey(cfg.NativeQuotaKeyFile)
@@ -284,6 +280,17 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			if sessionApp == nil { return errors.New("Ops startup requires opaque sessions") }
 			opsEconomy, err = platform.NewOpsEconomyService(store, unifiedAssets)
 			if err != nil { return errors.New("Ops economy startup failed") }
+			campaign,err=platform.NewGamblerCampaignService(store,unifiedAssets)
+			if err!=nil{return errors.New("campaign startup failed")}
+		maintenanceCtx, stopMaintenance := context.WithCancel(ctx)
+		maintenanceDone := make(chan struct{})
+		maintenanceHealth := &maintenanceWorkerHealth{}
+		cfg.readiness["maintenance_worker"] = maintenanceHealth.check
+		go func() { defer close(maintenanceDone); runMaintenanceWorker(maintenanceCtx, store, cfg.OpsEnvironment, maintenanceHealth,func(work context.Context)(bool,error){
+                more,e:=campaign.RunBatch(work,platform.GamblerCampaignID,1);if e!=nil||more{return more,e}
+                return campaign.RefreshRankings(work,func(c context.Context)(string,error){return cfg.rankings.Build(c,"ASSETS","CURRENT","")})
+            }) }()
+		defer func() { stopMaintenance(); <-maintenanceDone }()
 		}
 	}
 	if cfg.Poker.Enabled && cfg.PokerRemoteSocket != "" {
@@ -313,6 +320,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 	}
 	if cfg.OpsEnvironment!=""&&runtimeStore!=nil {
 		bindings := append(platform.MaintenanceOpsBindings(), opsEconomy.OpsBindings()...)
+		bindings=append(bindings,campaign.OpsBindings()...)
 		bindings = append(bindings, platform.OpsSupportBindings(runtimeStore)...)
 		bindings = append(bindings, platform.OpsIncidentBindings(runtimeStore)...)
 		bindings = append(bindings, games.OpsBindings(cfg.games)...)
@@ -324,6 +332,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		opsReads:=newOpsPokerHandler(cfg.sessions,runtimeStore,pokerOpsPort,newOpsSupportRecordsHandler(cfg.sessions, runtimeStore, cfg.history, newOpsEconomyRuntimeHandler(cfg.sessions, opsEconomy, newOpsRuntimeHandler(cfg.sessions, runtimeStore, cfg.OpsEnvironment))))
 		opsReads=newOpsGamesHandler(cfg.sessions,runtimeStore,cfg.games,opsReads)
 		opsReads=newOpsRankingsHandler(cfg.sessions,runtimeStore,cfg.rankings,opsReads)
+		opsReads=newOpsGamblerHandler(cfg.sessions,campaign,opsReads)
 		cfg.ops = newOpsHandler(cfg.sessions, opsService, opsFactorAdapter{auth:sessionApp.auth}, "UNKNOWN", opsReads)
 		remoteCtx,stopRemote:=context.WithCancel(ctx);remoteDone:=make(chan struct{})
 		remoteHealth:=&opsRemoteWorkerHealth{}

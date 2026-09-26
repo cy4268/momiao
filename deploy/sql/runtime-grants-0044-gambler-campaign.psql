@@ -14,6 +14,7 @@ SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_roles r,pg_catalog.pg_roles o
 GRANT USAGE ON SCHEMA identity,economy TO :"runtime_role";
 GRANT SELECT,INSERT ON identity.account_badges TO :"runtime_role";
 GRANT SELECT,INSERT,UPDATE ON economy.gambler_campaigns,economy.gambler_campaign_accounts TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION economy.gambler_drain_read() TO :"runtime_role";
 COMMIT;
 \else
  DO $$BEGIN RAISE EXCEPTION 'campaign runtime role separation is invalid'; END$$;
@@ -21,3 +22,4 @@ COMMIT;
 \else
  \echo 'Dry run: apply_grants=true is required for the platform runtime only.'
 \endif
+

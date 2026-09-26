@@ -40,6 +40,9 @@ func (s *Store) EnsureProvisionalProfile(ctx context.Context, user int64) (Profi
 		return Profile{}, err
 	}
 	defer rollback(tx)
+	var existing bool
+	if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM identity.account_refs WHERE newapi_user_id=$1)", user).Scan(&existing); err != nil { return Profile{}, err }
+	if !existing { if err = RequireNoMaintenance(ctx, tx, "CHALDEA_USER_WRITES"); err != nil { return Profile{}, err } }
 	if err = lockIdentity(ctx, tx, "master-profile.initialize.v1", user); err != nil {
 		return Profile{}, err
 	}
@@ -89,6 +92,7 @@ func (s *Store) IngestRegistrationPage(ctx context.Context, after int64, page Re
 		return err
 	}
 	defer rollback(tx)
+	if err = RequireNoMaintenance(ctx, tx, "CHALDEA_USER_WRITES", "REWARDS"); err != nil { return err }
 	var cursor int64
 	if err = tx.QueryRow(ctx, "SELECT ordinal FROM platform_meta.registration_cursor WHERE singleton FOR UPDATE").Scan(&cursor); err != nil {
 		return err

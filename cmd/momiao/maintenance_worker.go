@@ -16,12 +16,13 @@ func(h *maintenanceWorkerHealth) check(ctx context.Context)error{
  if h.failed||h.checkedAt.IsZero()||time.Since(h.checkedAt)>15*time.Second{return errors.New("maintenance worker unavailable")};return nil
 }
 
-func runMaintenanceWorker(ctx context.Context, store *platform.Store,environment string,health *maintenanceWorkerHealth) {
+func runMaintenanceWorker(ctx context.Context, store *platform.Store,environment string,health *maintenanceWorkerHealth, extra ...func(context.Context)(bool,error)) {
  for {
   if ctx.Err()!=nil { return }
   call,cancel:=context.WithTimeout(ctx,5*time.Second)
   progressed,err:=store.RunMaintenanceStep(call,environment)
   cancel()
+  if err==nil {for _,step:=range extra {call,cancel=context.WithTimeout(ctx,5*time.Second);more,e:=step(call);cancel();progressed=progressed||more;if e!=nil{err=e;break}}}
   health.observe(err)
   if err==nil&&progressed { continue }
   timer:=time.NewTimer(2*time.Second)
