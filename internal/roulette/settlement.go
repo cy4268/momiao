@@ -159,6 +159,28 @@ func (s *Service) settle(ctx context.Context, tx pgx.Tx, r *round, players []par
 		return e
 	}
 	defer payout.Rollback(ctx)
+	decisions := map[int64]platform.CapSettlement{}
+	if r.Economy.Version != "" && !r.Outcome.Refunds {
+		for _, p := range players {
+			if !p.Ready || p.Seat == nil {
+				continue
+			}
+			gross := int64(0)
+			for _, a := range r.Outcome.Awards {
+				if a.User == p.User {
+					gross = a.Amount
+				}
+			}
+			c, e := platform.PrepareCapSettlementInTx(ctx, payout, s.observer, r.Economy, p.User, r.Stake, gross, 1)
+			if e != nil {
+				return e
+			}
+			if e = platform.RecordCapSettlementInTx(ctx, payout, "ROULETTE_ROUND", r.ID, p.User, c); e != nil {
+				return e
+			}
+			decisions[p.User] = c
+		}
+	}
 	for _, a := range r.Outcome.Awards {
 		i := slices.IndexFunc(players, func(p participant) bool { return p.User == a.User })
 		if i < 0 {
@@ -171,7 +193,11 @@ func (s *Service) settle(ctx context.Context, tx pgx.Tx, r *round, players []par
 				kind = "VOID_REFUND"
 			}
 		}
-		if e = fund(ctx, payout, r, players[i], kind, a.Amount); e != nil {
+		amount := a.Amount
+		if c, ok := decisions[a.User]; ok {
+			amount = c.CreditedPayoutUnits
+		}
+		if e = fund(ctx, payout, r, players[i], kind, amount); e != nil {
 			if errors.Is(e, platform.ErrBalanceOverflow) || errors.Is(e, platform.ErrIdempotencyConflict) {
 				if e = payout.Rollback(ctx); e != nil {
 					return e

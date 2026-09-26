@@ -23,6 +23,7 @@ GRANT SELECT,INSERT ON economy.cap_settlements TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION economy.cap_wallets_read(bigint),economy.cap_pending_transfers_read(bigint),economy.cap_pending_exchanges_read(bigint),economy.cap_local_assets_read(bigint),economy.unified_poker_assets_read(bigint) TO :"runtime_role";
 \if :platform_writer
 GRANT SELECT,INSERT ON economy.reward_request_keys TO :"runtime_role";
+GRANT UPDATE(cap_withheld_units) ON games.game_rounds TO :"runtime_role";
 GRANT UPDATE(active_version) ON economy.policy_runtime TO :"runtime_role";
 \endif
 COMMIT;

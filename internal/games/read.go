@@ -35,12 +35,23 @@ func (s *Service) readRoundMode(ctx context.Context, tx pgx.Tx, user int64, id s
 			return r, err
 		}
 	}
-	err = tx.QueryRow(ctx, `SELECT round_id::text,game_slug,state,recovery_state,typed_input,total_stake_units,total_payout_units,net_change_units,coalesce(common_result,''),balance_before_units,balance_after_units,wager_transaction_id::text,coalesce(settlement_transaction_id::text,''),game_config_version_id::text,encode(game_config_hash,'hex'),wager_policy_version_id::text,encode(wager_policy_hash,'hex'),algorithm_version,ruleset_version,fairness_stream_version,nonce,commitment_id::text,created_at,settled_at FROM games.game_rounds WHERE round_id=$1 AND newapi_user_id=$2`, id, user).Scan(&r.ID, &r.Game, &r.State, &r.RecoveryState, &raw, &r.StakeUnits, &r.PayoutUnits, &r.NetUnits, &r.Outcome, &r.BalanceBeforeUnits, &r.BalanceAfterUnits, &r.WagerTransactionID, &r.SettlementTransactionID, &r.ConfigVersion, &r.ConfigHash, &r.PolicyVersion, &r.PolicyHash, &r.Algorithm, &r.Ruleset, &r.Stream, &r.Nonce, &r.CommitmentID, &r.CreatedAt, &r.SettledAt)
+	err = tx.QueryRow(ctx, `SELECT round_id::text,game_slug,state,recovery_state,typed_input,total_stake_units,total_payout_units,net_change_units,coalesce(common_result,''),balance_before_units,balance_after_units,wager_transaction_id::text,coalesce(settlement_transaction_id::text,''),game_config_version_id::text,encode(game_config_hash,'hex'),wager_policy_version_id::text,encode(wager_policy_hash,'hex'),algorithm_version,ruleset_version,fairness_stream_version,nonce,commitment_id::text,created_at,settled_at,coalesce(economic_policy_version,''),cap_withheld_units FROM games.game_rounds WHERE round_id=$1 AND newapi_user_id=$2`, id, user).Scan(&r.ID, &r.Game, &r.State, &r.RecoveryState, &raw, &r.StakeUnits, &r.PayoutUnits, &r.NetUnits, &r.Outcome, &r.BalanceBeforeUnits, &r.BalanceAfterUnits, &r.WagerTransactionID, &r.SettlementTransactionID, &r.ConfigVersion, &r.ConfigHash, &r.PolicyVersion, &r.PolicyHash, &r.Algorithm, &r.Ruleset, &r.Stream, &r.Nonce, &r.CommitmentID, &r.CreatedAt, &r.SettledAt, &r.EconomicVersion, &r.capWithheld)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return r, ErrNotFound
 	}
 	if err != nil {
 		return r, err
+	}
+	if r.EconomicVersion != "" && r.State == "SETTLED" {
+		c, e := platform.LoadCapSettlementInTx(ctx, tx, "DIRECT_PLAY_ROUND", id, user)
+		if e != nil {
+			return r, e
+		}
+		if c == nil || c.PolicyVersion != r.EconomicVersion || c.GrossPayoutUnits != r.PayoutUnits || c.WithheldUnits != r.capWithheld {
+			return r, platform.ErrEconomicPolicy
+		}
+		v := c.PublicView()
+		r.EconomySettlement = &v
 	}
 	if json.Unmarshal(raw, &r.Input) != nil {
 		return r, ErrUnavailable

@@ -22,6 +22,7 @@ type ReviewRoom struct {
 	Created time.Time `json:"created_at"`
 }
 type OpsStats struct {
+	WithheldUnits     string       `json:"withheld_units"`
 	EscrowUnits       string       `json:"escrow_units"`
 	FundedUnits       string       `json:"funded_units"`
 	RefundedUnits     string       `json:"refunded_units"`
@@ -45,11 +46,12 @@ func OpsStatsInTx(ctx context.Context, tx pgx.Tx, slug string) (OpsStats, error)
  coalesce(sum(amount_units::numeric) FILTER(WHERE kind IN('REFUND','VOID_REFUND')),0) refunded,
  coalesce(sum(amount_units::numeric) FILTER(WHERE kind='PAYOUT'),0) paid FROM roulette.funding JOIN r USING(round_id))
  SELECT coalesce(sum(escrow_units::numeric),0)::text,f.funded::text,f.refunded::text,f.paid::text,
- (f.funded-f.refunded-f.paid-coalesce(sum(escrow_units::numeric),0))::text,
+ (f.funded-f.refunded-f.paid-coalesce(sum(escrow_units::numeric),0)-(SELECT coalesce(sum(c.withheld_units::numeric),0) FROM economy.cap_settlements c JOIN r ON r.round_id::text=c.source_id WHERE c.source_kind='ROULETTE_ROUND'))::text,
+ (SELECT coalesce(sum(c.withheld_units::numeric),0)::text FROM economy.cap_settlements c JOIN r ON r.round_id::text=c.source_id WHERE c.source_kind='ROULETTE_ROUND'),
  count(*) FILTER(WHERE state='FINISHED'),count(*) FILTER(WHERE outcome->>'reason'='FORFEIT'),
  count(*) FILTER(WHERE state='FINISHED' AND jsonb_array_length(outcome->'eligible_seats')>1),
  count(*) FILTER(WHERE EXISTS(SELECT 1 FROM roulette.actions a WHERE a.round_id=r.round_id AND a.input->>'kind' IN('TIMEOUT','GAME_LIMIT'))),
- count(*) FILTER(WHERE state='NEEDS_REVIEW') FROM f LEFT JOIN r ON true GROUP BY f.funded,f.refunded,f.paid`, slug).Scan(&out.EscrowUnits, &out.FundedUnits, &out.RefundedUnits, &out.PaidUnits, &out.ConservationDelta, &out.Completed, &out.Surrendered, &out.Draws, &out.Timeouts, &out.NeedsReview)
+ count(*) FILTER(WHERE state='NEEDS_REVIEW') FROM f LEFT JOIN r ON true GROUP BY f.funded,f.refunded,f.paid`, slug).Scan(&out.EscrowUnits, &out.FundedUnits, &out.RefundedUnits, &out.PaidUnits, &out.ConservationDelta, &out.WithheldUnits, &out.Completed, &out.Surrendered, &out.Draws, &out.Timeouts, &out.NeedsReview)
 	if e != nil {
 		return out, e
 	}

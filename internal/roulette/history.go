@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cy4268/momiao/internal/historyaccess"
+	"github.com/cy4268/momiao/internal/platform"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -280,6 +281,30 @@ func verifyFunding(ctx context.Context, tx pgx.Tx, r *round, ps []participant) (
 	if held != 0 && !slices.ContainsFunc(ps, func(p participant) bool { return p.User == prevUser && p.Ready && p.Cycle == prevCycle }) {
 		valid = false
 	}
+	rows.Close()
+	withheld := map[int64]int64{}
+	if terminal(r) && r.Outcome != nil && !r.Outcome.Refunds && r.Economy.Version != "" {
+		for _, p := range ps {
+			if !p.Ready || p.Seat == nil {
+				continue
+			}
+			c, e := platform.LoadCapSettlementInTx(ctx, tx, "ROULETTE_ROUND", r.ID, p.User)
+			if e != nil {
+				return false, e
+			}
+			gross := int64(0)
+			for _, a := range r.Outcome.Awards {
+				if a.User == p.User {
+					gross = a.Amount
+				}
+			}
+			if c == nil || c.PolicyVersion != r.Economy.Version || c.StakeUnits != r.Stake || c.GrossPayoutUnits != gross || c.CreditedPayoutUnits != paid[p.User] {
+				return false, nil
+			}
+			withheld[p.User] = c.WithheldUnits
+			total.Sub(total, big.NewInt(c.WithheldUnits))
+		}
+	}
 	if total.Cmp(big.NewInt(r.Escrow)) != 0 {
 		return false, nil
 	}
@@ -296,7 +321,7 @@ func verifyFunding(ctx context.Context, tx pgx.Tx, r *round, ps []participant) (
 				return false, nil
 			}
 			for _, a := range r.Outcome.Awards {
-				if paid[a.User] != a.Amount {
+				if paid[a.User]+withheld[a.User] != a.Amount {
 					return false, nil
 				}
 			}
@@ -401,6 +426,9 @@ func (s *Service) HistoryDetail(ctx context.Context, access historyaccess.Access
 		out.Created = r.Created
 		out.Ended = r.Ended
 		out.View = project(r, ps, user, now)
+		if e = readCapView(ctx, tx, r, user, &out.View); e != nil {
+			return e
+		}
 		if r.Outcome != nil {
 			out.Reason = r.Outcome.Reason
 		}

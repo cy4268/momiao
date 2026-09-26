@@ -5,6 +5,7 @@ import (
 	"github.com/cy4268/momiao/internal/platform"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 type quotaFixture struct {
@@ -27,7 +28,10 @@ func (f *quotaFixture) QuotaTransfers(context.Context, int64) ([]platform.QuotaT
 	return []platform.QuotaTransfer{}, nil
 }
 func (f *quotaFixture) ReadNativeQuota(_ context.Context, u int64) (platform.NativeQuotaSnapshot, error) {
-	return platform.NativeQuotaSnapshot{UserID: u, RawQuota: 0, Amount: "0", Enabled: true}, nil
+	return platform.NativeQuotaSnapshot{UserID: u, RawQuota: 0, Amount: "0", Enabled: true, Result: "APPLIED", ObservedAt: time.Now().UTC()}, nil
+}
+func (f *quotaFixture) QueryQuotaOperation(_ context.Context, id string, user int64) (platform.NativeQuotaReceipt, error) {
+	return platform.NativeQuotaReceipt{ID: id, UserID: user, Result: "NOT_APPLIED"}, nil
 }
 func TestQuotaTransferHTTP(t *testing.T) {
 	for _, tc := range []struct {

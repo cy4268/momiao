@@ -41,15 +41,15 @@ func preference(ctx context.Context, tx pgx.Tx, user int64, slug string) (Client
 	return p, err
 }
 
-const commitmentColumns = `commitment_id::text,reserved_round_id::text,encode(server_seed_hash,'hex'),nonce,client_seed,client_seed_version,game_config_version_id::text,encode(game_config_hash,'hex'),ruleset_version,algorithm_version,fairness_stream_version,wager_policy_version_id::text,encode(wager_policy_hash,'hex'),resource_versions`
+const commitmentColumns = `commitment_id::text,reserved_round_id::text,encode(server_seed_hash,'hex'),nonce,client_seed,client_seed_version,game_config_version_id::text,encode(game_config_hash,'hex'),ruleset_version,algorithm_version,fairness_stream_version,wager_policy_version_id::text,encode(wager_policy_hash,'hex'),resource_versions,coalesce(economic_policy_version,'')`
 
 func scanCommitment(row pgx.Row) (Commitment, error) {
 	var c Commitment
-	err := row.Scan(&c.ID, &c.ReservedRoundID, &c.ServerSeedHash, &c.Nonce, &c.ClientSeed, &c.ClientVersion, &c.ConfigVersion, &c.ConfigHash, &c.Ruleset, &c.Algorithm, &c.Stream, &c.PolicyVersion, &c.PolicyHash, &c.Resources)
+	err := row.Scan(&c.ID, &c.ReservedRoundID, &c.ServerSeedHash, &c.Nonce, &c.ClientSeed, &c.ClientVersion, &c.ConfigVersion, &c.ConfigHash, &c.Ruleset, &c.Algorithm, &c.Stream, &c.PolicyVersion, &c.PolicyHash, &c.Resources, &c.EconomicVersion)
 	return c, err
 }
 func compatible(c Commitment, config runtimeConfig, p ClientSeedPreference) bool {
-	if c.ConfigVersion != config.Entry.Config.Version || c.ConfigHash != config.Entry.Config.Hash || c.Ruleset != config.Entry.Config.Ruleset || c.Algorithm != config.Entry.Config.Algorithm || c.Stream != fairness.StreamVersion || c.PolicyVersion != config.Policy.ID || c.PolicyHash != config.Policy.Hash || c.ClientVersion != p.Version || c.ClientSeed != p.Seed {
+	if c.EconomicVersion != config.Economy.Version || c.ConfigVersion != config.Entry.Config.Version || c.ConfigHash != config.Entry.Config.Hash || c.Ruleset != config.Entry.Config.Ruleset || c.Algorithm != config.Entry.Config.Algorithm || c.Stream != fairness.StreamVersion || c.PolicyVersion != config.Policy.ID || c.PolicyHash != config.Policy.Hash || c.ClientVersion != p.Version || c.ClientSeed != p.Seed {
 		return false
 	}
 	var resources map[string]string
@@ -105,13 +105,13 @@ func (s *Service) nextCommitment(ctx context.Context, tx pgx.Tx, user int64, slu
 	}
 	hash := sha256.Sum256(seed[:])
 	binding := config.Config.Binding()
-	c = Commitment{ID: id, ReservedRoundID: round, ServerSeedHash: hex.EncodeToString(hash[:]), Nonce: nonce, ClientSeed: p.Seed, ClientVersion: p.Version, ConfigVersion: binding.Version, ConfigHash: hex.EncodeToString(binding.Hash[:]), Ruleset: binding.RulesetVersion, Algorithm: binding.AlgorithmVersion, Stream: fairness.StreamVersion, PolicyVersion: config.Policy.ID, PolicyHash: config.Policy.Hash, Resources: expectedResources(config.Config)}
+	c = Commitment{EconomicVersion: config.Economy.Version, ID: id, ReservedRoundID: round, ServerSeedHash: hex.EncodeToString(hash[:]), Nonce: nonce, ClientSeed: p.Seed, ClientVersion: p.Version, ConfigVersion: binding.Version, ConfigHash: hex.EncodeToString(binding.Hash[:]), Ruleset: binding.RulesetVersion, Algorithm: binding.AlgorithmVersion, Stream: fairness.StreamVersion, PolicyVersion: config.Policy.ID, PolicyHash: config.Policy.Hash, Resources: expectedResources(config.Config)}
 	gcmNonce, encrypted, err := s.sealSeed(user, slug, c, seed[:])
 	if err != nil {
 		return c, err
 	}
 	policyHash, _ := hex.DecodeString(c.PolicyHash)
-	_, err = tx.Exec(ctx, `INSERT INTO games.fairness_commitments(commitment_id,reserved_round_id,newapi_user_id,game_slug,nonce,client_seed,client_seed_version,state,server_seed_hash,key_version,gcm_nonce,ciphertext,ruleset_version,algorithm_version,fairness_stream_version,game_config_version_id,game_config_hash,wager_policy_version_id,wager_policy_hash,resource_versions) VALUES($1,$2,$3,$4,$5,$6,$7,'AVAILABLE',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, c.ID, c.ReservedRoundID, user, slug, c.Nonce, c.ClientSeed, c.ClientVersion, hash[:], s.keyring.Active, gcmNonce, encrypted, c.Ruleset, c.Algorithm, c.Stream, c.ConfigVersion, binding.Hash[:], c.PolicyVersion, policyHash, []byte(c.Resources))
+	_, err = tx.Exec(ctx, `INSERT INTO games.fairness_commitments(commitment_id,reserved_round_id,newapi_user_id,game_slug,nonce,client_seed,client_seed_version,state,server_seed_hash,key_version,gcm_nonce,ciphertext,ruleset_version,algorithm_version,fairness_stream_version,game_config_version_id,game_config_hash,wager_policy_version_id,wager_policy_hash,resource_versions,economic_policy_version) VALUES($1,$2,$3,$4,$5,$6,$7,'AVAILABLE',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NULLIF($20,''))`, c.ID, c.ReservedRoundID, user, slug, c.Nonce, c.ClientSeed, c.ClientVersion, hash[:], s.keyring.Active, gcmNonce, encrypted, c.Ruleset, c.Algorithm, c.Stream, c.ConfigVersion, binding.Hash[:], c.PolicyVersion, policyHash, []byte(c.Resources), c.EconomicVersion)
 	return c, err
 }
 func (s *Service) Bootstrap(ctx context.Context, user int64, slug string) (Bootstrap, error) {
@@ -132,6 +132,9 @@ func (s *Service) Bootstrap(ctx context.Context, user int64, slug string) (Boots
 		}
 		b.Game = runtime.Entry
 		b.WagerPolicy = runtime.Policy
+		if runtime.Economy.Version != "" {
+			b.EconomicPolicy = &runtime.Economy
+		}
 		b.EntryAction = runtime.Entry.State
 		if err = tx.QueryRow(ctx, `SELECT balance_units FROM economy.wallet_balances WHERE newapi_user_id=$1 AND asset_type='AVAILABLE_CHIPS'`, user).Scan(&b.AvailableUnits); err != nil {
 			return err

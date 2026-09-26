@@ -140,7 +140,7 @@ func (s *Service) processBlackjackJob(ctx context.Context, id, kind string, now 
 		if err = persistBlackjackState(ctx, tx, id, transition.State); err != nil {
 			return err
 		}
-		if err = finishBlackjackTransition(ctx, tx, user, &r, transition.State, seed, available, now); err != nil {
+		if err = s.finishBlackjackTransition(ctx, tx, user, &r, transition.State, seed, available, now); err != nil {
 			return err
 		}
 		response, err := json.Marshal(r)

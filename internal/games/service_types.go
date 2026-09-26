@@ -13,6 +13,7 @@ import (
 
 	"github.com/cy4268/momiao/internal/games/blackjack"
 	"github.com/cy4268/momiao/internal/games/slot"
+	"github.com/cy4268/momiao/internal/platform"
 )
 
 var (
@@ -186,6 +187,7 @@ type ClientSeedPreference struct {
 	Version int64  `json:"version,string"`
 }
 type Commitment struct {
+	EconomicVersion string          `json:"economic_policy_version,omitempty"`
 	ID              string          `json:"id"`
 	ReservedRoundID string          `json:"reserved_round_id"`
 	ServerSeedHash  string          `json:"server_seed_hash"`
@@ -202,18 +204,22 @@ type Commitment struct {
 	Resources       json.RawMessage `json:"resource_versions"`
 }
 type Bootstrap struct {
-	Game           CatalogEntry         `json:"game"`
-	WagerPolicy    Policy               `json:"wager_policy"`
-	AvailableUnits int64                `json:"available_units,string"`
-	Latest         *GameRound           `json:"latest_round"`
-	Active         *GameRound           `json:"active_round"`
-	ScratchBlocker *GameRound           `json:"scratch_presentation_blocker"`
-	EntryAction    string               `json:"effective_entry_action"`
-	Next           *Commitment          `json:"next_commitment"`
-	ClientSeed     ClientSeedPreference `json:"client_seed_preference"`
-	CSRFToken      string               `json:"csrf_token,omitempty"`
+	EconomicPolicy *platform.EconomicPolicy `json:"economic_policy,omitempty"`
+	Game           CatalogEntry             `json:"game"`
+	WagerPolicy    Policy                   `json:"wager_policy"`
+	AvailableUnits int64                    `json:"available_units,string"`
+	Latest         *GameRound               `json:"latest_round"`
+	Active         *GameRound               `json:"active_round"`
+	ScratchBlocker *GameRound               `json:"scratch_presentation_blocker"`
+	EntryAction    string                   `json:"effective_entry_action"`
+	Next           *Commitment              `json:"next_commitment"`
+	ClientSeed     ClientSeedPreference     `json:"client_seed_preference"`
+	CSRFToken      string                   `json:"csrf_token,omitempty"`
 }
 type GameRound struct {
+	EconomicVersion         string                  `json:"economic_policy_version,omitempty"`
+	EconomySettlement       *platform.PayoutCapView `json:"economy_settlement,omitempty"`
+	capWithheld             int64
 	ID                      string                `json:"id"`
 	Game                    string                `json:"game"`
 	State                   string                `json:"state"`

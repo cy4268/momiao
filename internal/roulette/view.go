@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/cy4268/momiao/internal/platform"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -46,6 +47,9 @@ func (s *Service) View(ctx context.Context, user int64, id string) (RoomView, er
 			return e
 		}
 		v = project(r, ps, user, now)
+		if e = readCapView(ctx, tx, r, user, &v); e != nil {
+			return e
+		}
 		if v.Self != nil {
 			v.Self.AvailableUnits, e = balance(ctx, tx, user)
 			if e != nil {
@@ -74,6 +78,9 @@ func (s *Service) View(ctx context.Context, user int64, id string) (RoomView, er
 }
 func project(r *round, players []participant, user int64, now time.Time) RoomView {
 	v := RoomView{ID: r.ID, Game: r.Game, Title: r.Title, Version: r.Version, Sequence: r.Sequence, State: r.State, TargetPlayers: r.Target, StakeUnits: r.Stake, PoolUnits: r.Escrow, Binding: binding(r.Config, r.Policy), ServerSeedHash: hex.EncodeToString(r.Commitment[:]), ServerNow: now, Deadline: r.Deadline, GameDeadline: r.GameDeadline, Players: []PlayerView{}, Actions: []Action{}, Log: []PublicEvent{}}
+	if r.Economy.Version != "" {
+		v.EconomicPolicy = &r.Economy
+	}
 	for _, p := range players {
 		if p.Seat == nil {
 			continue
@@ -174,6 +181,13 @@ func (s *Service) List(ctx context.Context, user int64, q LobbyQuery) (Lobby, er
 		if c.ID == "" {
 			return ErrUnavailable
 		}
+		ep, e := platform.ActiveEconomicPolicyInTx(ctx, tx)
+		if e != nil {
+			return e
+		}
+		if ep.Version != "" {
+			v.EconomicPolicy = &ep
+		}
 		v.Binding = binding(c, p)
 		v.MinimumUnits = p.Minimum
 		v.StepUnits = p.Step
@@ -243,4 +257,19 @@ func (s *Service) List(ctx context.Context, user int64, q LobbyQuery) (Lobby, er
 		return nil
 	})
 	return v, e
+}
+
+func readCapView(ctx context.Context, tx pgx.Tx, r *round, user int64, v *RoomView) error {
+	c, e := platform.LoadCapSettlementInTx(ctx, tx, "ROULETTE_ROUND", r.ID, user)
+	if e != nil {
+		return e
+	}
+	if c != nil {
+		if c.PolicyVersion != r.Economy.Version {
+			return ErrUnavailable
+		}
+		public := c.PublicView()
+		v.EconomySettlement = &public
+	}
+	return nil
 }

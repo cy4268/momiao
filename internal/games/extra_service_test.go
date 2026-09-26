@@ -101,4 +101,66 @@ func TestSlotDurableAtomicSettlement(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("Slot round %s: 8 duplicate creates, stake=%d payout=%d, ten immutable lines, restart and deterministic verify passed", result.ID, result.StakeUnits, result.PayoutUnits)
+	capOwner, capRuntime := gameTestStores(t, true)
+	capUser := int64(823003)
+	if e := capOwner.EnsureAccount(ctx, capUser); e != nil {
+		t.Fatal(e)
+	}
+	if e := capOwner.WithTx(ctx, func(tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `INSERT INTO public.users(id) VALUES($1)`, capUser)
+		return e
+	}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := capOwner.Apply(ctx, platform.Mutation{UserID: capUser, Asset: platform.AvailableChips, DeltaUnits: 2000000000, BizType: "TEST_CAP", BizID: requestKey(t), EntryType: "TEST_GRANT", IdempotencyKey: requestKey(t)}); e != nil {
+		t.Fatal(e)
+	}
+	capSvc := newTestService(t, capRuntime)
+	clipped := false
+	for range 64 {
+		chips, e := capOwner.ReadWallet(ctx, capUser, platform.AvailableChips)
+		if e != nil {
+			t.Fatal(e)
+		}
+		reserve, e := capOwner.ReadWallet(ctx, capUser, platform.ReserveAPICredit)
+		if e != nil {
+			t.Fatal(e)
+		}
+		fill := platform.AssetCapUnits - chips.BalanceUnits - reserve.BalanceUnits
+		if fill > 0 {
+			if _, e = capOwner.Apply(ctx, platform.Mutation{UserID: capUser, Asset: platform.ReserveAPICredit, DeltaUnits: fill, BizType: "TEST_CAP", BizID: requestKey(t), EntryType: "TEST_GRANT", IdempotencyKey: requestKey(t)}); e != nil {
+				t.Fatal(e)
+			}
+		}
+		boot, e := capSvc.Bootstrap(ctx, capUser, "slot")
+		if e != nil {
+			t.Fatal(e)
+		}
+		k := requestKey(t)
+		input := CreateInput{Type: "SLOT", TotalWager: "11"}
+		capped, e := capSvc.Create(ctx, capUser, "slot", k, boot.Next.ID, input)
+		if e != nil {
+			t.Fatal(e)
+		}
+		c := capped.EconomySettlement
+		if c == nil || c.GrossPayoutUnits != capped.PayoutUnits || c.CreditedPayoutUnits != min(capped.StakeUnits, capped.PayoutUnits) || capped.BalanceAfterUnits != chips.BalanceUnits+c.ActualNetUnits {
+			t.Fatalf("actual vs raw payout: %+v", capped)
+		}
+		retry, e := capSvc.Create(ctx, capUser, "slot", k, boot.Next.ID, input)
+		if e != nil || retry.EconomySettlement == nil || *retry.EconomySettlement != *c {
+			t.Fatal("changed cap replay", e)
+		}
+		proof, e := capSvc.Verify(ctx, capUser, capped.ID)
+		if e != nil || !proof.Verified {
+			t.Fatal("raw proof changed", e)
+		}
+		if c.WithheldUnits > 0 {
+			clipped = true
+			break
+		}
+	}
+	if !clipped {
+		t.Fatal("no positive win exercised in 64 rounds")
+	}
+
 }

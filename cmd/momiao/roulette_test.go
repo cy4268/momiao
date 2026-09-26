@@ -192,4 +192,136 @@ func TestRouletteEscrowReplayLifecycle(t *testing.T) {
 	if _, err = service.HistoryVerify(ctx, historyaccess.Own(b+1), id); err != historyaccess.ErrNotFound {
 		t.Fatalf("non-funded history access: %v", err)
 	}
+	if e := owner.WithTx(ctx, func(tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`)
+		return e
+	}); e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() {
+		_ = owner.WithTx(context.Background(), func(tx pgx.Tx) error {
+			_, e := tx.Exec(context.Background(), `UPDATE economy.policy_runtime SET active_version=NULL WHERE singleton`)
+			return e
+		})
+	})
+	capped, e := roulette.NewServiceWithEconomy(runtime, keys, &quotaFixture{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	for idx, game := range []string{"devil-roulette", "pressure-roulette"} {
+		count := idx + 2
+		users := []int64{}
+		for seat := 0; seat < count; seat++ {
+			u := int64(824000 + idx*10 + seat)
+			users = append(users, u)
+			if e = owner.EnsureAccount(ctx, u); e != nil {
+				t.Fatal(e)
+			}
+			for asset, value := range map[platform.Asset]int64{platform.AvailableChips: 2000000000000, platform.ReserveAPICredit: platform.AssetCapUnits - 2000000000000} {
+				k := fmt.Sprintf("cap-%s-%d-%s", game, u, asset)
+				if _, e = owner.Apply(ctx, platform.Mutation{UserID: u, Asset: asset, DeltaUnits: value, BizType: "TEST_CAP", BizID: k, EntryType: "TEST_GRANT", IdempotencyKey: k}); e != nil {
+					t.Fatal(e)
+				}
+			}
+		}
+		receipt, e := capped.Create(ctx, users[0], roulette.CreateRequest{Key: key(1000 + idx), Game: game, Stake: "1000001", Players: count})
+		if e != nil {
+			t.Fatal("multiplayer capped by solo maximum", e)
+		}
+		for seat, u := range users {
+			v, e := capped.View(ctx, u, receipt.RoundID)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if seat > 0 {
+				if _, e = capped.Command(ctx, u, receipt.RoundID, roulette.Command{Key: key(1100 + idx*10 + seat), ExpectedVersion: v.Version, Action: roulette.Action{Kind: "JOIN"}}); e != nil {
+					t.Fatal(e)
+				}
+			}
+			v, e = capped.View(ctx, u, receipt.RoundID)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if _, e = capped.Command(ctx, u, receipt.RoundID, roulette.Command{Key: key(1200 + idx*10 + seat), ExpectedVersion: v.Version, Action: roulette.Action{Kind: "READY"}, Ready: &roulette.ReadyConfirmation{ClientSeed: "cap-player", ConfigHash: v.Binding.ConfigHash, PolicyHash: v.Binding.PolicyHash, ServerSeedHash: v.ServerSeedHash, StakeUnits: strconv.FormatInt(v.StakeUnits, 10)}}); e != nil {
+				t.Fatal(e)
+			}
+		}
+		for seat, u := range users[:len(users)-1] {
+			v, e := capped.View(ctx, u, receipt.RoundID)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if game == "pressure-roulette" {
+				if v.TurnSeat == nil {
+					t.Fatal("missing turn")
+				}
+				u = users[*v.TurnSeat]
+			}
+			cmd := roulette.Command{Key: key(1300 + idx*10 + seat), ExpectedVersion: v.Version, Action: roulette.Action{Kind: "SURRENDER"}}
+			first, e := capped.Command(ctx, u, receipt.RoundID, cmd)
+			if e != nil {
+				t.Fatal(e)
+			}
+			replay, e := capped.Command(ctx, u, receipt.RoundID, cmd)
+			if e != nil || first != replay {
+				t.Fatal("cap command replay", e)
+			}
+		}
+		if _, e = capped.StepDue(ctx, 1); e != nil {
+			t.Fatal("cap settlement worker", e)
+		}
+		winner := users[len(users)-1]
+		finalView, e := capped.View(ctx, users[0], receipt.RoundID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, p := range finalView.Players {
+			if p.Alive {
+				winner = users[p.Seat]
+			}
+		}
+		v, e := capped.View(ctx, winner, receipt.RoundID)
+		if e != nil || v.State != "FINISHED" || v.EconomySettlement == nil {
+			t.Fatal("cap terminal", v.State, e)
+		}
+		c := v.EconomySettlement
+		if c.CreditedPayoutUnits != 500000500000 || c.WithheldUnits != 500000500000*int64(count-1) || c.ActualNetUnits != 0 {
+			t.Fatalf("multiplayer cap %+v", c)
+		}
+		proof, e := capped.HistoryVerify(ctx, historyaccess.Own(winner), receipt.RoundID)
+		if e != nil || !proof.Valid {
+			t.Fatalf("capped proof %+v %v", proof, e)
+		}
+		report, e := admin.ReadOpsGame(ctx, game)
+		if e != nil || report.Roulette.ConservationDelta != "0" {
+			t.Fatal("withheld not accounted", e)
+		}
+		cancellation, e := capped.Create(ctx, winner, roulette.CreateRequest{Key: key(1400 + idx), Game: game, Stake: "1000001", Players: count})
+		if e != nil {
+			t.Fatal(e)
+		}
+		v, e = capped.View(ctx, winner, cancellation.RoundID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		before, e := owner.ReadWallet(ctx, winner, platform.AvailableChips)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = capped.Command(ctx, winner, cancellation.RoundID, roulette.Command{Key: key(1500 + idx), ExpectedVersion: v.Version, Action: roulette.Action{Kind: "READY"}, Ready: &roulette.ReadyConfirmation{ClientSeed: "cap-refund", ConfigHash: v.Binding.ConfigHash, PolicyHash: v.Binding.PolicyHash, ServerSeedHash: v.ServerSeedHash, StakeUnits: strconv.FormatInt(v.StakeUnits, 10)}}); e != nil {
+			t.Fatal(e)
+		}
+		v, e = capped.View(ctx, winner, cancellation.RoundID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = capped.Command(ctx, winner, cancellation.RoundID, roulette.Command{Key: key(1600 + idx), ExpectedVersion: v.Version, Action: roulette.Action{Kind: "CANCEL"}}); e != nil {
+			t.Fatal(e)
+		}
+		after, e := owner.ReadWallet(ctx, winner, platform.AvailableChips)
+		if e != nil || after.BalanceUnits != before.BalanceUnits {
+			t.Fatal("principal refund clipped", e)
+		}
+	}
+
 }

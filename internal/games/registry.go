@@ -10,6 +10,7 @@ import (
 
 	"github.com/cy4268/momiao/internal/games/blackjack"
 	"github.com/cy4268/momiao/internal/games/slot"
+	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/roulette"
 	"github.com/jackc/pgx/v5"
 )
@@ -122,9 +123,10 @@ func expectedResources(c Config) []byte {
 }
 
 type runtimeConfig struct {
-	Entry  CatalogEntry
-	Config Config
-	Policy Policy
+	Entry   CatalogEntry
+	Config  Config
+	Policy  Policy
+	Economy platform.EconomicPolicy
 }
 
 func resolveRuntime(ctx context.Context, tx pgx.Tx, slug string, lock bool) (runtimeConfig, error) {
@@ -241,6 +243,10 @@ func resolveRuntime(ctx context.Context, tx pgx.Tx, slug string, lock bool) (run
 	p.Quick = []string{"5000000", "50000000", "250000000", "500000000"}
 	result.Config = c
 	result.Policy = p
+	result.Economy, err = platform.ActiveEconomicPolicyInTx(ctx, tx)
+	if err != nil {
+		return result, err
+	}
 	result.Entry.Config = summary(c)
 	if !maintenance && runtimeState == "AVAILABLE" {
 		result.Entry.State = "PLAY"
@@ -301,8 +307,10 @@ func (s *Service) Catalog(ctx context.Context, readPoker PokerCatalogRuntime) ([
 		for _, slug := range slugs {
 			if roulette.IsGame(slug) {
 				entry, err := roulette.CatalogInTx(ctx, tx, slug)
-				if err != nil { return err }
-				items = append(items, CatalogEntry{Slug:entry.Slug,Title:entry.Title,Implementation:entry.Implementation,State:entry.State})
+				if err != nil {
+					return err
+				}
+				items = append(items, CatalogEntry{Slug: entry.Slug, Title: entry.Title, Implementation: entry.Implementation, State: entry.State})
 				continue
 			}
 			if slug == "texas-holdem" {

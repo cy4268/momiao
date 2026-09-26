@@ -4,6 +4,7 @@ package roulette
 
 import (
 	"errors"
+	"github.com/cy4268/momiao/internal/platform"
 	"time"
 )
 
@@ -64,27 +65,29 @@ type Binding struct {
 	Stream     string `json:"fairness_stream_version"`
 }
 type RoomView struct {
-	ID             string        `json:"id"`
-	Game           string        `json:"game"`
-	Title          string        `json:"title"`
-	Version        int64         `json:"version,string"`
-	Sequence       int64         `json:"sequence,string"`
-	State          string        `json:"state"`
-	TargetPlayers  int           `json:"target_players"`
-	StakeUnits     int64         `json:"stake_units,string"`
-	PoolUnits      int64         `json:"pool_units,string"`
-	Binding        Binding       `json:"binding"`
-	ServerSeedHash string        `json:"server_seed_hash"`
-	TurnSeat       *int          `json:"turn_seat"`
-	ServerNow      time.Time     `json:"server_now"`
-	Deadline       *time.Time    `json:"deadline"`
-	GameDeadline   *time.Time    `json:"game_deadline"`
-	Players        []PlayerView  `json:"players"`
-	Self           *SelfView     `json:"self"`
-	Actions        []Action      `json:"actions"`
-	Log            []PublicEvent `json:"log"`
-	Devil          *DevilView    `json:"devil"`
-	Pressure       *PressureView `json:"pressure"`
+	EconomicPolicy    *platform.EconomicPolicy `json:"economic_policy,omitempty"`
+	EconomySettlement *platform.PayoutCapView  `json:"economy_settlement,omitempty"`
+	ID                string                   `json:"id"`
+	Game              string                   `json:"game"`
+	Title             string                   `json:"title"`
+	Version           int64                    `json:"version,string"`
+	Sequence          int64                    `json:"sequence,string"`
+	State             string                   `json:"state"`
+	TargetPlayers     int                      `json:"target_players"`
+	StakeUnits        int64                    `json:"stake_units,string"`
+	PoolUnits         int64                    `json:"pool_units,string"`
+	Binding           Binding                  `json:"binding"`
+	ServerSeedHash    string                   `json:"server_seed_hash"`
+	TurnSeat          *int                     `json:"turn_seat"`
+	ServerNow         time.Time                `json:"server_now"`
+	Deadline          *time.Time               `json:"deadline"`
+	GameDeadline      *time.Time               `json:"game_deadline"`
+	Players           []PlayerView             `json:"players"`
+	Self              *SelfView                `json:"self"`
+	Actions           []Action                 `json:"actions"`
+	Log               []PublicEvent            `json:"log"`
+	Devil             *DevilView               `json:"devil"`
+	Pressure          *PressureView            `json:"pressure"`
 }
 type PlayerView struct {
 	Seat      int    `json:"seat"`
@@ -139,15 +142,16 @@ type PublicEvent struct {
 }
 type LobbyQuery struct{ Game, Cursor string }
 type Lobby struct {
-	Game           string     `json:"game"`
-	State          string     `json:"state"`
-	Binding        Binding    `json:"binding"`
-	MinimumUnits   int64      `json:"minimum_units,string"`
-	StepUnits      int64      `json:"step_units,string"`
-	AvailableUnits int64      `json:"available_units,string"`
-	OwnRoundID     *string    `json:"own_round_id"`
-	Rooms          []RoomView `json:"rooms"`
-	NextCursor     *string    `json:"next_cursor"`
+	EconomicPolicy *platform.EconomicPolicy `json:"economic_policy,omitempty"`
+	Game           string                   `json:"game"`
+	State          string                   `json:"state"`
+	Binding        Binding                  `json:"binding"`
+	MinimumUnits   int64                    `json:"minimum_units,string"`
+	StepUnits      int64                    `json:"step_units,string"`
+	AvailableUnits int64                    `json:"available_units,string"`
+	OwnRoundID     *string                  `json:"own_round_id"`
+	Rooms          []RoomView               `json:"rooms"`
+	NextCursor     *string                  `json:"next_cursor"`
 }
 type HistoryQuery struct {
 	Limit  int

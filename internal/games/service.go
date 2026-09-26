@@ -114,6 +114,10 @@ func (s *Service) Create(ctx context.Context, user int64, slug, key, commitmentI
 		if before-n.TotalStake > math.MaxInt64-n.MaxPayout || seq > math.MaxInt64-2 || version > math.MaxInt64-2 {
 			return platform.ErrBalanceOverflow
 		}
+		assets, err := s.observeEconomy(ctx, tx, runtime.Economy, user, n.TotalStake)
+		if err != nil {
+			return err
+		}
 		var keyVersion string
 		var gcmNonce, encrypted []byte
 		err = tx.QueryRow(ctx, `SELECT key_version,gcm_nonce,ciphertext FROM games.fairness_commitments WHERE commitment_id=$1`, c.ID).Scan(&keyVersion, &gcmNonce, &encrypted)
@@ -128,7 +132,7 @@ func (s *Service) Create(ctx context.Context, user int64, slug, key, commitmentI
 		if err != nil {
 			return err
 		}
-		round = GameRound{ID: c.ReservedRoundID, Game: slug, State: "SETTLED", RecoveryState: "NORMAL", Input: n.Input, StakeUnits: n.TotalStake, BalanceBeforeUnits: before, ConfigVersion: c.ConfigVersion, ConfigHash: c.ConfigHash, PolicyVersion: c.PolicyVersion, PolicyHash: c.PolicyHash, Algorithm: c.Algorithm, Ruleset: c.Ruleset, Stream: c.Stream, Nonce: c.Nonce, CommitmentID: c.ID}
+		round = GameRound{EconomicVersion: c.EconomicVersion, ID: c.ReservedRoundID, Game: slug, State: "SETTLED", RecoveryState: "NORMAL", Input: n.Input, StakeUnits: n.TotalStake, BalanceBeforeUnits: before, ConfigVersion: c.ConfigVersion, ConfigHash: c.ConfigHash, PolicyVersion: c.PolicyVersion, PolicyHash: c.PolicyHash, Algorithm: c.Algorithm, Ruleset: c.Ruleset, Stream: c.Stream, Nonce: c.Nonce, CommitmentID: c.ID}
 		if _, err = tx.Exec(ctx, `UPDATE games.fairness_commitments SET state='CONSUMED' WHERE commitment_id=$1`, c.ID); err != nil {
 			return err
 		}
@@ -143,15 +147,20 @@ func (s *Service) Create(ctx context.Context, user int64, slug, key, commitmentI
 		}
 		round.PayoutUnits = payout
 		round.NetUnits = round.PayoutUnits - round.StakeUnits
-		round.BalanceAfterUnits = before + round.NetUnits
+		if err = capRound(ctx, tx, runtime.Economy, assets, user, &round); err != nil {
+			return err
+		}
+		actualPayout := round.PayoutUnits - round.capWithheld
+		actualNet := round.NetUnits - round.capWithheld
+		round.BalanceAfterUnits = before + actualNet
 		round.Outcome = BreakEven
 		if round.NetUnits > 0 {
 			round.Outcome = Win
 		} else if round.NetUnits < 0 {
 			round.Outcome = Loss
 		}
-		if round.PayoutUnits > 0 {
-			settlement, err := platform.ApplyInTx(ctx, tx, platform.Mutation{UserID: user, Asset: platform.AvailableChips, DeltaUnits: round.PayoutUnits, BizType: "GAME_SETTLEMENT", BizID: round.ID, EntryType: "GAME_PAYOUT", IdempotencyKey: "game:settlement:" + round.ID})
+		if actualPayout > 0 {
+			settlement, err := platform.ApplyInTx(ctx, tx, platform.Mutation{UserID: user, Asset: platform.AvailableChips, DeltaUnits: actualPayout, BizType: "GAME_SETTLEMENT", BizID: round.ID, EntryType: "GAME_PAYOUT", IdempotencyKey: "game:settlement:" + round.ID})
 			if err != nil {
 				return err
 			}
@@ -171,15 +180,15 @@ func (s *Service) Create(ctx context.Context, user int64, slug, key, commitmentI
 		configHash, _ := hex.DecodeString(round.ConfigHash)
 		policyHash, _ := hex.DecodeString(round.PolicyHash)
 		typed, _ := json.Marshal(n.Input)
-		err = tx.QueryRow(ctx, `INSERT INTO games.game_rounds(round_id,newapi_user_id,game_slug,commitment_id,idempotency_key_hash,request_hash,typed_input,implementation_key,game_config_version_id,game_config_hash,wager_policy_version_id,wager_policy_hash,fairness_stream_version,ruleset_version,algorithm_version,nonce,state,total_stake_units,total_payout_units,net_change_units,common_result,balance_before_units,balance_after_units,wager_transaction_id,settlement_transaction_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'SETTLED',$17,$18,$19,$20,$21,$22,$23,$24) RETURNING created_at,settled_at`, round.ID, user, slug, c.ID, keyHash[:], requestHash[:], typed, runtime.Entry.Implementation, c.ConfigVersion, configHash, c.PolicyVersion, policyHash, c.Stream, c.Ruleset, c.Algorithm, c.Nonce, round.StakeUnits, round.PayoutUnits, round.NetUnits, round.Outcome, before, round.BalanceAfterUnits, round.WagerTransactionID, round.SettlementTransactionID).Scan(&round.CreatedAt, &round.SettledAt)
+		err = tx.QueryRow(ctx, `INSERT INTO games.game_rounds(round_id,newapi_user_id,game_slug,commitment_id,idempotency_key_hash,request_hash,typed_input,implementation_key,game_config_version_id,game_config_hash,wager_policy_version_id,wager_policy_hash,fairness_stream_version,ruleset_version,algorithm_version,nonce,state,total_stake_units,total_payout_units,net_change_units,common_result,balance_before_units,balance_after_units,wager_transaction_id,settlement_transaction_id,economic_policy_version,cap_withheld_units) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'SETTLED',$17,$18,$19,$20,$21,$22,$23,$24,NULLIF($25,''),$26) RETURNING created_at,settled_at`, round.ID, user, slug, c.ID, keyHash[:], requestHash[:], typed, runtime.Entry.Implementation, c.ConfigVersion, configHash, c.PolicyVersion, policyHash, c.Stream, c.Ruleset, c.Algorithm, c.Nonce, round.StakeUnits, round.PayoutUnits, round.NetUnits, round.Outcome, before, round.BalanceAfterUnits, round.WagerTransactionID, round.SettlementTransactionID, round.EconomicVersion, round.capWithheld).Scan(&round.CreatedAt, &round.SettledAt)
 		if err != nil {
 			return err
 		}
 		if err = persistTyped(ctx, tx, round); err != nil {
 			return err
 		}
-		if round.NetUnits != 0 {
-			event, direction, amount := "GAME_ISSUANCE", "ISSUE", round.NetUnits
+		if actualNet != 0 {
+			event, direction, amount := "GAME_ISSUANCE", "ISSUE", actualNet
 			if amount < 0 {
 				event, direction, amount = "GAME_BURN", "BURN", -amount
 			}

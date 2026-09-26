@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cy4268/momiao/internal/games/fairness"
+	"github.com/cy4268/momiao/internal/platform"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -34,6 +35,7 @@ type outcome struct {
 	Refunds  bool    `json:"refunds"`
 }
 type round struct {
+	Economy                                           platform.EconomicPolicy
 	ID, Game, Title, State                            string
 	Host                                              int64
 	Target                                            int
@@ -60,17 +62,21 @@ type participant struct {
 func (s *Service) load(ctx context.Context, tx pgx.Tx, id string, lock bool) (*round, error) {
 	r := &round{ID: id}
 	var hash, policyHash, seedHash, outcomeJSON []byte
-	var configID, policyID, rules, algorithm string
+	var configID, policyID, rules, algorithm, economicVersion string
 	suffix := ""
 	if lock {
 		suffix = " FOR UPDATE"
 	}
-	e := tx.QueryRow(ctx, `SELECT game_slug,title_snapshot,host_user_id,target_players,stake_units,config_version_id::text,config_hash,policy_version_id::text,policy_hash,ruleset_version,algorithm_version,stream_version,server_seed_hash,seed_key_version,seed_nonce,seed_ciphertext,snapshot_key_version,snapshot_nonce,snapshot_ciphertext,snapshot_version,version,action_sequence,state,escrow_units,coalesce(void_outcome,outcome),created_at,started_at,ended_at,deadline,game_deadline FROM roulette.rounds WHERE round_id=$1`+suffix, id).Scan(&r.Game, &r.Title, &r.Host, &r.Target, &r.Stake, &configID, &hash, &policyID, &policyHash, &rules, &algorithm, &r.Stream, &seedHash, &r.SeedBox.Key, &r.SeedBox.Nonce, &r.SeedBox.Ciphertext, &r.StateBox.Key, &r.StateBox.Nonce, &r.StateBox.Ciphertext, &r.SnapshotVersion, &r.Version, &r.Sequence, &r.State, &r.Escrow, &outcomeJSON, &r.Created, &r.Started, &r.Ended, &r.Deadline, &r.GameDeadline)
+	e := tx.QueryRow(ctx, `SELECT game_slug,title_snapshot,host_user_id,target_players,stake_units,config_version_id::text,config_hash,policy_version_id::text,policy_hash,ruleset_version,algorithm_version,stream_version,server_seed_hash,seed_key_version,seed_nonce,seed_ciphertext,snapshot_key_version,snapshot_nonce,snapshot_ciphertext,snapshot_version,version,action_sequence,state,escrow_units,coalesce(void_outcome,outcome),created_at,started_at,ended_at,deadline,game_deadline,coalesce(economic_policy_version,'') FROM roulette.rounds WHERE round_id=$1`+suffix, id).Scan(&r.Game, &r.Title, &r.Host, &r.Target, &r.Stake, &configID, &hash, &policyID, &policyHash, &rules, &algorithm, &r.Stream, &seedHash, &r.SeedBox.Key, &r.SeedBox.Nonce, &r.SeedBox.Ciphertext, &r.StateBox.Key, &r.StateBox.Nonce, &r.StateBox.Ciphertext, &r.SnapshotVersion, &r.Version, &r.Sequence, &r.State, &r.Escrow, &outcomeJSON, &r.Created, &r.Started, &r.Ended, &r.Deadline, &r.GameDeadline, &economicVersion)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if e != nil {
 		return nil, e
+	}
+	r.Economy, e = platform.ResolveEconomicPolicyInTx(ctx, tx, economicVersion)
+	if e != nil {
+		return r, e
 	}
 	copy(r.Commitment[:], seedHash)
 	r.Config = Config{ID: configID, Game: r.Game, Ruleset: rules, Algorithm: algorithm}

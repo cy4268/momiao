@@ -21,11 +21,15 @@ import (
 )
 
 type Service struct {
-	store *platform.Store
-	keys  Keyring
+	store    *platform.Store
+	keys     Keyring
+	observer platform.NativeQuotaObserver
 }
 
 func NewService(store *platform.Store, keys Keyring) (*Service, error) {
+	return NewServiceWithEconomy(store, keys, nil)
+}
+func NewServiceWithEconomy(store *platform.Store, keys Keyring, observer platform.NativeQuotaObserver) (*Service, error) {
 	if store == nil || keys.Active == "" {
 		return nil, ErrUnavailable
 	}
@@ -36,7 +40,7 @@ func NewService(store *platform.Store, keys Keyring) (*Service, error) {
 	for name, key := range keys.Keys {
 		k.Keys[name] = key
 	}
-	return &Service{store, k}, nil
+	return &Service{store: store, keys: k, observer: observer}, nil
 }
 func uniqueError(e error) error {
 	var pg *pgconn.PgError
@@ -78,6 +82,15 @@ func (s *Service) Create(ctx context.Context, user int64, in CreateRequest) (Rec
 		if amount < p.Minimum || amount%p.Step != 0 {
 			return ErrInvalidInput
 		}
+		economic, e := platform.ActiveEconomicPolicyInTx(ctx, tx)
+		if e != nil {
+			return e
+		}
+		if economic.Version != "" {
+			if _, e = platform.ReadUnifiedAssetsInTx(ctx, tx, s.observer, user); e != nil {
+				return e
+			}
+		}
 		id, e := newID()
 		if e != nil {
 			return e
@@ -101,7 +114,7 @@ func (s *Service) Create(ctx context.Context, user int64, in CreateRequest) (Rec
 		if e != nil {
 			return e
 		}
-		_, e = tx.Exec(ctx, `INSERT INTO roulette.rounds(round_id,game_slug,title_snapshot,host_user_id,target_players,stake_units,config_version_id,config_hash,policy_version_id,policy_hash,ruleset_version,algorithm_version,stream_version,server_seed_hash,seed_key_version,seed_nonce,seed_ciphertext,snapshot_key_version,snapshot_nonce,snapshot_ciphertext,snapshot_version,state,created_at,deadline) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,1,'WAITING',$21,$22)`, id, in.Game, entry.Title, user, in.Players, amount, c.ID, c.Hash[:], p.ID, p.Hash[:], c.Ruleset, c.Algorithm, fairness.StreamVersion, hash[:], sb.Key, sb.Nonce, sb.Ciphertext, state.Key, state.Nonce, state.Ciphertext, now, now.Add(300*time.Second))
+		_, e = tx.Exec(ctx, `INSERT INTO roulette.rounds(round_id,game_slug,title_snapshot,host_user_id,target_players,stake_units,config_version_id,config_hash,policy_version_id,policy_hash,ruleset_version,algorithm_version,stream_version,server_seed_hash,seed_key_version,seed_nonce,seed_ciphertext,snapshot_key_version,snapshot_nonce,snapshot_ciphertext,snapshot_version,state,created_at,deadline,economic_policy_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,1,'WAITING',$21,$22,NULLIF($23,''))`, id, in.Game, entry.Title, user, in.Players, amount, c.ID, c.Hash[:], p.ID, p.Hash[:], c.Ruleset, c.Algorithm, fairness.StreamVersion, hash[:], sb.Key, sb.Nonce, sb.Ciphertext, state.Key, state.Nonce, state.Ciphertext, now, now.Add(300*time.Second), economic.Version)
 		if e != nil {
 			return e
 		}
@@ -299,6 +312,11 @@ func (s *Service) waiting(ctx context.Context, tx pgx.Tx, r *round, players []pa
 		}
 		if balance-r.Stake > math.MaxInt64-r.Stake*int64(r.Target) {
 			return platform.ErrBalanceOverflow
+		}
+		if r.Economy.Version != "" {
+			if _, e := platform.ReadUnifiedAssetsInTx(ctx, tx, s.observer, user); e != nil {
+				return e
+			}
 		}
 		p.Cycle++
 		p.ContributionVersion++

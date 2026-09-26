@@ -29,10 +29,22 @@ func blackjackFixtureMatching(t *testing.T, owner, runtime *platform.Store, matc
 	ctx := context.Background()
 	s := newTestService(t, runtime)
 	user := time.Now().UnixMicro()
+	var capActive bool
+	if e := owner.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT active_version IS NOT NULL FROM economy.policy_runtime WHERE singleton`).Scan(&capActive)
+	}); e != nil {
+		t.Fatal(e)
+	}
+	if capActive {
+		user = 1000000000 + time.Now().UnixNano()%900000000
+		if e := owner.WithTx(ctx, func(tx pgx.Tx) error { _, e := tx.Exec(ctx, `INSERT INTO public.users(id) VALUES($1)`, user); return e }); e != nil {
+			t.Fatal(e)
+		}
+	}
 	if err := owner.EnsureAccount(ctx, user); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := owner.Apply(ctx, platform.Mutation{UserID: user, Asset: platform.AvailableChips, DeltaUnits: 5000000000, BizType: "TEST_G1_BLACKJACK", BizID: requestKey(t), EntryType: "TEST_GRANT", IdempotencyKey: requestKey(t)}); err != nil {
+	if _, err := owner.Apply(ctx, platform.Mutation{UserID: user, Asset: platform.AvailableChips, DeltaUnits: 5000000000000, BizType: "TEST_G1_BLACKJACK", BizID: requestKey(t), EntryType: "TEST_GRANT", IdempotencyKey: requestKey(t)}); err != nil {
 		t.Fatal(err)
 	}
 	b, err := s.Bootstrap(ctx, user, "blackjack")
@@ -78,7 +90,7 @@ func blackjackFixtureMatching(t *testing.T, owner, runtime *platform.Store, matc
 		if _, e := tx.Exec(ctx, `UPDATE games.fairness_nonce_cursors SET next_nonce=$2 WHERE newapi_user_id=$1 AND game_slug='blackjack'`, user, c.Nonce+1); e != nil {
 			return e
 		}
-		_, e := tx.Exec(ctx, `INSERT INTO games.fairness_commitments(commitment_id,reserved_round_id,newapi_user_id,game_slug,nonce,client_seed,client_seed_version,state,server_seed_hash,key_version,gcm_nonce,ciphertext,ruleset_version,algorithm_version,fairness_stream_version,game_config_version_id,game_config_hash,wager_policy_version_id,wager_policy_hash,resource_versions) VALUES($1,$2,$3,'blackjack',$4,$5,$6,'AVAILABLE',decode($7,'hex'),'fixture-v1',$8,$9,$10,$11,$12,$13,decode($14,'hex'),$15,decode($16,'hex'),$17)`, c.ID, c.ReservedRoundID, user, c.Nonce, c.ClientSeed, c.ClientVersion, c.ServerSeedHash, nonce, encrypted, c.Ruleset, c.Algorithm, c.Stream, c.ConfigVersion, c.ConfigHash, c.PolicyVersion, c.PolicyHash, []byte(c.Resources))
+		_, e := tx.Exec(ctx, `INSERT INTO games.fairness_commitments(commitment_id,reserved_round_id,newapi_user_id,game_slug,nonce,client_seed,client_seed_version,state,server_seed_hash,key_version,gcm_nonce,ciphertext,ruleset_version,algorithm_version,fairness_stream_version,game_config_version_id,game_config_hash,wager_policy_version_id,wager_policy_hash,resource_versions,economic_policy_version) VALUES($1,$2,$3,'blackjack',$4,$5,$6,'AVAILABLE',decode($7,'hex'),'fixture-v1',$8,$9,$10,$11,$12,$13,decode($14,'hex'),$15,decode($16,'hex'),$17,NULLIF($18,''))`, c.ID, c.ReservedRoundID, user, c.Nonce, c.ClientSeed, c.ClientVersion, c.ServerSeedHash, nonce, encrypted, c.Ruleset, c.Algorithm, c.Stream, c.ConfigVersion, c.ConfigHash, c.PolicyVersion, c.PolicyHash, []byte(c.Resources), c.EconomicVersion)
 		return e
 	})
 	if err != nil {
@@ -212,6 +224,36 @@ func TestBlackjackPersistentActionsAndOriginalReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("Blackjack %s: encrypted precommit, hidden hole, resume, split/double/stand, original action replay, maintenance continuation and terminal audit passed", r.ID)
+	capOwner, capRuntime := gameTestStores(t, true)
+	if e := capOwner.WithTx(ctx, func(tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `UPDATE games.game_registry SET configured_runtime_state='AVAILABLE' WHERE game_slug='blackjack'`)
+		return e
+	}); e != nil {
+		t.Fatal(e)
+	}
+	cappedSvc, capUser, commit := blackjackFixture(t, capOwner, capRuntime)
+	capped, e := cappedSvc.Create(ctx, capUser, "blackjack", requestKey(t), commit.ID, CreateInput{Type: "BLACKJACK", InitialWager: "600000"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	before, e := capOwner.ReadWallet(ctx, capUser, platform.AvailableChips)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, kind := range []string{"SPLIT", "DOUBLE"} {
+		if _, e = cappedSvc.BlackjackAction(ctx, capUser, capped.ID, BlackjackActionInput{ActionID: requestKey(t), ActionType: kind, HandID: capped.Blackjack.ActiveHandID, ExpectedVersion: "1"}); !errors.Is(e, ErrInvalidInput) {
+			t.Fatal("cumulative cap", kind, e)
+		}
+	}
+	after, e := capOwner.ReadWallet(ctx, capUser, platform.AvailableChips)
+	if e != nil || before != after {
+		t.Fatal("rejected action debited", e)
+	}
+	settled, e := cappedSvc.BlackjackAction(ctx, capUser, capped.ID, BlackjackActionInput{ActionID: requestKey(t), ActionType: "STAND", HandID: capped.Blackjack.ActiveHandID, ExpectedVersion: "1"})
+	if e != nil || settled.EconomySettlement == nil {
+		t.Fatal("cap final", e)
+	}
+
 }
 
 func TestBlackjackDurableTimeoutAndMismatch(t *testing.T) {
@@ -263,7 +305,7 @@ func TestBlackjackDurableTimeoutAndMismatch(t *testing.T) {
 }
 
 func TestBlackjackConcurrentCreateAndDouble(t *testing.T) {
-	owner, runtime := gameTestStores(t)
+	owner, runtime := gameTestStores(t, true)
 	s, user, c := blackjackFixture(t, owner, runtime)
 	ctx := context.Background()
 	key := requestKey(t)
@@ -298,11 +340,11 @@ func TestBlackjackConcurrentCreateAndDouble(t *testing.T) {
 		return results[0]
 	}
 	r := concurrent(func() (GameRound, error) {
-		return s.Create(ctx, user, "blackjack", key, c.ID, CreateInput{Type: "BLACKJACK", InitialWager: "10"})
+		return s.Create(ctx, user, "blackjack", key, c.ID, CreateInput{Type: "BLACKJACK", InitialWager: "500000"})
 	})
 	action := BlackjackActionInput{ActionID: requestKey(t), ActionType: "DOUBLE", HandID: r.Blackjack.ActiveHandID, ExpectedVersion: "1"}
 	final := concurrent(func() (GameRound, error) { return s.BlackjackAction(ctx, user, r.ID, action) })
-	if final.State != "SETTLED" || final.StakeUnits != 10000000 || final.Blackjack.Version != 2 {
+	if final.State != "SETTLED" || final.StakeUnits != platform.SinglePlayerMaxUnits || final.Blackjack.Version != 2 {
 		t.Fatal("concurrent double changed more than once")
 	}
 	stored, err := newTestService(t, runtime).FindBlackjackAction(ctx, user, r.ID, action.ActionID)

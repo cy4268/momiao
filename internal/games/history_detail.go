@@ -42,6 +42,7 @@ type HistoryBlackjack struct {
 
 // Whitelist intentionally does not embed GameRound or the live BJ Projection.
 type HistoryRound struct {
+	EconomySettlement       *platform.PayoutCapView       `json:"economy_settlement,omitempty"`
 	ID                      string                        `json:"id"`
 	Game                    string                        `json:"game"`
 	State                   string                        `json:"state"`
@@ -114,7 +115,7 @@ func (s *Service) HistoryDetail(ctx context.Context, access historyaccess.Access
 		if e != nil {
 			return e
 		}
-		detail = HistoryRound{ID: r.ID, Game: r.Game, State: r.State, RecoveryState: r.RecoveryState, Input: r.Input,
+		detail = HistoryRound{EconomySettlement: r.EconomySettlement, ID: r.ID, Game: r.Game, State: r.State, RecoveryState: r.RecoveryState, Input: r.Input,
 			StakeUnits: r.StakeUnits, Outcome: r.Outcome, BalanceBeforeUnits: r.BalanceBeforeUnits, BalanceAfterUnits: r.BalanceAfterUnits,
 			CreatedAt: r.CreatedAt.UTC(), SettledAt: r.SettledAt, PresentationCompletedAt: r.PresentationCompletedAt,
 			Dice: r.Dice, Scratch: r.Scratch, Summon: r.Summon, Slot: r.Slot, Transactions: []platform.HistoryTransaction{}}

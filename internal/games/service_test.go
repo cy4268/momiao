@@ -17,7 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func gameTestStores(t *testing.T) (*platform.Store, *platform.Store) {
+func gameTestStores(t *testing.T, capped ...bool) (*platform.Store, *platform.Store) {
 	t.Helper()
 	file := os.Getenv("MOMIAO_GAMES_TEST_CONNECTION_FILE")
 	if file == "" {
@@ -47,6 +47,30 @@ func gameTestStores(t *testing.T) (*platform.Store, *platform.Store) {
 	}
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(capped) > 0 && capped[0] {
+		err = owner.WithTx(ctx, func(tx pgx.Tx) error {
+			var installed bool
+			if e := tx.QueryRow(ctx, "SELECT to_regnamespace('momiao_quota') IS NOT NULL").Scan(&installed); e != nil {
+				return e
+			}
+			if !installed {
+				if _, e := tx.Exec(ctx, `CREATE TABLE public.users(id bigint PRIMARY KEY,quota bigint NOT NULL DEFAULT 0,status int NOT NULL DEFAULT 1,deleted_at timestamptz);`+platform.NativeQuotaMigration, pgx.QueryExecModeSimpleProtocol); e != nil {
+					return e
+				}
+			}
+			_, e := tx.Exec(ctx, `UPDATE momiao_quota.settings SET enabled=true; UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
+			return e
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_ = owner.WithTx(context.Background(), func(tx pgx.Tx) error {
+				_, e := tx.Exec(context.Background(), `UPDATE economy.policy_runtime SET active_version=NULL WHERE singleton`)
+				return e
+			})
+		})
 	}
 	grantPaths := []string{"../platform/testdata/runtime-baseline-0001-0004.sql", "../../deploy/sql/runtime-grants-0010-games.psql"}
 	if os.Getenv("MOMIAO_GAMES_TEST_ISOLATED_GAP") == "1" {
@@ -112,7 +136,17 @@ func newTestService(t *testing.T, store *platform.Store) *Service {
 	for i := range key {
 		key[i] = byte(i + 17)
 	}
-	s, err := NewService(store, Keyring{Active: "fixture-v1", Keys: map[string][32]byte{"fixture-v1": key}})
+	raw, e := os.ReadFile(os.Getenv("MOMIAO_GAMES_TEST_CONNECTION_FILE"))
+	var conn struct{ OwnerURL string }
+	if e != nil || json.Unmarshal(raw, &conn) != nil {
+		t.Fatal("local connection")
+	}
+	observer, e := platform.OpenNativeQuota(context.Background(), conn.OwnerURL)
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(observer.Close)
+	s, err := NewServiceWithEconomy(store, Keyring{Active: "fixture-v1", Keys: map[string][32]byte{"fixture-v1": key}}, observer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,6 +197,34 @@ func TestWagerValidationBeforeAnyResult(t *testing.T) {
 			t.Fatal("invalid summon mode accepted")
 		}
 	}
+	owner, runtime := gameTestStores(t, true)
+	ctx := context.Background()
+	user := int64(823001)
+	if e := owner.EnsureAccount(ctx, user); e != nil {
+		t.Fatal(e)
+	}
+	if e := owner.WithTx(ctx, func(tx pgx.Tx) error { _, e := tx.Exec(ctx, `INSERT INTO public.users(id) VALUES($1)`, user); return e }); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := owner.Apply(ctx, platform.Mutation{UserID: user, Asset: platform.AvailableChips, DeltaUnits: platform.SinglePlayerMaxUnits * 4, BizType: "TEST_CAP", BizID: requestKey(t), EntryType: "TEST_GRANT", IdempotencyKey: requestKey(t)}); e != nil {
+		t.Fatal(e)
+	}
+	svc := newTestService(t, runtime)
+	b, e := svc.Bootstrap(ctx, user, "dice")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = svc.Create(ctx, user, "dice", requestKey(t), b.Next.ID, CreateInput{Type: "DICE", Wager: "1000001", Choice: "BIG"}); !errors.Is(e, ErrInvalidInput) {
+		t.Fatal("million cap not enforced", e)
+	}
+	next, e := svc.Bootstrap(ctx, user, "dice")
+	if e != nil || next.Next.ID != b.Next.ID {
+		t.Fatal("rejected wager consumed randomness", e)
+	}
+	if _, e = svc.Create(ctx, user, "dice", requestKey(t), b.Next.ID, CreateInput{Type: "DICE", Wager: "1000000", Choice: "BIG"}); e != nil {
+		t.Fatal("exact million rejected", e)
+	}
+
 }
 
 func TestDiceServiceIntegration(t *testing.T) {
@@ -318,6 +380,68 @@ func TestDiceServiceIntegration(t *testing.T) {
 	if err != nil || after.Next.ID != empty.Next.ID {
 		t.Fatal("failed wager consumed commitment", err)
 	}
+	capOwner, capRuntime := gameTestStores(t, true)
+	capUser := int64(823002)
+	if e := capOwner.EnsureAccount(ctx, capUser); e != nil {
+		t.Fatal(e)
+	}
+	if e := capOwner.WithTx(ctx, func(tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `INSERT INTO public.users(id) VALUES($1)`, capUser)
+		return e
+	}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := capOwner.Apply(ctx, platform.Mutation{UserID: capUser, Asset: platform.AvailableChips, DeltaUnits: 2000000000, BizType: "TEST_CAP", BizID: requestKey(t), EntryType: "TEST_GRANT", IdempotencyKey: requestKey(t)}); e != nil {
+		t.Fatal(e)
+	}
+	capSvc := newTestService(t, capRuntime)
+	clipped := false
+	for range 64 {
+		chips, e := capOwner.ReadWallet(ctx, capUser, platform.AvailableChips)
+		if e != nil {
+			t.Fatal(e)
+		}
+		reserve, e := capOwner.ReadWallet(ctx, capUser, platform.ReserveAPICredit)
+		if e != nil {
+			t.Fatal(e)
+		}
+		fill := platform.AssetCapUnits - chips.BalanceUnits - reserve.BalanceUnits
+		if fill > 0 {
+			if _, e = capOwner.Apply(ctx, platform.Mutation{UserID: capUser, Asset: platform.ReserveAPICredit, DeltaUnits: fill, BizType: "TEST_CAP", BizID: requestKey(t), EntryType: "TEST_GRANT", IdempotencyKey: requestKey(t)}); e != nil {
+				t.Fatal(e)
+			}
+		}
+		boot, e := capSvc.Bootstrap(ctx, capUser, "dice")
+		if e != nil {
+			t.Fatal(e)
+		}
+		k := requestKey(t)
+		input := CreateInput{Type: "DICE", Wager: "10", Choice: "BIG"}
+		capped, e := capSvc.Create(ctx, capUser, "dice", k, boot.Next.ID, input)
+		if e != nil {
+			t.Fatal(e)
+		}
+		c := capped.EconomySettlement
+		if c == nil || c.GrossPayoutUnits != capped.PayoutUnits || c.CreditedPayoutUnits != min(capped.StakeUnits, capped.PayoutUnits) || capped.BalanceAfterUnits != chips.BalanceUnits+c.ActualNetUnits {
+			t.Fatalf("actual vs raw payout: %+v", capped)
+		}
+		retry, e := capSvc.Create(ctx, capUser, "dice", k, boot.Next.ID, input)
+		if e != nil || retry.EconomySettlement == nil || *retry.EconomySettlement != *c {
+			t.Fatal("changed cap replay", e)
+		}
+		proof, e := capSvc.Verify(ctx, capUser, capped.ID)
+		if e != nil || !proof.Verified {
+			t.Fatal("raw proof changed", e)
+		}
+		if c.WithheldUnits > 0 {
+			clipped = true
+			break
+		}
+	}
+	if !clipped {
+		t.Fatal("no positive win exercised in 64 rounds")
+	}
+
 }
 
 func fundedPlayer(t *testing.T, owner *platform.Store) int64 {

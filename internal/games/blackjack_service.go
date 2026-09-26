@@ -154,6 +154,9 @@ func (s *Service) createBlackjack(ctx context.Context, user int64, key, commitme
 		if before-n.TotalStake > math.MaxInt64-n.MaxPayout || seq > math.MaxInt64-9 || version > math.MaxInt64-9 {
 			return platform.ErrBalanceOverflow
 		}
+		if _, e = s.observeEconomy(ctx, tx, runtime.Economy, user, n.TotalStake); e != nil {
+			return e
+		}
 		var keyVersion string
 		var nonce, encrypted []byte
 		if e = tx.QueryRow(ctx, `SELECT key_version,gcm_nonce,ciphertext FROM games.fairness_commitments WHERE commitment_id=$1`, c.ID).Scan(&keyVersion, &nonce, &encrypted); e != nil {
@@ -202,16 +205,16 @@ func (s *Service) createBlackjack(ctx context.Context, user int64, key, commitme
 		if e != nil {
 			return e
 		}
-		r = GameRound{ID: c.ReservedRoundID, Game: "blackjack", State: "PLAYER_TURN", RecoveryState: "NORMAL", Input: n.Input, StakeUnits: n.TotalStake, NetUnits: -n.TotalStake, BalanceBeforeUnits: before, BalanceAfterUnits: before - n.TotalStake, WagerTransactionID: wager.TransactionID, ConfigVersion: c.ConfigVersion, ConfigHash: c.ConfigHash, PolicyVersion: c.PolicyVersion, PolicyHash: c.PolicyHash, Algorithm: c.Algorithm, Ruleset: c.Ruleset, Stream: c.Stream, Nonce: c.Nonce, CommitmentID: c.ID, CreatedAt: now}
+		r = GameRound{EconomicVersion: c.EconomicVersion, ID: c.ReservedRoundID, Game: "blackjack", State: "PLAYER_TURN", RecoveryState: "NORMAL", Input: n.Input, StakeUnits: n.TotalStake, NetUnits: -n.TotalStake, BalanceBeforeUnits: before, BalanceAfterUnits: before - n.TotalStake, WagerTransactionID: wager.TransactionID, ConfigVersion: c.ConfigVersion, ConfigHash: c.ConfigHash, PolicyVersion: c.PolicyVersion, PolicyHash: c.PolicyHash, Algorithm: c.Algorithm, Ruleset: c.Ruleset, Stream: c.Stream, Nonce: c.Nonce, CommitmentID: c.ID, CreatedAt: now}
 		typed, _ := json.Marshal(n.Input)
-		_, e = tx.Exec(ctx, `INSERT INTO games.game_rounds(round_id,newapi_user_id,game_slug,commitment_id,idempotency_key_hash,request_hash,typed_input,implementation_key,game_config_version_id,game_config_hash,wager_policy_version_id,wager_policy_hash,fairness_stream_version,ruleset_version,algorithm_version,nonce,state,total_stake_units,total_payout_units,net_change_units,common_result,balance_before_units,balance_after_units,wager_transaction_id,settlement_transaction_id,created_at,settled_at) VALUES($1,$2,'blackjack',$3,$4,$5,$6,'direct.blackjack.v1',$7,$8,$9,$10,$11,$12,$13,$14,'PLAYER_TURN',$15,0,$16,NULL,$17,$18,$19,NULL,$20,NULL)`, r.ID, user, c.ID, keyhash[:], requesthash[:], typed, c.ConfigVersion, decodeHash(c.ConfigHash), c.PolicyVersion, decodeHash(c.PolicyHash), c.Stream, c.Ruleset, c.Algorithm, c.Nonce, n.TotalStake, -n.TotalStake, before, r.BalanceAfterUnits, wager.TransactionID, now)
+		_, e = tx.Exec(ctx, `INSERT INTO games.game_rounds(round_id,newapi_user_id,game_slug,commitment_id,idempotency_key_hash,request_hash,typed_input,implementation_key,game_config_version_id,game_config_hash,wager_policy_version_id,wager_policy_hash,fairness_stream_version,ruleset_version,algorithm_version,nonce,state,total_stake_units,total_payout_units,net_change_units,common_result,balance_before_units,balance_after_units,wager_transaction_id,settlement_transaction_id,created_at,settled_at,economic_policy_version) VALUES($1,$2,'blackjack',$3,$4,$5,$6,'direct.blackjack.v1',$7,$8,$9,$10,$11,$12,$13,$14,'PLAYER_TURN',$15,0,$16,NULL,$17,$18,$19,NULL,$20,NULL,NULLIF($21,''))`, r.ID, user, c.ID, keyhash[:], requesthash[:], typed, c.ConfigVersion, decodeHash(c.ConfigHash), c.PolicyVersion, decodeHash(c.PolicyHash), c.Stream, c.Ruleset, c.Algorithm, c.Nonce, n.TotalStake, -n.TotalStake, before, r.BalanceAfterUnits, wager.TransactionID, now, r.EconomicVersion)
 		if e != nil {
 			return e
 		}
 		if e = persistBlackjackState(ctx, tx, r.ID, state); e != nil {
 			return e
 		}
-		if e = finishBlackjackTransition(ctx, tx, user, &r, state, seed, r.BalanceAfterUnits, now); e != nil {
+		if e = s.finishBlackjackTransition(ctx, tx, user, &r, state, seed, r.BalanceAfterUnits, now); e != nil {
 			return e
 		}
 		if state.Phase == bj.PlayerTurn {
@@ -235,7 +238,8 @@ func (s *Service) createBlackjack(ctx context.Context, user int64, key, commitme
 
 // Apply an already accepted transition. All added stakes are applied by the
 // caller before this function. The terminal payout/reveal/net supply is atomic.
-func finishBlackjackTransition(ctx context.Context, tx pgx.Tx, user int64, r *GameRound, state bj.State, seed []byte, available int64, now time.Time) error {
+func (s *Service) finishBlackjackTransition(ctx context.Context, tx pgx.Tx, user int64, r *GameRound, state bj.State, seed []byte, available int64, now time.Time) error {
+	previousStake := r.StakeUnits
 	r.StakeUnits = state.TotalStakeUnits
 	r.PayoutUnits = state.TotalPayoutUnits
 	r.NetUnits = r.PayoutUnits - r.StakeUnits
@@ -244,13 +248,34 @@ func finishBlackjackTransition(ctx context.Context, tx pgx.Tx, user int64, r *Ga
 	if state.Phase == bj.Settled {
 		r.Outcome = Outcome(state.Class)
 		r.SettledAt = &now
-		if state.TotalPayoutUnits > 0 {
-			payout, err := platform.ApplyInTx(ctx, tx, platform.Mutation{UserID: user, Asset: platform.AvailableChips, DeltaUnits: state.TotalPayoutUnits, BizType: "GAME_SETTLEMENT", BizID: r.ID, EntryType: "GAME_PAYOUT", IdempotencyKey: "game:settlement:" + r.ID})
+		p, e := platform.ResolveEconomicPolicyInTx(ctx, tx, r.EconomicVersion)
+		if e != nil {
+			return e
+		}
+		if p.Version != "" {
+			assets, e := platform.ReadUnifiedAssetsInTx(ctx, tx, s.observer, user)
+			if e != nil {
+				return e
+			}
+			// Additional debit is already applied; the persisted round still has its previous stake.
+			added := r.StakeUnits - previousStake
+			if added < 0 || assets.TotalUnits > math.MaxInt64-added {
+				return platform.ErrBalanceOverflow
+			}
+			assets.TotalUnits += added
+			if e = capRound(ctx, tx, p, assets, user, r); e != nil {
+				return e
+			}
+		}
+		actualPayout := r.PayoutUnits - r.capWithheld
+		actualNet := r.NetUnits - r.capWithheld
+		if actualPayout > 0 {
+			payout, err := platform.ApplyInTx(ctx, tx, platform.Mutation{UserID: user, Asset: platform.AvailableChips, DeltaUnits: actualPayout, BizType: "GAME_SETTLEMENT", BizID: r.ID, EntryType: "GAME_PAYOUT", IdempotencyKey: "game:settlement:" + r.ID})
 			if err != nil {
 				return err
 			}
 			r.SettlementTransactionID = payout.TransactionID
-			r.BalanceAfterUnits = available + state.TotalPayoutUnits
+			r.BalanceAfterUnits = available + actualPayout
 		} else {
 			id, err := newUUID()
 			if err != nil {
@@ -262,8 +287,8 @@ func finishBlackjackTransition(ctx context.Context, tx pgx.Tx, user int64, r *Ga
 				return err
 			}
 		}
-		if r.NetUnits != 0 {
-			event, direction, amount := "GAME_ISSUANCE", "ISSUE", r.NetUnits
+		if actualNet != 0 {
+			event, direction, amount := "GAME_ISSUANCE", "ISSUE", actualNet
 			if amount < 0 {
 				event, direction, amount = "GAME_BURN", "BURN", -amount
 			}
@@ -275,7 +300,7 @@ func finishBlackjackTransition(ctx context.Context, tx pgx.Tx, user int64, r *Ga
 			return err
 		}
 	}
-	_, err := tx.Exec(ctx, `UPDATE games.game_rounds SET state=$2,total_stake_units=$3,total_payout_units=$4,net_change_units=$5,common_result=NULLIF($6,''),balance_after_units=$7,settlement_transaction_id=NULLIF($8,'')::uuid,settled_at=$9 WHERE round_id=$1`, r.ID, r.State, r.StakeUnits, r.PayoutUnits, r.NetUnits, r.Outcome, r.BalanceAfterUnits, r.SettlementTransactionID, r.SettledAt)
+	_, err := tx.Exec(ctx, `UPDATE games.game_rounds SET state=$2,total_stake_units=$3,total_payout_units=$4,net_change_units=$5,common_result=NULLIF($6,''),balance_after_units=$7,settlement_transaction_id=NULLIF($8,'')::uuid,settled_at=$9,cap_withheld_units=$10 WHERE round_id=$1`, r.ID, r.State, r.StakeUnits, r.PayoutUnits, r.NetUnits, r.Outcome, r.BalanceAfterUnits, r.SettlementTransactionID, r.SettledAt, r.capWithheld)
 	if err != nil {
 		return err
 	}
@@ -376,6 +401,20 @@ func (s *Service) BlackjackAction(ctx context.Context, user int64, id string, in
 		if e != nil {
 			return e
 		}
+		p, e := platform.ResolveEconomicPolicyInTx(ctx, tx, r.EconomicVersion)
+		if e != nil {
+			return e
+		}
+		if _, e = s.observeEconomy(ctx, tx, p, user, state.TotalStakeUnits); e != nil {
+			return e
+		}
+		if p.Version != "" && (action.Type == bj.Split || action.Type == bj.Double) {
+			for _, h := range state.Hands {
+				if h.ID == action.HandID && h.StakeUnits > p.SinglePlayerMaxUnits-state.TotalStakeUnits {
+					return ErrInvalidInput
+				}
+			}
+		}
 		transition, e := bj.Apply(state, shoe, action, available, now)
 		if e != nil {
 			return e
@@ -401,7 +440,7 @@ func (s *Service) BlackjackAction(ctx context.Context, user int64, id string, in
 		if e = persistBlackjackState(ctx, tx, id, transition.State); e != nil {
 			return e
 		}
-		if e = finishBlackjackTransition(ctx, tx, user, &r, transition.State, seed, available, now); e != nil {
+		if e = s.finishBlackjackTransition(ctx, tx, user, &r, transition.State, seed, available, now); e != nil {
 			return e
 		}
 		original, e = json.Marshal(r)

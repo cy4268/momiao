@@ -23,18 +23,22 @@ type Keyring struct {
 	Keys   map[string][32]byte `json:"-"`
 }
 type Service struct {
-	store   *platform.Store
-	keyring Keyring
+	store    *platform.Store
+	keyring  Keyring
+	observer platform.NativeQuotaObserver
 }
 
 func NewService(store *platform.Store, keys Keyring) (*Service, error) {
+	return NewServiceWithEconomy(store, keys, nil)
+}
+func NewServiceWithEconomy(store *platform.Store, keys Keyring, observer platform.NativeQuotaObserver) (*Service, error) {
 	if store == nil || !validVersion(keys.Active) || len(keys.Keys) == 0 || len(keys.Keys) > 16 {
 		return nil, ErrUnavailable
 	}
 	if _, ok := keys.Keys[keys.Active]; !ok {
 		return nil, ErrUnavailable
 	}
-	s := &Service{store: store, keyring: Keyring{Active: keys.Active, Keys: make(map[string][32]byte, len(keys.Keys))}}
+	s := &Service{store: store, observer: observer, keyring: Keyring{Active: keys.Active, Keys: make(map[string][32]byte, len(keys.Keys))}}
 	for version, key := range keys.Keys {
 		if !validVersion(version) {
 			return nil, ErrUnavailable
@@ -120,7 +124,11 @@ func seedAAD(user int64, slug string, c Commitment) ([]byte, error) {
 	b = appendLP16(b, strconv.FormatInt(user, 10))
 	b = appendLP16(b, slug)
 	b = binary.BigEndian.AppendUint64(b, uint64(c.Nonce))
-	return appendLP16(b, c.Algorithm), nil
+	b = appendLP16(b, c.Algorithm)
+	if c.EconomicVersion != "" {
+		b = appendLP16(b, c.EconomicVersion)
+	}
+	return b, nil
 }
 func (s *Service) gcm(version string) (cipher.AEAD, error) {
 	key, ok := s.keyring.Keys[version]
