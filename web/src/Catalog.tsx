@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-
 import { ApiClient } from './api';
 import { normalizeRouteIntent, saveRouteIntent } from './post-auth-intent';
 import { Alert, Brand, Empty, Modal, Pager, useResource } from './ui';
-import { availabilityLabels, catalogCurl, catalogError, catalogModelPath, catalogSelectionPath, catalogTime, decodeCatalogModelPath, decimalDisplay, dimensionLabels, endpointLabels, readCatalog, readCatalogDetail, readPersonalPrice, selectedModel, useCatalogModel, type CatalogAsset, type CatalogChoice, type CatalogFreshness, type CatalogLoginRequired, type CatalogModel, type CatalogPrice, type CatalogVocabulary } from './catalog-api';
+import { availabilityLabels, catalogCurl, catalogError, catalogModelPath, catalogSelectionPath, catalogTime, decodeCatalogModelPath, decimalDisplay, dimensionLabels, endpointLabels, readCatalog, readCatalogDetail, readPersonalPrice, selectedModel, useCatalogModel, validCatalogCoverSrc, type CatalogAsset, type CatalogChoice, type CatalogFreshness, type CatalogLoginRequired, type CatalogModel, type CatalogPrice, type CatalogVocabulary } from './catalog-api';
 import { assetUrl } from './game-hall-assets';
 import workshopArt from './catalog-workshop-art.json';
 import './catalog.css';
@@ -38,13 +38,14 @@ const familyPersonaID=(family:string)=>'persona_'+(family==='ernie'?'wenxin':fam
 export function CatalogPersona({model,assets=[],compact=false}:{model:CatalogModel;assets?:CatalogAsset[];compact?:boolean}){
     const approved=assets.filter(a=>a.status==='PRODUCTION_READY'&&['ORIGINAL_PLATFORM','ORIGINAL_GENERATED','LICENSED_OR_APPROVED'].includes(a.rights_status));
     const asset=approved.find(a=>a.asset_id===familyPersonaID(model.metadata.family))||approved.find(a=>a.asset_id===model.metadata.asset_id);
+    const cover=model.family_cover;
     const [failure,setFailure]=useState(0);
-    useEffect(()=>setFailure(0),[asset?.src,asset?.fallback]);
-    const validAsset=(value:string)=>/^\/assets\/models\/[a-zA-Z0-9][a-zA-Z0-9_/-]*\.(?:webp|png)$/.test(value)&&!value.includes('..');
-    const source=asset&&(failure===0?asset.src:failure===1&&asset.fallback!==asset.src?asset.fallback:'');
-    const showImage=!!source&&validAsset(source);
-    return <figure className={'catalog-persona family-'+model.metadata.family+(compact?' compact':'')+(showImage?' has-image':'')} aria-label={showImage?'模型家族形象':'模型家族形象未载入'}>
-        {showImage?<img src={assetUrl(source)} alt="" width={1024} height={1536} loading="lazy" onError={()=>setFailure(n=>n+1)} style={{objectPosition:asset!.focal_point.map(n=>n*100+'%').join(' ')}}/>:<p className="catalog-art-unavailable">家族形象暂未载入</p>}
+    useEffect(()=>setFailure(0),[model.metadata.family,cover?.version,cover?.image?.src,cover?.default_image?.src,asset?.src,asset?.fallback]);
+    const legacy=asset?[{src:asset.src,alt:'',width:1024,height:1536,focal_point:asset.focal_point},...(asset.fallback!==asset.src?[{src:asset.fallback,alt:'',width:1024,height:1536,focal_point:asset.focal_point}]:[])]:[];
+    const choices=cover===undefined?legacy:cover.family===model.metadata.family?[cover.image,cover.default_image].filter((a,i,all)=>a&&all.findIndex(b=>b?.src===a.src)===i):[];
+    const image=choices.filter(a=>a&&validCatalogCoverSrc(a.src))[failure];
+    return <figure className={'catalog-persona family-'+model.metadata.family+(compact?' compact':'')+(image?' has-image':'')} aria-label={image?'模型家族形象':'模型家族形象未载入'}>
+        {image?<img src={assetUrl(image.src)} alt={image.alt} width={image.width||undefined} height={image.height||undefined} loading="lazy" onError={()=>setFailure(n=>n+1)} style={{objectPosition:image.focal_point.map(n=>n*100+'%').join(' ')}}/>:<p className="catalog-art-unavailable">家族形象暂未载入</p>}
     </figure>;
 }
 function ChoiceLabels({values,choices}:{values:string[];choices:CatalogChoice[]}){return <>{values.map(value=><span className="catalog-tag" key={value}>{choices.find(c=>c.value===value)?.label||value}</span>)}</>}

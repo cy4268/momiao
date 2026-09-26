@@ -66,6 +66,27 @@ func TestCatalogReaderFixedRequestAndSanitizedFailures(t *testing.T) {
 	}
 }
 func TestCatalogKeyFileAndTimingConfig(t *testing.T) {
+	for _, origin := range []string{"https://assets.example.test", "https://assets.example.test:8443"} {
+		cfg, err := loadConfig(func(k string) (string, bool) {
+			if k == "MOMIAO_ASSET_CDN_ORIGIN" {
+				return origin, true
+			}
+			return "", false
+		})
+		if err != nil || cfg.AssetCDNOrigin != origin {
+			t.Fatal("explicit CDN origin rejected", err)
+		}
+	}
+	for _, origin := range []string{"", "http://assets.example.test", "https://*.example.test", "https://assets.example.test/", "https://assets.example.test/path", "https://user@assets.example.test", "https://assets.example.test?x", "https://assets.example.test#x", "https://assets.example.test;script-src *", "https://assets.example.test:0", "https://assets.example.test:65536"} {
+		if _, err := loadConfig(func(k string) (string, bool) {
+			if k == "MOMIAO_ASSET_CDN_ORIGIN" {
+				return origin, true
+			}
+			return "", false
+		}); err == nil {
+			t.Fatal("invalid CDN origin accepted", origin)
+		}
+	}
 	dir := t.TempDir()
 	assetPath := filepath.Join(dir, "assets.json")
 	values := map[string]string{"MOMIAO_CATALOG_ASSET_R2_ACCOUNT_ID": strings.Repeat("a", 32), "MOMIAO_CATALOG_ASSET_R2_BUCKET": "test-assets", "MOMIAO_CATALOG_ASSET_R2_CREDENTIALS_FILE": assetPath}

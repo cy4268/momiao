@@ -32,13 +32,16 @@ it('reads the public catalog and applies explicit same-dimension price and conte
  await waitFor(()=>expect(paths.at(-1)).toContain('price_dimension=input'));expect(paths.at(-1)).toContain('min_price=0.00000001');expect(paths.at(-1)).toContain('unknown_context=true');
 });
 it('selects exact channel model IDs inside one family without retaining stale detail',async()=>{
- const second={...model,model_id:'渠道/second',metadata:{...model.metadata,display_name:'第二个型号'}};
+ const cover={family:'gemini',version:'4',image:{asset_id:'cover',src:'/assets/models/uploads/gemini/'+'b'.repeat(64)+'.webp',alt:'共享家族封面',width:900,height:1200,focal_point:[0.5,0.5] as [number,number]},default_image:null};
+ const first={...model,family_cover:cover};
+ const second={...first,model_id:'渠道/second',metadata:{...model.metadata,display_name:'第二个型号'}};
  let resolve!:(r:Response)=>void;const pending=new Promise<Response>(r=>resolve=r);const paths:string[]=[];
  let finishGate!:(r:Response)=>void;const pendingGate=new Promise<Response>(r=>finishGate=r);
- const c=new ApiClient(async path=>{paths.push(path);if(path==='/api/user/login')return ok(bundle);if(path.startsWith('/platform/v1/access-gate?'))return pendingGate;if(path.includes('/personal-price?'))return ok({model_id:new URLSearchParams(path.split('?')[1]).get('model_id'),quotes:[],basis:'current_user_group_reference_not_token_selection',observed_at:model.last_seen_at});if(path.includes('/detail?'))return path.includes(encodeURIComponent(second.model_id))?pending:ok({item:model,vocabulary:page.vocabulary,api_base_url:'https://api.example/v1'});return ok({...page,items:[model,second],total:2})});
+ const c=new ApiClient(async path=>{paths.push(path);if(path==='/api/user/login')return ok(bundle);if(path.startsWith('/platform/v1/access-gate?'))return pendingGate;if(path.includes('/personal-price?'))return ok({model_id:new URLSearchParams(path.split('?')[1]).get('model_id'),quotes:[],basis:'current_user_group_reference_not_token_selection',observed_at:model.last_seen_at});if(path.includes('/detail?'))return path.includes(encodeURIComponent(second.model_id))?pending:ok({item:first,vocabulary:page.vocabulary,api_base_url:'https://api.example/v1'});return ok({...page,items:[first,second],total:2})});
  await c.login('one','x');paths.length=0;
  browser('/models?view=family&family=gemini&recommended=true&q=old-search',<Catalog client={c}/>);
  expect(await screen.findByRole('link',{name:'查看接入示例 →'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(model.model_id));
+ const familyImage=screen.getByAltText('共享家族封面');expect(familyImage).toHaveAttribute('src',cover.image.src);
  expect(paths.find(p=>!p.includes('/detail?'))).toBe('/platform/v1/models?family=gemini');
  fireEvent.click(screen.getByRole('button',{name:'使用此模型'}));
  fireEvent.click(screen.getByRole('button',{name:new RegExp(second.metadata.display_name)}));
@@ -47,6 +50,7 @@ it('selects exact channel model IDs inside one family without retaining stale de
  expect(await screen.findByRole('link',{name:'查看接入示例 →'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(second.model_id));
  await act(async()=>finishGate(ok({user_id:'1',route:'/api/access?model_id='+encodeURIComponent(model.model_id)+'&intent=use',stage:'MIGRATION_UNVERIFIED'})));
  expect(screen.getByRole('link',{name:'查看接入示例 →'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(second.model_id));
+ expect(screen.getByAltText('共享家族封面').getAttribute('src')).toBe(familyImage.getAttribute('src'));
  expect(paths.some(p=>p.includes('/api/token/'))).toBe(false);
 });
 it('shows unavailable source and unknown context without inventing a price or use action',async()=>{
@@ -76,6 +80,12 @@ it('labels conditional request pricing and keeps its own unit',()=>{
 it('keeps the persona slot usable after both approved local images fail',()=>{
  const view=render(<CatalogPersona model={{...model,metadata:{...model.metadata,asset_id:'synthetic-approved'}}} assets={[{asset_id:'synthetic-approved',src:'/assets/models/test-master.webp',fallback:'/assets/models/test-fallback.webp',focal_point:[0.5,0.5],safe_area:0.08,status:'PRODUCTION_READY',rights_status:'LICENSED_OR_APPROVED'}]}/>);
  const image=view.container.querySelector('img')!;expect(image).toHaveAttribute('src','/assets/models/test-master.webp');fireEvent.error(image);expect(image).toHaveAttribute('src','/assets/models/test-fallback.webp');fireEvent.error(image);expect(view.container.querySelector('img')).toBeNull();expect(screen.getByLabelText('模型家族形象未载入')).toBeInTheDocument();
+ const fallback={asset_id:'default',src:'/assets/models/test-default.webp',alt:'默认封面',width:1024,height:1536,focal_point:[0.5,0.5] as [number,number]};
+ const cover={family:'gemini',version:'2',image:{...fallback,asset_id:'uploaded',src:'/assets/models/uploads/gemini/'+'a'.repeat(64)+'.jpg',alt:'新封面',width:600,height:900},default_image:fallback};
+ view.rerender(<CatalogPersona model={{...model,family_cover:cover}}/>);expect(screen.getByAltText('新封面')).toHaveAttribute('width','600');fireEvent.error(screen.getByAltText('新封面'));expect(screen.getByAltText('默认封面')).toHaveAttribute('src',fallback.src);fireEvent.error(screen.getByAltText('默认封面'));expect(view.container.querySelector('img')).toBeNull();
+ view.rerender(<CatalogPersona model={{...model,family_cover:{...cover,version:'3',image:{...cover.image,src:'/assets/models/uploads/gemini/'+'c'.repeat(64)+'.png'}}}}/>);expect(screen.getByAltText('新封面')).toHaveAttribute('src','/assets/models/uploads/gemini/'+'c'.repeat(64)+'.png');
+ view.rerender(<CatalogPersona model={{...model,family_cover:{...cover,version:'4',image:null,default_image:null}}}/>);expect(view.container.querySelector('img')).toBeNull();
+
 });
 it('labels retained price and endpoint observation separately from the later missing-source check',async()=>{
  const missing={...model,can_use:false,availability_state:'NOT_OBSERVED',last_seen_at:'2026-09-01T00:00:00Z'};

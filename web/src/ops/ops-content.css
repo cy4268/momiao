@@ -624,3 +624,22 @@
     margin-top: 10px;
   }
 }
+
+/* Family cover management reuses the approved operations palette and dialog. */
+.catalog-cover-manager {min-width:0;display:grid;gap:16px}
+.catalog-cover-toolbar,.catalog-model-cover {display:flex;align-items:center;justify-content:space-between;gap:20px}
+.catalog-cover-toolbar label {flex:1}
+.catalog-cover-columns {display:grid;grid-template-columns:minmax(120px,.8fr) minmax(0,1.2fr);gap:24px}
+.catalog-cover-art {display:grid;place-items:center;min-height:160px;background:#081725;border:1px solid #526779;padding:12px}
+.catalog-cover-art img {display:block;max-width:100%;width:auto;height:clamp(160px,27vh,260px);object-fit:contain}
+.catalog-cover-manager label {display:grid;gap:6px;margin-block:10px}
+.catalog-cover-manager fieldset {min-width:0;padding:12px}
+.catalog-cover-manager input[type=file] {width:100%;min-width:0;white-space:normal}
+.catalog-cover-manager code,.catalog-cover-manager p {overflow-wrap:anywhere}
+.catalog-cover-disclosure {padding:10px 12px;border-left:2px solid #d6bd88;background:#253748;color:#e7e2d7;font-size:12px;line-height:1.6}
+.catalog-cover-operation {display:block;margin:8px 0}
+.catalog-cover-edit>button {margin:8px 8px 0 0}
+.catalog-model-cover {padding:16px;border:1px solid #526779;margin-block:20px}
+.catalog-model-cover .catalog-persona {width:112px;flex:none;height:150px;margin:0}
+.catalog-model-cover .catalog-persona img {height:100%;width:100%;object-fit:contain}
+@media(max-width:600px){.catalog-cover-columns{grid-template-columns:1fr}.catalog-cover-toolbar{align-items:stretch;flex-direction:column;gap:8px}.catalog-cover-current .catalog-cover-art img{height:180px}.catalog-cover-manager .catalog-actions{flex-wrap:wrap}}

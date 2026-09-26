@@ -6,6 +6,27 @@ export { validModelID } from './post-auth-intent';
 
 export const catalogRoot='/platform/v1/models';
 export const catalogOps='/platform/v1/ops/models';
+export interface CatalogCoverImage {asset_id:string;src:string;alt:string;width:number;height:number;focal_point:[number,number]}
+export interface CatalogFamilyCover {family:string;version:string;image:CatalogCoverImage|null;default_image:CatalogCoverImage|null}
+export interface CatalogFamilyCoverPage {principal:AnnouncementPrincipal;items:CatalogFamilyCover[];upload_enabled:boolean}
+export interface CatalogCoverUploadCommand {operation_id:string;authz_epoch:number;family:string;alt:string;rights_status:string;rights_note:string;reason:string}
+export interface CatalogCoverUploadResult {operation_id:string;asset_id:string;image:CatalogCoverImage;rights_status:string;rights_note:string;reused:boolean}
+export interface CatalogFamilyCoverCommand {operation_id:string;authz_epoch:number;action:'SET'|'RESET';family:string;asset_id:string;expected_version:string;reason:string}
+export interface CatalogFamilyCoverPreview {preview_id:string;before:CatalogFamilyCover;after:CatalogFamilyCover;expires_at:string}
+export interface CatalogFamilyCoverResult {operation_id:string;cover:CatalogFamilyCover}
+const coverRoot=catalogOps+'/family-covers';
+export function validCatalogCoverSrc(src:string){return src.startsWith('/assets/models/uploads/')?/^\/assets\/models\/uploads\/(?:deepseek|gpt|claude|gemini|glm|kimi|ernie|qwen|grok|other)\/[a-f0-9]{64}\.(?:png|jpg|webp)$/.test(src):/^\/assets\/models\/[a-zA-Z0-9][a-zA-Z0-9_-]*\.(?:webp|png)$/.test(src)}
+function checkedCover(cover:CatalogFamilyCover){if(!cover||typeof cover.family!=='string'||!/^\d+$/.test(cover.version)||BigInt(cover.version)<1n)throw new Error('家族封面响应不匹配。');return cover}
+export async function readFamilyCovers(client:ApiClient){const page=await client.request<CatalogFamilyCoverPage>(coverRoot);if(!page?.principal||!Array.isArray(page.items)||typeof page.upload_enabled!=='boolean')throw new Error('家族封面响应格式异常。');page.items.forEach(checkedCover);return page}
+export async function uploadFamilyCover(client:ApiClient,command:CatalogCoverUploadCommand,file:File,isCurrent:()=>boolean){
+ const body=new FormData();body.append('metadata',JSON.stringify(command));body.append('file',file);
+ const result=await client.request<CatalogCoverUploadResult>(coverRoot+'/upload','POST',body,undefined,isCurrent);
+ if(!isCurrent())throw new ApiError('家族选择已改变。',0,'REQUEST_SCOPE_EXPIRED');
+ if(!result||result.operation_id!==command.operation_id||!result.asset_id||result.image?.asset_id!==result.asset_id||!validCatalogCoverSrc(result.image.src)||!result.image.src.startsWith('/assets/models/uploads/'+command.family+'/'))throw new ApiError('上传回执尚未核对，请使用原编号重试。',0,'',true);
+ return result;
+}
+export async function prepareFamilyCover(client:ApiClient,command:CatalogFamilyCoverCommand){const preview=await client.request<CatalogFamilyCoverPreview>(coverRoot+'/prepare','POST',{command});if(!preview?.preview_id||checkedCover(preview.before).family!==command.family||checkedCover(preview.after).family!==command.family||preview.before.version!==command.expected_version)throw new Error('家族封面预览不匹配。');return preview}
+export async function executeFamilyCover(client:ApiClient,command:CatalogFamilyCoverCommand,previewId:string){const result=await client.request<CatalogFamilyCoverResult>(coverRoot+'/execute','POST',{command,preview_id:previewId,confirmed:true});if(!result||result.operation_id!==command.operation_id||checkedCover(result.cover).family!==command.family)throw new ApiError('封面确认回执尚未核对，请使用原编号重试。',0,'',true);return result}
 export type CatalogChoice={value:string;label:string};
 export interface CatalogAsset {asset_id:string;src:string;fallback:string;focal_point:[number,number];safe_area:number;status:string;rights_status:string}
 export interface CatalogVocabulary {families:CatalogChoice[];tags:CatalogChoice[];use_cases:CatalogChoice[];assets:CatalogAsset[]}
@@ -14,7 +35,7 @@ export interface CatalogDimension {kind:string;unit:string;amount:string|null;co
 export interface CatalogPrice {mode:string;configured:boolean;status:string;reason?:string;dimensions:CatalogDimension[];unquoted_dimensions:string[]}
 export interface CatalogEndpoint {kind:string;path:string;method:string}
 export interface CatalogFreshness {state:string;last_observed_at:string|null;last_verified_at:string|null;stale_after_seconds:number;disable_after_seconds:number}
-export interface CatalogModel {model_id:string;metadata:CatalogMetadata;publication_state:string;recommended:boolean;sort_order:number;version:string;metadata_version:string;published_at:string|null;retired_at:string|null;updated_at:string;availability_state:string;source_observed_at:string;last_seen_at:string;endpoint_status:string;endpoints:CatalogEndpoint[];price:CatalogPrice;can_use:boolean;freshness:CatalogFreshness}
+export interface CatalogModel {family_cover?:CatalogFamilyCover;model_id:string;metadata:CatalogMetadata;publication_state:string;recommended:boolean;sort_order:number;version:string;metadata_version:string;published_at:string|null;retired_at:string|null;updated_at:string;availability_state:string;source_observed_at:string;last_seen_at:string;endpoint_status:string;endpoints:CatalogEndpoint[];price:CatalogPrice;can_use:boolean;freshness:CatalogFreshness}
 export interface CatalogPage {items:CatalogModel[];total:number;offset:number;limit:number;freshness:CatalogFreshness;vocabulary:CatalogVocabulary;price_dimension:string;price_unit:string}
 export interface CatalogSync {version:string;observed_count:number;last_attempt_at:string|null;last_attempt_status:string;failure_code?:string;last_observed_at:string|null;last_verified_at:string|null}
 export interface CatalogOpsPage extends Omit<CatalogPage,'price_dimension'|'price_unit'> {principal:AnnouncementPrincipal;sync:CatalogSync}
@@ -42,7 +63,7 @@ export function catalogCurl(base:string,id:string,endpoint:CatalogEndpoint){
  const auth=endpoint.kind==='anthropic'?['x-api-key: <YOUR_API_KEY>','anthropic-version: 2023-06-01']:['Authorization: Bearer <YOUR_API_KEY>'];
  return ['curl '+shell(base+endpoint.path.slice(3)),...['Content-Type: application/json',...auth].map(h=>'  -H '+shell(h)),'  --data-raw '+shell(JSON.stringify(body,null,2))].join(' \\\n');
 }
-export function catalogError(e:unknown){const messages:Record<string,string>={CATALOG_UNAVAILABLE:'模型目录暂时无法读取，请重试。',PERSONAL_PRICE_UNAVAILABLE:'本人报价暂时无法读取；公开参考价仍可查看。',MODEL_NOT_FOUND:'此模型暂不可访问。',MODELS_FORBIDDEN:'当前账户没有模型运营权限。',MODEL_VERSION_CONFLICT:'目录或模型已经更新，请重新读取后再操作。',CATALOG_SOURCE_CHANGED:'来源已变化，请重新预览同步影响。',MODEL_CONFIRMATION_REQUIRED:'预览已过期或与本次操作不符，请重新预览。',MODEL_METADATA_INCOMPLETE:'发布需要展示名、家族、简介与明确价格说明。',CATALOG_INVALID_REQUEST:'请检查筛选条件或元数据字段。',AUTHORIZATION_STALE:'运营权限已更新，请刷新后再操作。',MODEL_OPERATION_CONFLICT:'操作编号已用于其他内容，请核对原操作回执。'};return e instanceof ApiError?messages[e.code]||e.message:e instanceof Error?e.message:'读取失败，请重试。';}
+export function catalogError(e:unknown){const messages:Record<string,string>={CATALOG_ASSET_UPLOAD_DISABLED:'上传尚未配置；当前封面与恢复默认仍可用。',CATALOG_ASSET_UPLOAD_FAILED:'图片上传未确认，请使用原操作编号重试。',CATALOG_UNAVAILABLE:'模型目录暂时无法读取，请重试。',PERSONAL_PRICE_UNAVAILABLE:'本人报价暂时无法读取；公开参考价仍可查看。',MODEL_NOT_FOUND:'此模型暂不可访问。',MODELS_FORBIDDEN:'当前账户没有模型运营权限。',MODEL_VERSION_CONFLICT:'目录或模型已经更新，请重新读取后再操作。',CATALOG_SOURCE_CHANGED:'来源已变化，请重新预览同步影响。',MODEL_CONFIRMATION_REQUIRED:'预览已过期或与本次操作不符，请重新预览。',MODEL_METADATA_INCOMPLETE:'发布需要展示名、家族、简介与明确价格说明。',CATALOG_INVALID_REQUEST:'请检查筛选条件或元数据字段。',AUTHORIZATION_STALE:'运营权限已更新，请刷新后再操作。',MODEL_OPERATION_CONFLICT:'操作编号已用于其他内容，请核对原操作回执。'};return e instanceof ApiError?messages[e.code]||e.message:e instanceof Error?e.message:'读取失败，请重试。';}
 function checkedModel(item:CatalogModel){if(!item||!validModelID(item.model_id)||!item.metadata||!Array.isArray(item.endpoints)||!item.price||!Array.isArray(item.price.dimensions)||!item.freshness||!['PENDING_METADATA','PUBLISHED','HIDDEN','RETIRED'].includes(item.publication_state))throw new Error('模型响应格式异常。');return item;}
 export async function readCatalog(client:ApiClient,query=''){try{const page=await client.catalogRequest<CatalogPage>(catalogRoot+query);if(!page||!Array.isArray(page.items)||!Number.isSafeInteger(page.total)||!page.vocabulary||!page.freshness)throw new Error('模型目录响应格式异常。');page.items.forEach(item=>{checkedModel(item);if(item.publication_state!=='PUBLISHED')throw new Error('公开模型状态异常。')});return page;}catch(e){throw new Error(catalogError(e))}}
 export async function readCatalogDetail(client:ApiClient,id:string){try{const data=await client.catalogRequest<CatalogDetail>(catalogRoot+'/detail?'+new URLSearchParams({model_id:id}));checkedModel(data.item);if(data.item.model_id!==id||data.item.publication_state!=='PUBLISHED')throw new Error('模型响应不匹配。');return data;}catch(e){throw new Error(catalogError(e))}}

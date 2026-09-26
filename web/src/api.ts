@@ -158,8 +158,12 @@ export class ApiClient {
         return headers;
     }
     private async raw<T>(path: string, method = 'GET', body?: unknown, headers = new Headers()): Promise<T> {
+        const multipart = body instanceof FormData;
+        if (multipart && (path !== '/platform/v1/ops/models/family-covers/upload' || method !== 'POST'))
+            throw new ApiError('此接口不接受文件上传。', 400, 'INVALID_REQUEST');
         headers.set('Accept', 'application/json');
-        if (body !== undefined)
+        if (multipart) headers.delete('Content-Type');
+        else if (body !== undefined)
             headers.set('Content-Type', 'application/json');
         const read = method === 'GET' || method === 'HEAD';
         const controller = read ? new AbortController() : undefined;
@@ -167,9 +171,9 @@ export class ApiClient {
         try {
             let response: Response;
             try {
-                const timeout = AbortSignal.timeout(25000);
+                const timeout = AbortSignal.timeout(multipart ? 95000 : 25000);
                 const signal = controller ? AbortSignal.any([timeout, controller.signal]) : timeout;
-                response = await this.fetcher(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin', cache: 'no-store', signal });
+                response = await this.fetcher(path, { method, headers, body: multipart ? body : body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin', cache: 'no-store', signal });
             }
             catch {
                 throw new ApiError(read ? '网络连接中断，请检查连接后重试。' : '网络连接中断，操作结果尚未确认。请先刷新列表核对，勿重复提交。', 0, '', !read);

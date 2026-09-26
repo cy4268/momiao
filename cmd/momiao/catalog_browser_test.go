@@ -51,9 +51,9 @@ func TestCatalogBrowserFixture(t *testing.T) {
 	defer conn.Close(ctx)
 	// Completed synthetic facts in this fresh local database only. The browser
 	// must initialize Master and explicitly acknowledge through the real Gate.
-	_, err = conn.Exec(ctx, `INSERT INTO identity.account_refs(newapi_user_id) VALUES(910000001),(910000002);
- INSERT INTO identity.migration_notice_versions(version,title,body,completed_at,evidence_ref) VALUES(1,'本地合成验收已准备完成','这是一份本地合成验收通知：目录投影已准备，尚未创建任何 API 密钥，也不会连接真实模型。',now()-interval '1 minute','synthetic-portal-catalog-browser-only');
- INSERT INTO identity.migration_notice_requirements(newapi_user_id,version) VALUES(910000001,1),(910000002,1)`)
+	_, err = conn.Exec(ctx, `INSERT INTO identity.account_refs(newapi_user_id) VALUES(910000001),(910000002) ON CONFLICT DO NOTHING;
+ INSERT INTO identity.migration_notice_versions(version,title,body,completed_at,evidence_ref) VALUES(1,'本地合成验收已准备完成','这是一份本地合成验收通知：目录投影已准备，尚未创建任何 API 密钥，也不会连接真实模型。',now()-interval '1 minute','synthetic-portal-catalog-browser-only') ON CONFLICT DO NOTHING;
+ INSERT INTO identity.migration_notice_requirements(newapi_user_id,version) VALUES(910000001,1),(910000002,1) ON CONFLICT DO NOTHING`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,8 @@ func TestCatalogBrowserFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	origin := "http://" + listener.Addr().String()
-	cfg := config{WebDir: web, PublicOrigin: origin, catalog: store, catalogSource: read, CatalogStaleAfter: policy.StaleAfter, CatalogDisableAfter: policy.DisableAfter, APIBaseURL: "https://synthetic-api.example/v1", announcements: store, profile: store, wallet: store, economy: store, accessGate: store, accessDeclaration: &accessDeclaration{Version: 1, Environment: "STAGING", Origin: origin, EvidenceRef: "synthetic-portal-catalog-browser-only", MigrationApplicability: "PERSISTED_COMPLETED_NOTICE", Resources: map[string]string{"ACCOUNT": "AVAILABLE", "API": "AVAILABLE", "COMMUNITY": "AVAILABLE", "OPERATIONS": "AVAILABLE", "ASSETS": "AVAILABLE"}}}
+	cdn, _ := os.LookupEnv("MOMIAO_ASSET_CDN_ORIGIN")
+	cfg := config{AssetCDNOrigin: cdn, WebDir: web, PublicOrigin: origin, catalog: store, catalogSource: read, CatalogStaleAfter: policy.StaleAfter, CatalogDisableAfter: policy.DisableAfter, APIBaseURL: "https://synthetic-api.example/v1", announcements: store, profile: store, wallet: store, economy: store, accessGate: store, accessDeclaration: &accessDeclaration{Version: 1, Environment: "STAGING", Origin: origin, EvidenceRef: "synthetic-portal-catalog-browser-only", MigrationApplicability: "PERSISTED_COMPLETED_NOTICE", Resources: map[string]string{"ACCOUNT": "AVAILABLE", "API": "AVAILABLE", "COMMUNITY": "AVAILABLE", "OPERATIONS": "AVAILABLE", "ASSETS": "AVAILABLE"}}}
 	cfg.CatalogAssets, err = loadCatalogAssetConfig(os.LookupEnv)
 	if err != nil {
 		t.Fatal(err)
@@ -243,9 +244,32 @@ func TestCatalogBrowserFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	portal := newPortalHandler(cfg, native)
+	opsService, err := platform.NewOpsService(store, "STAGING")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var server *http.Server
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/__catalog-fixture/login":
+			// Same local entry pattern as TestGamesBrowserFixture: no production
+			// auth page is replaced and no real account credential is requested.
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, `<!doctype html><html lang="zh"><meta charset="utf-8"><title>模型目录本地验收</title><style>body{font:18px system-ui;max-width:700px;margin:80px auto}button,select{font:inherit;padding:12px;margin:12px}</style><h1>模型目录本地验收</h1><p>真实 Go / PostgreSQL，合成登录身份；不连接真实模型。</p><form><label>验收账户<select name="username"><option value="catalog-review-admin">本地管理员</option><option value="catalog-review-reader">本地普通用户</option></select></label><button>进入模型运营</button></form><p id="error"></p><script>document.querySelector('form').onsubmit=async e=>{e.preventDefault();const response=await fetch('/api/user/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:new FormData(e.target).get('username'),password:'catalog-synthetic-only'})});if(response.ok)location.href='/ops/models';else document.querySelector('#error').textContent='登录失败';}</script></html>`)
+		case "/api/v1/ops/bootstrap":
+			// This existing fixture substitutes only native identity. The current
+			// Ops shell reads its authority from the real persisted Ops service.
+			id, status := verifyWalletUser(r, native)
+			if r.Method != "GET" || status != 0 {
+				walletError(w, http.StatusUnauthorized, "AUTH_UNAUTHORIZED")
+				return
+			}
+			bootstrap, e := opsService.Bootstrap(r.Context(), id)
+			if e != nil {
+				walletError(w, http.StatusForbidden, "OPS_FORBIDDEN")
+				return
+			}
+			walletSuccess(w, bootstrap)
 		case "/api/user/login":
 			var input struct{ Username, Password string }
 			if r.Method != "POST" || json.NewDecoder(io.LimitReader(r.Body, 2048)).Decode(&input) != nil || input.Password != "catalog-synthetic-only" {

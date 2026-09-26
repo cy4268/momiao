@@ -10,14 +10,31 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cy4268/momiao/internal/platform"
 )
 
+var assetCDNOriginPattern = regexp.MustCompile(`^https://[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?(?::[0-9]{1,5})?$`)
+
 func catalogConfig(cfg *config, lookup func(string) (string, bool)) error {
+	if value, ok := lookup("MOMIAO_ASSET_CDN_ORIGIN"); ok {
+		u, err := url.Parse(value)
+		if err != nil || !assetCDNOriginPattern.MatchString(value) {
+			return errors.New("MOMIAO_ASSET_CDN_ORIGIN must be one explicit HTTPS origin without a path or wildcard")
+		}
+		if port := u.Port(); port != "" {
+			n, err := strconv.Atoi(port)
+			if err != nil || n < 1 || n > 65535 {
+				return errors.New("invalid asset CDN port")
+			}
+		}
+		cfg.AssetCDNOrigin = value
+	}
 	cfg.CatalogSyncInterval = 5 * time.Minute
 	cfg.CatalogStaleAfter = 10 * time.Minute
 	cfg.CatalogDisableAfter = 30 * time.Minute

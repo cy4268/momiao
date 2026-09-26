@@ -222,7 +222,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		case cfg.NativeAuthWebDir != "" && strings.HasPrefix(r.URL.Path, "/native-auth/"):
 			serveNativeAuthAsset(cfg.NativeAuthWebDir, w, r)
 		case r.URL.Path == "/api/access":
-			serveWebFile(cfg.WebDir, w, r)
+			serveWebFile(cfg.WebDir, cfg.AssetCDNOrigin, w, r)
 		case r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/"):
 			walletError(w, 404, "NOT_FOUND")
 		case strings.HasPrefix(r.URL.Path, "/api/") || isRelay:
@@ -243,7 +243,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 			defer cancel()
 			proxy.ServeHTTP(w, r.WithContext(ctx))
 		default:
-			serveWebFile(cfg.WebDir, w, r)
+			serveWebFile(cfg.WebDir, cfg.AssetCDNOrigin, w, r)
 		}
 	})
 }
@@ -286,7 +286,7 @@ func serveNativeAuthIndex(root string, w http.ResponseWriter, r *http.Request) {
 	marker := []byte("<meta name=\"chaldea-auth-ui\" content=\"opaque-v1\">\n</head>")
 	raw = bytes.Replace(raw, []byte("</head>"), marker, 1)
 	raw = bytes.Replace(raw, []byte("href=\"/logo.png\""), []byte("href=\"/native-auth/logo.png\""), 1)
-	setIndexHeaders(w)
+	setIndexHeaders(w, "")
 	http.ServeContent(w, r, "index.html", info.ModTime(), bytes.NewReader(raw))
 }
 
@@ -378,14 +378,14 @@ func newNativeProxy(transport http.RoundTripper) *httputil.ReverseProxy {
 	}
 }
 
-func serveWebFile(root string, w http.ResponseWriter, r *http.Request) {
+func serveWebFile(root, assetCDNOrigin string, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if browserRoutes[r.URL.Path] || opsBrowserPermission(r.URL.EscapedPath()) != "" || gameBrowserRoute(r.URL.EscapedPath()) || rouletteBrowserRoute(r.URL.EscapedPath()) || walletTransactionBrowserRoute(r.URL.EscapedPath()) || pokerBrowserRoute(r.URL.EscapedPath()) && r.URL.RawQuery == "" && !r.URL.ForceQuery && r.URL.Fragment == "" || announcementBrowserRoute(r.URL.Path) || catalogBrowserRoute(r.URL.EscapedPath()) || r.URL.Path == "/index.html" {
-		serveIndex(root, w, r)
+		serveIndex(root, assetCDNOrigin, w, r)
 		return
 	}
 	if !safeAssetPath(r.URL.Path) {
@@ -421,7 +421,7 @@ func serveWebFile(root string, w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
 }
 
-func serveIndex(root string, w http.ResponseWriter, r *http.Request) {
+func serveIndex(root, assetCDNOrigin string, w http.ResponseWriter, r *http.Request) {
 	file, err := os.Open(filepath.Join(root, "index.html"))
 	if err != nil {
 		http.NotFound(w, r)
@@ -433,17 +433,21 @@ func serveIndex(root string, w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	setIndexHeaders(w)
+	setIndexHeaders(w, assetCDNOrigin)
 	http.ServeContent(w, r, "index.html", info.ModTime(), file)
 }
 
-func setIndexHeaders(w http.ResponseWriter) {
+func setIndexHeaders(w http.ResponseWriter, assetCDNOrigin string) {
+	imageSources := "'self' data:"
+	if assetCDNOrigin != "" {
+		imageSources += " " + assetCDNOrigin
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src "+imageSources+"; connect-src 'self'")
 }
 
 func safeAssetPath(name string) bool {

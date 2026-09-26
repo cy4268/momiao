@@ -400,6 +400,12 @@ describe('opt-in opaque browser session flow', () => {
         expect(sent.get('X-CSRF-Token')).toBe(csrfB);
         expect(sent.get('X-Game-CSRF-Token')).toBe(gameCSRF);
         expect(sent.get('Idempotency-Key')).toBe('round-1');
+        fetcher.mockResolvedValueOnce(ok({asset_id:'accepted'}));const form=new FormData();form.append('metadata','{}');
+        await client.request('/platform/v1/ops/models/family-covers/upload','POST',form);
+        const upload=headers(fetcher.mock.calls[3]);expect(upload.get('X-CSRF-Token')).toBe(csrfB);
+        for(const name of ['Content-Type','X-Game-CSRF-Token','Authorization','New-Api-User','X-Auth-Session'])expect(upload.has(name)).toBe(false);
+        expect(fetcher.mock.calls[3][1]?.body).toBe(form);
+
     });
 
     it('keeps Account, Discord, and Poker routes visible while truthfully holding unavailable S2 capabilities', async () => {

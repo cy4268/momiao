@@ -74,6 +74,7 @@ type config struct {
 	economy                   economyStore
 	ListenAddr                string
 	ListenSocket              string
+	AssetCDNOrigin            string
 	WebDir                    string
 	NativeAuthWebDir          string
 	NewAPISocket              string
@@ -256,7 +257,7 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 		return config{}, errHistoryConfig
 	}
 	cfg.History = history
-	if cfg.ProcessRole == "poker" && (cfg.Session.Enabled || cfg.History.Enabled || cfg.WebDir != "" || cfg.NativeAuthWebDir != "" || cfg.GameFairnessKeyringFile != "" || cfg.AdmissionEnabled || cfg.NativeQuotaKeyFile != "" || cfg.NativeQuotaDSNFile != "" || cfg.CatalogReaderKeyFile != "" || !cfg.Poker.Enabled) {
+	if cfg.ProcessRole == "poker" && (cfg.Session.Enabled || cfg.History.Enabled || cfg.WebDir != "" || cfg.NativeAuthWebDir != "" || cfg.AssetCDNOrigin != "" || cfg.GameFairnessKeyringFile != "" || cfg.AdmissionEnabled || cfg.NativeQuotaKeyFile != "" || cfg.NativeQuotaDSNFile != "" || cfg.CatalogReaderKeyFile != "" || !cfg.Poker.Enabled) {
 		return config{}, errors.New("Poker process must own only its Poker runtime")
 	}
 	if value, ok := lookup("MOMIAO_OPS_ENVIRONMENT"); ok {
