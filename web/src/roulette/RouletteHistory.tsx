@@ -1,3 +1,4 @@
+import { CapReceipt } from '../economy-cap';
 import {useState} from 'react';
 import {Link,useParams} from 'react-router-dom';
 import {z} from 'zod';
@@ -29,7 +30,7 @@ function Content({client,id}:{client:ApiClient;id:string}){
   <div className="roulette-history"><button disabled={read.loading} onClick={read.reload}>刷新记录</button>
   {read.loading?<Loading/>:read.error?<Alert>{read.error}<button onClick={()=>setCursor('')}>返回第一页</button></Alert>:d&&<>
    <section className="panel archive-detail-panel"><h2>{d.snapshot.game_title}</h2><p>当时昵称：{d.snapshot.actor_display_name||'旅人'} · {stateNames[d.state]} · {d.reason||'等待结束'}</p>
-    <div className="archive-money"><dl className="history-facts"><div><dt>净投入（扣除退款）</dt><dd>{chips(d.stake_units)}</dd></div><div><dt>派彩</dt><dd>{chips(d.payout_units)}</dd></div><div><dt>钱包净变化</dt><dd>{chips(d.net_units,true)}</dd></div></dl></div>
+    <CapReceipt receipt={d.view.economy_settlement}/><div className="archive-money"><dl className="history-facts"><div><dt>净投入（扣除退款）</dt><dd>{chips(d.stake_units)}</dd></div><div><dt>派彩</dt><dd>{chips(d.payout_units)}</dd></div><div><dt>钱包净变化</dt><dd>{chips(d.net_units,true)}</dd></div></dl></div>
     <details className="history-disclosure"><summary>本局固定配置与公平随机绑定</summary><p>全体玩家零抽水；个人结果取决于玩法，不设固定净赢率。</p><pre className="roulette-proof">{JSON.stringify(d.binding,null,2)}</pre></details>
     <details className="history-disclosure" open={proof} onToggle={e=>setProof(e.currentTarget.open)}><summary>验证本局随机与结算</summary>{proof&&<Proof client={client} id={id}/>}</details>
    </section>

@@ -412,6 +412,8 @@ func TestRealPGCashTableFundingAndRecovery(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*),coalesce(sum(withheld_units),0) FROM economy.cap_settlements WHERE source_kind='POKER_HAND' AND source_id=$1`, started.HandID).Scan(&capCount, &withheld); err != nil || capCount != 2 || withheld != 5*engine.UnitsPerChip {
 		t.Fatal("hand cap closure", capCount, withheld, err)
 	}
+ var neutralOK,hasReturn bool
+ if err=owner.QueryRow(ctx,`SELECT bool_and(c.gross_payout_units=coalesce((SELECT sum(award_units) FROM poker.pot_awards w WHERE w.hand_id=p.hand_id AND w.seat_no=p.seat_no),0) AND coalesce((c.receipt->>'NeutralReturnUnits')::bigint,0)=coalesce((SELECT sum(applied_delta_units) FROM poker.actions a WHERE a.hand_id=p.hand_id AND a.actor_seat=p.seat_no AND a.event_type='RETURN_UNCALLED'),0)),EXISTS(SELECT 1 FROM poker.actions WHERE hand_id=$1 AND event_type='RETURN_UNCALLED' AND applied_delta_units>0) FROM poker.hand_participants p JOIN economy.cap_settlements c ON c.source_kind='POKER_HAND' AND c.source_id=p.hand_id::text AND c.newapi_user_id=p.newapi_user_id WHERE p.hand_id=$1`,started.HandID).Scan(&neutralOK,&hasReturn);err!=nil||!neutralOK||!hasReturn{t.Fatal("uncalled return must be separate neutral principal",neutralOK,hasReturn,err)}
 	// A replay reuses the original action without a second credit or destruction.
 	if _, err := recovered.Act(ctx, ActCommand{UserID: actorUser, Key: "g3-fold-action-0001", TableID: table, HandID: started.HandID, Kind: engine.Fold}); err == nil {
 		t.Fatal("cashout must revoke action control")

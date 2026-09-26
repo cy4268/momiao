@@ -332,3 +332,8 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Fixed campaign previews contain nested checkpoint facts; give them a full row. */
+.ops-workbench .ops-business-campaign .ops-impact > section:first-child { grid-column: 1 / -1; }
+.ops-workbench .ops-business-campaign [aria-label="管理操作确认"] > .ops-impact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 760px) { .ops-workbench .ops-business-campaign [aria-label="管理操作确认"] > .ops-impact { grid-template-columns: minmax(0, 1fr); } }

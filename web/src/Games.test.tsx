@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ApiClient, ApiError } from './api';
-import { GamePage } from './Games';
+import { GamePage, RoundReceipt } from './Games';
 import * as gameAPI from './games-api';
 import type { GameBootstrap, GameRound } from './games-api';
 
@@ -153,6 +153,13 @@ it('publishes commitment before manual wager, locks double click, then displays 
         expect(screen.getByLabelText('骰子点数 2、3、4，合计 9 点')).not.toHaveClass('is-rolling');
         expect(screen.queryByRole('img',{name:'星月骰盅，仅在首次开局前展示'})).not.toBeInTheDocument();
     } finally { vi.unstubAllGlobals(); }
+    cleanup();
+    const capped:GameRound={...result,balance_after_units:'502500000',economic_policy_version:'economy-cap-v1',economy_settlement:{policy_version:'economy-cap-v1',policy_hash:hash,gross_payout_units:'10000000',credited_payout_units:'7500000',withheld_units:'2500000',actual_net_units:'2500000'}};
+    expect(()=>gameAPI.parseRound(capped)).not.toThrow();
+    expect(()=>gameAPI.parseRound({...capped,economy_settlement:{...capped.economy_settlement,credited_payout_units:'1'}})).toThrow();
+    render(<MemoryRouter><RoundReceipt round={capped}/></MemoryRouter>);
+    for(const label of ['原规则派彩','实际到账','封顶未入账'])expect(screen.getByText(label)).toBeVisible();
+    expect(screen.getByLabelText('经济结算回执')).toHaveTextContent('20');expect(screen.getByLabelText('经济结算回执')).toHaveTextContent('15');expect(screen.getByLabelText('经济结算回执')).toHaveTextContent('5');
 });
 it('unknown HTTP outcome reconciles automatically, survives refresh and never repeats the POST',async()=>{
     const create=vi.spyOn(gameAPI,'createGame').mockRejectedValue(new ApiError('lost response',0,'',true));

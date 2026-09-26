@@ -34,6 +34,7 @@ type CapSettlement struct {
 	TotalBeforeUnits, StakeUnits, GrossPayoutUnits                      int64
 	CreditedPayoutUnits, WithheldUnits, ActualNetUnits, TotalAfterUnits int64
 	QuantumUnits                                                        int64
+	NeutralReturnUnits                                                  int64
 	AssetsObservedAt                                                    time.Time
 }
 
@@ -44,10 +45,11 @@ type PayoutCapView struct {
 	CreditedPayoutUnits int64  `json:"credited_payout_units,string"`
 	WithheldUnits       int64  `json:"withheld_units,string"`
 	ActualNetUnits      int64  `json:"actual_net_units,string"`
+	NeutralReturnUnits  int64  `json:"neutral_return_units,string,omitempty"`
 }
 
 func (c CapSettlement) PublicView() PayoutCapView {
-	return PayoutCapView{c.PolicyVersion, c.PolicyHash, c.GrossPayoutUnits, c.CreditedPayoutUnits, c.WithheldUnits, c.ActualNetUnits}
+	return PayoutCapView{c.PolicyVersion, c.PolicyHash, c.GrossPayoutUnits, c.CreditedPayoutUnits, c.WithheldUnits, c.ActualNetUnits, c.NeutralReturnUnits}
 }
 
 // An empty binding means legacy, not the current policy. Callers starting NEW
@@ -149,6 +151,10 @@ func RecordCapSettlementInTx(ctx context.Context, tx pgx.Tx, kind, id string, us
 		return err
 	}
 	check, err := CapPayout(p, c.TotalBeforeUnits, c.StakeUnits, c.GrossPayoutUnits, c.QuantumUnits)
+	if c.NeutralReturnUnits < 0 || c.QuantumUnits <= 0 || c.NeutralReturnUnits%c.QuantumUnits != 0 || (kind != "POKER_HAND" && c.NeutralReturnUnits != 0) {
+		return ErrInvalidMutation
+	}
+	check.NeutralReturnUnits = c.NeutralReturnUnits
 	if err != nil || check.PublicView() != c.PublicView() || check.TotalAfterUnits != c.TotalAfterUnits || c.AssetsObservedAt.IsZero() {
 		return ErrInvalidMutation
 	}

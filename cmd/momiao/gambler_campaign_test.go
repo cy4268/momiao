@@ -175,7 +175,18 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	assets, err := platform.NewUnifiedAssetReader(runtime, native)
+	nativeReads := 0
+	nativeReadHandler := newEconomyQuotaReadHandler(native, keys.public)
+	counted, err := newEconomyQuotaObserver(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		nativeReads++
+		w := httptest.NewRecorder()
+		nativeReadHandler.ServeHTTP(w, r)
+		return w.Result(), nil
+	}), keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assets, err := platform.NewUnifiedAssetReader(runtime, counted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,6 +227,12 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	perform("MAINTENANCE_START_CRITICAL", "MAINTENANCE", maint, "0", "1", `{"scopes":["CHALDEA_USER_WRITES","WALLET_EXCHANGE","REWARDS","DIRECT_PLAY_NEW_ROUNDS","POKER_NEW_TABLES_NEW_HANDS","RANKINGS_PUBLISHING"]}`)
 	cid := platform.GamblerCampaignID
 	input := fmt.Sprintf(`{"maintenance_id":%q,"native_pause_evidence":"isolated-native-admission-drained","backup_reference":"isolated-local-before-reset"}`, maint)
+	if err = runtime.EnsureAccount(ctx, 704); !errors.Is(err, platform.ErrMaintenanceActive) {
+		t.Fatalf("wallet/bootstrap admitted new account during freeze: %v", err)
+	}
+	if err = runtime.EnsureAccount(ctx, 701); err != nil {
+		t.Fatal("existing account recovery blocked", err)
+	}
 	if _, err = owner.EnsureProvisionalProfile(ctx, 704); !errors.Is(err, platform.ErrMaintenanceActive) {
 		t.Fatalf("new account admitted during freeze: %v", err)
 	}
@@ -226,8 +243,12 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 		t.Fatalf("new refill admitted during freeze: %v", err)
 	}
 	perform("GAMBLER_SNAPSHOT_PREPARE", "GAMBLER_CAMPAIGN", cid, "1", "gambler.v1", input)
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 20; i++ {
+		nativeReads = 0
 		more, err := campaign.RunBatch(ctx, cid, 1)
+		if nativeReads > 2 {
+			t.Fatalf("unbounded campaign batch: %d Native reads for limit 1", nativeReads)
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -253,8 +274,12 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	}
 	v, _ = campaign.Read(ctx, 701, cid)
 	perform("GAMBLER_RESET_PREPARE", "GAMBLER_CAMPAIGN", cid, v.Version, "gambler.v1", input)
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 20; i++ {
+		nativeReads = 0
 		more, err := campaign.RunBatch(ctx, cid, 1)
+		if nativeReads > 2 {
+			t.Fatalf("unbounded campaign batch: %d Native reads for limit 1", nativeReads)
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -265,6 +290,11 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	v, err = campaign.Read(ctx, 701, cid)
 	if err != nil || v.Phase != "RESET_READY" {
 		t.Fatal("reset preview", v, err)
+	}
+	for _, stamp := range []*time.Time{v.CutoffAt, v.ResetCutoffAt, v.PolicyActivatedAt, v.RankingsPublishedAt} {
+		if stamp != nil && !strings.HasSuffix(stamp.Format(time.RFC3339Nano), "Z") {
+			t.Fatalf("campaign timestamp must use UTC for Ops UI: %s", stamp.Format(time.RFC3339Nano))
+		}
 	}
 	// Real pending-transfer / Poker funding / unavailable Native blockers in
 	// rolled-back local transactions. The same typed handler refuses execution.
@@ -333,18 +363,60 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	if _, err = ops.Prepare(ctx, 702, request); err == nil {
 		t.Fatal("ordinary user reset accepted")
 	}
+	preparedSummary, e := ops.Prepare(ctx, 701, platform.OpsPrepareRequest{OperationID: idFor(), OperationType: "GAMBLER_RESET_START", AuthzEpoch: boot.Principal.Epoch, InputSchemaVersion: "gambler.v1", Target: platform.OpsTarget{Type: "GAMBLER_CAMPAIGN", ID: cid, ExpectedVersion: v.Version}, Input: json.RawMessage(`{}`), Reason: "Verify exact frozen adjustment totals"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	summary := string(preparedSummary.Operation.Impact.Delta)
+	for _, value := range []string{`"affected_users":"3"`, `"reserve_increase_units":"10000000000"`, `"reserve_decrease_units":"499994999999983"`, `"chips_decrease_units":"499999999999982"`} {
+		if !strings.Contains(summary, value) {
+			t.Fatalf("missing exact reset impact %s: %s", value, summary)
+		}
+	}
 	perform("GAMBLER_RESET_START", "GAMBLER_CAMPAIGN", cid, v.Version, "gambler.v1", `{}`)
+	nativeReads = 0
 	if more, err := campaign.RunBatch(ctx, cid, 1); err != nil || !more {
 		t.Fatal("first durable batch", more, err)
 	}
 	first, _ := owner.ReadWallet(ctx, 701, platform.ReserveAPICredit)
+	// Rotate accepted authority and close the old maintenance window mid-reset.
+	if err = owner.WithTx(ctx, func(tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `UPDATE ops.admin_principals SET authz_epoch=authz_epoch+1,version=version+1 WHERE newapi_user_id=701`)
+		return e
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if more, e := campaign.RunBatch(ctx, cid, 1); e != nil || more {
+		t.Fatal("stale batch authority advanced", more, e)
+	}
+	boot, err = ops.Bootstrap(ctx, 701)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mv string
+	if err = owner.WithTx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT state_version::text FROM ops.maintenance_windows WHERE maintenance_id=$1`, maint).Scan(&mv)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	perform("MAINTENANCE_END_CRITICAL", "MAINTENANCE", maint, mv, "1", `{}`)
+	maint = idFor()
+	perform("MAINTENANCE_START_CRITICAL", "MAINTENANCE", maint, "0", "1", `{"scopes":["CHALDEA_USER_WRITES","WALLET_EXCHANGE","REWARDS","DIRECT_PLAY_NEW_ROUNDS","POKER_NEW_TABLES_NEW_HANDS","RANKINGS_PUBLISHING"]}`)
+	input = fmt.Sprintf(`{"maintenance_id":%q,"native_pause_evidence":"isolated-native-admission-drained","backup_reference":"isolated-local-before-reset"}`, maint)
+	v, _ = campaign.Read(ctx, 701, cid)
+	perform("GAMBLER_REAUTHORIZE", "GAMBLER_CAMPAIGN", cid, v.Version, "gambler.v1", input)
+
 	// A new service instance continues the same accepted authority/checkpoint.
 	campaign, err = platform.NewGamblerCampaignService(runtime, assets)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 20; i++ {
+		nativeReads = 0
 		more, err := campaign.RunBatch(ctx, cid, 1)
+		if nativeReads > 2 {
+			t.Fatalf("unbounded campaign batch: %d Native reads for limit 1", nativeReads)
+		}
 		if err != nil {
 			t.Fatal(err)
 		}

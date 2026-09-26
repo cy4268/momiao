@@ -158,6 +158,15 @@ func (s *Store) EnsureAccount(ctx context.Context, userID int64) error {
 		return err
 	}
 	defer rollback(tx)
+	var exists bool
+	if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM identity.account_refs WHERE newapi_user_id=$1)", userID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if err = RequireNoMaintenance(ctx, tx, "CHALDEA_USER_WRITES"); err != nil {
+			return err
+		}
+	}
 	if _, err = tx.Exec(ctx, "INSERT INTO identity.account_refs(newapi_user_id) VALUES($1) ON CONFLICT DO NOTHING", userID); err != nil {
 		return err
 	}

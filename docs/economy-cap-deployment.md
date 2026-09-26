@@ -21,7 +21,7 @@ writes. Calls have a two-second budget and 16 KiB response limit. Platform does
 not acquire account SQL locks here: the Poker caller already owns that lock.
 The embedded Poker mode instead uses the same in-process read-only observer.
 
-Apply additive migrations 0041–0045 with the normal non-login schema owner.
+Apply additive migrations 0041–0047 with the normal non-login schema owner.
 Apply `runtime-grants-0041-economy-cap.psql` to platform (`platform_writer=true`)
 and Poker (`platform_writer=false`) runtime roles. Apply the SELECT-only
 `runtime-grants-0043-cap-history.psql` to each dedicated history reader that
@@ -36,7 +36,7 @@ only actual credited stacks into the next hand or cashout.
 ## One-time campaign (separate production approvals)
 
 The fixed campaign is `01995000-2026-7000-8000-000000000927`. Apply
-`runtime-grants-0044-gambler-campaign.psql` after 0045 to the platform role only.
+`runtime-grants-0044-gambler-campaign.psql` after 0047 to the platform role only.
 Its readiness function exposes aggregate counts, not raw Poker or Native rows.
 The campaign panel is under Operations → Economy; only SUPER_ADMIN with
 `economy.adjust` can execute its typed, fresh-authenticated operations. Merely
@@ -59,7 +59,9 @@ opening the page, deploying migrations, or starting the worker has no effect.
 4. Separately approve reset preparation, review its private per-account before
    values, and approve RESET_START. The frozen set includes zero-balance and
    administrator accounts. Each durable batch uses the original authorization,
-   epoch and operation ID; process restarts continue the same campaign. Reset
+   epoch and operation ID; process restarts continue the same campaign. The
+   confirmation preview shows exact string-valued affected-user count, Reserve
+   increases/decreases, chips decreases and a zero Native delta. Reset
    writes only Reserve/chips difference entries with stable business keys;
    already-correct balances receive a no-change receipt and no zero ledger leg.
 5. Any changed/unavailable Native evidence stops progression. A detected Native
@@ -77,3 +79,24 @@ Source rollback must not restore an old database over accepted ledger entries.
 Keep the compatible backend for new receipts; use audited compensation for any
 already committed financial effects. The offline rollback package is tested
 only on separate source/database copies, not the live service.
+
+## Bounded verification and renewal
+
+Migration 0046 persists verification phase/cursor. Every worker invocation uses
+a bounded batch; the default one-account batch performs at most two Native
+observations. Final sealing and post-reset verification also advance durable
+cursors instead of rescanning the entire cohort in one request. Maintenance and
+the drained Native ingress must stay continuous during a cursor pass.
+
+When the accepted administrator epoch or maintenance window changes, use
+`GAMBLER_REAUTHORIZE` with a new fresh-authenticated, typed confirmation, the
+original campaign ID, a replacement active window and Native pause evidence. Its
+preview retains the old operation/actor/epoch. It updates only execution
+authority, clears the verification cursor and rechecks the frozen cohort before
+continuing; completed resets and the sealed historical medal qualification are
+not replayed or recomputed. A detected Native change remains a blocking fact.
+
+Migration 0047 keeps legacy Poker receipts readable while new receipts exclude
+uncalled returns from both stake and gross pot payout. Their neutral return is
+recorded separately as `neutral_return_units`; original pot awards and proof stay
+unchanged. Public cap receipts contain no whole-account asset totals.

@@ -79,6 +79,7 @@ interface SeatBase {
 }
 export type SeatView = SeatBase & ({ is_self: true; hole_cards?: number[] } | { is_self: false; hole_cards?: never });
 export interface HandView {
+  economy_settlement?:import('../economy-cap').CapSettlement;
   hand_id: string; hand_version: string; street: string; button_seat: number; actor_seat: number;
   board_cards: number[]; pot_units: Units;
   pots: { index: number; amount_units: Units; eligible_seats: number[]; awards: { seat_no: number; amount_units: Units }[] }[];

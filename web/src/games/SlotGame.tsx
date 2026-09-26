@@ -1,3 +1,4 @@
+import { CapReceipt, capResult, type CapSettlement } from '../economy-cap';
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { amountUnits } from '../economy-api';
 import { integer } from '../wallet-api';
@@ -14,6 +15,7 @@ export interface SlotResultDTO {
     result_class: 'LOSS' | 'BREAK_EVEN' | 'WIN'; result_detail: 'NO_WIN' | 'PARTIAL_RETURN' | 'BREAK_EVEN' | 'WIN';
 }
 export interface DirectExtraControls {
+    economySettlement?:CapSettlement; maxRoundUnits?:string;
     availableUnits: string | null; wagerChips: string; onWagerChange: (text: string) => void;
     busy: boolean; error?: string | null; recovering?: boolean; disabledReason?: string | null; roundID?: string;
     onRecover?: () => void; onWallet?: () => void; onRewards?: () => void; onFairness?: () => void; onHistory?: () => void;
@@ -52,7 +54,7 @@ export function useExtraCommand() {
 export function ExtraWager({ controls, blocked, label, verb, onSubmit, lineStake = false }: { controls: DirectExtraControls; blocked: boolean; label: string; verb: string; onSubmit: (units: string) => void; lineStake?: boolean }) {
     const id = useId(); const units = validWager(controls.wagerChips);
     const balance = integer(controls.availableUnits) ? BigInt(controls.availableUnits) : null;
-    const reason = balance === null ? '正在核对可用筹码。' : units === null ? '请输入不少于 10 的整数筹码。' : units > balance ? '当前可用筹码不足。' : '';
+    const reason = balance === null ? '正在核对可用筹码。' : units === null ? '请输入不少于 10 的整数筹码。' : controls.maxRoundUnits&&units>BigInt(controls.maxRoundUnits)?'整局累计下注上限 1,000,000 筹码。':units > balance ? '当前可用筹码不足。' : '';
     function submit(event: FormEvent) { event.preventDefault(); if (!blocked && !reason && units !== null) onSubmit(String(units)); }
     return <form className="extra-wager" onSubmit={submit} noValidate>
         <label htmlFor={id}>{label}<input id={id} aria-describedby={`${id}-hint`} inputMode="numeric" autoComplete="off" maxLength={20} value={controls.wagerChips} disabled={blocked} onChange={e => controls.onWagerChange(e.target.value)} /></label>
@@ -165,7 +167,7 @@ export function SlotGame(props: SlotGameProps) {
                 <ExtraNotice controls={props} failure={command.failure} message={motion === 'stopping' ? '转轮正在从左到右依次落定…' : motion ? '宝库转轮滚动中…' : props.recovering ? '正在恢复同一局，保留已确认盘面。' : props.busy || command.pending ? '正在提交或核对结果，请稍候。' : result ? '本局结果已确认。下一局仍需主动 Spin。' : '选择总下注，点击 Spin 即提交本局。'} />
             </aside>
         </div>
-        {result && <div className={`extra-result is-${result.result_class.toLowerCase()}`} role="status" aria-label="本局结算" aria-hidden={!!motion}><strong>{resultNames[result.result_detail]}</strong><dl><div><dt>本局总下注</dt><dd>{formatChipUnits(result.total_wager_units)}</dd></div><div><dt>总派彩（含返还）</dt><dd>{formatChipUnits(result.total_payout_units)}</dd></div><div><dt>净变化 · 筹码</dt><dd>{formatChipUnits(result.net_change_units, true)}</dd></div></dl></div>}
+        {result && <div className={`extra-result is-${result.result_class.toLowerCase()}`} role="status" aria-label="本局结算" aria-hidden={!!motion}><strong>{props.economySettlement?({WIN:'净盈利',BREAK_EVEN:'回本',LOSS:'净亏损'}[capResult(props.economySettlement,result.result_class)]):resultNames[result.result_detail]}</strong><dl><div><dt>本局总下注</dt><dd>{formatChipUnits(result.total_wager_units)}</dd></div><div><dt>总派彩（含返还）</dt><dd>{formatChipUnits(props.economySettlement?.credited_payout_units??result.total_payout_units)}</dd></div><div><dt>净变化 · 筹码</dt><dd>{formatChipUnits(props.economySettlement?.actual_net_units??result.net_change_units, true)}</dd></div></dl><CapReceipt receipt={props.economySettlement}/></div>}
         <div className="extra-utilities">{props.salon ? <div className="slot-tool-dock"><button type="button" aria-haspopup="dialog" onClick={props.onRules}>奖表与固定规则<span aria-hidden="true">＋</span></button><button type="button" aria-haspopup="dialog" onClick={props.onFairness}>公平验证<span aria-hidden="true">＋</span></button>{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录 ↗</button>}</div> : <><details><summary>奖表与固定规则</summary><SlotRules rulesetVersion={props.rulesetVersion} /></details><div className="extra-links">{props.onFairness && <button type="button" onClick={props.onFairness}>公平详情</button>}{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div>{props.roundID && <p className="extra-round-id">Round · {props.roundID}</p>}</>}</div>
     </section>;
 }

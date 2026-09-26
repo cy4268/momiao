@@ -1,3 +1,4 @@
+import { CapReceipt } from '../economy-cap';
 import { WalletChamber } from '../WalletChamber';
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -226,8 +227,8 @@ function RoundContent({ id, client }: { id: string; client: ApiClient }) {
   const path = '/api/v1/history/rounds/' + id, read = useHistory(client, path, roundSchema), d = read.data;
   return <HistoryArchive title={d?.metadata.game_title || '本局详情'} detail={'Round · ' + id} navigation={<Back />}><Status {...read} />{d && <section className="panel archive-detail-panel">
     <div className="archive-round-heading"><HistoryCover game={d.game} /><div><h2>本局详情 · {label(d.common_result)}</h2><p>{label(d.state)} · {when(d.created_at)}</p></div></div>
-    <div className="archive-money"><Fields values={[["总下注", money(d.total_stake_units)], ['总派彩', money(d.total_payout_units)], ['净变化', money(d.net_change_units, true)]]} /></div>
-    <RoundResult round={d} />
+    <div className="archive-money"><Fields values={[["总下注", money(d.total_stake_units)], ['总派彩', money(d.economy_settlement?.credited_payout_units??d.total_payout_units)], ['净变化', money(d.economy_settlement?.actual_net_units??d.net_change_units, true)]]} /></div>
+    <CapReceipt receipt={d.economy_settlement}/><RoundResult round={d} />
     <details className="history-disclosure"><summary>本局输入与版本记录</summary><Snapshot data={d.metadata} /><Fields values={[["状态", label(d.state)], ['恢复状态', d.recovery_state], ['开始时间', when(d.created_at)], ['结算时间', when(d.settled_at)]]} /><RecordedValues title="输入" value={d.input} /><RecordedValues title="公平性承诺" value={d.fairness} /></details>
     <details className="history-disclosure"><summary>钱包交易</summary><Transactions items={d.transactions} /></details><Proof client={client} path={path} /><Link className="archive-entry" to={'/games/' + encodeURIComponent(d.game)}>查看游戏入口 →</Link>
   </section>}</HistoryArchive>;
@@ -259,7 +260,7 @@ function HandContent({ id, client }: { id: string; client: ApiClient }) {
   const path = '/api/v1/history/hands/' + id;
   params.set('limit', '50');
   const read = useHistory(client, path + '?' + params, handSchema), d = read.data;
-  return <HistoryArchive title={d ? `第 ${d.hand_no} 手` : '手牌详情'} detail={'Hand · ' + id} navigation={<Back parent={d ? { path: detailPath('POKER_SESSION', d.session_id), title: '所属会话' } : undefined} />}><Status {...read} />{read.error && params.has('cursor') && <button onClick={() => advance('cursor')}>重新读取第一页</button>}{d && <section className="panel archive-detail-panel"><Snapshot data={d.metadata} />
+  return <HistoryArchive title={d ? `第 ${d.hand_no} 手` : '手牌详情'} detail={'Hand · ' + id} navigation={<Back parent={d ? { path: detailPath('POKER_SESSION', d.session_id), title: '所属会话' } : undefined} />}><Status {...read} />{read.error && params.has('cursor') && <button onClick={() => advance('cursor')}>重新读取第一页</button>}{d && <section className="panel archive-detail-panel"><Snapshot data={d.metadata} /><CapReceipt receipt={d.economy_settlement}/>
     <Fields values={[["状态", label(d.state)], ['开始时间', when(d.created_at)], ['结算时间', when(d.settled_at)], ['我的座位', d.seat_no], ['按钮位', d.button_seat], ['公开公共牌', d.board_cards.length ? <CardNames cards={d.board_cards} /> : '尚未发出']]} />
     <section className="history-section"><h2>参与者</h2>{d.participants.map(p => <article className="history-participant" key={p.seat_no}><h3>座位 {p.seat_no} · {p.display_name}</h3><p>昵称来源：{p.name_origin} · {p.folded ? '已弃牌' : '未弃牌'}</p><Fields values={[["起始筹码", money(p.initial_stack_units)], ['结束筹码', money(p.ending_stack_units)], ['净变化', money(p.net_change_units, true)], ['可见底牌', p.hole_cards?.length ? <CardNames cards={p.hole_cards} /> : p.public_hole_cards?.length ? <CardNames cards={p.public_hole_cards} /> : '未公开']]} /></article>)}</section>
     <section className="history-section"><h2>行动时间线</h2><ol className="history-timeline">{d.actions.map(a => <li key={a.sequence}><strong>{a.street} · {a.type}</strong><span>{a.seat_no === undefined ? '公共事件' : `座位 ${a.seat_no}`} · {money(a.delta_units)} 筹码 · 累计至 {money(a.to_units)}</span>{a.card !== undefined && <CardNames cards={[a.card]} />}<time>{when(a.at)}</time></li>)}</ol><URLCursorButtons cursor={params.get('cursor')} change={cursor => advance('cursor', cursor)} next={d.next_cursor} disabled={read.loading} title="行动" /></section>

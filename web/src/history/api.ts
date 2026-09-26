@@ -1,3 +1,4 @@
+import { capSettlementSchema } from '../economy-cap';
 import { z } from 'zod';
 import { ApiError, type ApiClient } from '../api';
 import { transactionStatus } from '../economy-api';
@@ -57,6 +58,7 @@ const metadata = z.object({ snapshot_id: idSchema, game_title: z.string(), table
 const values = z.record(z.string(), z.json());
 const cards = z.array(z.number().int().min(0).max(311));
 export const roundSchema = z.object({
+  economy_settlement:capSettlementSchema.optional(),
   id: idSchema, game: z.string(), state: z.string(), recovery_state: z.string(), metadata,
   total_stake_units: integer, total_payout_units: integer.nullable(), net_change_units: integer.nullable(),
   balance_before_units: integer, balance_after_units: integer, created_at: time, settled_at: time.nullable(),
@@ -72,6 +74,7 @@ export const sessionSchema = z.object({
   hands: z.array(handSummary), next_funding_cursor: z.string().optional(), next_hand_cursor: z.string().optional(), read_at: time,
 });
 export const handSchema = handSummary.extend({
+  economy_settlement:capSettlementSchema.optional(),
   table_id: idSchema, session_id: idSchema, seat_no: z.number().int(), button_seat: z.number().int(), hand_version: integer,
   metadata, configuration: values, board_cards: cards,
   participants: z.array(z.object({ seat_no: z.number().int(), display_name: z.string(), name_origin: z.string(), initial_stack_units: integer, ending_stack_units: integer.nullable(), net_change_units: integer.nullable(), folded: z.boolean(), hole_cards: cards.optional(), public_hole_cards: cards.optional() })),

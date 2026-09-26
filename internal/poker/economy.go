@@ -23,7 +23,7 @@ func handContributions(state engine.State) (map[int]int64, map[int]int64) {
 		}
 	}
 	for _, returned := range state.Returns {
-		gross[returned.Seat] += returned.Amount
+		paid[returned.Seat] -= returned.Amount
 	}
 	return paid, gross
 }
@@ -55,6 +55,11 @@ func (s *Service) settleHandCap(ctx context.Context, tx pgx.Tx, id, version stri
 		c, err := platform.PrepareCapSettlementInTx(ctx, tx, s.opts.EconomyObserver, policy, users[i], paid[player.SeatNo], gross[player.SeatNo], engine.UnitsPerChip)
 		if err != nil {
 			return nil, err
+		}
+		for _, returned := range state.Returns {
+			if returned.Seat == player.SeatNo {
+				c.NeutralReturnUnits += returned.Amount
+			}
 		}
 		if c.WithheldUnits > player.Stack {
 			return nil, ErrCorruptSnapshot

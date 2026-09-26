@@ -66,6 +66,9 @@ describe('Live Table policy presentation boundary',()=>{
     const name=kind==='action'?/跟注 .* Chips/:kind==='takeover'?'确认接管牌桌':kind==='retry'?'重试原操作':'重试本次接管';
     const button=screen.getByRole('button',{name});expect(button).toBeDisabled();fireEvent.click(button);expect(callback).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalled();
+    if(kind==='action'){const capped=structuredClone(self) as any;capped.hand.economy_settlement={policy_version:'economy-cap-v1',policy_hash:'a'.repeat(64),gross_payout_units:'10000000',credited_payout_units:'7500000',withheld_units:'2500000',actual_net_units:'2500000',neutral_return_units:'2500000'};
+    p.table=parsePokerTableView(capped,table,'PLAYER_SELF');cleanup();render(<PokerTable {...p}/>);expect(screen.getByLabelText('经济结算回执')).toHaveTextContent('封顶未入账5');expect(screen.getByLabelText('经济结算回执')).toHaveTextContent('未跟注本金退回5');expect(screen.queryByText(/整局累计下注上限/)).not.toBeInTheDocument();}
+
   });
 });
 

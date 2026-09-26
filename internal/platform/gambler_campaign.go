@@ -65,6 +65,9 @@ type gamblerRow struct {
 	actor, epoch                                    int64
 	maintenance, operation, snapshotHash, resetHash string
 	checkpoint                                      json.RawMessage
+	verificationPhase                               string
+	verificationCursor                              int64
+	reverifyPending                                 bool
 }
 
 func readGambler(ctx context.Context, tx pgx.Tx, id string, lock bool) (gamblerRow, error) {
@@ -75,16 +78,21 @@ func readGambler(ctx context.Context, tx pgx.Tx, id string, lock bool) (gamblerR
 	}
 	var raw []byte
 	err := tx.QueryRow(ctx, `SELECT c.version::text,c.phase,c.cutoff_at,c.reset_cutoff_at,c.blocking_facts,c.native_unchanged,c.policy_activated_at,c.rankings_published_at,
- coalesce(c.accepted_by,0),coalesce(c.accepted_epoch,0),coalesce(c.maintenance_id::text,''),coalesce(c.accepted_operation_id::text,''),coalesce(c.snapshot_target_hash,''),coalesce(c.reset_target_hash,''),c.checkpoint,
+ coalesce(c.accepted_by,0),coalesce(c.accepted_epoch,0),coalesce(c.maintenance_id::text,''),coalesce(c.accepted_operation_id::text,''),coalesce(c.snapshot_target_hash,''),coalesce(c.reset_target_hash,''),c.checkpoint,c.verification_phase,c.verification_cursor,c.reverify_pending,
  (SELECT count(*)::text FROM economy.gambler_campaign_accounts a WHERE a.campaign_id=c.campaign_id AND CASE WHEN c.phase IN('RESET_PREPARING','RESET_READY','RESET_RUNNING','COMPLETED') THEN a.reset_member ELSE a.snapshot_member END),
  (SELECT count(*)::text FROM economy.gambler_campaign_accounts a WHERE a.campaign_id=c.campaign_id AND a.reset_state='COMPLETED'),
  (SELECT count(*)::text FROM economy.gambler_campaign_accounts a WHERE a.campaign_id=c.campaign_id AND a.eligible)
- FROM economy.gambler_campaigns c WHERE c.campaign_id=$1`+suffix, id).Scan(&c.Version, &c.Phase, &c.CutoffAt, &c.ResetCutoffAt, &raw, &c.NativeUnchanged, &c.PolicyActivatedAt, &c.RankingsPublishedAt, &c.actor, &c.epoch, &c.maintenance, &c.operation, &c.snapshotHash, &c.resetHash, &c.checkpoint, &c.TargetCount, &c.CompletedCount, &c.EligibleCount)
+ FROM economy.gambler_campaigns c WHERE c.campaign_id=$1`+suffix, id).Scan(&c.Version, &c.Phase, &c.CutoffAt, &c.ResetCutoffAt, &raw, &c.NativeUnchanged, &c.PolicyActivatedAt, &c.RankingsPublishedAt, &c.actor, &c.epoch, &c.maintenance, &c.operation, &c.snapshotHash, &c.resetHash, &c.checkpoint, &c.verificationPhase, &c.verificationCursor, &c.reverifyPending, &c.TargetCount, &c.CompletedCount, &c.EligibleCount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c, nil
 	}
 	if err != nil {
 		return c, err
+	}
+	for _, stamp := range []*time.Time{c.CutoffAt, c.ResetCutoffAt, c.PolicyActivatedAt, c.RankingsPublishedAt} {
+		if stamp != nil {
+			*stamp = stamp.UTC()
+		}
 	}
 	if json.Unmarshal(raw, &c.BlockingFacts) != nil {
 		return c, ErrOpsUnavailable
@@ -141,7 +149,7 @@ type gamblerOperation struct {
 
 func (s *GamblerCampaignService) OpsBindings() []OpsOperationBinding {
 	var out []OpsOperationBinding
-	for _, action := range []string{"GAMBLER_SNAPSHOT_PREPARE", "GAMBLER_MEDALS_GRANT", "GAMBLER_RESET_PREPARE", "GAMBLER_RESET_START", "ECONOMY_POLICY_ACTIVATE"} {
+	for _, action := range []string{"GAMBLER_SNAPSHOT_PREPARE", "GAMBLER_MEDALS_GRANT", "GAMBLER_RESET_PREPARE", "GAMBLER_RESET_START", "GAMBLER_REAUTHORIZE", "ECONOMY_POLICY_ACTIVATE"} {
 		out = append(out, OpsOperationBinding{Descriptor: OpsOperationDescriptor{OperationType: action, Risk: OpsRiskCritical, RequiredPermission: "economy.adjust", AllowedRoles: []string{"SUPER_ADMIN"}, TargetType: "GAMBLER_CAMPAIGN", InputSchemaVersion: "gambler.v1", ImpactSchemaVersion: "gambler-impact.v1", RequiresReason: true, RequiresFreshAuth: true, ConfirmationMode: OpsConfirmTyped, ExecutionMode: OpsSameDatabase}, Handler: gamblerOperation{s, action}})
 	}
 	return out
@@ -151,7 +159,7 @@ func (h gamblerOperation) Canonicalize(raw json.RawMessage) (json.RawMessage, er
 	if decodeOpsInput(raw, &in) != nil {
 		return nil, ErrOpsInvalid
 	}
-	if h.action == "GAMBLER_SNAPSHOT_PREPARE" || h.action == "GAMBLER_RESET_PREPARE" {
+	if h.action == "GAMBLER_SNAPSHOT_PREPARE" || h.action == "GAMBLER_RESET_PREPARE" || h.action == "GAMBLER_REAUTHORIZE" {
 		if !ValidOperationKey(in.MaintenanceID) || len(in.NativePauseEvidence) < 8 || len(in.NativePauseEvidence) > 256 || strings.TrimSpace(in.NativePauseEvidence) != in.NativePauseEvidence || len(in.BackupReference) > 256 || h.action == "GAMBLER_RESET_PREPARE" && len(in.BackupReference) < 8 {
 			return nil, ErrOpsInvalid
 		}
@@ -221,7 +229,7 @@ func (h gamblerOperation) Prepare(ctx context.Context, tx pgx.Tx, _ OpsPrincipal
 	if c.Version != req.Target.ExpectedVersion {
 		return m, ErrOpsPreviewStale
 	}
-	allowed := map[string][]string{"GAMBLER_SNAPSHOT_PREPARE": {"DRAFT"}, "GAMBLER_MEDALS_GRANT": {"SNAPSHOT_READY", "GRANTED"}, "GAMBLER_RESET_PREPARE": {"GRANTED"}, "GAMBLER_RESET_START": {"RESET_READY"}, "ECONOMY_POLICY_ACTIVATE": {"COMPLETED"}}
+	allowed := map[string][]string{"GAMBLER_SNAPSHOT_PREPARE": {"DRAFT"}, "GAMBLER_MEDALS_GRANT": {"SNAPSHOT_READY", "GRANTED"}, "GAMBLER_RESET_PREPARE": {"GRANTED"}, "GAMBLER_RESET_START": {"RESET_READY"}, "ECONOMY_POLICY_ACTIVATE": {"COMPLETED"}, "GAMBLER_REAUTHORIZE": {"SNAPSHOT_PREPARING", "SNAPSHOT_READY", "RESET_PREPARING", "RESET_READY", "RESET_RUNNING", "COMPLETED"}}
 	if !slices.Contains(allowed[h.action], c.Phase) {
 		return m, ErrOpsConflict
 	}
@@ -236,6 +244,9 @@ func (h gamblerOperation) Prepare(ctx context.Context, tx pgx.Tx, _ OpsPrincipal
 		facts = append(facts, "NATIVE_CHECKPOINT_CHANGED")
 	}
 	if (h.action == "GAMBLER_RESET_START" || h.action == "ECONOMY_POLICY_ACTIVATE") && ready && len(facts) == 0 {
+		if _, e := h.service.assets.native.ReadNativeQuota(ctx, c.actor); e != nil {
+			facts = append(facts, "NATIVE_OBSERVER_UNAVAILABLE")
+		}
 		if err = h.service.verifyReset(ctx, tx, c, h.action == "ECONOMY_POLICY_ACTIVATE"); err != nil {
 			if ctx.Err() != nil {
 				return m, ctx.Err()
@@ -243,8 +254,23 @@ func (h gamblerOperation) Prepare(ctx context.Context, tx pgx.Tx, _ OpsPrincipal
 			facts = append(facts, "RESET_CHECKPOINT_CHANGED_OR_UNAVAILABLE")
 		}
 	}
+	if c.reverifyPending && h.action != "GAMBLER_REAUTHORIZE" {
+		facts = append(facts, "CHECKPOINT_REVERIFICATION_PENDING")
+	}
 	proposed := map[string]any{"action": h.action, "reserve_target_units": strconv.FormatInt(gamblerResetReserve, 10), "available_chips_target_units": "0", "native": "UNCHANGED", "input": in}
-	m = OpsPreparedMaterial{TargetVersion: c.Version, TargetLocator: c.ID, Impact: OpsImpact{CurrentState: rawOpsValue(c.GamblerCampaignView), ProposedChange: rawOpsValue(proposed), Before: rawOpsValue(c.GamblerCampaignView), BlockingFacts: facts, ContinuingAcceptedWork: []string{"已受理的结算、退款与离桌继续；Native 只读接口保持可达"}, RelatedIDs: []string{c.ID}, UnavailableMeasurements: []string{}}}
+	current := rawOpsValue(map[string]any{"campaign": c.GamblerCampaignView, "accepted_operation_id": c.operation, "accepted_by": strconv.FormatInt(c.actor, 10), "accepted_epoch": strconv.FormatInt(c.epoch, 10)})
+	m = OpsPreparedMaterial{TargetVersion: c.Version, TargetLocator: c.ID, Impact: OpsImpact{CurrentState: current, ProposedChange: rawOpsValue(proposed), Before: current, BlockingFacts: facts, ContinuingAcceptedWork: []string{"已受理的结算、退款与离桌继续；Native 只读接口保持可达"}, RelatedIDs: []string{c.ID}, UnavailableMeasurements: []string{}}}
+	if c.ResetCutoffAt != nil {
+		var affected, increase, decrease, chips string
+		err = tx.QueryRow(ctx, `SELECT count(*) FILTER(WHERE (reset_before->>'reserve_units')::numeric<>$2 OR (reset_before->>'available_chips_units')::numeric<>0)::text,
+ coalesce(sum(greatest($2-(reset_before->>'reserve_units')::numeric,0)),0)::text,
+ coalesce(sum(greatest((reset_before->>'reserve_units')::numeric-$2,0)),0)::text,
+ coalesce(sum((reset_before->>'available_chips_units')::numeric),0)::text FROM economy.gambler_campaign_accounts WHERE campaign_id=$1 AND reset_member AND reset_before IS NOT NULL`, c.ID, gamblerResetReserve).Scan(&affected, &increase, &decrease, &chips)
+		if err != nil {
+			return m, err
+		}
+		m.Impact.Delta = rawOpsValue(map[string]string{"affected_users": affected, "reserve_increase_units": increase, "reserve_decrease_units": decrease, "chips_decrease_units": chips, "native_delta_units": "0"})
+	}
 	return m, nil
 }
 func (h gamblerOperation) Execute(ctx context.Context, tx pgx.Tx, actor OpsPrincipal, op OpsOperation, m OpsPreparedMaterial) (OpsExecutionResult, error) {
@@ -273,6 +299,8 @@ func (h gamblerOperation) Execute(ctx context.Context, tx pgx.Tx, actor OpsPrinc
 		_, err = tx.Exec(ctx, `UPDATE economy.gambler_campaigns SET phase='RESET_PREPARING',maintenance_id=$2,accepted_by=$3,accepted_epoch=$4,accepted_operation_id=$5,checkpoint=$6,version=version+1,updated_at=clock_timestamp() WHERE campaign_id=$1`, c.ID, in.MaintenanceID, actor.UserID, actor.Epoch, op.OperationID, rawOpsValue(in))
 	case "GAMBLER_RESET_START":
 		_, err = tx.Exec(ctx, `UPDATE economy.gambler_campaigns SET phase='RESET_RUNNING',reset_started_at=clock_timestamp(),accepted_by=$2,accepted_epoch=$3,accepted_operation_id=$4,version=version+1,updated_at=clock_timestamp() WHERE campaign_id=$1`, c.ID, actor.UserID, actor.Epoch, op.OperationID)
+	case "GAMBLER_REAUTHORIZE":
+		_, err = tx.Exec(ctx, `UPDATE economy.gambler_campaigns SET maintenance_id=$2,accepted_by=$3,accepted_epoch=$4,accepted_operation_id=$5,checkpoint=checkpoint||$6::jsonb,reverify_pending=(phase<>'SNAPSHOT_READY'),verification_phase='',verification_cursor=0,blocking_facts='[]',version=version+1,updated_at=clock_timestamp() WHERE campaign_id=$1`, c.ID, in.MaintenanceID, actor.UserID, actor.Epoch, op.OperationID, rawOpsValue(in))
 	case "ECONOMY_POLICY_ACTIVATE":
 		if c.CompletedCount != c.TargetCount || !c.NativeUnchanged {
 			return OpsExecutionResult{}, ErrGamblerBlocked
@@ -294,101 +322,91 @@ func sameGamblerAssets(a, b UnifiedAssets) bool {
 	return a.UserID == b.UserID && a.ActiveQuotaUnits == b.ActiveQuotaUnits && a.ReserveUnits == b.ReserveUnits && a.AvailableChipsUnits == b.AvailableChipsUnits && a.PokerStackUnits == b.PokerStackUnits && a.PokerPotUnits == b.PokerPotUnits && a.QuotaTransferInFlightUnits == b.QuotaTransferInFlightUnits && a.SinglePlayerInFlightUnits == b.SinglePlayerInFlightUnits && a.RouletteEscrowUnits == b.RouletteEscrowUnits && a.TotalUnits == b.TotalUnits
 }
 
-// Re-observe every frozen target before sealing a phase. A successful batch is
-// not evidence that earlier Native observations remained unchanged.
-func (s *GamblerCampaignService) verifyCheckpoint(ctx context.Context, tx pgx.Tx, c gamblerRow) error {
-	if c.Phase != "SNAPSHOT_PREPARING" {
-		return s.verifyReset(ctx, tx, c, c.Phase == "RESET_RUNNING")
+// Each verification transaction observes at most limit frozen accounts. A
+// persisted cursor survives process restarts; continuous maintenance + drained
+// Native admission fence the completed observations between batches.
+func (s *GamblerCampaignService) verifyCheckpointBatch(ctx context.Context, tx pgx.Tx, c gamblerRow, limit int, resume bool) (bool, error) {
+	phase := c.Phase
+	if resume {
+		phase = "RESUME:" + phase
 	}
-	rows, err := tx.Query(ctx, `SELECT newapi_user_id,snapshot_assets FROM economy.gambler_campaign_accounts WHERE campaign_id=$1 AND snapshot_member ORDER BY newapi_user_id`, c.ID)
+	cursor := c.verificationCursor
+	if c.verificationPhase != phase {
+		cursor = 0
+	}
+	snapshot := c.Phase == "SNAPSHOT_PREPARING" || c.Phase == "SNAPSHOT_READY" || c.Phase == "GRANTED"
+	rows, err := tx.Query(ctx, `SELECT newapi_user_id,CASE WHEN $2 THEN snapshot_assets WHEN reset_state='COMPLETED' THEN reset_after ELSE reset_before END,
+ CASE WHEN $2 THEN snapshot_assets ELSE reset_before END FROM economy.gambler_campaign_accounts WHERE campaign_id=$1 AND newapi_user_id>$3
+ AND CASE WHEN $2 THEN snapshot_member AND snapshot_assets IS NOT NULL ELSE reset_member AND reset_before IS NOT NULL END ORDER BY newapi_user_id LIMIT $4`, c.ID, snapshot, cursor, limit)
 	if err != nil {
-		return err
+		return false, err
 	}
 	type saved struct {
-		user int64
-		raw  []byte
+		user             int64
+		expected, before []byte
 	}
 	all := []saved{}
 	for rows.Next() {
 		var a saved
-		if err = rows.Scan(&a.user, &a.raw); err != nil {
+		if err = rows.Scan(&a.user, &a.expected, &a.before); err != nil {
 			break
 		}
 		all = append(all, a)
 	}
 	rows.Close()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if rows.Err() != nil {
-		return rows.Err()
+		return false, rows.Err()
 	}
 	for _, a := range all {
-		var old UnifiedAssets
-		if json.Unmarshal(a.raw, &old) != nil {
-			return ErrGamblerBlocked
+		var expected, before UnifiedAssets
+		if json.Unmarshal(a.expected, &expected) != nil || json.Unmarshal(a.before, &before) != nil {
+			return false, ErrGamblerBlocked
 		}
-		current, err := ReadUnifiedAssetsInTx(ctx, tx, s.assets.native, a.user)
-		if err != nil {
-			return err
+		current, e := ReadUnifiedAssetsInTx(ctx, tx, s.assets.native, a.user)
+		if e != nil {
+			return false, e
 		}
-		if old.ActiveQuotaUnits != current.ActiveQuotaUnits {
-			return errGamblerNativeChanged
+		if current.ActiveQuotaUnits != before.ActiveQuotaUnits {
+			return false, errGamblerNativeChanged
 		}
-		if !sameGamblerAssets(old, current) {
-			return ErrGamblerBlocked
+		if !sameGamblerAssets(expected, current) {
+			return false, ErrGamblerBlocked
 		}
+		cursor = a.user
 	}
-	return nil
+	var remaining bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM economy.gambler_campaign_accounts WHERE campaign_id=$1 AND newapi_user_id>$3 AND CASE WHEN $2 THEN snapshot_member AND snapshot_assets IS NOT NULL ELSE reset_member AND reset_before IS NOT NULL END)`, c.ID, snapshot, cursor).Scan(&remaining); err != nil {
+		return false, err
+	}
+	_, err = tx.Exec(ctx, `UPDATE economy.gambler_campaigns SET verification_phase=$2,verification_cursor=$3,reverify_pending=CASE WHEN $4 THEN false ELSE reverify_pending END,blocking_facts='[]',version=version+1,updated_at=clock_timestamp() WHERE campaign_id=$1`, c.ID, phase, cursor, resume && !remaining)
+	return !remaining, err
 }
+
 func gamblerIdle(a UnifiedAssets) bool {
 	return a.PokerStackUnits == 0 && a.PokerPotUnits == 0 && a.QuotaTransferInFlightUnits == 0 && a.SinglePlayerInFlightUnits == 0 && a.RouletteEscrowUnits == 0
 }
+
+// Native is checked in the resumable sealed pass and immediately before and
+// after each user's reset. Here only local frozen balances are checked in SQL;
+// no unbounded network scan is permitted on an Ops confirmation request.
 func (s *GamblerCampaignService) verifyReset(ctx context.Context, tx pgx.Tx, c gamblerRow, completed bool) error {
-	rows, err := tx.Query(ctx, `SELECT newapi_user_id,reset_before,reset_after,reset_state FROM economy.gambler_campaign_accounts WHERE campaign_id=$1 AND reset_member ORDER BY newapi_user_id`, c.ID)
+	if c.reverifyPending {
+		return ErrGamblerBlocked
+	}
+	var bad bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM economy.gambler_campaign_accounts a WHERE campaign_id=$1 AND reset_member AND
+ (reset_before IS NULL OR ($2 AND reset_state<>'COMPLETED') OR reset_state NOT IN('CHECKED','COMPLETED') OR
+ (SELECT count(*) FROM economy.wallet_balances w WHERE w.newapi_user_id=a.newapi_user_id)<>2 OR
+ EXISTS(SELECT 1 FROM economy.wallet_balances w WHERE w.newapi_user_id=a.newapi_user_id AND w.balance_units::numeric <>
+ (CASE WHEN a.reset_state='COMPLETED' THEN a.reset_after ELSE a.reset_before END ->> CASE WHEN w.asset_type='RESERVE_API_CREDIT' THEN 'reserve_units' ELSE 'available_chips_units' END)::numeric)))`, c.ID, completed).Scan(&bad)
 	if err != nil {
 		return err
 	}
-	type saved struct {
-		user          int64
-		before, after []byte
-		state         string
-	}
-	var all []saved
-	for rows.Next() {
-		var a saved
-		if err = rows.Scan(&a.user, &a.before, &a.after, &a.state); err != nil {
-			break
-		}
-		all = append(all, a)
-	}
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	if rows.Err() != nil {
-		return rows.Err()
-	}
-	for _, a := range all {
-		var before UnifiedAssets
-		if json.Unmarshal(a.before, &before) != nil {
-			return ErrGamblerBlocked
-		}
-		current, err := ReadUnifiedAssetsInTx(ctx, tx, s.assets.native, a.user)
-		if err != nil {
-			return err
-		}
-		if current.ActiveQuotaUnits != before.ActiveQuotaUnits {
-			return errGamblerNativeChanged
-		}
-		if completed || c.Phase == "RESET_RUNNING" && a.state == "COMPLETED" {
-			var after UnifiedAssets
-			if a.state != "COMPLETED" || json.Unmarshal(a.after, &after) != nil || !sameGamblerAssets(after, current) || current.ActiveQuotaUnits != before.ActiveQuotaUnits || current.ReserveUnits != gamblerResetReserve || current.AvailableChipsUnits != 0 {
-				return ErrGamblerBlocked
-			}
-		} else if a.state != "CHECKED" || !sameGamblerAssets(before, current) {
-			return ErrGamblerBlocked
-		}
+	if bad {
+		return ErrGamblerBlocked
 	}
 	return nil
 }
@@ -466,7 +484,7 @@ func (s *GamblerCampaignService) RunBatch(ctx context.Context, id string, limit 
 		if e != nil {
 			return e
 		}
-		if !slices.Contains([]string{"SNAPSHOT_PREPARING", "RESET_PREPARING", "RESET_RUNNING"}, prior.Phase) {
+		if !prior.reverifyPending && !slices.Contains([]string{"SNAPSHOT_PREPARING", "RESET_PREPARING", "RESET_RUNNING"}, prior.Phase) {
 			return nil
 		}
 		actor, e := requireOpsPermission(ctx, tx, prior.actor, prior.epoch, "economy.adjust", true)
@@ -510,14 +528,18 @@ func (s *GamblerCampaignService) RunBatch(ctx context.Context, id string, limit 
 		if len(facts) > 0 {
 			return gamblerBlock(ctx, tx, id, facts, false)
 		}
-		if c.Phase == "RESET_RUNNING" {
-			if e = s.verifyReset(ctx, tx, c, false); e != nil {
+		if c.reverifyPending {
+			_, e = s.verifyCheckpointBatch(ctx, tx, c, limit, true)
+			if e != nil {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				return gamblerBlock(ctx, tx, id, []string{"RESET_CHECKPOINT_CHANGED_OR_UNAVAILABLE"}, errors.Is(e, errGamblerNativeChanged))
+				return gamblerBlock(ctx, tx, id, []string{"RESUME_CHECKPOINT_CHANGED_OR_UNAVAILABLE"}, errors.Is(e, errGamblerNativeChanged))
 			}
+			progressed = true
+			return nil
 		}
+
 		reset := c.Phase != "SNAPSHOT_PREPARING"
 		if (!reset && c.CutoffAt == nil) || (reset && c.ResetCutoffAt == nil) {
 			column, member := "cutoff_at", "snapshot_member"
@@ -616,12 +638,17 @@ func (s *GamblerCampaignService) RunBatch(ctx context.Context, id string, limit 
 		if e = tx.QueryRow(ctx, `SELECT count(*) FROM economy.gambler_campaign_accounts WHERE campaign_id=$1 AND `+condition, id).Scan(&remaining); e != nil {
 			return e
 		}
-		if remaining == 0 {
-			if e = s.verifyCheckpoint(ctx, tx, c); e != nil {
+		if remaining == 0 && len(users) == 0 {
+			var done bool
+			if done, e = s.verifyCheckpointBatch(ctx, tx, c, limit, false); e != nil {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
 				return gamblerBlock(ctx, tx, id, []string{"FINAL_CHECKPOINT_CHANGED_OR_UNAVAILABLE"}, errors.Is(e, errGamblerNativeChanged))
+			}
+			progressed = true
+			if !done {
+				return nil
 			}
 			phase, stamp := "SNAPSHOT_READY", "snapshot_sealed_at"
 			if c.Phase == "RESET_PREPARING" {

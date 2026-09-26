@@ -22,4 +22,3 @@ COMMIT;
 \else
  \echo 'Dry run: apply_grants=true is required for the platform runtime only.'
 \endif
-

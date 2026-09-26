@@ -1,3 +1,4 @@
+import { capSettlementSchema } from '../economy-cap';
 import { integer } from '../wallet-api';
 import { UNITS_PER_CHIP, type PokerAuthority, type PokerConnectionControl, type TableView } from './poker-ui-types';
 
@@ -87,7 +88,8 @@ export function parsePokerTableView(value:unknown,expectedTableID:string,viewerK
   if(v.can_top_up)need(BigInt(v.top_up_min_units)>0n&&BigInt(v.top_up_max_units)>=BigInt(v.top_up_min_units));
   let h:ObjectValue|undefined;
   if(own(t,'hand')){
-    h=object(t.hand,'hand_id hand_version street button_seat actor_seat board_cards pot_units pots action_sequence recovering server_seed_hash deck_hash','action_deadline_at recovery_until');
+    h=object(t.hand,'hand_id hand_version street button_seat actor_seat board_cards pot_units pots action_sequence recovering server_seed_hash deck_hash','action_deadline_at recovery_until economy_settlement');
+    if(own(h,'economy_settlement'))need(capSettlementSchema.safeParse(h.economy_settlement).success);
     need(id(h.hand_id)&&pokerVersion(h.hand_version)&&pokerVersion(h.action_sequence));
     need(['COMMITTED','PREFLOP','FLOP','TURN','RIVER','SETTLED'].includes(h.street as string)&&range(h.button_seat,1,maxSeats)&&range(h.actor_seat,0,maxSeats));
     const board=cards(h.board_cards,h.street==='COMMITTED'||h.street==='PREFLOP'?[0]:h.street==='FLOP'?[3]:h.street==='TURN'?[4]:h.street==='RIVER'?[5]:[0,3,4,5]);

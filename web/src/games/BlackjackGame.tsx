@@ -1,3 +1,4 @@
+import { CapReceipt, capResult } from '../economy-cap';
 import { useId, useState, type CSSProperties } from 'react';
 import { integer } from '../wallet-api';
 import { ExtraNotice, ExtraWager, formatChipUnits, useExtraCommand, type DirectExtraControls } from './SlotGame';
@@ -53,7 +54,9 @@ export function BlackjackGame(props: BlackjackGameProps) {
     const blocked = props.busy || command.pending || !!props.recovering || !!props.autoResolving || !!props.disabledReason;
     const balance = integer(props.availableUnits) ? BigInt(props.availableUnits) : null;
     const stake = active && integer(active.stake_units) ? BigInt(active.stake_units) : null;
-    const canAdd = balance !== null && stake !== null && balance >= stake;
+    const withinCap=!props.maxRoundUnits||!s||stake===null||BigInt(s.total_stake_units)+stake<=BigInt(props.maxRoundUnits);
+    const canAdd = withinCap && balance !== null && stake !== null && balance >= stake;
+    const actualResult=capResult(props.economySettlement,s?.result_class||'LOSS');
     const legal = s?.legal_actions || [];
     function act(type: BlackjackActionType) {
         if (blocked || !s || !active || s.phase !== 'PLAYER_TURN' || !legal.includes(type) || ((type === 'DOUBLE' || type === 'SPLIT') && !canAdd)) return;
@@ -82,7 +85,7 @@ export function BlackjackGame(props: BlackjackGameProps) {
                     <p className="extra-eyebrow">PLAYER TURN</p><h3>操作当前第 {activeOrdinal || '—'} 手</h3><p className="extra-locked-stake">本局总下注 <strong>{formatChipUnits(s.total_stake_units)} 筹码</strong></p>
                     <div className="extra-main-actions"><button type="button" disabled={blocked || !active || !legal.includes('HIT')} onClick={() => act('HIT')} aria-label="Hit · 要牌"><span>要牌</span><small>HIT</small></button><button type="button" disabled={blocked || !active || !legal.includes('STAND')} onClick={() => act('STAND')} aria-label="Stand · 停牌"><span>停牌</span><small>STAND</small></button></div>
                     <div className="extra-add-actions">{(['DOUBLE', 'SPLIT'] as const).filter(type => legal.includes(type)).map(type => <button key={type} type="button" disabled={blocked || !canAdd} onClick={() => act(type)} aria-label={`${type === 'DOUBLE' ? 'Double' : 'Split'} · +${formatChipUnits(active?.stake_units || null)} 筹码`}><span>{type === 'DOUBLE' ? '加倍' : '分牌'}</span><small>+{formatChipUnits(active?.stake_units || null)} 筹码</small></button>)}</div>
-                    {active && !canAdd && <p className="extra-note">{balance === null ? '正在核对追加下注所需余额。' : `当前余额不足以追加 ${formatChipUnits(active.stake_units)} 筹码；合法的要牌与停牌仍可使用。`}</p>}
+                    {active && !canAdd && <p className="extra-note">{!withinCap?'整局累计下注上限 1,000,000 筹码；要牌与停牌仍可使用。':balance === null ? '正在核对追加下注所需余额。' : `当前余额不足以追加 ${formatChipUnits(active.stake_units)} 筹码；合法的要牌与停牌仍可使用。`}</p>}
                     {active && inspected !== active.hand_id && <p className="extra-note">正在查看其他手牌；行动按钮始终对应当前第 {activeOrdinal} 手。</p>}
 
                 </div>}
@@ -90,7 +93,7 @@ export function BlackjackGame(props: BlackjackGameProps) {
                 {s?.phase === 'PLAYER_TURN' && !props.salon && <p className="extra-deadline">长期未操作处理时间<br /><time dateTime={s.auto_resolve_at}>{new Date(s.auto_resolve_at).toLocaleString('zh-CN', { hour12: false })}</time><small>最后一次成功行动后 24 小时，由服务端处理；这里没有短促决策倒计时。</small></p>}
             </aside>
         </div>
-        {s?.phase === 'SETTLED' && <div className={`extra-result is-${s.result_class?.toLowerCase() || 'loss'}`} role="status" aria-label="本局结算"><strong>{s.result_class === 'WIN' ? '净盈利' : s.result_class === 'BREAK_EVEN' ? '回本' : '净亏损'}</strong><dl><div><dt>总下注</dt><dd>{formatChipUnits(s.total_stake_units)}</dd></div><div><dt>公平返还</dt><dd>{formatChipUnits(s.fair_return_units || '0')}</dd></div><div><dt>总派彩（含返还）</dt><dd>{formatChipUnits(s.total_payout_units)}</dd></div><div><dt>整局净变化 · 筹码</dt><dd>{formatChipUnits(s.net_change_units, true)}</dd></div></dl></div>}
+        {s?.phase === 'SETTLED' && <div className={`extra-result is-${s.result_class?.toLowerCase() || 'loss'}`} role="status" aria-label="本局结算"><strong>{actualResult === 'WIN' ? '净盈利' : actualResult === 'BREAK_EVEN' ? '回本' : '净亏损'}</strong><dl><div><dt>总下注</dt><dd>{formatChipUnits(s.total_stake_units)}</dd></div><div><dt>公平返还</dt><dd>{formatChipUnits(s.fair_return_units || '0')}</dd></div><div><dt>总派彩（含返还）</dt><dd>{formatChipUnits(props.economySettlement?.credited_payout_units??s.total_payout_units)}</dd></div><div><dt>整局净变化 · 筹码</dt><dd>{formatChipUnits(props.economySettlement?.actual_net_units??s.net_change_units, true)}</dd></div></dl><CapReceipt receipt={props.economySettlement}/></div>}
         {props.salon ? <nav className="blackjack-tool-dock" aria-label="牌桌辅助信息">
             <button type="button" onClick={props.onRules}>游戏规则<span aria-hidden="true">＋</span></button>
             <button type="button" onClick={props.onFairness}>公平验证<span aria-hidden="true">＋</span></button>

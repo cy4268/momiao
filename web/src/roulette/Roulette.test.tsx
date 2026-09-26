@@ -1,3 +1,4 @@
+import { roomSchema } from './roulette-api';
 import {act,fireEvent,render,screen,waitFor,within} from '@testing-library/react';
 import {Link,MemoryRouter,Route,Routes,useLocation} from 'react-router-dom';
 import {expect,it,vi} from 'vitest';
@@ -73,4 +74,6 @@ it('keeps both roulette variants folded while recovering original create and roo
  table.rerender(<PressureTable view={vote} onAction={onAction} busy={false} timer="00:20"/>);fireEvent.click(screen.getByRole('button',{name:/继续新波/}));expect(onAction).toHaveBeenLastCalledWith({kind:'PRESSURE_VOTE',agree:false});expect(screen.getByText(/已投票 1 \/ 6/)).toBeVisible();
  table.rerender(<PressureTable view={{...pressure,self:null,actions:[]}} onAction={onAction} busy={false} timer="00:20"/>);expect(screen.queryByRole('button')).not.toBeInTheDocument();table.unmount();
  online=false;
+ const capped=roomSchema.parse({...room('devil-roulette',round),state:'FINISHED',turn_seat:null,actions:[],economy_settlement:{policy_version:'economy-cap-v1',policy_hash:'a'.repeat(64),gross_payout_units:'10000000',credited_payout_units:'7500000',withheld_units:'2500000',actual_net_units:'2500000'}});expect(capped.economy_settlement?.withheld_units).toBe('2500000');expect(roomSchema.safeParse({...capped,economy_settlement:{...capped.economy_settlement,total_before_units:'100'}}).success).toBe(false);
+
 });

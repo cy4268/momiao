@@ -1,3 +1,4 @@
+import { capSettlementSchema, economicPolicySchema, type CapSettlement, type EconomicPolicy } from './economy-cap';
 import { ApiClient, ApiError, errorText } from './api';
 import type {SlotResultDTO} from './games/SlotGame';
 import type {BlackjackCommand,BlackjackProjectionDTO} from './games/BlackjackGame';
@@ -10,6 +11,7 @@ export type DiceResult={dice:[number,number,number];total:number;triple:boolean;
 export type ScratchResult={tier:string;cells:{symbol:string;matching:boolean}[];reward:Reward};
 export type SummonResult={mode:'SINGLE'|'TENFOLD';highest_tier:string;draws:{index:number;tier:string;multiplier:string}[];reward:Reward};
 export interface GameRound {
+    economic_policy_version?:string; economy_settlement?:CapSettlement;
     id:string;game:GameSlug;state:'PLAYER_TURN'|'SETTLED';recovery_state:'NORMAL'|'NEEDS_REVIEW';input:GameInput;
     total_stake_units:string;total_payout_units:string;net_change_units:string;common_result:Outcome|'';
     balance_before_units:string;balance_after_units:string;wager_transaction_id:string;settlement_transaction_id:string;
@@ -19,6 +21,7 @@ export interface GameRound {
     dice?:DiceResult;scratch?:ScratchResult;summon?:SummonResult;slot?:SlotResultDTO;blackjack?:BlackjackProjectionDTO;
 }
 export interface Commitment {
+    economic_policy_version?:string;
     id:string;reserved_round_id:string;server_seed_hash:string;nonce:string;client_seed:string;client_seed_version:string;
     config_version_id:string;config_hash:string;ruleset_version:string;algorithm_version:string;fairness_stream_version:string;
     wager_policy_version_id:string;wager_policy_hash:string;resource_versions:Record<string,string>;
@@ -31,6 +34,7 @@ export interface GameConfig {
 }
 export interface GameEntry {slug:string;title:string;effective_runtime:string;implementation_key:string;config?:GameConfig}
 export interface GameBootstrap {
+    economic_policy?:EconomicPolicy;
     game:GameEntry;wager_policy:{version_id:string;version:string;minimum_wager_units:string;maximum_mode:string;input_step_units:string;quick_amount_units:string[];hash:string};
     available_units:string;latest_round:GameRound|null;active_round:GameRound|null;scratch_presentation_blocker:GameRound|null;
     effective_entry_action:string;next_commitment:Commitment|null;client_seed_preference:{client_seed:string;version:string};csrf_token:string;
@@ -68,7 +72,9 @@ export function parseRound(raw:unknown):GameRound {
     const blackjack=r.game==='blackjack',settled=r.state==='SETTLED';
     if(!uuid.test(r.id)||!gameSlugs.includes(r.game)||(!settled&&!(blackjack&&r.state==='PLAYER_TURN'))||(r.recovery_state!=='NORMAL'&&!(blackjack&&r.recovery_state==='NEEDS_REVIEW'))||!r.input)throw bad();
     const stake=units(r.total_stake_units),payout=units(r.total_payout_units),net=units(r.net_change_units,true),before=units(r.balance_before_units),after=units(r.balance_after_units);
-    if(stake<=0n||net!==payout-stake||(!blackjack&&after!==before+net)||(settled?r.common_result!==(net>0n?'WIN':net===0n?'BREAK_EVEN':'LOSS'):r.common_result!==''||payout!==0n))throw bad();
+    const cap=r.economy_settlement?capSettlementSchema.parse(r.economy_settlement):undefined;
+    if(cap&&(!settled||cap.gross_payout_units!==r.total_payout_units||BigInt(cap.actual_net_units)!==BigInt(cap.credited_payout_units)-stake||cap.policy_version!==r.economic_policy_version)||settled&&r.economic_policy_version&&!cap)throw bad();
+    if(stake<=0n||net!==payout-stake||(!blackjack&&after!==before+(cap?BigInt(cap.actual_net_units):net))||(settled?r.common_result!==(net>0n?'WIN':net===0n?'BREAK_EVEN':'LOSS'):r.common_result!==''||payout!==0n))throw bad();
     if(!uuid.test(r.commitment_id)||!uuid.test(r.wager_transaction_id)||(settled?!uuid.test(r.settlement_transaction_id)||!r.settled_at:r.settlement_transaction_id!==''||r.settled_at!==null)||!/^[0-9a-f]{64}$/.test(r.config_hash)||!/^[0-9a-f]{64}$/.test(r.wager_policy_hash))throw bad();
     if(r.game==='dice'&&(!r.dice||r.dice.dice.length!==3||r.dice.dice.some(n=>!Number.isInteger(n)||n<1||n>6)||r.dice.total!==r.dice.dice.reduce((a,b)=>a+b,0)))throw bad();
     if(r.game==='scratch'&&(!r.scratch||r.scratch.cells.length!==9||r.scratch.cells.some(c=>!/^P(1|2|3|5|10|25|100)$/.test(c.symbol)||typeof c.matching!=='boolean')))throw bad();
@@ -97,6 +103,7 @@ export function parseRound(raw:unknown):GameRound {
 export async function readGameBootstrap(client:ApiClient,slug:GameSlug):Promise<GameBootstrap> {
     const b=await client.request<GameBootstrap>(`/api/v1/games/${slug}/bootstrap`);
     if(!b||b.game?.slug!==slug||typeof b.csrf_token!=='string'||b.csrf_token.length!==64||!b.client_seed_preference)throw bad();
+    if(b.economic_policy)economicPolicySchema.parse(b.economic_policy);
     units(b.available_units);if(b.latest_round)parseRound(b.latest_round);if(b.active_round)parseRound(b.active_round);if(b.scratch_presentation_blocker)parseRound(b.scratch_presentation_blocker);
     if(b.next_commitment&&(!uuid.test(b.next_commitment.id)||!/^[0-9a-f]{64}$/.test(b.next_commitment.server_seed_hash)))throw bad();
     return b;

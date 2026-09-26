@@ -20,10 +20,10 @@ function plainAmount(units:string){const value=BigInt(units),whole=value/500000n
 export function opsAmount(units:string){if(!aggregateUnsigned(units))return '—';const value=BigInt(units),whole=value/500000n,fraction=((value%500000n)*2n).toString().padStart(6,'0').replace(/0+$/,'');return `${whole.toLocaleString('zh-CN')}${fraction?'.'+fraction:''}`;}
 export const opsAmountMatches=(value:unknown,units:unknown):value is string=>typeof value==='string'&&opsInt64(units)&&value===plainAmount(units);
 type Overview={observed_at:string;wallet_accounts:string;reserve_units:string;available_chips_units:string;transactions:string;pending_transfers:string;pending_transfer_units:string;needs_review_transfers:string;needs_review_transfer_units:string};
-type Assets={user_id:string;active_quota_units:string;reserve_units:string;available_chips_units:string;poker_stack_units:string;poker_pot_units:string;quota_transfer_in_flight_units:string;total_units:string;total_amount:string;observed_at:string;native_observed_at:string};
+type Assets={user_id:string;active_quota_units:string;reserve_units:string;available_chips_units:string;poker_stack_units:string;poker_pot_units:string;quota_transfer_in_flight_units:string;single_player_in_flight_units:string;roulette_escrow_units:string;total_units:string;total_amount:string;observed_at:string;native_observed_at:string};
 type Migration={migration_batch_id:string|null;account_created_at:string;first_seen_at:string;registration_claim_id:string|null;registration_status:string;registration_transaction_id:string|null};
 type UserResponse={observed_at:string;assets:Assets;wallets:OpsWallet[];migration:Migration};
-const assetFields=[['active_quota_units','Active API Quota'],['reserve_units','Reserve API Credit'],['available_chips_units','可用筹码'],['poker_stack_units','Poker 桌上筹码'],['poker_pot_units','Poker 底池投入'],['quota_transfer_in_flight_units','额度转账在途']] as const;
+const assetFields=[['active_quota_units','Active API Quota'],['reserve_units','Reserve API Credit'],['available_chips_units','可用筹码'],['poker_stack_units','Poker 桌上筹码'],['poker_pot_units','Poker 底池投入'],['quota_transfer_in_flight_units','额度转账在途'],['single_player_in_flight_units','单人游戏在途'],['roulette_escrow_units','轮盘托管']] as const;
 function checkOverview(value:unknown):Overview{
  if(!opsRecord(value)||!opsTimestamp(value.observed_at)||(['wallet_accounts','transactions','pending_transfers','needs_review_transfers'] as const).some(key=>!opsInt64(value[key]))||(['reserve_units','available_chips_units','pending_transfer_units','needs_review_transfer_units'] as const).some(key=>!aggregateUnsigned(value[key])))throw new Error('经济总览响应格式异常。');
  const result=value as unknown as Overview;
@@ -32,7 +32,7 @@ function checkOverview(value:unknown):Overview{
 }
 function checkAssets(value:unknown,user:string):Assets{
  if(!opsRecord(value))throw new Error('统一资产数据无法核对。');
- const result=value as unknown as Assets;
+ const result={single_player_in_flight_units:'0',roulette_escrow_units:'0',...value} as unknown as Assets;
  if(!opsUserID(result.user_id)||result.user_id!==user||!opsInt64(result.total_units)||assetFields.some(([key])=>!opsInt64(result[key]))||!opsTimestamp(result.observed_at)||!opsTimestamp(result.native_observed_at))throw new Error('统一资产数据无法核对。');
  if(assetFields.reduce((sum,[key])=>sum+BigInt(result[key]),0n)!==BigInt(result.total_units)||!opsAmountMatches(result.total_amount,result.total_units))throw new Error('统一资产数据无法核对。');
  return result;

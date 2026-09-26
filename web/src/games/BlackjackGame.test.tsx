@@ -44,6 +44,9 @@ it('blocks only additional-stake actions on low balance, then obeys recovery and
     expect(screen.getByRole('button', { name: 'Double · +11 筹码' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Split · +11 筹码' })).toBeDisabled();
     expect(screen.getByText(/当前余额不足以追加/)).toBeVisible();
+    view.rerender(<BlackjackGame {...base} availableUnits="999999999999" snapshot={{...snapshot,total_stake_units:'500000000000'}} maxRoundUnits="500000000000" />);
+    expect(screen.getByRole('button',{name:'Double · +11 筹码'})).toBeDisabled();expect(screen.getByRole('button',{name:'Split · +11 筹码'})).toBeDisabled();
+    expect(screen.getByRole('button',{name:'Hit · 要牌'})).toBeEnabled();expect(screen.getByText(/整局累计下注上限/)).toBeVisible();
     view.rerender(<BlackjackGame {...base} snapshot={snapshot} recovering />);
     expect(screen.getByRole('button', { name: 'Hit · 要牌' })).toBeDisabled(); expect(screen.getByText(/正在恢复同一局/)).toBeVisible();
     view.rerender(<BlackjackGame {...base} snapshot={snapshot} autoResolving />);

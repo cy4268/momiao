@@ -110,3 +110,5 @@
 .ranking-personal-medal{display:inline-flex;align-items:center;justify-content:center;gap:.25rem;min-width:44px;min-height:44px;padding:4px 6px;border:1px solid #b4a37777;border-radius:6px;background:#091524b3;color:#e9d8a3;font-size:12px;vertical-align:middle;cursor:pointer}
 .ranking-personal-medal img{width:32px;height:32px;object-fit:contain;filter:drop-shadow(0 1px 3px #0008)}
 .ranking-personal-medal:hover,.ranking-personal-medal:focus-visible{border-color:#eedfa5;background:#18334a;outline:2px solid #e8d392;outline-offset:2px}
+
+.ranking-workspace .modal{white-space:normal;text-align:left;overflow-wrap:anywhere}
