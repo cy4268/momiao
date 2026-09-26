@@ -190,3 +190,5 @@ if err != nil || got.CreditedPayoutUnits != 100000000 || got.WithheldUnits != 15
 - 独立数据库副本由 40 升至 47；原 40 checksum 与 130 张既有表行 hash 一致；另一个恢复副本保持 schema 40 和相同数据。所有生产步骤仍需各自明确确认。
 
 源码回退：独立副本的 851 个修改后文件通过校验，逆向补丁恢复 830 个基线文件逐字节一致，原有 TestEconomyIntegration 在恢复副本通过；原工作源码保留改动。四件交付文件及完整命令/输出/退出码保留在任务私有交付目录。
+
+推送后 CI 命中旧 `TestFundingCallbackFailureBoundary` 的事务替身未实现新增多行预读：本地定向复现 RED，补齐同一个既有替身的空账户结果，三个原子场景 GREEN；真实资金锁保持不变，测试数量不增加。

@@ -26,8 +26,16 @@ func (t *fundingCallbackTx) Exec(context.Context, string, ...any) (pgconn.Comman
 func (t *fundingCallbackTx) QueryRow(context.Context, string, ...any) pgx.Row {
 	return fundingCallbackRow{}
 }
+func (t *fundingCallbackTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	// This callback-only case has no other table accounts to pre-lock.
+	return fundingCallbackRow{}, nil
+}
 
-type fundingCallbackRow struct{}
+type fundingCallbackRow struct{ pgx.Rows }
+
+func (fundingCallbackRow) Next() bool { return false }
+func (fundingCallbackRow) Err() error { return nil }
+func (fundingCallbackRow) Close()     {}
 
 func (fundingCallbackRow) Scan(values ...any) error {
 	*values[0].(*[]byte) = []byte(`{"status":"CONFIRMED"}`)
