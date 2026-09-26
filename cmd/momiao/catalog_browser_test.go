@@ -234,6 +234,14 @@ func TestCatalogBrowserFixture(t *testing.T) {
 	}
 	origin := "http://" + listener.Addr().String()
 	cfg := config{WebDir: web, PublicOrigin: origin, catalog: store, catalogSource: read, CatalogStaleAfter: policy.StaleAfter, CatalogDisableAfter: policy.DisableAfter, APIBaseURL: "https://synthetic-api.example/v1", announcements: store, profile: store, wallet: store, economy: store, accessGate: store, accessDeclaration: &accessDeclaration{Version: 1, Environment: "STAGING", Origin: origin, EvidenceRef: "synthetic-portal-catalog-browser-only", MigrationApplicability: "PERSISTED_COMPLETED_NOTICE", Resources: map[string]string{"ACCOUNT": "AVAILABLE", "API": "AVAILABLE", "COMMUNITY": "AVAILABLE", "OPERATIONS": "AVAILABLE", "ASSETS": "AVAILABLE"}}}
+	cfg.CatalogAssets, err = loadCatalogAssetConfig(os.LookupEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.catalogAssets, err = newCatalogAssetStore(cfg.CatalogAssets, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	portal := newPortalHandler(cfg, native)
 	var server *http.Server
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -103,6 +103,8 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		cfg.transfers = store
 		cfg.announcements = store
 		cfg.catalog = store
+		cfg.catalogAssets, err = newCatalogAssetStore(cfg.CatalogAssets, nil)
+		if err != nil { return errCatalogAssetConfig }
 		cfg.keyPurposes = store
 		cfg.rpUsage = store
 		if cfg.GameFairnessKeyringFile != "" {

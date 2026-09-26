@@ -15,6 +15,10 @@ import (
 )
 
 type catalogStore interface {
+	CatalogFamilyCovers(context.Context, int64) (platform.CatalogFamilyCoverPage, error)
+	RegisterCatalogCoverUpload(context.Context, int64, platform.CatalogCoverUploadCommand, platform.CatalogCoverUploadImage) (platform.CatalogCoverUploadResult, error)
+	PrepareCatalogFamilyCover(context.Context, int64, platform.CatalogFamilyCoverCommand) (platform.CatalogFamilyCoverPreview, error)
+	ExecuteCatalogFamilyCover(context.Context, int64, platform.CatalogFamilyCoverCommand, string, bool) (platform.CatalogFamilyCoverResult, error)
 	CatalogAuthority(context.Context, int64) (platform.AnnouncementPrincipal, error)
 	PublicCatalog(context.Context, platform.CatalogFilter, platform.CatalogPolicy) (platform.CatalogPage, error)
 	PublicCatalogModel(context.Context, string, platform.CatalogPolicy) (platform.CatalogModel, error)
@@ -47,7 +51,8 @@ func catalogBrowserRoute(escaped string) bool {
 func newCatalogHandler(cfg config, transport http.RoundTripper) http.Handler {
 	policy := platform.CatalogPolicy{StaleAfter: cfg.CatalogStaleAfter, DisableAfter: cfg.CatalogDisableAfter}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		parent := r.Context()
+		ctx, cancel := context.WithTimeout(parent, 8*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
 		ops := strings.HasPrefix(r.URL.Path, "/platform/v1/ops/models")
@@ -102,6 +107,13 @@ func newCatalogHandler(cfg config, transport http.RoundTripper) http.Handler {
 				writeCatalogError(w, err)
 				return
 			}
+		}
+		if ops && (tail == "/family-covers" || strings.HasPrefix(tail, "/family-covers/")) {
+			if tail == "/family-covers/upload" && r.Method == "POST" {
+				r = r.WithContext(parent)
+			}
+			serveCatalogFamilyCovers(w, r, cfg, user)
+			return
 		}
 		var data any
 		var err error

@@ -115,3 +115,22 @@ The existing roles must be distinct: runtime/deployer have no owner membership, 
 Column grants follow the actual store SQL: announcements/job/audit writes (5), receipt/grant workers including deferred issuance reads (6), catalog sync/editorial writes (7), no runtime bootstrap/history/closure grants (8), notice SELECT plus ACK-key INSERT only (9). `UPDATE(updated_at)` on principals is required for their `SELECT FOR UPDATE`; it is not authority-field access. Announcement placement guards similarly need one UPDATE column for locking, with actual mutation still rejected by their immutable trigger. No 5-9 sequence grants are needed. No broad/default table grants are installed, and inherited pre-existing grants are not silently repaired by these templates.
 
 These templates have not been applied to production. Catalog grants were derived from the current M3c storage SQL, not an imported WIP build. Reconcile against its final integrated SHA, then perform one combined acceptance using the actual low-privilege runtime identity: announcement writes/jobs, receipt ingestion/grant completion, sync/metadata/publication, notice ACK/replay; separately verify denial of DDL, authority/closure/history mutation, bootstrap EXECUTE, notice-fact mutation and direct native `users` access. Schema-owner tests do not establish runtime acceptance. Retain all records on application rollback.
+# Model family cover uploads
+
+Apply migration `0040_model_family_covers.sql` and the additive `deploy/sql/runtime-grants-0040-model-family-covers.psql` using the separated schema owner and platform runtime roles. Retain older grants; do not give runtime DDL, DELETE, asset-history UPDATE or audit UPDATE.
+
+Platform-only optional settings:
+
+```env
+MOMIAO_CATALOG_ASSET_R2_ACCOUNT_ID=<32-character-account-id>
+MOMIAO_CATALOG_ASSET_R2_BUCKET=<public-assets-bucket>
+MOMIAO_CATALOG_ASSET_R2_CREDENTIALS_FILE=/run/secrets/catalog-r2.json
+```
+
+The credentials file is a regular, absolute-path, read-only deployment secret containing exactly `{"access_key_id":"<bucket-scoped-access-key>","secret_access_key":"<secret>"}`. Limit its filesystem access to the service user and R2 permissions to object writes in the selected assets bucket. Never commit or log it. Missing all settings disables only uploads; partial or invalid configuration fails startup. The poker process rejects this configuration. Use explicit credentials: ambient AWS credentials and arbitrary endpoints are not consulted.
+
+Only `POST /platform/v1/ops/models/family-covers/upload` needs proxy body allowance of **at least 9 MiB** and request/response waits of **at least 95 seconds**. This authorized route has a 90-second server deadline, a 60-second R2 HTTP timeout and at most two SDK attempts. Other routes retain their existing deadlines. Do not globally increase body limits or timeouts.
+
+Uploads accept static PNG/JPEG/WebP up to 8 MiB, 8192 pixels per side and 16,777,216 total pixels. The backend validates original bytes and writes `assets/models/uploads/<family>/<sha256>.<ext>` with the verified MIME and `Cache-Control: public, max-age=31536000, immutable`. Following [Cloudflare's Go SDK guidance](https://developers.cloudflare.com/r2/examples/aws/aws-sdk-go/), the S3 endpoint is derived from the account and uses region `auto`. Ensure the existing custom domain/cache rules cover this path and JPEG; verify an actual CDN GET, response headers and SHA-256 before claiming live acceptance. Viewing uses `VITE_ASSET_BASE_URL` directly, never the business server.
+
+An uploaded file has a public address immediately; publishing controls the catalog binding, not confidentiality. Upload alone never replaces a cover. Preview and explicit confirmation with `models.publish` update one family for every public model. Repeated content retains its original metadata. Restore-default increments the version and retains all objects and audit records. A PUT acknowledged before database failure may leave an unbound object: retry the same operation/content; do not delete objects or rewrite audit history. Roll out forward migration/grants before server/frontend; older application rollback retains the new tables and history.

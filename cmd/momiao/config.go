@@ -46,6 +46,8 @@ type config struct {
 	roulette                  *roulette.Service
 	GameFairnessKeyringFile   string
 	catalog                   catalogStore
+	CatalogAssets             catalogAssetConfig
+	catalogAssets             *catalogAssetStore
 	catalogSource             platform.CatalogSource
 	CatalogReaderKeyFile      string
 	CatalogSyncInterval       time.Duration
@@ -212,6 +214,10 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 	if err := catalogConfig(&cfg, lookup); err != nil {
 		return config{}, err
 	}
+	assets, assetErr := loadCatalogAssetConfig(lookup)
+	if assetErr != nil { return config{}, assetErr }
+	cfg.CatalogAssets = assets
+	if assets != (catalogAssetConfig{}) && (cfg.ProcessRole == "poker" || cfg.WalletDSNFile == "" || cfg.WebDir == "") { return config{}, errCatalogAssetConfig }
 	if err := loadPokerProcessConfig(&cfg, lookup); err != nil { return config{}, err }
 	if err := loadPokerConfig(&cfg, lookup); err != nil {
 		return config{}, err

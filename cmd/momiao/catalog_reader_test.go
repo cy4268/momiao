@@ -67,6 +67,30 @@ func TestCatalogReaderFixedRequestAndSanitizedFailures(t *testing.T) {
 }
 func TestCatalogKeyFileAndTimingConfig(t *testing.T) {
 	dir := t.TempDir()
+	assetPath := filepath.Join(dir, "assets.json")
+	values := map[string]string{"MOMIAO_CATALOG_ASSET_R2_ACCOUNT_ID": strings.Repeat("a", 32), "MOMIAO_CATALOG_ASSET_R2_BUCKET": "test-assets", "MOMIAO_CATALOG_ASSET_R2_CREDENTIALS_FILE": assetPath}
+	assetLookup := func(k string) (string, bool) { v, ok := values[k]; return v, ok }
+	if _, err := loadCatalogAssetConfig(func(string) (string, bool) { return "", false }); err != nil {
+		t.Fatal("disabled upload rejected", err)
+	}
+	for _, data := range []string{`{"access_key_id":"test-access","secret_access_key":"test-secret","unknown":1}`, strings.Repeat("x", 4097), `{"access_key_id":"test-access"}`, `{"access_key_id":"test-access","access_key_id":"replaced","secret_access_key":"test-secret"}`} {
+		_ = os.WriteFile(assetPath, []byte(data), 0600)
+		if _, err := loadCatalogAssetConfig(assetLookup); err == nil {
+			t.Fatal("unsafe asset credentials accepted")
+		}
+	}
+	_ = os.WriteFile(assetPath, []byte(`{"access_key_id":"test-access","secret_access_key":"test-secret"}`), 0600)
+	if _, err := loadCatalogAssetConfig(assetLookup); err != nil {
+		t.Fatal("valid asset config rejected", err)
+	}
+	for key, bad := range map[string]string{"MOMIAO_CATALOG_ASSET_R2_ACCOUNT_ID": "../account", "MOMIAO_CATALOG_ASSET_R2_BUCKET": "", "MOMIAO_CATALOG_ASSET_R2_CREDENTIALS_FILE": dir} {
+		old := values[key]
+		values[key] = bad
+		if _, err := loadCatalogAssetConfig(assetLookup); err == nil {
+			t.Fatal("invalid asset config accepted", key)
+		}
+		values[key] = old
+	}
 	keyPath := filepath.Join(dir, "reader.key")
 	if err := os.WriteFile(keyPath, []byte(strings.Repeat("c", 64)+"\n"), 0600); err != nil {
 		t.Fatal(err)
