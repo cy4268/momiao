@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,9 @@ type catalogHTTPStore struct {
 	denied, withdrawn                   bool
 	readOnly                            bool
 	uploads                             int
+	uploadReceipt                       *platform.CatalogCoverUploadResult
+	uploadCommand                       platform.CatalogCoverUploadCommand
+	uploadImage                         platform.CatalogCoverUploadImage
 	filter                              platform.CatalogFilter
 }
 
@@ -80,6 +84,18 @@ func (s *catalogHTTPStore) CatalogFamilyCovers(ctx context.Context, user int64) 
 	p, e := s.CatalogAuthority(ctx, user)
 	return platform.CatalogFamilyCoverPage{Principal: p, Items: []platform.CatalogFamilyCover{}}, e
 }
+func (s *catalogHTTPStore) CatalogCoverUploadReceipt(ctx context.Context, user int64, c platform.CatalogCoverUploadCommand, f platform.CatalogCoverUploadImage) (*platform.CatalogCoverUploadResult, error) {
+	if _, err := s.CatalogAuthority(ctx, user); err != nil {
+		return nil, err
+	}
+	if s.uploadReceipt == nil {
+		return nil, nil
+	}
+	if c != s.uploadCommand || f != s.uploadImage {
+		return nil, platform.ErrCatalogOperation
+	}
+	return s.uploadReceipt, nil
+}
 func (s *catalogHTTPStore) RegisterCatalogCoverUpload(ctx context.Context, user int64, c platform.CatalogCoverUploadCommand, f platform.CatalogCoverUploadImage) (platform.CatalogCoverUploadResult, error) {
 	if _, err := s.CatalogAuthority(ctx, user); err != nil {
 		return platform.CatalogCoverUploadResult{}, err
@@ -89,7 +105,11 @@ func (s *catalogHTTPStore) RegisterCatalogCoverUpload(ctx context.Context, user 
 	}
 	s.uploads++
 	key, _ := platform.CatalogCoverObjectKey(c.Family, f.SHA256, f.Extension)
-	return platform.CatalogCoverUploadResult{OperationID: c.OperationID, AssetID: "00000000-0000-4000-8000-000000000002", Image: platform.CatalogCoverImage{Src: "/" + key, Alt: c.Alt, Width: f.Width, Height: f.Height}}, nil
+	result := platform.CatalogCoverUploadResult{OperationID: c.OperationID, AssetID: "00000000-0000-4000-8000-000000000002", Image: platform.CatalogCoverImage{Src: "/" + key, Alt: c.Alt, Width: f.Width, Height: f.Height}}
+	s.uploadReceipt = &result
+	s.uploadCommand = c
+	s.uploadImage = f
+	return result, nil
 }
 func (s *catalogHTTPStore) PrepareCatalogFamilyCover(_ context.Context, _ int64, c platform.CatalogFamilyCoverCommand) (platform.CatalogFamilyCoverPreview, error) {
 	s.writes++
@@ -208,6 +228,7 @@ func TestCatalogCoverUploadLifecycle(t *testing.T) {
 		data              []byte
 		mime, actual, ext string
 	}{{png, "image/png", "image/png", "png"}, {webp, "application/octet-stream", "image/webp", "webp"}, {jpg.Bytes(), "", "image/jpeg", "jpg"}} {
+		s.uploadReceipt = nil
 		expected = v.data
 		expectedType = v.actual
 		expectedExt = v.ext
@@ -218,13 +239,28 @@ func TestCatalogCoverUploadLifecycle(t *testing.T) {
 			t.Fatal("valid upload lifecycle failed", w.Code, w.Body)
 		}
 		first := w.Body.String()
+		beforePuts := puts
+		fail = true
 		s.uploads = 0
 		w = httptest.NewRecorder()
 		h.ServeHTTP(w, request(v.data, v.mime, ""))
-		if w.Code != 200 || first != w.Body.String() {
-			t.Fatal("same upload HTTP retry changed identity", w.Body)
+		if w.Code != 200 || first != w.Body.String() || puts != beforePuts || s.uploads != 0 {
+			t.Fatal("committed receipt retry depended on R2 or changed identity", w.Body)
 		}
+		before := s.uploadReceipt
+		w = httptest.NewRecorder()
+		// Keep the operation ID but change metadata: no new public PUT is allowed.
+		command.Reason = "Different command"
+		metadata, _ = json.Marshal(command)
+		h.ServeHTTP(w, request(v.data, v.mime, ""))
+		if w.Code != 409 || puts != beforePuts || !reflect.DeepEqual(before, s.uploadReceipt) {
+			t.Fatal("conflicting operation reached R2", w.Code)
+		}
+		command.Reason = "Acceptance"
+		metadata, _ = json.Marshal(command)
+		fail = false
 	}
+	s.uploadReceipt = nil
 	expected = png
 	expectedType = "image/png"
 	expectedExt = "png"

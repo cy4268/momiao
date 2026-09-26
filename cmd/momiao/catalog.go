@@ -15,6 +15,7 @@ import (
 )
 
 type catalogStore interface {
+	CatalogCoverUploadReceipt(context.Context, int64, platform.CatalogCoverUploadCommand, platform.CatalogCoverUploadImage) (*platform.CatalogCoverUploadResult, error)
 	CatalogFamilyCovers(context.Context, int64) (platform.CatalogFamilyCoverPage, error)
 	RegisterCatalogCoverUpload(context.Context, int64, platform.CatalogCoverUploadCommand, platform.CatalogCoverUploadImage) (platform.CatalogCoverUploadResult, error)
 	PrepareCatalogFamilyCover(context.Context, int64, platform.CatalogFamilyCoverCommand) (platform.CatalogFamilyCoverPreview, error)

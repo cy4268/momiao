@@ -48,14 +48,53 @@ func catalogCoverReplay(ctx context.Context, tx pgx.Tx, userID int64, id, action
 	}
 	return true, json.Unmarshal(data, result)
 }
-func (s *Store) RegisterCatalogCoverUpload(parent context.Context, userID int64, c CatalogCoverUploadCommand, image CatalogCoverUploadImage) (CatalogCoverUploadResult, error) {
-	var result CatalogCoverUploadResult
+func catalogCoverUploadInput(c CatalogCoverUploadCommand, image CatalogCoverUploadImage) (string, string, error) {
 	if err := ValidateCatalogCoverUpload(c); err != nil {
-		return result, err
+		return "", "", err
 	}
 	key, err := CatalogCoverObjectKey(c.Family, image.SHA256, image.Extension)
 	if err != nil || image.ContentType != map[string]string{"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}[image.Extension] || image.Size <= 0 || image.Size > 8*1024*1024 || image.Width <= 0 || image.Height <= 0 || image.Width > 8192 || image.Height > 8192 || int64(image.Width)*int64(image.Height) > 16777216 {
-		return result, ErrCatalogInvalid
+		return "", "", ErrCatalogInvalid
+	}
+	return key, announcementHash(struct {
+		Command CatalogCoverUploadCommand
+		Image   CatalogCoverUploadImage
+	}{c, image}), nil
+}
+
+// Read an already committed receipt before any network write. Locks are released
+// before returning; a new upload is still reauthorized after its successful PUT.
+func (s *Store) CatalogCoverUploadReceipt(parent context.Context, userID int64, c CatalogCoverUploadCommand, image CatalogCoverUploadImage) (*CatalogCoverUploadResult, error) {
+	_, hash, err := catalogCoverUploadInput(c, image)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(parent, 12*time.Second)
+	defer cancel()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer rollback(tx)
+	if err = catalogCoverAuthority(ctx, tx, userID, c.Epoch, "models.write"); err != nil {
+		return nil, err
+	}
+	var result CatalogCoverUploadResult
+	found, err := catalogCoverReplay(ctx, tx, userID, c.OperationID, "MODEL_COVER_UPLOAD", hash, &result)
+	if err != nil || !found {
+		return nil, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (s *Store) RegisterCatalogCoverUpload(parent context.Context, userID int64, c CatalogCoverUploadCommand, image CatalogCoverUploadImage) (CatalogCoverUploadResult, error) {
+	var result CatalogCoverUploadResult
+	key, hash, err := catalogCoverUploadInput(c, image)
+	if err != nil {
+		return result, err
 	}
 	ctx, cancel := context.WithTimeout(parent, 12*time.Second)
 	defer cancel()
@@ -67,10 +106,6 @@ func (s *Store) RegisterCatalogCoverUpload(parent context.Context, userID int64,
 	if err = catalogCoverAuthority(ctx, tx, userID, c.Epoch, "models.write"); err != nil {
 		return result, err
 	}
-	hash := announcementHash(struct {
-		Command CatalogCoverUploadCommand
-		Image   CatalogCoverUploadImage
-	}{c, image})
 	replay, err := catalogCoverReplay(ctx, tx, userID, c.OperationID, "MODEL_COVER_UPLOAD", hash, &result)
 	if err != nil {
 		return result, err

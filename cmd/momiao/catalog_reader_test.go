@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -103,6 +104,17 @@ func TestCatalogKeyFileAndTimingConfig(t *testing.T) {
 	_ = os.WriteFile(assetPath, []byte(`{"access_key_id":"test-access","secret_access_key":"test-secret"}`), 0600)
 	if _, err := loadCatalogAssetConfig(assetLookup); err != nil {
 		t.Fatal("valid asset config rejected", err)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(assetPath, 0644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadCatalogAssetConfig(assetLookup); err == nil {
+			t.Fatal("publicly readable R2 credentials accepted")
+		}
+		if err := os.Chmod(assetPath, 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for key, bad := range map[string]string{"MOMIAO_CATALOG_ASSET_R2_ACCOUNT_ID": "../account", "MOMIAO_CATALOG_ASSET_R2_BUCKET": "", "MOMIAO_CATALOG_ASSET_R2_CREDENTIALS_FILE": dir} {
 		old := values[key]

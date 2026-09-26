@@ -95,9 +95,25 @@ func TestCatalogOpsPublicationLifecycleAndIdentityHistory(t *testing.T) {
 	before := *visible.FamilyCover
 	upload := CatalogCoverUploadCommand{OperationID: announcementID(t), Epoch: p.Epoch, Family: "other", Alt: "Test cover", RightsStatus: "ORIGINAL_GENERATED", RightsNote: "Generated acceptance image", Reason: "Review cover"}
 	image := CatalogCoverUploadImage{SHA256: strings.Repeat("a", 64), ContentType: "image/png", Extension: "png", Size: 100, Width: 10, Height: 10}
+	if receipt, err := s.CatalogCoverUploadReceipt(ctx, p.UserID, upload, image); err != nil || receipt != nil {
+		t.Fatal("new upload reported a committed receipt", err)
+	}
 	candidate, err := s.RegisterCatalogCoverUpload(ctx, p.UserID, upload, image)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if receipt, err := s.CatalogCoverUploadReceipt(ctx, p.UserID, upload, image); err != nil || receipt == nil || !reflect.DeepEqual(*receipt, candidate) {
+		t.Fatal("pre-PUT committed receipt changed", err)
+	}
+	altered := image
+	altered.SHA256 = strings.Repeat("c", 64)
+	if _, err := s.CatalogCoverUploadReceipt(ctx, p.UserID, upload, altered); !errors.Is(err, ErrCatalogOperation) {
+		t.Fatal("pre-PUT receipt query accepted different content", err)
+	}
+	staleUpload := upload
+	staleUpload.Epoch++
+	if _, err := s.CatalogCoverUploadReceipt(ctx, p.UserID, staleUpload, image); !errors.Is(err, ErrAnnouncementStale) {
+		t.Fatal("pre-PUT receipt query bypassed current authority", err)
 	}
 	unchanged, err := s.PublicCatalogModel(ctx, model.ModelID, catalogTestPolicy)
 	if err != nil || !reflect.DeepEqual(unchanged.FamilyCover, &before) {

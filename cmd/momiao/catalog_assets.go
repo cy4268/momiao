@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -44,7 +45,7 @@ func loadCatalogAssetConfig(lookup func(string) (string, bool)) (catalogAssetCon
 }
 func readCatalogAssetCredentials(path string) (string, string, error) {
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 4096 {
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 4096 || runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0 {
 		return "", "", errCatalogAssetConfig
 	}
 	data, err := os.ReadFile(path)

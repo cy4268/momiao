@@ -218,6 +218,15 @@ func serveCatalogFamilyCovers(w http.ResponseWriter, r *http.Request, cfg config
 				writeCatalogError(w, platform.ErrAnnouncementStale)
 				return
 			}
+			receipt, e := cfg.catalog.CatalogCoverUploadReceipt(ctx, userID, c, f.Image)
+			if e != nil {
+				writeCatalogError(w, e)
+				return
+			}
+			if receipt != nil {
+				walletSuccess(w, *receipt)
+				return
+			}
 			if e = cfg.catalogAssets.Put(ctx, c.Family, f); e != nil {
 				walletError(w, 503, "CATALOG_ASSET_UPLOAD_FAILED")
 				return
