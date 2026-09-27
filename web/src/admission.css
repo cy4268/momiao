@@ -21,6 +21,14 @@
 .auth-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}
 .account-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px}.account-grid .panel{padding:28px}.account-grid h2{font:24px/1.5 var(--display);margin:8px 0 20px}.account-details{margin:0}.account-details>div{padding:14px 0;border-bottom:1px solid var(--line)}.account-details dt{font-size:12px;color:var(--muted);margin-bottom:6px}.account-details dd{margin:0;font-size:14px;overflow-wrap:anywhere}.account-proof{padding:18px;border-left:3px solid var(--azure);background:var(--ivory);font-size:13px;margin-bottom:24px}.account-grant{margin-top:24px}.account-grant h2{font:24px var(--display)}
 .welcome-page{width:min(1000px,calc(100% - 40px));margin:40px auto}.welcome-steps{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:32px 0}.welcome-steps strong{color:var(--azure)}.welcome-page>.panel{padding:28px}.welcome-page .profile-scope{display:none}
+.welcome-page .loading{display:flex;align-items:center;justify-content:center;min-height:180px;border:1px solid var(--line);border-top-color:var(--azure);background:#0c2136}
+.welcome-page .panel{background:var(--paper)}
+.welcome-page :is(input,select,textarea){background:#10273d;color:var(--ink);border-color:#516a80}
+.welcome-page :is(input,textarea)::placeholder{color:#a4b8cf}
+.welcome-page :is(input,select,textarea):disabled{background:#1c2d3d;color:var(--muted)}
+.welcome-page .alert{background:#382e27;color:#ffe1bc;border-color:#a7885b}
+.welcome-page .notice{background:#153946;color:#d5edea;border-color:#508d94}
+.welcome-page a:hover{color:#fff2d3}
 @media(max-width:1100px){.auth-layout{grid-template-columns:1fr}.auth-story{min-height:500px;padding:28px;border:0}.auth-story-copy{padding-top:58px;max-width:46%}.auth-story h1{font-size:32px}.auth-character{width:44%;height:420px;max-height:calc(100% - 72px);right:7%;bottom:28px}.auth-caption{display:none}.auth-entry{padding:40px 28px 24px;border-top:1px solid var(--line)}}
 @media(max-width:720px){.auth-story{min-height:390px;padding:22px 24px}.auth-story .brand .royal-beacon{width:38px;height:38px}.auth-story .brand-wordmark{font-size:20px}.auth-story-copy{padding-top:38px}.auth-story-copy>.eyebrow{font-size:8px}.auth-story h1{font-size:28px;line-height:1.4;margin:14px 0}.auth-story h1 br{display:none}.auth-story-copy>p:last-child{display:none}.auth-panorama{height:54%;opacity:.55}.auth-character{width:50%;height:300px;right:4px;bottom:18px}.auth-entry{padding:30px 24px 22px}.auth-card{max-width:none}.auth-card h2{font-size:28px}.auth-card .subtitle{margin-bottom:22px}.auth-entry>footer{margin-top:24px}}
 @media(max-width:420px){.auth-story h1{font-size:24px}}

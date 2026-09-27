@@ -180,8 +180,27 @@ input[type=checkbox] {
   color:var(--muted);
   text-align:center;
   font-size:13px}
+/* Authentication transitions render before the themed page shells. */
+:root:has(#root:empty),
+:root:has(.session-loading),
+:root:has(.welcome-page) {
+  background:#071321;
+  color-scheme:dark}
+.session-loading,.welcome-page {
+  --ivory:#071321;
+  --ink:#e9eef6;
+  --muted:#b5c8df;
+  --azure:#d6bd88;
+  --moon:#425e78;
+  --line:#385167;
+  --paper:#10273d;
+  color:var(--ink);
+  color-scheme:dark}
 .session-loading {
   min-height:100vh;
+  min-height:100svh;
+  padding:24px;
+  background:#071321;
   display:flex;
   flex-direction:column;
   align-items:center;
