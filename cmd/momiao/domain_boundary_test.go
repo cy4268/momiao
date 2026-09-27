@@ -9,7 +9,7 @@ import (
 )
 
 func TestDomainRouteBoundary(t *testing.T) {
-	for _, path := range []string{"/platform/v1/wallet", "/api/v1/games/dice/bootstrap", "/api/v1/poker/tables", "/platform/v1/models/personal-price", "/platform/v1/announcements/current-post-login-popup", "/platform/v1/ops/announcements"} {
+	for _, path := range []string{"/api/v1/ops/native-runtime", "/platform/v1/wallet", "/api/v1/games/dice/bootstrap", "/api/v1/poker/tables", "/platform/v1/models/personal-price", "/platform/v1/announcements/current-post-login-popup", "/platform/v1/ops/announcements"} {
 		r := httptest.NewRequest("GET", path, nil)
 		w := httptest.NewRecorder()
 		called := false

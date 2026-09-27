@@ -10,9 +10,9 @@ import (
  "github.com/cy4268/momiao/internal/session"
 )
 
-func newOpsRuntimeHandler(sessions *session.Service,store *platform.Store,environment string)http.Handler{
+func newOpsRuntimeHandler(sessions *session.Service,store *platform.Store,environment string,nativeRuntime http.Handler)http.Handler{
  return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
-  permission:=map[string]string{"/api/v1/ops/maintenance":"maintenance.read","/api/v1/ops/jobs":"jobs.read","/api/v1/ops/service-health":"service-health.read","/api/v1/ops/attention":"attention.read"}[r.URL.Path]
+  permission:=map[string]string{"/api/v1/ops/maintenance":"maintenance.read","/api/v1/ops/native-runtime":"maintenance.read","/api/v1/ops/jobs":"jobs.read","/api/v1/ops/service-health":"service-health.read","/api/v1/ops/attention":"attention.read"}[r.URL.Path]
   if permission=="" {walletError(w,404,"NOT_FOUND");return}
   if !opsRequestSafe(r)||r.URL.RawPath!=""||r.URL.RawQuery!=""||r.URL.ForceQuery||r.ContentLength!=0||len(r.TransferEncoding)!=0 {walletError(w,400,"OPS_INPUT_INVALID");return}
   if !requireMethod(w,r,http.MethodGet){return}
@@ -22,6 +22,8 @@ func newOpsRuntimeHandler(sessions *session.Service,store *platform.Store,enviro
   user,err:=strconv.ParseInt(verified.View().UserID,10,64);if err!=nil||user<=0{walletError(w,401,"SESSION_UNAUTHORIZED");return}
   if _,err=store.RequireOpsPermission(ctx,user,0,permission);err!=nil{writeOpsError(w,err);return}
   switch r.URL.Path {
+  case "/api/v1/ops/native-runtime":
+   if nativeRuntime==nil {walletError(w,503,"OPS_UNAVAILABLE");return};nativeRuntime.ServeHTTP(w,r)
   case "/api/v1/ops/maintenance":
    items,err:=store.ReadOpsMaintenance(ctx,user);if err!=nil{writeOpsError(w,err);return};sessionEnvelope(w,200,map[string]any{"items":items})
   case "/api/v1/ops/jobs":

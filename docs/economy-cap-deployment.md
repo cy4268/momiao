@@ -49,6 +49,12 @@ opening the page, deploying migrations, or starting the worker has no effect.
    Pause **new Native model consumption at the actual API ingress**, drain all
    already accepted requests and continue serving the private read-only quota
    endpoint. Platform maintenance alone does not stop Native consumption.
+   The maintenance page reads the current Native HTTP count through the fixed
+   `/api/v1/ops/native-runtime` projection. This requires `maintenance.read`, a
+   verified opaque session and Native AdminAuth; credentials stay server-side.
+   Direct address-bar navigation to Native `/api/status/test` does not carry the
+   dashboard Bearer header. Unknown/error counts are not zero; a zero sample
+   alone proves neither ingress pause nor completion of asynchronous jobs.
 2. Establish one ACTIVE maintenance window covering CHALDEA_USER_WRITES,
    WALLET_EXCHANGE, REWARDS, DIRECT_PLAY_NEW_ROUNDS, POKER_NEW_TABLES_NEW_HANDS
    and RANKINGS_PUBLISHING. Accepted recovery/refunds/cashouts remain enabled.

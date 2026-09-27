@@ -329,7 +329,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		bindings = append(bindings, pokerOpsBindings(pokerOpsPort)...)
 		opsService, err := platform.NewOpsService(runtimeStore, cfg.OpsEnvironment, bindings...)
 		if err != nil { return errors.New("Ops startup failed") }
-		opsReads:=newOpsPokerHandler(cfg.sessions,runtimeStore,pokerOpsPort,newOpsSupportRecordsHandler(cfg.sessions, runtimeStore, cfg.history, newOpsEconomyRuntimeHandler(cfg.sessions, opsEconomy, newOpsRuntimeHandler(cfg.sessions, runtimeStore, cfg.OpsEnvironment))))
+		opsReads:=newOpsPokerHandler(cfg.sessions,runtimeStore,pokerOpsPort,newOpsSupportRecordsHandler(cfg.sessions, runtimeStore, cfg.history, newOpsEconomyRuntimeHandler(cfg.sessions, opsEconomy, newOpsRuntimeHandler(cfg.sessions, runtimeStore, cfg.OpsEnvironment, domainHandler(cfg, newNativeRuntimeProjectionHandler(newNativeTransport(cfg.NewAPISocket)))))))
 		opsReads=newOpsGamesHandler(cfg.sessions,runtimeStore,cfg.games,opsReads)
 		opsReads=newOpsRankingsHandler(cfg.sessions,runtimeStore,cfg.rankings,opsReads)
 		opsReads=newOpsGamblerHandler(cfg.sessions,campaign,opsReads)

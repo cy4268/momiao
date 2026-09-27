@@ -24,6 +24,77 @@ func projectionRequest() *http.Request {
 const projectedSelf = `{"success":true,"message":"","data":{"id":42,"username":"native-user","display_name":"Native User","role":10,"status":1,"group":"default","quota":80,"used_quota":20,"request_count":3,"email":"private@example.invalid","password":"private","access_token":"private","permissions":{"admin":true},"unknown":"discard"}}`
 
 func TestNativeSelfProjectionIsFixedAndSafe(t *testing.T) {
+	t.Run("maintenance runtime read is an authenticated route", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		newOpsRuntimeHandler(nil, nil, "STAGING", nil).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/ops/native-runtime", nil))
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("missing authenticated runtime read: status=%d body=%s", w.Code, w.Body.String())
+		}
+	})
+	t.Run("runtime count uses the fixed authenticated upstream and fails closed", func(t *testing.T) {
+		for _, tc := range []struct {
+			body         string
+			status, want int
+		}{
+			{`{"success":true,"http_stats":{"active_connections":0},"secret":"discard"}`, 200, 200},
+			{`{"success":true,"http_stats":{"active_connections":3}}`, 200, 200},
+			{`{"success":true,"http_stats":{}}`, 200, 502},
+			{`{"success":true,"http_stats":{"active_connections":null}}`, 200, 502},
+			{`{"success":true,"http_stats":{"active_connections":-1}}`, 200, 502},
+			{`{"success":true,"http_stats":{"active_connections":"0"}}`, 200, 502},
+			{`{"success":true,"http_stats":{"active_connections":0,"active_connections":3}}`, 200, 502},
+			{`{"success":false,"http_stats":{"active_connections":0}}`, 200, 502},
+			{`{"success":true,"http_stats":{"active_connections":0}} {}`, 200, 502},
+			{strings.Repeat(" ", 4097), 200, 502},
+			{`{"secret":"discard"}`, 302, 502},
+			{`{"secret":"discard"}`, 401, 502},
+			{`{"secret":"discard"}`, 403, 403},
+		} {
+			r := projectionRequest()
+			r.URL.Path = "/api/v1/ops/native-runtime"
+			r.Header.Set("Cookie", "must-not-forward")
+			calls := 0
+			h := newNativeRuntimeProjectionHandler(roundTripFunc(func(got *http.Request) (*http.Response, error) {
+				calls++
+				if got.Method != "GET" || got.URL.String() != "http://unix/api/status/test" || got.Host != "localhost" || got.Body != nil || len(got.Header) != 4 || got.Header.Get("Authorization") != r.Header.Get("Authorization") || got.Header.Get("Cookie") != "" {
+					t.Fatal("runtime request escaped its fixed read-only boundary")
+				}
+				return &http.Response{StatusCode: tc.status, Header: http.Header{"Set-Cookie": {"secret"}}, Body: io.NopCloser(strings.NewReader(tc.body))}, nil
+			}))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if tc.status == 401 && strings.Contains(w.Body.String(), "AUTH_UNAUTHORIZED") {
+				t.Fatal("Native failure invalidated the platform session")
+			}
+			if w.Code != tc.want || calls != 1 || strings.Contains(w.Body.String(), "discard") || w.Header().Get("Set-Cookie") != "" || w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("runtime projection: status=%d body=%s", w.Code, w.Body.String())
+			}
+			if tc.want == 200 {
+				var value struct {
+					Data map[string]json.RawMessage `json:"data"`
+				}
+				var at string
+				if json.Unmarshal(w.Body.Bytes(), &value) != nil || len(value.Data) != 2 || json.Unmarshal(value.Data["observed_at"], &at) != nil {
+					t.Fatal("runtime DTO")
+				}
+				if _, err := time.Parse(time.RFC3339Nano, at); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		calls := 0
+		h := newNativeRuntimeProjectionHandler(roundTripFunc(func(*http.Request) (*http.Response, error) { calls++; return nil, nil }))
+		for _, tc := range []struct {
+			method, path string
+			want         int
+		}{{"GET", "/api/v1/ops/native-runtime", 401}, {"POST", "/api/v1/ops/native-runtime", 405}, {"GET", "/api/v1/ops/native-runtime?url=x", 400}} {
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
+			if w.Code != tc.want || calls != 0 {
+				t.Fatalf("unauthorized or mutable runtime read status=%d calls=%d", w.Code, calls)
+			}
+		}
+	})
 	r := projectionRequest()
 	r.Header.Set("Cookie", "browser=private")
 	r.Header.Set("Origin", "https://portal.invalid")
