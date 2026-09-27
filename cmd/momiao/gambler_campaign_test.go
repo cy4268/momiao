@@ -12,6 +12,7 @@ import (
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/rankings"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -129,9 +130,69 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var connection struct{ OwnerURL, RuntimeRole string }
+	var connection struct{ OwnerURL, RuntimeURL, RuntimeRole string }
 	if json.Unmarshal(raw, &connection) != nil {
 		t.Fatal("local connection")
+	}
+	if err = owner.WithTx(ctx, func(tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, "GRANT SELECT(session_id_hash,newapi_user_id,session_version,native_auth_version,security_epoch_snapshot,native_created_at) ON identity.native_session_bindings TO "+pgx.Identifier{connection.RuntimeRole}.Sanitize()+"; GRANT SELECT(newapi_user_id,security_epoch,security_epoch_changed_at) ON identity.account_refs TO "+pgx.Identifier{connection.RuntimeRole}.Sanitize(), pgx.QueryExecModeSimpleProtocol)
+		return e
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Exercise the production startup boundary, not only domain operations:
+	// Poker receives the cap tables, never direct wallet authority.
+	authPool, err := pgxpool.New(ctx, connection.RuntimeURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authPool.Close()
+	pokerRole := connection.RuntimeRole + "_poker"
+	pokerPassword := fmt.Sprintf("%x", priv[:24])
+	if err = owner.WithTx(ctx, func(tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, "CREATE ROLE "+pgx.Identifier{pokerRole}.Sanitize()+" LOGIN PASSWORD '"+pokerPassword+"' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; GRANT USAGE ON SCHEMA economy TO "+pgx.Identifier{pokerRole}.Sanitize()+"; GRANT SELECT ON economy.policy_versions,economy.policy_runtime TO "+pgx.Identifier{pokerRole}.Sanitize()+"; GRANT SELECT,INSERT ON economy.cap_settlements TO "+pgx.Identifier{pokerRole}.Sanitize()+"; GRANT EXECUTE ON FUNCTION economy.poker_buy_in_apply(uuid,bigint,uuid),economy.poker_top_up_apply(uuid,bigint,uuid),economy.poker_cash_out_apply(uuid,bigint,uuid) TO "+pgx.Identifier{pokerRole}.Sanitize()+";", pgx.QueryExecModeSimpleProtocol)
+		return e
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = owner.WithTx(context.Background(), func(tx pgx.Tx) error {
+			_, e := tx.Exec(context.Background(), "DROP OWNED BY "+pgx.Identifier{pokerRole}.Sanitize()+"; DROP ROLE "+pgx.Identifier{pokerRole}.Sanitize(), pgx.QueryExecModeSimpleProtocol)
+			return e
+		})
+	})
+	pokerConfig, err := pgxpool.ParseConfig(connection.RuntimeURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pokerConfig.ConnConfig.User, pokerConfig.ConnConfig.Password = pokerRole, pokerPassword
+	pokerPool, err := pgxpool.NewWithConfig(ctx, pokerConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pokerPool.Close()
+	if err = validatePokerPools(ctx, authPool, pokerPool); err != nil {
+		t.Fatal("production cap grants rejected by startup", err)
+	}
+	for _, grant := range []string{"SELECT ON economy.wallet_balances", "UPDATE ON economy.cap_settlements", "INSERT ON economy.policy_runtime", "REFERENCES ON economy.policy_versions"} {
+		if err = owner.WithTx(ctx, func(tx pgx.Tx) error {
+			_, e := tx.Exec(ctx, "GRANT "+grant+" TO "+pgx.Identifier{pokerRole}.Sanitize())
+			return e
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if validatePokerPools(ctx, authPool, pokerPool) == nil {
+			t.Fatal("excess economy privilege accepted", grant)
+		}
+		if err = owner.WithTx(ctx, func(tx pgx.Tx) error {
+			_, e := tx.Exec(ctx, "REVOKE "+grant+" FROM "+pgx.Identifier{pokerRole}.Sanitize())
+			return e
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = validatePokerPools(ctx, authPool, pokerPool); err != nil {
+		t.Fatal("narrow cap grants not restored", err)
 	}
 	native, err := platform.OpenNativeQuota(ctx, connection.OwnerURL)
 	if err != nil {

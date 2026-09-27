@@ -23,9 +23,12 @@ The embedded Poker mode instead uses the same in-process read-only observer.
 
 Apply additive migrations 0041–0047 with the normal non-login schema owner.
 Apply `runtime-grants-0041-economy-cap.psql` to platform (`platform_writer=true`)
-and Poker (`platform_writer=false`) runtime roles. Apply the SELECT-only
-`runtime-grants-0043-cap-history.psql` to each dedicated history reader that
-projects direct-game or Poker cap receipts. Preserve previous migration checksums,
+and Poker (`platform_writer=false`) runtime roles. The application's `history_r`
+and `history_w` roles remain function-only: do not grant them direct table access.
+Direct-game details use the platform role and Poker details use the Poker role,
+already covered by 0041. `runtime-grants-0043-cap-history.psql` is only for a
+separate custom domain reader, not the function-only list/ingestion roles.
+Preserve previous migration checksums,
 key-family separation and all original Native per-operation bounds.
 
 The service persists the policy version before RNG. Old unbound rounds remain
