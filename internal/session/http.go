@@ -79,7 +79,10 @@ func (s *Service) WriteGrant(w http.ResponseWriter, g Grant) error {
 		return inputFault
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	http.SetCookie(w, sessionCookie(g.sid, 0))
+	cookie := sessionCookie(g.sid, 0)
+	// Idle expiry stays server-side; activity must not outlive the absolute chain.
+	cookie.Expires = g.view.AbsoluteExpiresAt
+	http.SetCookie(w, cookie)
 	return nil
 }
 func (*Service) ClearCookie(w http.ResponseWriter) {

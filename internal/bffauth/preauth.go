@@ -53,9 +53,9 @@ type LoginChallenge struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-func WriteCookie(w http.ResponseWriter, value string) {
+func WriteCookie(w http.ResponseWriter, value string, expires time.Time) {
 	w.Header().Set("Cache-Control", "no-store")
-	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: value, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: value, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, Expires: expires})
 }
 
 func ClearCookie(w http.ResponseWriter) {

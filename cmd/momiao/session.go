@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/cy4268/momiao/internal/bffauth"
 	"github.com/cy4268/momiao/internal/nativeself"
@@ -149,7 +150,11 @@ func newSessionHandler(auth *bffauth.Service, sessions *session.Service) http.Ha
 				return
 			}
 			if result.Cookie != "" {
-				bffauth.WriteCookie(w, result.Cookie)
+				var expires time.Time // Anonymous and in-progress login cookies remain session-only.
+				if result.Session != nil {
+					expires = result.Session.AbsoluteExpiresAt
+				}
+				bffauth.WriteCookie(w, result.Cookie, expires)
 			}
 			sessionEnvelope(w, http.StatusOK, result)
 		case "/api/v1/auth/password/login":

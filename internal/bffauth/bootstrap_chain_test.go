@@ -1,6 +1,8 @@
 package bffauth
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -78,5 +80,16 @@ func TestAuthenticatedBootstrapProjectsStableNonAuthorityChainID(t *testing.T) {
 	}
 	if _, err = s.authenticatedBootstrap(view, session.BFFBinding{UserID: "13", NativeSessionIDHash: binding.NativeSessionIDHash}, PasswordProvider{State: "AVAILABLE"}, ""); err == nil {
 		t.Fatal("mismatched session view and BFF binding were projected")
+	}
+	w := httptest.NewRecorder()
+	WriteCookie(w, first.Cookie, first.Session.AbsoluteExpiresAt)
+	cookies := w.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Value != first.Cookie || !cookies[0].Expires.Equal(view.AbsoluteExpiresAt) || cookies[0].Domain != "" || cookies[0].Path != "/" || !cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
+		t.Fatal("bootstrap recovery lost cookie persistence or authentication protections")
+	}
+	w = httptest.NewRecorder()
+	WriteCookie(w, "anonymous", time.Time{})
+	if cookies = w.Result().Cookies(); len(cookies) != 1 || !cookies[0].Expires.IsZero() || cookies[0].MaxAge != 0 {
+		t.Fatal("anonymous bootstrap unexpectedly persisted its cookie")
 	}
 }

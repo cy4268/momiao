@@ -175,6 +175,35 @@ func TestOpaqueHandlesRejectZeroAndRedact(t *testing.T) {
 	}
 }
 
+func TestAuthenticatedCookieSurvivesBrowserRestart(t *testing.T) {
+	s := &Service{}
+	now := time.Now().UTC().Truncate(time.Second)
+	deadline := now.Add(30 * 24 * time.Hour)
+	g := Grant{owner: s, sid: secret(), view: View{
+		IdleExpiresAt: now.Add(7 * 24 * time.Hour), AbsoluteExpiresAt: deadline,
+	}}
+	w := httptest.NewRecorder()
+	if err := s.WriteGrant(w, g); err != nil {
+		t.Fatal(err)
+	}
+	cookies := w.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatal("authenticated response did not set one cookie")
+	}
+	cookie := cookies[0]
+	if !cookie.Expires.Equal(deadline) || cookie.MaxAge < 0 {
+		t.Fatalf("authenticated cookie is lost on browser exit or changes the authority deadline: expires=%v max_age=%d", cookie.Expires, cookie.MaxAge)
+	}
+	if cookie.Name != cookieName || cookie.Value != g.sid || cookie.Path != "/" || cookie.Domain != "" || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("persistent cookie changed authentication protections")
+	}
+	w = httptest.NewRecorder()
+	s.ClearCookie(w)
+	if cleared := w.Result().Cookies(); len(cleared) != 1 || cleared[0].MaxAge >= 0 || cleared[0].Value != "" {
+		t.Fatal("explicit logout did not delete the persistent cookie")
+	}
+}
+
 func TestStrictJSONRejectsAmbiguousWireFields(t *testing.T) {
 	for _, raw := range [][]byte{
 		[]byte(`{"actor":"1","actor":"2"}`), []byte(`{"ACTOR":"1"}`),
