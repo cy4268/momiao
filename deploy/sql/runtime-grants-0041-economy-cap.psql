@@ -22,6 +22,8 @@ GRANT SELECT ON economy.policy_versions,economy.policy_runtime TO :"runtime_role
 GRANT SELECT,INSERT ON economy.cap_settlements TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION economy.cap_wallets_read(bigint),economy.cap_pending_transfers_read(bigint),economy.cap_pending_exchanges_read(bigint),economy.cap_local_assets_read(bigint),economy.unified_poker_assets_read(bigint) TO :"runtime_role";
 \if :platform_writer
+GRANT INSERT(single_player_in_flight_units,roulette_escrow_units)
+ ON rewards.relief_claims TO :"runtime_role";
 GRANT SELECT,INSERT ON economy.reward_request_keys TO :"runtime_role";
 GRANT UPDATE(cap_withheld_units) ON games.game_rounds TO :"runtime_role";
 GRANT UPDATE(active_version) ON economy.policy_runtime TO :"runtime_role";

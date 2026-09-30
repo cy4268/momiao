@@ -325,3 +325,60 @@ func TestRuntimeJointAcceptance(t *testing.T) {
 		t.Logf("%d runtime operations denied with 42501 against verified objects; native-users target was a local synthetic sentinel only", len(queries))
 	})
 }
+
+func TestReliefClaimRuntimeColumnGrants(t *testing.T) {
+	owner, runtime, _ := jointRuntimeStores(t)
+	ctx := context.Background()
+	connection := owner.pool.Config().ConnConfig
+	runtimeRole := runtime.pool.Config().ConnConfig.User
+	var ownerRole string
+	if err := owner.pool.QueryRow(ctx, "SELECT current_user").Scan(&ownerRole); err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []struct {
+		name            string
+		apply, platform bool
+	}{
+		{"dry-run", false, true},
+		{"non-platform", true, false},
+		{"platform", true, true},
+	} {
+		args := []string{"-X", "--no-password", "-h", connection.Host, "-p", strconv.Itoa(int(connection.Port)), "-U", connection.User, "-d", connection.Database,
+			"--set=schema_owner=" + ownerRole, "--set=runtime_role=" + runtimeRole,
+			"--set=platform_writer=" + strconv.FormatBool(phase.platform),
+			"--file=" + filepath.Join("..", "..", "deploy", "sql", "runtime-grants-0041-economy-cap.psql")}
+		if phase.apply {
+			args = append(args, "--set=apply_grants=true")
+		}
+		command := exec.CommandContext(ctx, os.Getenv("MOMIAO_TEST_PSQL"), args...)
+		command.Env = append(os.Environ(), "PGPASSWORD="+connection.Password)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("%s template failed: %v: %s", phase.name, err, output)
+		}
+		// EXPLAIN validates the actual runtime INSERT permissions without a claim.
+		_, err := runtime.pool.Exec(ctx, `EXPLAIN (COSTS OFF) INSERT INTO rewards.relief_claims
+		 (single_player_in_flight_units,roulette_escrow_units) VALUES(0,0)`)
+		want := phase.apply && phase.platform
+		if want {
+			if err != nil {
+				t.Fatalf("platform relief INSERT denied: %v", err)
+			}
+		} else {
+			var denied *pgconn.PgError
+			if !errors.As(err, &denied) || denied.Code != "42501" {
+				t.Fatalf("%s expected permission denial, got %v", phase.name, err)
+			}
+		}
+		for _, column := range []string{"single_player_in_flight_units", "roulette_escrow_units"} {
+			var allowed bool
+			if err := owner.pool.QueryRow(ctx, "SELECT has_column_privilege($1,'rewards.relief_claims',$2,'INSERT')", runtimeRole, column).Scan(&allowed); err != nil || allowed != want {
+				t.Fatalf("%s column %s permission = %t, want %t: %v", phase.name, column, allowed, want, err)
+			}
+		}
+		var broad bool
+		if err := owner.pool.QueryRow(ctx, "SELECT has_table_privilege($1,'rewards.relief_claims','INSERT,UPDATE,DELETE') OR has_any_column_privilege($1,'rewards.relief_claims','UPDATE')", runtimeRole).Scan(&broad); err != nil || broad {
+			t.Fatalf("%s broadened relief table privileges: %v", phase.name, err)
+		}
+		t.Logf("%s: two_column_insert=%t; table_insert/update/delete=false", phase.name, want)
+	}
+}
