@@ -66,7 +66,7 @@ func TestBotGamesConfig(t *testing.T) {
 			})
 		}
 	}
-	for _, bad := range []string{"role", "wallet", "fairness", "declaration", "self_collision", "listen", "newapi", "refill", "economy", "session", "poker", "fairness_collision", "wallet_collision"} {
+	for _, bad := range []string{"role", "wallet", "fairness", "declaration", "self_collision", "listen", "newapi", "refill", "economy", "session", "poker", "fairness_collision", "wallet_collision", "catalog_credentials_collision"} {
 		t.Run(bad, func(t *testing.T) {
 			c, m := botGamesTestConfig(t)
 			p := m["MOMIAO_BOT_GAMES_SOCKET"]
@@ -97,6 +97,8 @@ func TestBotGamesConfig(t *testing.T) {
 				m["MOMIAO_BOT_GAMES_QUOTE_KEY_FILE"] = c.GameFairnessKeyringFile
 			case "wallet_collision":
 				m["MOMIAO_BOT_GAMES_NATIVE_DSN_FILE"] = c.WalletDSNFile
+			case "catalog_credentials_collision":
+				c.CatalogAssets.CredentialsFile = m["MOMIAO_BOT_GAMES_TOKEN_FILE"]
 			}
 			if loadBotGamesConfig(&c, func(k string) (string, bool) { v, ok := m[k]; return v, ok }) == nil {
 				t.Fatal("invalid authority/collision accepted")
