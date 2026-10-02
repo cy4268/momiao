@@ -106,7 +106,7 @@ func openBotGamesApplication(ctx context.Context, cfg config, store *platform.St
 	if e != nil {
 		return nil, errBotGamesStartup
 	}
-	listener, e := openListener(config{ListenSocket: cfg.BotGames.Socket})
+	listener, e := openBotGamesListener(cfg.BotGames.Socket)
 	if e != nil {
 		return nil, errBotGamesStartup
 	}

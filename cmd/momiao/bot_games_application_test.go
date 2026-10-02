@@ -32,8 +32,12 @@ func TestBotGamesApplication(t *testing.T) {
 		if runtime.GOOS == "windows" {
 			t.Skip("POSIX 0600 acceptance requires Linux")
 		}
-		p := filepath.Join(t.TempDir(), "bot.sock")
-		l, e := openListener(config{ListenSocket: p})
+		dir := t.TempDir()
+		if err := os.Chmod(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, "bot.sock")
+		l, e := openBotGamesListener(p)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -74,11 +78,15 @@ func TestBotGamesApplication(t *testing.T) {
 		}
 	})
 	t.Run("existing_file", func(t *testing.T) {
-		p := filepath.Join(t.TempDir(), "keep")
+		dir := t.TempDir()
+		if err := os.Chmod(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, "keep")
 		if e := os.WriteFile(p, []byte("keep"), 0600); e != nil {
 			t.Fatal(e)
 		}
-		if l, e := openListener(config{ListenSocket: p}); e == nil {
+		if l, e := openBotGamesListener(p); e == nil {
 			l.Close()
 			t.Fatal("existing file overwritten")
 		}
