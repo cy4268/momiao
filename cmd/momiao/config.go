@@ -17,6 +17,7 @@ import (
 )
 
 type config struct {
+	BotGames botGamesConfig
  EconomyReadSocket string
  economicObserver platform.NativeQuotaObserver
 	RecoveryLock              bool
@@ -270,6 +271,9 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 	}
 	if cfg.RecoveryAuthProbes && (!cfg.Session.Enabled || cfg.ProcessRole != "platform") {
 		return config{}, errors.New("DR_RECOVERY_AUTH_PROBES requires platform opaque sessions")
+	}
+	if err := loadBotGamesConfig(&cfg, lookup); err != nil {
+		return config{}, err
 	}
 	return cfg, nil
 }
