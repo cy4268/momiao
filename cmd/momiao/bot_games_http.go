@@ -31,7 +31,8 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 			return
 		}
 		switch r.URL.Path {
-		case "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup":
+		case "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup",
+			"/internal/v1/bot-games/slot/prepare", "/internal/v1/bot-games/slot/play", "/internal/v1/bot-games/slot/lookup":
 		default:
 			writeJSONError(w, 404, "NOT_FOUND")
 			return
@@ -74,6 +75,9 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 		if r.URL.Path == "/internal/v1/bot-games/dice/prepare" {
 			fields = []string{"request_id", "wager", "choice"}
 		}
+		if r.URL.Path == "/internal/v1/bot-games/slot/prepare" {
+			fields = []string{"request_id", "total_wager"}
+		}
 		body, e := decodeStringFieldsLimit(r.Body, 4096, fields...)
 		if e != nil {
 			invalid()
@@ -81,6 +85,12 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 		}
 		var result any
 		switch r.URL.Path {
+		case "/internal/v1/bot-games/slot/prepare":
+			result, e = service.PrepareSlot(ctx, subject[0], botgames.SlotPrepareInput{RequestID: body["request_id"], TotalWager: body["total_wager"]})
+		case "/internal/v1/bot-games/slot/play":
+			result, e = service.PlaySlot(ctx, subject[0], body["quote"])
+		case "/internal/v1/bot-games/slot/lookup":
+			result, e = service.LookupSlot(ctx, subject[0], body["quote"])
 		case "/internal/v1/bot-games/dice/prepare":
 			result, e = service.Prepare(ctx, subject[0], botgames.PrepareInput{RequestID: body["request_id"], Wager: body["wager"], Choice: body["choice"]})
 		case "/internal/v1/bot-games/dice/play":

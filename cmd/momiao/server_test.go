@@ -96,7 +96,7 @@ func TestUnownedPlatformAPINeverReachesNative(t *testing.T) {
 				calls++
 				return nil, errors.New("unowned Platform route reached Native")
 			}))
-			for _, route := range []string{"/api/v1", "/api/v1/not-owned", "/api/v1/not-owned?source=browser", "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup", "/internal/v1/bot-games/dice/%70repare", "/internal/v1/bot-games/dice/prepare?x=1"} {
+			for _, route := range []string{"/api/v1", "/api/v1/not-owned", "/api/v1/not-owned?source=browser", "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup", "/internal/v1/bot-games/dice/%70repare", "/internal/v1/bot-games/dice/prepare?x=1", "/internal/v1/bot-games/slot/prepare", "/internal/v1/bot-games/slot/play", "/internal/v1/bot-games/slot/lookup", "/internal/v1/bot-games/slot/%70repare", "/internal/v1/bot-games/slot/prepare?x=1"} {
 				for _, method := range []string{http.MethodGet, http.MethodPost} {
 					response := httptest.NewRecorder()
 					handler.ServeHTTP(response, httptest.NewRequest(method, route, nil))

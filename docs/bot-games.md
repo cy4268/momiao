@@ -1,6 +1,6 @@
-# Private Discord dice listener
+# Private Discord game listener
 
-This optional platform-only listener connects the signed `internal/botgames` service to the existing website dice engine. With all four settings absent it opens no listener, Native connection, or bot-game worker. No route is mounted on the public portal; existing `/internal/` denial remains in place.
+This optional platform-only listener connects the signed `internal/botgames` service to the existing website dice and slot engines. With all four settings absent it opens no listener, Native connection, or bot-game worker. No route is mounted on the public portal; existing `/internal/` denial remains in place.
 
 ## Configuration and startup
 
@@ -25,7 +25,7 @@ A libpq DSN containing `hostaddr` must not be copied unchanged into pgx: use a s
 
 ## HTTP contract
 
-Exactly three POST paths:
+The original three dice POST paths remain unchanged:
 
 - `/internal/v1/bot-games/dice/prepare`
 - `/internal/v1/bot-games/dice/play`
@@ -63,6 +63,28 @@ Quotes bind the request, subject/current account fingerprint, wager, choice and 
 | 503 | UPSTREAM_UNAVAILABLE (including overload and unknown/internal errors) |
 
 An unavailable response after play is an uncertain outcome, not proof that no round settled. Recover with lookup and the original quote; never manufacture a new interaction ID automatically.
+
+## Additive slot contract
+
+The same private listener additionally allows exactly these POST paths (no new configuration, port or public route):
+
+- `/internal/v1/bot-games/slot/prepare`: exact string keys `request_id,total_wager`.
+- `/internal/v1/bot-games/slot/play`: exact string key `quote`.
+- `/internal/v1/bot-games/slot/lookup`: exact string key `quote`.
+
+The Bot command is `/老虎机 筹码:<整数>`. Each confirmation creates at most one round. Total wager is canonical integer Chip text, at least 10; 11 is valid. One Chip is 500000 atomic units. All ten fixed lines are enabled, so 11 Chip stakes 550000 atomic units on each line. Cancellation/expiry creates no round; after an uncertain play response, use only lookup with the original quote. Results remain private unless the member explicitly shares the existing `DIRECT_PLAY_ROUND` report.
+
+Slot quotes last 120 seconds, explicitly bind `game: slot`, and use the independent HMAC domain `bot-games.slot.quote.v1\x00`. The durable engine key is `discord-slot-v1:<original interaction ID>`. Dice quote bytes, signatures and the `discord-dice-v1:` key namespace are unchanged. Neither quote is accepted by the other game's routes. Prepare/play/lookup all re-resolve current identity and binding; original same-input rounds are found before expiry checks, including after restart.
+
+Prepare returns exactly `quote,total_wager,line_count,line_stake_units,available_units,minimum_wager_units,maximum_wager_units,ruleset,rules_text,server_seed_hash,commitment_id,expires_at`. Values are strings except integer `line_count=10`. Monetary strings contain atomic units; expiry is a positive epoch-second string. Supported rules are `slot-rules-v1/v2/v3`, with the matching existing config schema and `slot-map-v1` algorithm. Unknown or inconsistent rules/config/policy fail closed.
+
+The maximum is not the dice x2 bound. For current balance B and existing slot engine bound M=5164 (v1/v2) or 5201 (v3), maximum line stake is `min(MaxInt64/M, (MaxInt64-B)/(M-10))`. Total stake is additionally limited by B and the current economic `SinglePlayerMaxUnits`, then rounded down to whole Chip. This is the existing game's pre-RNG overflow guard expressed for ten lines. The website transaction remains authoritative when balances, policy or maintenance change after prepare.
+
+Settled responses contain exactly `round_id,created_at,settled_at,status,total_wager,line_count,line_stake_units,full_grid,lines,result,result_detail,stake_units,gross_payout_units,withheld_units,credited_payout_units,actual_net_units,ruleset`. Times are UTC RFC3339Nano; status is `SETTLED`. Grid order is five reels, each top/middle/bottom (display transposes to three rows). Ten ordered line records contain exactly `line_number,interpreted_symbol,match_length,multiplier,line_stake_units,line_payout_units`. Line numbers, match lengths and multipliers are JSON integers; monetary values are canonical decimal strings. No-win lines have empty symbol, length/multiplier/payout zero.
+
+The projection verifies the stored stops/grid/ten lines using the existing pure slot engine for the stored ruleset; it never draws randomness or copies paytables. Line payouts sum to gross, gross minus withheld equals credited, and credited minus stake equals actual net. Outcome/detail describe the uncapped game result: `LOSS/NO_WIN`, `LOSS/PARTIAL_RETURN`, `BREAK_EVEN/BREAK_EVEN` or `WIN/WIN`. A capped raw win can have zero actual net. No Native identity, balance snapshot, token or raw seed is included in the result.
+
+`TestBotSlotPostgres` reuses the disposable G1 harness and the exact existing 0015 slot SELECT/INSERT grant. It exercises real HTTP/engine/ledger settlement, 10/11 Chip, 20 concurrent confirmations, restart/expired recovery, cross-game separation, pre-RNG overflow and capped accounting. Run it against its own fresh loopback fixture, separately from `TestBotGamesPostgres` (the fixture creates synthetic Native tables once). Default-suite PostgreSQL skips are not database evidence. `internal/botgames/slot_*_test.go` covers all three historical rulesets, exact projections, malformed authority data and quote validation.
 
 ## Verification, deployment order and rollback
 
