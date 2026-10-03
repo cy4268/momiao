@@ -105,7 +105,7 @@ func TestBotGamesApplication(t *testing.T) {
 				if runtime.GOOS == "windows" && tc.name == "public" {
 					t.Skip("POSIX file permissions")
 				}
-				p := filepath.Join(t.TempDir(), "key")
+				p := filepath.Join(resolvedAppPrivateDir(t), "key")
 				if e := os.WriteFile(p, []byte(tc.raw), tc.mode); e != nil {
 					t.Fatal(e)
 				}
