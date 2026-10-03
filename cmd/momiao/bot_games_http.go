@@ -32,7 +32,8 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 		}
 		switch r.URL.Path {
 		case "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup",
-			"/internal/v1/bot-games/slot/prepare", "/internal/v1/bot-games/slot/play", "/internal/v1/bot-games/slot/lookup":
+			"/internal/v1/bot-games/slot/prepare", "/internal/v1/bot-games/slot/play", "/internal/v1/bot-games/slot/lookup",
+			"/internal/v1/bot-games/summon/prepare", "/internal/v1/bot-games/summon/play", "/internal/v1/bot-games/summon/lookup":
 		default:
 			writeJSONError(w, 404, "NOT_FOUND")
 			return
@@ -78,6 +79,9 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 		if r.URL.Path == "/internal/v1/bot-games/slot/prepare" {
 			fields = []string{"request_id", "total_wager"}
 		}
+		if r.URL.Path == "/internal/v1/bot-games/summon/prepare" {
+			fields = []string{"request_id", "base_wager", "mode"}
+		}
 		body, e := decodeStringFieldsLimit(r.Body, 4096, fields...)
 		if e != nil {
 			invalid()
@@ -85,6 +89,12 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 		}
 		var result any
 		switch r.URL.Path {
+		case "/internal/v1/bot-games/summon/prepare":
+			result, e = service.PrepareSummon(ctx, subject[0], botgames.SummonPrepareInput{RequestID: body["request_id"], BaseWager: body["base_wager"], Mode: body["mode"]})
+		case "/internal/v1/bot-games/summon/play":
+			result, e = service.PlaySummon(ctx, subject[0], body["quote"])
+		case "/internal/v1/bot-games/summon/lookup":
+			result, e = service.LookupSummon(ctx, subject[0], body["quote"])
 		case "/internal/v1/bot-games/slot/prepare":
 			result, e = service.PrepareSlot(ctx, subject[0], botgames.SlotPrepareInput{RequestID: body["request_id"], TotalWager: body["total_wager"]})
 		case "/internal/v1/bot-games/slot/play":
