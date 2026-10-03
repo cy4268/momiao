@@ -33,13 +33,17 @@ type reliefRewardStore interface {
 }
 
 func decodeStringFields(body io.Reader, fields ...string) (map[string]string, error) {
+	return decodeStringFieldsLimit(body, 2048, fields...)
+}
+
+func decodeStringFieldsLimit(body io.Reader, limit int64, fields ...string) (map[string]string, error) {
 	allowed := map[string]bool{}
 	for _, field := range fields {
 		allowed[field] = true
 	}
 	invalid := platform.ErrInvalidMutation
-	raw, err := io.ReadAll(io.LimitReader(body, 2049))
-	if err != nil || len(raw) > 2048 || !utf8.Valid(raw) {
+	raw, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil || int64(len(raw)) > limit || !utf8.Valid(raw) {
 		return nil, invalid
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
