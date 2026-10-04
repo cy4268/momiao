@@ -34,7 +34,9 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 		case "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup",
 			"/internal/v1/bot-games/slot/prepare", "/internal/v1/bot-games/slot/play", "/internal/v1/bot-games/slot/lookup",
 			"/internal/v1/bot-games/summon/prepare", "/internal/v1/bot-games/summon/play", "/internal/v1/bot-games/summon/lookup",
-			"/internal/v1/bot-games/scratch/prepare", "/internal/v1/bot-games/scratch/play", "/internal/v1/bot-games/scratch/lookup":
+			"/internal/v1/bot-games/scratch/prepare", "/internal/v1/bot-games/scratch/play", "/internal/v1/bot-games/scratch/lookup",
+			"/internal/v1/bot-games/blackjack/prepare", "/internal/v1/bot-games/blackjack/play", "/internal/v1/bot-games/blackjack/lookup",
+			"/internal/v1/bot-games/blackjack/state", "/internal/v1/bot-games/blackjack/action", "/internal/v1/bot-games/blackjack/action-lookup":
 		default:
 			writeJSONError(w, 404, "NOT_FOUND")
 			return
@@ -86,6 +88,12 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 		if r.URL.Path == "/internal/v1/bot-games/scratch/prepare" {
 			fields = []string{"request_id", "wager"}
 		}
+		if r.URL.Path == "/internal/v1/bot-games/blackjack/prepare" {
+			fields = []string{"request_id", "initial_wager"}
+		}
+		if r.URL.Path == "/internal/v1/bot-games/blackjack/action" || r.URL.Path == "/internal/v1/bot-games/blackjack/action-lookup" {
+			fields = []string{"quote", "request_id", "action_type"}
+		}
 		body, e := decodeStringFieldsLimit(r.Body, 4096, fields...)
 		if e != nil {
 			invalid()
@@ -93,6 +101,18 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 		}
 		var result any
 		switch r.URL.Path {
+		case "/internal/v1/bot-games/blackjack/prepare":
+			result, e = service.PrepareBlackjack(ctx, subject[0], botgames.BlackjackPrepareInput{RequestID: body["request_id"], InitialWager: body["initial_wager"]})
+		case "/internal/v1/bot-games/blackjack/play":
+			result, e = service.PlayBlackjack(ctx, subject[0], body["quote"])
+		case "/internal/v1/bot-games/blackjack/lookup":
+			result, e = service.LookupBlackjack(ctx, subject[0], body["quote"])
+		case "/internal/v1/bot-games/blackjack/state":
+			result, e = service.StateBlackjack(ctx, subject[0], body["quote"])
+		case "/internal/v1/bot-games/blackjack/action":
+			result, e = service.ActBlackjack(ctx, subject[0], botgames.BlackjackActionRequest{Quote: body["quote"], RequestID: body["request_id"], ActionType: body["action_type"]})
+		case "/internal/v1/bot-games/blackjack/action-lookup":
+			result, e = service.LookupBlackjackAction(ctx, subject[0], botgames.BlackjackActionRequest{Quote: body["quote"], RequestID: body["request_id"], ActionType: body["action_type"]})
 		case "/internal/v1/bot-games/scratch/prepare":
 			result, e = service.PrepareScratch(ctx, subject[0], botgames.ScratchPrepareInput{RequestID: body["request_id"], Wager: body["wager"]})
 		case "/internal/v1/bot-games/scratch/play":
@@ -132,7 +152,7 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 					status = 403
 				case "NOT_LINKED", "NOT_FOUND":
 					status = 404
-				case "ACCOUNT_NOT_READY", "QUOTE_EXPIRED", "COMMITMENT_INVALID", "IDEMPOTENCY_CONFLICT", "INSUFFICIENT_CHIPS", "MAINTENANCE", "SCRATCH_PREVIOUS_REVEAL_INCOMPLETE":
+				case "ACCOUNT_NOT_READY", "QUOTE_EXPIRED", "COMMITMENT_INVALID", "IDEMPOTENCY_CONFLICT", "INSUFFICIENT_CHIPS", "MAINTENANCE", "SCRATCH_PREVIOUS_REVEAL_INCOMPLETE", "BLACKJACK_ACTIVE_ROUND", "BLACKJACK_STALE_STATE", "BLACKJACK_ACTION_NOT_ALLOWED", "BLACKJACK_NEEDS_REVIEW":
 					status = 409
 				}
 			}

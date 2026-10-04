@@ -1,6 +1,6 @@
 # Private Discord game listener
 
-This optional platform-only listener connects the signed `internal/botgames` service to the existing website dice, slot, summon and scratch engines. With all four settings absent it opens no listener, Native connection, or bot-game worker. No route is mounted on the public portal; existing `/internal/` denial remains in place. The [scratch contract](bot-scratch.md) has separate PURCHASE/RESUME actions and original-ticket presentation recovery.
+This optional platform-only listener connects the signed `internal/botgames` service to the existing website dice, slot, summon, scratch and blackjack engines. With all four settings absent it opens no listener, Native connection, or bot-game worker. No route is mounted on the public portal; existing `/internal/` denial remains in place. The [scratch contract](bot-scratch.md) has separate PURCHASE/RESUME actions and original-ticket presentation recovery. The [blackjack contract](bot-blackjack.md) adds private DEAL/ROUND snapshots and original-action recovery without changing website rules.
 
 ## Configuration and startup
 

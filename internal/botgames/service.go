@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cy4268/momiao/internal/games"
+	bj "github.com/cy4268/momiao/internal/games/blackjack"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -31,7 +32,7 @@ func (f Fault) Error() string {
 	switch f.Code {
 	case "INVALID_REQUEST", "UNAUTHORIZED", "BINDING_CHANGED", "ACCOUNT_RESTRICTED",
 		"NOT_LINKED", "NOT_FOUND", "ACCOUNT_NOT_READY", "QUOTE_EXPIRED", "COMMITMENT_INVALID",
-		"IDEMPOTENCY_CONFLICT", "INSUFFICIENT_CHIPS", "MAINTENANCE", "UPSTREAM_UNAVAILABLE", "SCRATCH_PREVIOUS_REVEAL_INCOMPLETE":
+		"IDEMPOTENCY_CONFLICT", "INSUFFICIENT_CHIPS", "MAINTENANCE", "UPSTREAM_UNAVAILABLE", "SCRATCH_PREVIOUS_REVEAL_INCOMPLETE", "BLACKJACK_ACTIVE_ROUND", "BLACKJACK_STALE_STATE", "BLACKJACK_ACTION_NOT_ALLOWED", "BLACKJACK_NEEDS_REVIEW":
 		return f.Code
 	default:
 		return "UPSTREAM_UNAVAILABLE"
@@ -204,6 +205,16 @@ func mapFault(err error) Fault {
 		return Fault{Code: pointer.Error()}
 	}
 	switch {
+	case errors.Is(err, games.ErrActiveRound):
+		return Fault{Code: "BLACKJACK_ACTIVE_ROUND"}
+	case errors.Is(err, bj.ErrStaleVersion), errors.Is(err, bj.ErrHandNotActive):
+		return Fault{Code: "BLACKJACK_STALE_STATE"}
+	case errors.Is(err, bj.ErrActionNotAllowed), errors.Is(err, bj.ErrMaxHands):
+		return Fault{Code: "BLACKJACK_ACTION_NOT_ALLOWED"}
+	case errors.Is(err, bj.ErrNeedsReview):
+		return Fault{Code: "BLACKJACK_NEEDS_REVIEW"}
+	case errors.Is(err, bj.ErrDoubleBalance), errors.Is(err, bj.ErrSplitBalance):
+		return Fault{Code: "INSUFFICIENT_CHIPS"}
 	case errors.Is(err, games.ErrInvalidInput), errors.Is(err, platform.ErrBalanceOverflow):
 		return Fault{Code: "INVALID_REQUEST"}
 	case errors.Is(err, games.ErrCommitmentInvalid):
