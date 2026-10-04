@@ -674,6 +674,52 @@ func TestBotBlackjackPostgres(t *testing.T) {
 			}
 		}
 	})
+	t.Run("accepted_deal_current_read_failures_are_http_503", func(t *testing.T) {
+		for _, operation := range []string{"create", "replay", "lookup"} {
+			for _, failure := range []error{games.ErrNotFound, bj.ErrNeedsReview} {
+				t.Run(operation+"/"+failure.Error(), func(t *testing.T) {
+					user, subject := f.player(t, true, 50000000)
+					commitment := f.blackjackPrecommit(t, user, blackjackPair)
+					p := f.prepareBlackjack(t, subject, "10")
+					if operation != "create" {
+						f.blackjackRound(t, subject, p)
+						f.now = f.now.Add(121 * time.Second)
+						defer func() { f.now = f.now.Add(-121 * time.Second) }()
+					}
+					g := &blackjackReadLossEngine{Service: f.engine, lose: operation != "create", readErr: failure}
+					service, e := botgames.NewService(g, botGamesResolver{native: f.native, platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
+					botGamesPGCheck(t, e, "accepted deal failure bridge")
+					h, e := newBotGamesHandler(service, botGamesTestToken)
+					botGamesPGCheck(t, e, "accepted deal failure handler")
+					body, _ := json.Marshal(map[string]string{"quote": p.Quote})
+					endpoint := "play"
+					if operation == "lookup" {
+						endpoint = "lookup"
+					}
+					req := botGamesRequest("POST", "/internal/v1/bot-games/blackjack/"+endpoint, string(body))
+					req.Header.Set("X-Discord-User", subject)
+					w := httptest.NewRecorder()
+					h.ServeHTTP(w, req)
+					wantCreates := 0
+					if operation == "create" {
+						wantCreates = 1
+					}
+					if g.creates != wantCreates || g.actions != 0 {
+						t.Fatal("accepted deal repeated write", g.creates, g.actions)
+					}
+					recovered, e := f.service.LookupBlackjack(ctx, subject, p.Quote)
+					botGamesPGCheck(t, e, "recover original deal after failed read")
+					if recovered.RoundID != commitment.ReservedRoundID || recovered.RoundVersion != "1" || recovered.StakeUnits != "5000000" || f.balance(t, user) != 45000000 {
+						t.Fatal("original deal recovery changed round or wager")
+					}
+					f.blackjackEffects(t, user, recovered.RoundID, 1, 0, 0)
+					if w.Code != 503 || w.Body.String() != `{"error":"UPSTREAM_UNAVAILABLE"}`+"\n" {
+						t.Fatalf("accepted deal must stay UNKNOWN HTTP 503: %d %s", w.Code, w.Body.String())
+					}
+				})
+			}
+		}
+	})
 	t.Run("four_existing_adapters_still_work", func(t *testing.T) {
 		user, subject := f.player(t, true, 500000000)
 		dice := f.prepare(t, subject)
@@ -699,10 +745,18 @@ func TestBotBlackjackPostgres(t *testing.T) {
 type blackjackReadLossEngine struct {
 	readErr error
 	*games.Service
-	lose    bool
-	actions int
+	lose             bool
+	actions, creates int
 }
 
+func (g *blackjackReadLossEngine) Create(ctx context.Context, user int64, game, key, commitment string, in games.CreateInput) (games.GameRound, error) {
+	g.creates++
+	r, e := g.Service.Create(ctx, user, game, key, commitment, in)
+	if e == nil {
+		g.lose = true
+	}
+	return r, e
+}
 func (g *blackjackReadLossEngine) BlackjackAction(ctx context.Context, user int64, round string, in games.BlackjackActionInput) (games.GameRound, error) {
 	g.actions++
 	r, e := g.Service.BlackjackAction(ctx, user, round, in)

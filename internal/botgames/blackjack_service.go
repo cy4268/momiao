@@ -215,7 +215,13 @@ func (s *Service) blackjackDealResult(ctx context.Context, subject, quote string
 	if r.Input != input {
 		return BlackjackRound{}, Fault{Code: "IDEMPOTENCY_CONFLICT"}
 	}
-	return s.readBlackjackRound(ctx, subject, user, r.ID, p.InitialWager)
+	current, e := s.readBlackjackRound(ctx, subject, user, r.ID, p.InitialWager)
+	if e != nil {
+		// The original deal is already durable; a failed fresh view cannot turn
+		// its accepted wager into a definitive refusal or an absent original.
+		return BlackjackRound{}, Fault{Code: "UPSTREAM_UNAVAILABLE"}
+	}
+	return current, nil
 }
 func (s *Service) StateBlackjack(ctx context.Context, subject, quote string) (BlackjackRound, error) {
 	p, user, e := s.bindBlackjack(ctx, subject, quote, "ROUND")

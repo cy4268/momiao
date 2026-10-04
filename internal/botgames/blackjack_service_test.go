@@ -350,6 +350,43 @@ func TestBlackjackPostCommitCurrentReadAlwaysUnknown(t *testing.T) {
 	}
 }
 
+func TestBlackjackAcceptedDealCurrentReadAlwaysUnknown(t *testing.T) {
+	for _, operation := range []string{"create", "replay", "lookup"} {
+		for _, failure := range []string{"not_found", "needs_review_error", "needs_review_projection"} {
+			t.Run(operation+"/"+failure, func(t *testing.T) {
+				s, g, _, _ := newBlackjackFixture(t)
+				p := blackjackDeal(t, s)
+				if operation != "create" {
+					original := g.current
+					g.found = &original
+				}
+				switch failure {
+				case "not_found":
+					g.readErr = games.ErrNotFound
+				case "needs_review_error":
+					g.readErr = bj.ErrNeedsReview
+				case "needs_review_projection":
+					g.current.RecoveryState = "NEEDS_REVIEW"
+				}
+				var e error
+				if operation == "lookup" {
+					_, e = s.LookupBlackjack(context.Background(), testSubject, p.Quote)
+				} else {
+					_, e = s.PlayBlackjack(context.Background(), testSubject, p.Quote)
+				}
+				wantBlackjackFault(t, e, "UPSTREAM_UNAVAILABLE")
+				wantWrites := 0
+				if operation == "create" {
+					wantWrites = 1
+				}
+				if g.findCalls != 1 || g.reads != 1 || g.createCalls != wantWrites {
+					t.Fatal("original lookup/read/create counts", g.findCalls, g.reads, g.createCalls)
+				}
+			})
+		}
+	}
+}
+
 func TestBlackjackV1AndV2FrozenPreviewRules(t *testing.T) {
 	for _, v2 := range []bool{false, true} {
 		t.Run(fmt.Sprintf("fair_%t", v2), func(t *testing.T) {
