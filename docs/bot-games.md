@@ -1,6 +1,6 @@
 # Private Discord game listener
 
-This optional platform-only listener connects the signed `internal/botgames` service to the existing website dice and slot engines. With all four settings absent it opens no listener, Native connection, or bot-game worker. No route is mounted on the public portal; existing `/internal/` denial remains in place.
+This optional platform-only listener connects the signed `internal/botgames` service to the existing website dice, slot, summon and scratch engines. With all four settings absent it opens no listener, Native connection, or bot-game worker. No route is mounted on the public portal; existing `/internal/` denial remains in place. The [scratch contract](bot-scratch.md) has separate PURCHASE/RESUME actions and original-ticket presentation recovery.
 
 ## Configuration and startup
 
@@ -59,7 +59,7 @@ Quotes bind the request, subject/current account fingerprint, wager, choice and 
 | 401 | UNAUTHORIZED |
 | 403 | BINDING_CHANGED, ACCOUNT_RESTRICTED |
 | 404 | NOT_LINKED, NOT_FOUND |
-| 409 | ACCOUNT_NOT_READY, QUOTE_EXPIRED, COMMITMENT_INVALID, IDEMPOTENCY_CONFLICT, INSUFFICIENT_CHIPS, MAINTENANCE |
+| 409 | ACCOUNT_NOT_READY, QUOTE_EXPIRED, COMMITMENT_INVALID, IDEMPOTENCY_CONFLICT, INSUFFICIENT_CHIPS, MAINTENANCE, SCRATCH_PREVIOUS_REVEAL_INCOMPLETE |
 | 503 | UPSTREAM_UNAVAILABLE (including overload and unknown/internal errors) |
 
 An unavailable response after play is an uncertain outcome, not proof that no round settled. Recover with lookup and the original quote; never manufacture a new interaction ID automatically.

@@ -33,7 +33,8 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 		switch r.URL.Path {
 		case "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup",
 			"/internal/v1/bot-games/slot/prepare", "/internal/v1/bot-games/slot/play", "/internal/v1/bot-games/slot/lookup",
-			"/internal/v1/bot-games/summon/prepare", "/internal/v1/bot-games/summon/play", "/internal/v1/bot-games/summon/lookup":
+			"/internal/v1/bot-games/summon/prepare", "/internal/v1/bot-games/summon/play", "/internal/v1/bot-games/summon/lookup",
+			"/internal/v1/bot-games/scratch/prepare", "/internal/v1/bot-games/scratch/play", "/internal/v1/bot-games/scratch/lookup":
 		default:
 			writeJSONError(w, 404, "NOT_FOUND")
 			return
@@ -82,6 +83,9 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 		if r.URL.Path == "/internal/v1/bot-games/summon/prepare" {
 			fields = []string{"request_id", "base_wager", "mode"}
 		}
+		if r.URL.Path == "/internal/v1/bot-games/scratch/prepare" {
+			fields = []string{"request_id", "wager"}
+		}
 		body, e := decodeStringFieldsLimit(r.Body, 4096, fields...)
 		if e != nil {
 			invalid()
@@ -89,6 +93,12 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 		}
 		var result any
 		switch r.URL.Path {
+		case "/internal/v1/bot-games/scratch/prepare":
+			result, e = service.PrepareScratch(ctx, subject[0], botgames.ScratchPrepareInput{RequestID: body["request_id"], Wager: body["wager"]})
+		case "/internal/v1/bot-games/scratch/play":
+			result, e = service.PlayScratch(ctx, subject[0], body["quote"])
+		case "/internal/v1/bot-games/scratch/lookup":
+			result, e = service.LookupScratch(ctx, subject[0], body["quote"])
 		case "/internal/v1/bot-games/summon/prepare":
 			result, e = service.PrepareSummon(ctx, subject[0], botgames.SummonPrepareInput{RequestID: body["request_id"], BaseWager: body["base_wager"], Mode: body["mode"]})
 		case "/internal/v1/bot-games/summon/play":
@@ -122,7 +132,7 @@ func newBotGamesHandler(service *botgames.Service, token string) (http.Handler, 
 					status = 403
 				case "NOT_LINKED", "NOT_FOUND":
 					status = 404
-				case "ACCOUNT_NOT_READY", "QUOTE_EXPIRED", "COMMITMENT_INVALID", "IDEMPOTENCY_CONFLICT", "INSUFFICIENT_CHIPS", "MAINTENANCE":
+				case "ACCOUNT_NOT_READY", "QUOTE_EXPIRED", "COMMITMENT_INVALID", "IDEMPOTENCY_CONFLICT", "INSUFFICIENT_CHIPS", "MAINTENANCE", "SCRATCH_PREVIOUS_REVEAL_INCOMPLETE":
 					status = 409
 				}
 			}

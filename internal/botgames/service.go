@@ -31,7 +31,7 @@ func (f Fault) Error() string {
 	switch f.Code {
 	case "INVALID_REQUEST", "UNAUTHORIZED", "BINDING_CHANGED", "ACCOUNT_RESTRICTED",
 		"NOT_LINKED", "NOT_FOUND", "ACCOUNT_NOT_READY", "QUOTE_EXPIRED", "COMMITMENT_INVALID",
-		"IDEMPOTENCY_CONFLICT", "INSUFFICIENT_CHIPS", "MAINTENANCE", "UPSTREAM_UNAVAILABLE":
+		"IDEMPOTENCY_CONFLICT", "INSUFFICIENT_CHIPS", "MAINTENANCE", "UPSTREAM_UNAVAILABLE", "SCRATCH_PREVIOUS_REVEAL_INCOMPLETE":
 		return f.Code
 	default:
 		return "UPSTREAM_UNAVAILABLE"
@@ -208,6 +208,8 @@ func mapFault(err error) Fault {
 		return Fault{Code: "INVALID_REQUEST"}
 	case errors.Is(err, games.ErrCommitmentInvalid):
 		return Fault{Code: "COMMITMENT_INVALID"}
+	case errors.Is(err, games.ErrScratchIncomplete):
+		return Fault{Code: "SCRATCH_PREVIOUS_REVEAL_INCOMPLETE"}
 	case errors.Is(err, platform.ErrIdempotencyConflict):
 		return Fault{Code: "IDEMPOTENCY_CONFLICT"}
 	case errors.Is(err, platform.ErrInsufficientBalance):
