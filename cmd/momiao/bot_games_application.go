@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cy4268/momiao/internal/botgames"
+	"github.com/cy4268/momiao/internal/botroulette"
 	"github.com/cy4268/momiao/internal/games"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -52,6 +53,9 @@ func openBotGamesApplication(ctx context.Context, cfg config, store *platform.St
 		return nil, nil
 	}
 	if cfg.ProcessRole != "platform" || store == nil || engine == nil || cfg.accessDeclaration == nil || cfg.WalletDSNFile == "" || !filepath.IsAbs(cfg.BotGames.Socket) {
+		return nil, errBotGamesStartup
+	}
+	if cfg.BotGames.RouletteEnabled && cfg.roulette == nil {
 		return nil, errBotGamesStartup
 	}
 	token, e := readBotGamesKey(cfg.BotGames.TokenFile)
@@ -98,13 +102,32 @@ func openBotGamesApplication(ctx context.Context, cfg config, store *platform.St
 	if pool.Ping(openCtx) != nil {
 		return nil, errBotGamesStartup
 	}
-	service, e := botgames.NewService(engine, botGamesResolver{native: pool, platform: store, declaration: cfg.accessDeclaration}, key, time.Now)
+	resolver := botGamesResolver{native: pool, platform: store, declaration: cfg.accessDeclaration}
+	service, e := botgames.NewService(engine, resolver, key, time.Now)
 	if e != nil {
 		return nil, errBotGamesStartup
 	}
 	handler, e := newBotGamesHandler(service, hex.EncodeToString(token[:]))
 	if e != nil {
 		return nil, errBotGamesStartup
+	}
+	if cfg.BotGames.RouletteEnabled {
+		rouletteService, err := botroulette.NewService(cfg.roulette, resolver, key, time.Now)
+		if err != nil {
+			return nil, errBotGamesStartup
+		}
+		rouletteHandler, err := newBotRouletteHandler(rouletteService, hex.EncodeToString(token[:]))
+		if err != nil {
+			return nil, errBotGamesStartup
+		}
+		legacyHandler := handler
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if botRouletteRoute(r.URL.Path) {
+				rouletteHandler.ServeHTTP(w, r)
+				return
+			}
+			legacyHandler.ServeHTTP(w, r)
+		})
 	}
 	listener, e := openBotGamesListener(cfg.BotGames.Socket)
 	if e != nil {

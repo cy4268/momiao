@@ -7,10 +7,22 @@ import (
 
 var errBotGamesConfig = errors.New("bot games configuration invalid")
 
-type botGamesConfig struct{ Socket, TokenFile, QuoteKeyFile, NativeDSNFile string }
+type botGamesConfig struct {
+	Socket, TokenFile, QuoteKeyFile, NativeDSNFile string
+	RouletteEnabled                                bool
+}
 
 func loadBotGamesConfig(cfg *config, lookup func(string) (string, bool)) error {
 	var b botGamesConfig
+	if value, ok := lookup("MOMIAO_BOT_ROULETTE_ENABLED"); ok {
+		switch value {
+		case "0":
+		case "1":
+			b.RouletteEnabled = true
+		default:
+			return errBotGamesConfig
+		}
+	}
 	fields := []struct {
 		name   string
 		target *string
@@ -31,6 +43,9 @@ func loadBotGamesConfig(cfg *config, lookup func(string) (string, bool)) error {
 		}
 	}
 	if count == 0 {
+		if b.RouletteEnabled {
+			return errBotGamesConfig
+		}
 		return nil
 	}
 	if count != len(fields) || cfg.ProcessRole != "platform" || cfg.WalletDSNFile == "" || cfg.GameFairnessKeyringFile == "" || cfg.accessDeclaration == nil {

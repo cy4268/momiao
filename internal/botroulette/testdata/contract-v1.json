@@ -1,0 +1,1426 @@
+{
+  "schema_version": "1",
+  "synthetic": {
+    "now": "2026-10-05T00:00:00Z",
+    "subject": "123456789012345678",
+    "resolved_user_id": "42",
+    "quote_key_hex": "0102030405000000000000000000000000000000000000000000000000000000",
+    "note": "Synthetic test values only; no service token. Keys, nulls, omissions and wire types are frozen."
+  },
+  "cases": [
+    {
+      "name": "devil-roulette/lobby",
+      "game": "devil-roulette",
+      "route": "lobby",
+      "subject": "123456789012345678",
+      "request": {
+        "game": "devil-roulette",
+        "cursor": null
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "game": "devil-roulette",
+        "state": "PLAY",
+        "binding": {
+          "config_version_id": "019923a0-0000-7000-8000-000000000001",
+          "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "wager_policy_version_id": "019923a0-0000-7000-8000-000000000002",
+          "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "ruleset_version": "momiao-devil-rules-v1",
+          "algorithm_version": "momiao-devil-rng-v1",
+          "fairness_stream_version": "hmac-sha256-v1"
+        },
+        "minimum_units": "5000000",
+        "step_units": "500000",
+        "available_units": "45000000",
+        "own_round_id": null,
+        "rooms": [
+          {
+            "id": "019923a0-0000-7000-8000-000000000001",
+            "game": "devil-roulette",
+            "title": "恶魔轮盘",
+            "version": "1",
+            "state": "WAITING",
+            "target_players": 2,
+            "stake_units": "5000000",
+            "pool_units": "0",
+            "players": [
+              {
+                "seat": 0,
+                "name": "Fixture-0",
+                "ready": false,
+                "alive": true,
+                "forfeited": false,
+                "hp": 0,
+                "item_count": 0
+              }
+            ]
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    {
+      "name": "devil-roulette/public",
+      "game": "devil-roulette",
+      "route": "public",
+      "subject": "",
+      "request": {
+        "game": "devil-roulette",
+        "room_id": "019923a0-0000-7000-8000-000000000001"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "room": {
+          "id": "019923a0-0000-7000-8000-000000000001",
+          "game": "devil-roulette",
+          "title": "恶魔轮盘",
+          "version": "7",
+          "sequence": "5",
+          "state": "PLAYING",
+          "target_players": 2,
+          "stake_units": "5000000",
+          "pool_units": "10000000",
+          "binding": {
+            "config_version_id": "019923a0-0000-7000-8000-000000000001",
+            "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "wager_policy_version_id": "019923a0-0000-7000-8000-000000000002",
+            "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "ruleset_version": "momiao-devil-rules-v1",
+            "algorithm_version": "momiao-devil-rng-v1",
+            "fairness_stream_version": "hmac-sha256-v1"
+          },
+          "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "turn_seat": 0,
+          "server_now": "2026-10-05T00:00:00Z",
+          "deadline": "2026-10-05T00:00:45Z",
+          "game_deadline": "2026-10-05T00:30:00Z",
+          "players": [
+            {
+              "seat": 0,
+              "name": "Fixture-0",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            },
+            {
+              "seat": 1,
+              "name": "Fixture-1",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            }
+          ],
+          "log": [
+            {
+              "sequence": "5",
+              "at": "2026-10-05T00:00:00Z",
+              "seat": 0,
+              "kind": "TURN",
+              "text": "Synthetic turn"
+            }
+          ],
+          "devil": {
+            "remaining": 5,
+            "live": 3,
+            "blank": 2,
+            "saw": false,
+            "cuffed": [
+              false,
+              true
+            ]
+          },
+          "pressure": null
+        }
+      }
+    },
+    {
+      "name": "devil-roulette/state",
+      "game": "devil-roulette",
+      "route": "state",
+      "subject": "123456789012345678",
+      "request": {
+        "room_id": "019923a0-0000-7000-8000-000000000001"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "room": {
+          "id": "019923a0-0000-7000-8000-000000000001",
+          "game": "devil-roulette",
+          "title": "恶魔轮盘",
+          "version": "7",
+          "sequence": "5",
+          "state": "PLAYING",
+          "target_players": 2,
+          "stake_units": "5000000",
+          "pool_units": "10000000",
+          "binding": {
+            "config_version_id": "019923a0-0000-7000-8000-000000000001",
+            "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "wager_policy_version_id": "019923a0-0000-7000-8000-000000000002",
+            "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "ruleset_version": "momiao-devil-rules-v1",
+            "algorithm_version": "momiao-devil-rng-v1",
+            "fairness_stream_version": "hmac-sha256-v1"
+          },
+          "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "turn_seat": 0,
+          "server_now": "2026-10-05T00:00:00Z",
+          "deadline": "2026-10-05T00:00:45Z",
+          "game_deadline": "2026-10-05T00:30:00Z",
+          "players": [
+            {
+              "seat": 0,
+              "name": "Fixture-0",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            },
+            {
+              "seat": 1,
+              "name": "Fixture-1",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            }
+          ],
+          "log": [
+            {
+              "sequence": "5",
+              "at": "2026-10-05T00:00:00Z",
+              "seat": 0,
+              "kind": "TURN",
+              "text": "Synthetic turn"
+            }
+          ],
+          "devil": {
+            "remaining": 5,
+            "live": 3,
+            "blank": 2,
+            "saw": false,
+            "cuffed": [
+              false,
+              true
+            ]
+          },
+          "pressure": null
+        },
+        "self": {
+          "seat": 0,
+          "available_units": "45000000",
+          "items": [
+            "magnifier"
+          ],
+          "intel": [
+            {
+              "index": 2,
+              "live": true
+            }
+          ]
+        },
+        "actions": [
+          {
+            "kind": "DEVIL_SHOOT",
+            "target": "OPPONENT"
+          },
+          {
+            "kind": "DEVIL_ITEM",
+            "item": "adrenaline",
+            "stolen_item": "magnifier"
+          },
+          {
+            "kind": "SURRENDER"
+          }
+        ],
+        "economic_policy": {
+          "version": "fixture-economy-v1",
+          "hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "single_player_max_units": "500000000",
+          "asset_cap_units": "5000000000",
+          "cap_mode": "CLIP_PROFIT"
+        },
+        "economy_settlement": null,
+        "own_round_id": "019923a0-0000-7000-8000-000000000001"
+      }
+    },
+    {
+      "name": "devil-roulette/state_spectator",
+      "game": "devil-roulette",
+      "route": "state",
+      "subject": "123456789012345678",
+      "request": {
+        "room_id": "019923a0-0000-7000-8000-000000000001"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "room": {
+          "id": "019923a0-0000-7000-8000-000000000001",
+          "game": "devil-roulette",
+          "title": "恶魔轮盘",
+          "version": "7",
+          "sequence": "5",
+          "state": "PLAYING",
+          "target_players": 2,
+          "stake_units": "5000000",
+          "pool_units": "10000000",
+          "binding": {
+            "config_version_id": "019923a0-0000-7000-8000-000000000001",
+            "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "wager_policy_version_id": "019923a0-0000-7000-8000-000000000002",
+            "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "ruleset_version": "momiao-devil-rules-v1",
+            "algorithm_version": "momiao-devil-rng-v1",
+            "fairness_stream_version": "hmac-sha256-v1"
+          },
+          "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "turn_seat": 0,
+          "server_now": "2026-10-05T00:00:00Z",
+          "deadline": "2026-10-05T00:00:45Z",
+          "game_deadline": "2026-10-05T00:30:00Z",
+          "players": [
+            {
+              "seat": 0,
+              "name": "Fixture-0",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            },
+            {
+              "seat": 1,
+              "name": "Fixture-1",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            }
+          ],
+          "log": [
+            {
+              "sequence": "5",
+              "at": "2026-10-05T00:00:00Z",
+              "seat": 0,
+              "kind": "TURN",
+              "text": "Synthetic turn"
+            }
+          ],
+          "devil": {
+            "remaining": 5,
+            "live": 3,
+            "blank": 2,
+            "saw": false,
+            "cuffed": [
+              false,
+              true
+            ]
+          },
+          "pressure": null
+        },
+        "self": null,
+        "actions": [],
+        "economic_policy": null,
+        "economy_settlement": null,
+        "own_round_id": null
+      }
+    },
+    {
+      "name": "devil-roulette/state_settled",
+      "game": "devil-roulette",
+      "route": "state",
+      "subject": "123456789012345678",
+      "request": {
+        "room_id": "019923a0-0000-7000-8000-000000000001"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "room": {
+          "id": "019923a0-0000-7000-8000-000000000001",
+          "game": "devil-roulette",
+          "title": "恶魔轮盘",
+          "version": "7",
+          "sequence": "5",
+          "state": "FINISHED",
+          "target_players": 2,
+          "stake_units": "5000000",
+          "pool_units": "10000000",
+          "binding": {
+            "config_version_id": "019923a0-0000-7000-8000-000000000001",
+            "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "wager_policy_version_id": "019923a0-0000-7000-8000-000000000002",
+            "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "ruleset_version": "momiao-devil-rules-v1",
+            "algorithm_version": "momiao-devil-rng-v1",
+            "fairness_stream_version": "hmac-sha256-v1"
+          },
+          "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "turn_seat": null,
+          "server_now": "2026-10-05T00:00:00Z",
+          "deadline": null,
+          "game_deadline": null,
+          "players": [
+            {
+              "seat": 0,
+              "name": "Fixture-0",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            },
+            {
+              "seat": 1,
+              "name": "Fixture-1",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            }
+          ],
+          "log": [
+            {
+              "sequence": "5",
+              "at": "2026-10-05T00:00:00Z",
+              "seat": 0,
+              "kind": "TURN",
+              "text": "Synthetic turn"
+            }
+          ],
+          "devil": {
+            "remaining": 5,
+            "live": 3,
+            "blank": 2,
+            "saw": false,
+            "cuffed": [
+              false,
+              true
+            ]
+          },
+          "pressure": null
+        },
+        "self": {
+          "seat": 0,
+          "available_units": "45000000",
+          "items": [
+            "magnifier"
+          ],
+          "intel": [
+            {
+              "index": 2,
+              "live": true
+            }
+          ]
+        },
+        "actions": [],
+        "economic_policy": {
+          "version": "fixture-economy-v1",
+          "hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "single_player_max_units": "500000000",
+          "asset_cap_units": "5000000000",
+          "cap_mode": "CLIP_PROFIT"
+        },
+        "economy_settlement": {
+          "policy_version": "fixture-economy-v1",
+          "policy_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "gross_payout_units": "10000000",
+          "credited_payout_units": "8000000",
+          "withheld_units": "2000000",
+          "actual_net_units": "3000000"
+        },
+        "own_round_id": null
+      }
+    },
+    {
+      "name": "devil-roulette/prepare_create",
+      "game": "devil-roulette",
+      "route": "prepare",
+      "subject": "123456789012345678",
+      "request": {
+        "request_id": "1556455882752000000",
+        "purpose": "CREATE",
+        "game": "devil-roulette",
+        "input": {
+          "stake": "10",
+          "players": 2
+        }
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "request_id": "1556455882752000000",
+        "purpose": "CREATE",
+        "game": "devil-roulette",
+        "room_id": null,
+        "input": {
+          "stake": "10",
+          "players": 2
+        },
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMCIsInB1cnBvc2UiOiJDUkVBVEUiLCJnYW1lIjoiZGV2aWwtcm91bGV0dGUiLCJyb29tX2lkIjpudWxsLCJpbnB1dCI6eyJzdGFrZSI6IjEwIiwicGxheWVycyI6Mn0sImlzc3VlZF9hdCI6IjE3OTExNTg0MDAwMDAiLCJleHBpcmVzX2F0IjoiMTc5MTE1ODUyMDAwMCJ9.GYuCM6MVIrbfNBzuu5BUkjBGpR2FxWK0y4QoOalZ5Lc",
+        "binding_fingerprint": "46894536457be1b02ae04a4f581444bc0875f7e4b2489925cdb062234e293f57",
+        "issued_at": "1791158400000",
+        "expires_at": "1791158520000"
+      }
+    },
+    {
+      "name": "devil-roulette/prepare_ready",
+      "game": "devil-roulette",
+      "route": "prepare",
+      "subject": "123456789012345678",
+      "request": {
+        "request_id": "1556455882752000001",
+        "purpose": "COMMAND",
+        "game": "devil-roulette",
+        "room_id": "019923a0-0000-7000-8000-000000000001",
+        "input": {
+          "expected_version": "7",
+          "action": {
+            "kind": "READY"
+          },
+          "ready": {
+            "client_seed": "fixture-seed",
+            "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "stake_units": "5000000"
+          }
+        }
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "request_id": "1556455882752000001",
+        "purpose": "COMMAND",
+        "game": "devil-roulette",
+        "room_id": "019923a0-0000-7000-8000-000000000001",
+        "input": {
+          "expected_version": "7",
+          "action": {
+            "kind": "READY"
+          },
+          "ready": {
+            "client_seed": "fixture-seed",
+            "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "stake_units": "5000000"
+          }
+        },
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMSIsInB1cnBvc2UiOiJDT01NQU5EIiwiZ2FtZSI6ImRldmlsLXJvdWxldHRlIiwicm9vbV9pZCI6IjAxOTkyM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImlucHV0Ijp7ImV4cGVjdGVkX3ZlcnNpb24iOiI3IiwiYWN0aW9uIjp7ImtpbmQiOiJSRUFEWSJ9LCJyZWFkeSI6eyJjbGllbnRfc2VlZCI6ImZpeHR1cmUtc2VlZCIsImNvbmZpZ19oYXNoIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsInBvbGljeV9oYXNoIjoiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInNlcnZlcl9zZWVkX2hhc2giOiJjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwic3Rha2VfdW5pdHMiOiI1MDAwMDAwIn19LCJpc3N1ZWRfYXQiOiIxNzkxMTU4NDAwMDAwIiwiZXhwaXJlc19hdCI6IjE3OTExNTg1MjAwMDAifQ.LPKnmQYzXAHxxtLK8inffGn_I3e3PWj77eV2Sx9AERg",
+        "binding_fingerprint": "46894536457be1b02ae04a4f581444bc0875f7e4b2489925cdb062234e293f57",
+        "issued_at": "1791158400000",
+        "expires_at": "1791158520000"
+      }
+    },
+    {
+      "name": "devil-roulette/prepare_action",
+      "game": "devil-roulette",
+      "route": "prepare",
+      "subject": "123456789012345678",
+      "request": {
+        "request_id": "1556455882752000002",
+        "purpose": "COMMAND",
+        "game": "devil-roulette",
+        "room_id": "019923a0-0000-7000-8000-000000000001",
+        "input": {
+          "expected_version": "7",
+          "action": {
+            "kind": "DEVIL_ITEM",
+            "item": "adrenaline",
+            "stolen_item": "magnifier"
+          },
+          "ready": null
+        }
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "request_id": "1556455882752000002",
+        "purpose": "COMMAND",
+        "game": "devil-roulette",
+        "room_id": "019923a0-0000-7000-8000-000000000001",
+        "input": {
+          "expected_version": "7",
+          "action": {
+            "kind": "DEVIL_ITEM",
+            "item": "adrenaline",
+            "stolen_item": "magnifier"
+          },
+          "ready": null
+        },
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMiIsInB1cnBvc2UiOiJDT01NQU5EIiwiZ2FtZSI6ImRldmlsLXJvdWxldHRlIiwicm9vbV9pZCI6IjAxOTkyM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImlucHV0Ijp7ImV4cGVjdGVkX3ZlcnNpb24iOiI3IiwiYWN0aW9uIjp7ImtpbmQiOiJERVZJTF9JVEVNIiwiaXRlbSI6ImFkcmVuYWxpbmUiLCJzdG9sZW5faXRlbSI6Im1hZ25pZmllciJ9LCJyZWFkeSI6bnVsbH0sImlzc3VlZF9hdCI6IjE3OTExNTg0MDAwMDAiLCJleHBpcmVzX2F0IjoiMTc5MTE1ODUyMDAwMCJ9.3V4WI7_UmecjtCYO4nCHaCpvyo2G5j1MVzm61v0E1HQ",
+        "binding_fingerprint": "46894536457be1b02ae04a4f581444bc0875f7e4b2489925cdb062234e293f57",
+        "issued_at": "1791158400000",
+        "expires_at": "1791158520000"
+      }
+    },
+    {
+      "name": "devil-roulette/commit_create",
+      "game": "devil-roulette",
+      "route": "commit",
+      "subject": "123456789012345678",
+      "request": {
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMCIsInB1cnBvc2UiOiJDUkVBVEUiLCJnYW1lIjoiZGV2aWwtcm91bGV0dGUiLCJyb29tX2lkIjpudWxsLCJpbnB1dCI6eyJzdGFrZSI6IjEwIiwicGxheWVycyI6Mn0sImlzc3VlZF9hdCI6IjE3OTExNTg0MDAwMDAiLCJleHBpcmVzX2F0IjoiMTc5MTE1ODUyMDAwMCJ9.GYuCM6MVIrbfNBzuu5BUkjBGpR2FxWK0y4QoOalZ5Lc"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "status": "APPLIED",
+        "request_id": "1556455882752000000",
+        "receipt": {
+          "round_id": "019923a0-0000-7000-8000-000000000001",
+          "version": "1",
+          "sequence": "0",
+          "state": "WAITING"
+        }
+      }
+    },
+    {
+      "name": "devil-roulette/commit_ready",
+      "game": "devil-roulette",
+      "route": "commit",
+      "subject": "123456789012345678",
+      "request": {
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMSIsInB1cnBvc2UiOiJDT01NQU5EIiwiZ2FtZSI6ImRldmlsLXJvdWxldHRlIiwicm9vbV9pZCI6IjAxOTkyM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImlucHV0Ijp7ImV4cGVjdGVkX3ZlcnNpb24iOiI3IiwiYWN0aW9uIjp7ImtpbmQiOiJSRUFEWSJ9LCJyZWFkeSI6eyJjbGllbnRfc2VlZCI6ImZpeHR1cmUtc2VlZCIsImNvbmZpZ19oYXNoIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsInBvbGljeV9oYXNoIjoiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInNlcnZlcl9zZWVkX2hhc2giOiJjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwic3Rha2VfdW5pdHMiOiI1MDAwMDAwIn19LCJpc3N1ZWRfYXQiOiIxNzkxMTU4NDAwMDAwIiwiZXhwaXJlc19hdCI6IjE3OTExNTg1MjAwMDAifQ.LPKnmQYzXAHxxtLK8inffGn_I3e3PWj77eV2Sx9AERg"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "status": "APPLIED",
+        "request_id": "1556455882752000001",
+        "receipt": {
+          "round_id": "019923a0-0000-7000-8000-000000000001",
+          "version": "6",
+          "sequence": "4",
+          "state": "PLAYING"
+        }
+      }
+    },
+    {
+      "name": "devil-roulette/lookup_applied",
+      "game": "devil-roulette",
+      "route": "lookup",
+      "subject": "123456789012345678",
+      "request": {
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMSIsInB1cnBvc2UiOiJDT01NQU5EIiwiZ2FtZSI6ImRldmlsLXJvdWxldHRlIiwicm9vbV9pZCI6IjAxOTkyM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImlucHV0Ijp7ImV4cGVjdGVkX3ZlcnNpb24iOiI3IiwiYWN0aW9uIjp7ImtpbmQiOiJSRUFEWSJ9LCJyZWFkeSI6eyJjbGllbnRfc2VlZCI6ImZpeHR1cmUtc2VlZCIsImNvbmZpZ19oYXNoIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsInBvbGljeV9oYXNoIjoiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInNlcnZlcl9zZWVkX2hhc2giOiJjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwic3Rha2VfdW5pdHMiOiI1MDAwMDAwIn19LCJpc3N1ZWRfYXQiOiIxNzkxMTU4NDAwMDAwIiwiZXhwaXJlc19hdCI6IjE3OTExNTg1MjAwMDAifQ.LPKnmQYzXAHxxtLK8inffGn_I3e3PWj77eV2Sx9AERg"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "status": "APPLIED",
+        "request_id": "1556455882752000001",
+        "receipt": {
+          "round_id": "019923a0-0000-7000-8000-000000000001",
+          "version": "6",
+          "sequence": "4",
+          "state": "PLAYING"
+        }
+      }
+    },
+    {
+      "name": "devil-roulette/lookup_absent_final",
+      "game": "devil-roulette",
+      "route": "lookup",
+      "subject": "123456789012345678",
+      "request": {
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMSIsInB1cnBvc2UiOiJDT01NQU5EIiwiZ2FtZSI6ImRldmlsLXJvdWxldHRlIiwicm9vbV9pZCI6IjAxOTkyM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImlucHV0Ijp7ImV4cGVjdGVkX3ZlcnNpb24iOiI3IiwiYWN0aW9uIjp7ImtpbmQiOiJSRUFEWSJ9LCJyZWFkeSI6eyJjbGllbnRfc2VlZCI6ImZpeHR1cmUtc2VlZCIsImNvbmZpZ19oYXNoIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsInBvbGljeV9oYXNoIjoiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInNlcnZlcl9zZWVkX2hhc2giOiJjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwic3Rha2VfdW5pdHMiOiI1MDAwMDAwIn19LCJpc3N1ZWRfYXQiOiIxNzkxMTU4NDAwMDAwIiwiZXhwaXJlc19hdCI6IjE3OTExNTg1MjAwMDAifQ.LPKnmQYzXAHxxtLK8inffGn_I3e3PWj77eV2Sx9AERg"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "status": "ABSENT_FINAL",
+        "request_id": "1556455882752000001",
+        "receipt": null
+      }
+    },
+    {
+      "name": "devil-roulette/lookup_unknown",
+      "game": "devil-roulette",
+      "route": "lookup",
+      "subject": "123456789012345678",
+      "request": {
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMSIsInB1cnBvc2UiOiJDT01NQU5EIiwiZ2FtZSI6ImRldmlsLXJvdWxldHRlIiwicm9vbV9pZCI6IjAxOTkyM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImlucHV0Ijp7ImV4cGVjdGVkX3ZlcnNpb24iOiI3IiwiYWN0aW9uIjp7ImtpbmQiOiJSRUFEWSJ9LCJyZWFkeSI6eyJjbGllbnRfc2VlZCI6ImZpeHR1cmUtc2VlZCIsImNvbmZpZ19oYXNoIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsInBvbGljeV9oYXNoIjoiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInNlcnZlcl9zZWVkX2hhc2giOiJjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwic3Rha2VfdW5pdHMiOiI1MDAwMDAwIn19LCJpc3N1ZWRfYXQiOiIxNzkxMTU4NDAwMDAwIiwiZXhwaXJlc19hdCI6IjE3OTExNTg1MjAwMDAifQ.LPKnmQYzXAHxxtLK8inffGn_I3e3PWj77eV2Sx9AERg"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "status": "UNKNOWN",
+        "request_id": "1556455882752000001",
+        "receipt": null
+      }
+    },
+    {
+      "name": "pressure-roulette/lobby",
+      "game": "pressure-roulette",
+      "route": "lobby",
+      "subject": "123456789012345678",
+      "request": {
+        "game": "pressure-roulette",
+        "cursor": null
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "game": "pressure-roulette",
+        "state": "PLAY",
+        "binding": {
+          "config_version_id": "019923a0-0000-7000-8000-000000000001",
+          "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "wager_policy_version_id": "019923a0-0000-7000-8000-000000000002",
+          "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "ruleset_version": "momiao-pressure-rules-v1",
+          "algorithm_version": "momiao-pressure-rng-v1",
+          "fairness_stream_version": "hmac-sha256-v1"
+        },
+        "minimum_units": "5000000",
+        "step_units": "500000",
+        "available_units": "45000000",
+        "own_round_id": null,
+        "rooms": [
+          {
+            "id": "019923a0-0000-7000-8000-000000000001",
+            "game": "pressure-roulette",
+            "title": "压力轮盘",
+            "version": "1",
+            "state": "WAITING",
+            "target_players": 3,
+            "stake_units": "5000000",
+            "pool_units": "0",
+            "players": [
+              {
+                "seat": 0,
+                "name": "Fixture-0",
+                "ready": false,
+                "alive": true,
+                "forfeited": false,
+                "hp": 0,
+                "item_count": 0
+              }
+            ]
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    {
+      "name": "pressure-roulette/public",
+      "game": "pressure-roulette",
+      "route": "public",
+      "subject": "",
+      "request": {
+        "game": "pressure-roulette",
+        "room_id": "019923a0-0000-7000-8000-000000000001"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "room": {
+          "id": "019923a0-0000-7000-8000-000000000001",
+          "game": "pressure-roulette",
+          "title": "压力轮盘",
+          "version": "7",
+          "sequence": "5",
+          "state": "PLAYING",
+          "target_players": 3,
+          "stake_units": "5000000",
+          "pool_units": "15000000",
+          "binding": {
+            "config_version_id": "019923a0-0000-7000-8000-000000000001",
+            "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "wager_policy_version_id": "019923a0-0000-7000-8000-000000000002",
+            "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "ruleset_version": "momiao-pressure-rules-v1",
+            "algorithm_version": "momiao-pressure-rng-v1",
+            "fairness_stream_version": "hmac-sha256-v1"
+          },
+          "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "turn_seat": 0,
+          "server_now": "2026-10-05T00:00:00Z",
+          "deadline": "2026-10-05T00:00:45Z",
+          "game_deadline": "2026-10-05T00:30:00Z",
+          "players": [
+            {
+              "seat": 0,
+              "name": "Fixture-0",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            },
+            {
+              "seat": 1,
+              "name": "Fixture-1",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            },
+            {
+              "seat": 2,
+              "name": "Fixture-2",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            }
+          ],
+          "log": [
+            {
+              "sequence": "5",
+              "at": "2026-10-05T00:00:00Z",
+              "seat": 0,
+              "kind": "TURN",
+              "text": "Synthetic turn"
+            }
+          ],
+          "devil": null,
+          "pressure": {
+            "actual_load": 2,
+            "forced_shots": 1,
+            "order": [
+              0,
+              2,
+              1
+            ],
+            "pointer": 0,
+            "unload_skips_shot": false,
+            "timeout_tier": 1,
+            "phase": "VOTE",
+            "chambers": [
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN"
+            ],
+            "pool_remaining": 4,
+            "duds": 1,
+            "charge": 2,
+            "loaded": 2,
+            "forced": 1,
+            "aggressor": null,
+            "riposte_target": 1,
+            "votes": {
+              "0": true,
+              "1": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "pressure-roulette/state",
+      "game": "pressure-roulette",
+      "route": "state",
+      "subject": "123456789012345678",
+      "request": {
+        "room_id": "019923a0-0000-7000-8000-000000000001"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "room": {
+          "id": "019923a0-0000-7000-8000-000000000001",
+          "game": "pressure-roulette",
+          "title": "压力轮盘",
+          "version": "7",
+          "sequence": "5",
+          "state": "PLAYING",
+          "target_players": 3,
+          "stake_units": "5000000",
+          "pool_units": "15000000",
+          "binding": {
+            "config_version_id": "019923a0-0000-7000-8000-000000000001",
+            "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "wager_policy_version_id": "019923a0-0000-7000-8000-000000000002",
+            "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "ruleset_version": "momiao-pressure-rules-v1",
+            "algorithm_version": "momiao-pressure-rng-v1",
+            "fairness_stream_version": "hmac-sha256-v1"
+          },
+          "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "turn_seat": 0,
+          "server_now": "2026-10-05T00:00:00Z",
+          "deadline": "2026-10-05T00:00:45Z",
+          "game_deadline": "2026-10-05T00:30:00Z",
+          "players": [
+            {
+              "seat": 0,
+              "name": "Fixture-0",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            },
+            {
+              "seat": 1,
+              "name": "Fixture-1",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            },
+            {
+              "seat": 2,
+              "name": "Fixture-2",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            }
+          ],
+          "log": [
+            {
+              "sequence": "5",
+              "at": "2026-10-05T00:00:00Z",
+              "seat": 0,
+              "kind": "TURN",
+              "text": "Synthetic turn"
+            }
+          ],
+          "devil": null,
+          "pressure": {
+            "actual_load": 2,
+            "forced_shots": 1,
+            "order": [
+              0,
+              2,
+              1
+            ],
+            "pointer": 0,
+            "unload_skips_shot": false,
+            "timeout_tier": 1,
+            "phase": "VOTE",
+            "chambers": [
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN"
+            ],
+            "pool_remaining": 4,
+            "duds": 1,
+            "charge": 2,
+            "loaded": 2,
+            "forced": 1,
+            "aggressor": null,
+            "riposte_target": 1,
+            "votes": {
+              "0": true,
+              "1": false
+            }
+          }
+        },
+        "self": {
+          "seat": 0,
+          "available_units": "45000000",
+          "items": [],
+          "intel": []
+        },
+        "actions": [
+          {
+            "kind": "PRESSURE_VOTE",
+            "agree": false
+          },
+          {
+            "kind": "SURRENDER"
+          }
+        ],
+        "economic_policy": {
+          "version": "fixture-economy-v1",
+          "hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "single_player_max_units": "500000000",
+          "asset_cap_units": "5000000000",
+          "cap_mode": "CLIP_PROFIT"
+        },
+        "economy_settlement": null,
+        "own_round_id": "019923a0-0000-7000-8000-000000000001"
+      }
+    },
+    {
+      "name": "pressure-roulette/state_spectator",
+      "game": "pressure-roulette",
+      "route": "state",
+      "subject": "123456789012345678",
+      "request": {
+        "room_id": "019923a0-0000-7000-8000-000000000001"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "room": {
+          "id": "019923a0-0000-7000-8000-000000000001",
+          "game": "pressure-roulette",
+          "title": "压力轮盘",
+          "version": "7",
+          "sequence": "5",
+          "state": "PLAYING",
+          "target_players": 3,
+          "stake_units": "5000000",
+          "pool_units": "15000000",
+          "binding": {
+            "config_version_id": "019923a0-0000-7000-8000-000000000001",
+            "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "wager_policy_version_id": "019923a0-0000-7000-8000-000000000002",
+            "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "ruleset_version": "momiao-pressure-rules-v1",
+            "algorithm_version": "momiao-pressure-rng-v1",
+            "fairness_stream_version": "hmac-sha256-v1"
+          },
+          "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "turn_seat": 0,
+          "server_now": "2026-10-05T00:00:00Z",
+          "deadline": "2026-10-05T00:00:45Z",
+          "game_deadline": "2026-10-05T00:30:00Z",
+          "players": [
+            {
+              "seat": 0,
+              "name": "Fixture-0",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            },
+            {
+              "seat": 1,
+              "name": "Fixture-1",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            },
+            {
+              "seat": 2,
+              "name": "Fixture-2",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            }
+          ],
+          "log": [
+            {
+              "sequence": "5",
+              "at": "2026-10-05T00:00:00Z",
+              "seat": 0,
+              "kind": "TURN",
+              "text": "Synthetic turn"
+            }
+          ],
+          "devil": null,
+          "pressure": {
+            "actual_load": 2,
+            "forced_shots": 1,
+            "order": [
+              0,
+              2,
+              1
+            ],
+            "pointer": 0,
+            "unload_skips_shot": false,
+            "timeout_tier": 1,
+            "phase": "VOTE",
+            "chambers": [
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN"
+            ],
+            "pool_remaining": 4,
+            "duds": 1,
+            "charge": 2,
+            "loaded": 2,
+            "forced": 1,
+            "aggressor": null,
+            "riposte_target": 1,
+            "votes": {
+              "0": true,
+              "1": false
+            }
+          }
+        },
+        "self": null,
+        "actions": [],
+        "economic_policy": null,
+        "economy_settlement": null,
+        "own_round_id": null
+      }
+    },
+    {
+      "name": "pressure-roulette/state_settled",
+      "game": "pressure-roulette",
+      "route": "state",
+      "subject": "123456789012345678",
+      "request": {
+        "room_id": "019923a0-0000-7000-8000-000000000001"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "room": {
+          "id": "019923a0-0000-7000-8000-000000000001",
+          "game": "pressure-roulette",
+          "title": "压力轮盘",
+          "version": "7",
+          "sequence": "5",
+          "state": "FINISHED",
+          "target_players": 3,
+          "stake_units": "5000000",
+          "pool_units": "15000000",
+          "binding": {
+            "config_version_id": "019923a0-0000-7000-8000-000000000001",
+            "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "wager_policy_version_id": "019923a0-0000-7000-8000-000000000002",
+            "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "ruleset_version": "momiao-pressure-rules-v1",
+            "algorithm_version": "momiao-pressure-rng-v1",
+            "fairness_stream_version": "hmac-sha256-v1"
+          },
+          "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "turn_seat": null,
+          "server_now": "2026-10-05T00:00:00Z",
+          "deadline": null,
+          "game_deadline": null,
+          "players": [
+            {
+              "seat": 0,
+              "name": "Fixture-0",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            },
+            {
+              "seat": 1,
+              "name": "Fixture-1",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            },
+            {
+              "seat": 2,
+              "name": "Fixture-2",
+              "ready": true,
+              "alive": true,
+              "forfeited": false,
+              "hp": 3,
+              "item_count": 1
+            }
+          ],
+          "log": [
+            {
+              "sequence": "5",
+              "at": "2026-10-05T00:00:00Z",
+              "seat": 0,
+              "kind": "TURN",
+              "text": "Synthetic turn"
+            }
+          ],
+          "devil": null,
+          "pressure": {
+            "actual_load": 2,
+            "forced_shots": 1,
+            "order": [
+              0,
+              2,
+              1
+            ],
+            "pointer": 0,
+            "unload_skips_shot": false,
+            "timeout_tier": 1,
+            "phase": "VOTE",
+            "chambers": [
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN",
+              "UNKNOWN"
+            ],
+            "pool_remaining": 4,
+            "duds": 1,
+            "charge": 2,
+            "loaded": 2,
+            "forced": 1,
+            "aggressor": null,
+            "riposte_target": 1,
+            "votes": {
+              "0": true,
+              "1": false
+            }
+          }
+        },
+        "self": {
+          "seat": 0,
+          "available_units": "45000000",
+          "items": [],
+          "intel": []
+        },
+        "actions": [],
+        "economic_policy": {
+          "version": "fixture-economy-v1",
+          "hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "single_player_max_units": "500000000",
+          "asset_cap_units": "5000000000",
+          "cap_mode": "CLIP_PROFIT"
+        },
+        "economy_settlement": {
+          "policy_version": "fixture-economy-v1",
+          "policy_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "gross_payout_units": "10000000",
+          "credited_payout_units": "8000000",
+          "withheld_units": "2000000",
+          "actual_net_units": "3000000",
+          "neutral_return_units": "5000000"
+        },
+        "own_round_id": null
+      }
+    },
+    {
+      "name": "pressure-roulette/prepare_create",
+      "game": "pressure-roulette",
+      "route": "prepare",
+      "subject": "123456789012345678",
+      "request": {
+        "request_id": "1556455882752000000",
+        "purpose": "CREATE",
+        "game": "pressure-roulette",
+        "input": {
+          "stake": "10",
+          "players": 3
+        }
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "request_id": "1556455882752000000",
+        "purpose": "CREATE",
+        "game": "pressure-roulette",
+        "room_id": null,
+        "input": {
+          "stake": "10",
+          "players": 3
+        },
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMCIsInB1cnBvc2UiOiJDUkVBVEUiLCJnYW1lIjoicHJlc3N1cmUtcm91bGV0dGUiLCJyb29tX2lkIjpudWxsLCJpbnB1dCI6eyJzdGFrZSI6IjEwIiwicGxheWVycyI6M30sImlzc3VlZF9hdCI6IjE3OTExNTg0MDAwMDAiLCJleHBpcmVzX2F0IjoiMTc5MTE1ODUyMDAwMCJ9.HJhwbU01S9XFe8gHsgbbThM2smmAc3I3_WZSXPLcD_M",
+        "binding_fingerprint": "46894536457be1b02ae04a4f581444bc0875f7e4b2489925cdb062234e293f57",
+        "issued_at": "1791158400000",
+        "expires_at": "1791158520000"
+      }
+    },
+    {
+      "name": "pressure-roulette/prepare_ready",
+      "game": "pressure-roulette",
+      "route": "prepare",
+      "subject": "123456789012345678",
+      "request": {
+        "request_id": "1556455882752000001",
+        "purpose": "COMMAND",
+        "game": "pressure-roulette",
+        "room_id": "019923a0-0000-7000-8000-000000000001",
+        "input": {
+          "expected_version": "7",
+          "action": {
+            "kind": "READY"
+          },
+          "ready": {
+            "client_seed": "fixture-seed",
+            "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "stake_units": "5000000"
+          }
+        }
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "request_id": "1556455882752000001",
+        "purpose": "COMMAND",
+        "game": "pressure-roulette",
+        "room_id": "019923a0-0000-7000-8000-000000000001",
+        "input": {
+          "expected_version": "7",
+          "action": {
+            "kind": "READY"
+          },
+          "ready": {
+            "client_seed": "fixture-seed",
+            "config_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "stake_units": "5000000"
+          }
+        },
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMSIsInB1cnBvc2UiOiJDT01NQU5EIiwiZ2FtZSI6InByZXNzdXJlLXJvdWxldHRlIiwicm9vbV9pZCI6IjAxOTkyM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImlucHV0Ijp7ImV4cGVjdGVkX3ZlcnNpb24iOiI3IiwiYWN0aW9uIjp7ImtpbmQiOiJSRUFEWSJ9LCJyZWFkeSI6eyJjbGllbnRfc2VlZCI6ImZpeHR1cmUtc2VlZCIsImNvbmZpZ19oYXNoIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsInBvbGljeV9oYXNoIjoiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInNlcnZlcl9zZWVkX2hhc2giOiJjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwic3Rha2VfdW5pdHMiOiI1MDAwMDAwIn19LCJpc3N1ZWRfYXQiOiIxNzkxMTU4NDAwMDAwIiwiZXhwaXJlc19hdCI6IjE3OTExNTg1MjAwMDAifQ.45qTm0-D8KwAP2p-9rxwSAe03SW6o4IhSa5xcf2Aj3k",
+        "binding_fingerprint": "46894536457be1b02ae04a4f581444bc0875f7e4b2489925cdb062234e293f57",
+        "issued_at": "1791158400000",
+        "expires_at": "1791158520000"
+      }
+    },
+    {
+      "name": "pressure-roulette/prepare_action",
+      "game": "pressure-roulette",
+      "route": "prepare",
+      "subject": "123456789012345678",
+      "request": {
+        "request_id": "1556455882752000002",
+        "purpose": "COMMAND",
+        "game": "pressure-roulette",
+        "room_id": "019923a0-0000-7000-8000-000000000001",
+        "input": {
+          "expected_version": "7",
+          "action": {
+            "kind": "PRESSURE_VOTE",
+            "agree": false
+          },
+          "ready": null
+        }
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "request_id": "1556455882752000002",
+        "purpose": "COMMAND",
+        "game": "pressure-roulette",
+        "room_id": "019923a0-0000-7000-8000-000000000001",
+        "input": {
+          "expected_version": "7",
+          "action": {
+            "kind": "PRESSURE_VOTE",
+            "agree": false
+          },
+          "ready": null
+        },
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMiIsInB1cnBvc2UiOiJDT01NQU5EIiwiZ2FtZSI6InByZXNzdXJlLXJvdWxldHRlIiwicm9vbV9pZCI6IjAxOTkyM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImlucHV0Ijp7ImV4cGVjdGVkX3ZlcnNpb24iOiI3IiwiYWN0aW9uIjp7ImtpbmQiOiJQUkVTU1VSRV9WT1RFIiwiYWdyZWUiOmZhbHNlfSwicmVhZHkiOm51bGx9LCJpc3N1ZWRfYXQiOiIxNzkxMTU4NDAwMDAwIiwiZXhwaXJlc19hdCI6IjE3OTExNTg1MjAwMDAifQ.VBAjb9-zT1GgEj-QSjrGlk_pjSgizsCLbf5WSDJ6dU4",
+        "binding_fingerprint": "46894536457be1b02ae04a4f581444bc0875f7e4b2489925cdb062234e293f57",
+        "issued_at": "1791158400000",
+        "expires_at": "1791158520000"
+      }
+    },
+    {
+      "name": "pressure-roulette/commit_create",
+      "game": "pressure-roulette",
+      "route": "commit",
+      "subject": "123456789012345678",
+      "request": {
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMCIsInB1cnBvc2UiOiJDUkVBVEUiLCJnYW1lIjoicHJlc3N1cmUtcm91bGV0dGUiLCJyb29tX2lkIjpudWxsLCJpbnB1dCI6eyJzdGFrZSI6IjEwIiwicGxheWVycyI6M30sImlzc3VlZF9hdCI6IjE3OTExNTg0MDAwMDAiLCJleHBpcmVzX2F0IjoiMTc5MTE1ODUyMDAwMCJ9.HJhwbU01S9XFe8gHsgbbThM2smmAc3I3_WZSXPLcD_M"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "status": "APPLIED",
+        "request_id": "1556455882752000000",
+        "receipt": {
+          "round_id": "019923a0-0000-7000-8000-000000000001",
+          "version": "1",
+          "sequence": "0",
+          "state": "WAITING"
+        }
+      }
+    },
+    {
+      "name": "pressure-roulette/commit_ready",
+      "game": "pressure-roulette",
+      "route": "commit",
+      "subject": "123456789012345678",
+      "request": {
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMSIsInB1cnBvc2UiOiJDT01NQU5EIiwiZ2FtZSI6InByZXNzdXJlLXJvdWxldHRlIiwicm9vbV9pZCI6IjAxOTkyM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImlucHV0Ijp7ImV4cGVjdGVkX3ZlcnNpb24iOiI3IiwiYWN0aW9uIjp7ImtpbmQiOiJSRUFEWSJ9LCJyZWFkeSI6eyJjbGllbnRfc2VlZCI6ImZpeHR1cmUtc2VlZCIsImNvbmZpZ19oYXNoIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsInBvbGljeV9oYXNoIjoiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInNlcnZlcl9zZWVkX2hhc2giOiJjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwic3Rha2VfdW5pdHMiOiI1MDAwMDAwIn19LCJpc3N1ZWRfYXQiOiIxNzkxMTU4NDAwMDAwIiwiZXhwaXJlc19hdCI6IjE3OTExNTg1MjAwMDAifQ.45qTm0-D8KwAP2p-9rxwSAe03SW6o4IhSa5xcf2Aj3k"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "status": "APPLIED",
+        "request_id": "1556455882752000001",
+        "receipt": {
+          "round_id": "019923a0-0000-7000-8000-000000000001",
+          "version": "6",
+          "sequence": "4",
+          "state": "PLAYING"
+        }
+      }
+    },
+    {
+      "name": "pressure-roulette/lookup_applied",
+      "game": "pressure-roulette",
+      "route": "lookup",
+      "subject": "123456789012345678",
+      "request": {
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMSIsInB1cnBvc2UiOiJDT01NQU5EIiwiZ2FtZSI6InByZXNzdXJlLXJvdWxldHRlIiwicm9vbV9pZCI6IjAxOTkyM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImlucHV0Ijp7ImV4cGVjdGVkX3ZlcnNpb24iOiI3IiwiYWN0aW9uIjp7ImtpbmQiOiJSRUFEWSJ9LCJyZWFkeSI6eyJjbGllbnRfc2VlZCI6ImZpeHR1cmUtc2VlZCIsImNvbmZpZ19oYXNoIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsInBvbGljeV9oYXNoIjoiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInNlcnZlcl9zZWVkX2hhc2giOiJjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwic3Rha2VfdW5pdHMiOiI1MDAwMDAwIn19LCJpc3N1ZWRfYXQiOiIxNzkxMTU4NDAwMDAwIiwiZXhwaXJlc19hdCI6IjE3OTExNTg1MjAwMDAifQ.45qTm0-D8KwAP2p-9rxwSAe03SW6o4IhSa5xcf2Aj3k"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "status": "APPLIED",
+        "request_id": "1556455882752000001",
+        "receipt": {
+          "round_id": "019923a0-0000-7000-8000-000000000001",
+          "version": "6",
+          "sequence": "4",
+          "state": "PLAYING"
+        }
+      }
+    },
+    {
+      "name": "pressure-roulette/lookup_absent_final",
+      "game": "pressure-roulette",
+      "route": "lookup",
+      "subject": "123456789012345678",
+      "request": {
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMSIsInB1cnBvc2UiOiJDT01NQU5EIiwiZ2FtZSI6InByZXNzdXJlLXJvdWxldHRlIiwicm9vbV9pZCI6IjAxOTkyM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImlucHV0Ijp7ImV4cGVjdGVkX3ZlcnNpb24iOiI3IiwiYWN0aW9uIjp7ImtpbmQiOiJSRUFEWSJ9LCJyZWFkeSI6eyJjbGllbnRfc2VlZCI6ImZpeHR1cmUtc2VlZCIsImNvbmZpZ19oYXNoIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsInBvbGljeV9oYXNoIjoiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInNlcnZlcl9zZWVkX2hhc2giOiJjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwic3Rha2VfdW5pdHMiOiI1MDAwMDAwIn19LCJpc3N1ZWRfYXQiOiIxNzkxMTU4NDAwMDAwIiwiZXhwaXJlc19hdCI6IjE3OTExNTg1MjAwMDAifQ.45qTm0-D8KwAP2p-9rxwSAe03SW6o4IhSa5xcf2Aj3k"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "status": "ABSENT_FINAL",
+        "request_id": "1556455882752000001",
+        "receipt": null
+      }
+    },
+    {
+      "name": "pressure-roulette/lookup_unknown",
+      "game": "pressure-roulette",
+      "route": "lookup",
+      "subject": "123456789012345678",
+      "request": {
+        "quote": "eyJ2IjoxLCJzdWJqZWN0IjoiMTIzNDU2Nzg5MDEyMzQ1Njc4IiwiYmluZGluZyI6IjQ2ODk0NTM2NDU3YmUxYjAyYWUwNGE0ZjU4MTQ0NGJjMDg3NWY3ZTRiMjQ4OTkyNWNkYjA2MjIzNGUyOTNmNTciLCJyZXF1ZXN0X2lkIjoiMTU1NjQ1NTg4Mjc1MjAwMDAwMSIsInB1cnBvc2UiOiJDT01NQU5EIiwiZ2FtZSI6InByZXNzdXJlLXJvdWxldHRlIiwicm9vbV9pZCI6IjAxOTkyM2EwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImlucHV0Ijp7ImV4cGVjdGVkX3ZlcnNpb24iOiI3IiwiYWN0aW9uIjp7ImtpbmQiOiJSRUFEWSJ9LCJyZWFkeSI6eyJjbGllbnRfc2VlZCI6ImZpeHR1cmUtc2VlZCIsImNvbmZpZ19oYXNoIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsInBvbGljeV9oYXNoIjoiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInNlcnZlcl9zZWVkX2hhc2giOiJjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwic3Rha2VfdW5pdHMiOiI1MDAwMDAwIn19LCJpc3N1ZWRfYXQiOiIxNzkxMTU4NDAwMDAwIiwiZXhwaXJlc19hdCI6IjE3OTExNTg1MjAwMDAifQ.45qTm0-D8KwAP2p-9rxwSAe03SW6o4IhSa5xcf2Aj3k"
+      },
+      "status": 200,
+      "response": {
+        "schema_version": "1",
+        "status": "UNKNOWN",
+        "request_id": "1556455882752000001",
+        "receipt": null
+      }
+    }
+  ]
+}

@@ -7,11 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/cy4268/momiao/internal/botroulette"
 	"github.com/cy4268/momiao/internal/roulette"
 	"github.com/jackc/pgx/v5"
 )
@@ -472,6 +478,212 @@ func awaitBotRouletteCall(t *testing.T, ctx context.Context, result <-chan botRo
 		t.Fatal("ordered roulette call did not finish")
 		return botRouletteCall{}
 	}
+}
+
+func botRoulettePGHTTPConfig(t *testing.T, f *botRoulettePGFixture, enabled string) config {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "br-")
+	botGamesPGCheck(t, err, "roulette socket directory")
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	cfg := config{ProcessRole: "platform", WalletDSNFile: filepath.Join(dir, "wallet"), GameFairnessKeyringFile: filepath.Join(dir, "fairness"), accessDeclaration: f.base.declaration, roulette: f.engine}
+	values := map[string]string{
+		"MOMIAO_BOT_GAMES_SOCKET":          filepath.Join(dir, "bot.sock"),
+		"MOMIAO_BOT_GAMES_TOKEN_FILE":      filepath.Join(dir, "token"),
+		"MOMIAO_BOT_GAMES_QUOTE_KEY_FILE":  filepath.Join(dir, "quote"),
+		"MOMIAO_BOT_GAMES_NATIVE_DSN_FILE": filepath.Join(dir, "native"),
+		"MOMIAO_BOT_ROULETTE_ENABLED":      enabled,
+	}
+	botGamesPGCheck(t, loadBotGamesConfig(&cfg, func(k string) (string, bool) { v, ok := values[k]; return v, ok }), "roulette config")
+	quoteKey, fairnessKey := [32]byte{2}, [32]byte{9}
+	for p, value := range map[string]string{
+		cfg.BotGames.TokenFile:      botGamesTestToken,
+		cfg.BotGames.QuoteKeyFile:   hex.EncodeToString(quoteKey[:]),
+		cfg.BotGames.NativeDSNFile:  f.base.connection.NativeURL,
+		cfg.GameFairnessKeyringFile: `{"active":"bot-fixture-v1","keys":{"bot-fixture-v1":"` + hex.EncodeToString(fairnessKey[:]) + `"}}`,
+	} {
+		botGamesPGCheck(t, os.WriteFile(p, []byte(value), 0600), "roulette private fixture file")
+	}
+	return cfg
+}
+
+func botRoulettePGHTTPClient(t *testing.T, f *botRoulettePGFixture, cfg config) *http.Client {
+	t.Helper()
+	app, err := openBotGamesApplication(context.Background(), cfg, f.base.runtime, f.base.engine)
+	botGamesPGCheck(t, err, "roulette private application")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- app.Run(ctx, time.Second) }()
+	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", cfg.BotGames.Socket)
+	}}
+	t.Cleanup(func() {
+		transport.CloseIdleConnections()
+		cancel()
+		botGamesPGCheck(t, <-done, "roulette application shutdown")
+		_ = app.Close()
+	})
+	return &http.Client{Transport: transport, Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+
+func botRoulettePGPost(t *testing.T, client *http.Client, path, subject string, input any, want int) []byte {
+	t.Helper()
+	raw, err := json.Marshal(input)
+	botGamesPGCheck(t, err, "roulette request JSON")
+	r := botGamesRequest("POST", "http://private"+path, string(raw))
+	r.RequestURI = ""
+	r.Header.Del("X-Discord-User")
+	if subject != "" {
+		r.Header.Set("X-Discord-User", subject)
+	}
+	response, err := client.Do(r)
+	botGamesPGCheck(t, err, "roulette socket request")
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	botGamesPGCheck(t, err, "roulette socket body")
+	if response.StatusCode != want || response.Header.Get("Cache-Control") != "no-store" || response.Header.Get("Set-Cookie") != "" {
+		t.Fatalf("private route %s status=%d want=%d body=%s", path, response.StatusCode, want, body)
+	}
+	return body
+}
+
+func TestBotRouletteHTTPPostgres(t *testing.T) {
+	f := newBotRoulettePGFixture(t)
+	f.base.exec(t, `UPDATE games.game_registry SET publication_state='PUBLISHED' WHERE game_slug='pressure-roulette'`)
+	t.Run("requires_domain_service", func(t *testing.T) {
+		cfg := botRoulettePGHTTPConfig(t, f, "1")
+		cfg.roulette = nil
+		if app, err := openBotGamesApplication(context.Background(), cfg, f.base.runtime, f.base.engine); err == nil {
+			_ = app.Close()
+			t.Fatal("enabled roulette listener accepted absent domain service")
+		}
+		if _, err := os.Stat(cfg.BotGames.Socket); !os.IsNotExist(err) {
+			t.Fatal("failed startup left private socket")
+		}
+	})
+	client := botRoulettePGHTTPClient(t, f, botRoulettePGHTTPConfig(t, f, "1"))
+	const prefix = "/internal/v1/bot-roulette/"
+	body := botRoulettePGPost(t, client, prefix+"public", "", map[string]any{}, 400)
+	if string(body) != `{"schema_version":"1","error":"INVALID_REQUEST"}`+"\n" {
+		t.Fatalf("probe incompatible: %s", body)
+	}
+	t.Run("socket_path_is_not_cleaned_or_redirected", func(t *testing.T) {
+		for path, status := range map[string]int{"public?": 400, "public?x=1": 400, "%70ublic": 400, "/public": 404, "../bot-roulette/public": 404, "public/": 404, "probe": 404} {
+			botRoulettePGPost(t, client, prefix+path, "", map[string]any{}, status)
+		}
+	})
+	for _, game := range []string{"devil-roulette", "pressure-roulette"} {
+		t.Run(game, func(t *testing.T) {
+			count := 2
+			if game == "pressure-roulette" {
+				count = 3
+			}
+			users, subjects := make([]int64, count), make([]string, count)
+			for i := range users {
+				users[i], subjects[i] = f.base.player(t, true, 50000000)
+			}
+			freshID := func() string {
+				f.base.next++
+				return strconv.FormatUint(uint64(time.Now().UnixMilli()-1420070400000)<<22|uint64(f.base.next&0x3fffff), 10)
+			}
+			prepare := func(subject string, in botroulette.PrepareInput) botroulette.PreparedReply {
+				in.RequestID = freshID()
+				var p botroulette.PreparedReply
+				botGamesPGCheck(t, json.Unmarshal(botRoulettePGPost(t, client, prefix+"prepare", subject, in, 200), &p), "HTTP prepare")
+				if p.SchemaVersion != "1" || p.RequestID != in.RequestID || p.Quote == "" {
+					t.Fatal("prepare identity lost")
+				}
+				return p
+			}
+			commit := func(subject string, p botroulette.PreparedReply) botroulette.ReceiptReply {
+				var result botroulette.ReceiptReply
+				botGamesPGCheck(t, json.Unmarshal(botRoulettePGPost(t, client, prefix+"commit", subject, botroulette.QuoteInput{Quote: p.Quote}, 200), &result), "HTTP commit")
+				if result.SchemaVersion != "1" || result.Status != "APPLIED" || result.Receipt == nil {
+					t.Fatal("commit receipt absent")
+				}
+				return result
+			}
+			p := prepare(subjects[0], botroulette.PrepareInput{Purpose: "CREATE", Game: game, Input: botroulette.TypedInput{Create: &botroulette.CreateInput{Stake: "10", Players: count}}})
+			created := commit(subjects[0], p)
+			id := created.Receipt.RoundID
+			for i := 1; i < count; i++ {
+				v := f.view(t, users[i], id)
+				commit(subjects[i], prepare(subjects[i], botroulette.PrepareInput{Purpose: "COMMAND", Game: game, RoomID: &id, Input: botroulette.TypedInput{Command: &botroulette.CommandInput{ExpectedVersion: v.Version, Action: botroulette.Action{Kind: "JOIN"}}}}))
+			}
+			for _, user := range users {
+				if f.base.balance(t, user) != 50000000 {
+					t.Fatal("CREATE or JOIN charged chips")
+				}
+			}
+			for i, user := range users {
+				v := f.view(t, user, id)
+				in := botroulette.CommandInput{ExpectedVersion: v.Version, Action: botroulette.Action{Kind: "READY"}, Ready: &botroulette.ReadyConfirmation{ClientSeed: "http-fixture-seed", ConfigHash: v.Binding.ConfigHash, PolicyHash: v.Binding.PolicyHash, ServerSeedHash: v.ServerSeedHash, StakeUnits: v.StakeUnits}}
+				commit(subjects[i], prepare(subjects[i], botroulette.PrepareInput{Purpose: "COMMAND", Game: game, RoomID: &id, Input: botroulette.TypedInput{Command: &in}}))
+				if f.base.balance(t, user) != 45000000 {
+					t.Fatal("confirmed READY did not escrow exactly once")
+				}
+			}
+			var state botroulette.StateReply
+			botGamesPGCheck(t, json.Unmarshal(botRoulettePGPost(t, client, prefix+"state", subjects[0], botroulette.StateInput{RoomID: id}, 200), &state), "HTTP private state")
+			if state.Room.ID != id || state.Room.Game != game || state.Room.State != "PLAYING" || state.Self == nil || state.OwnRoundID == nil || *state.OwnRoundID != id {
+				t.Fatal("private state differs from original browser room")
+			}
+			before := f.domain(t, id)
+			if again := commit(subjects[0], p); !reflect.DeepEqual(again, created) {
+				t.Fatal("commit returned current state instead of original CREATE receipt")
+			}
+			var lookup botroulette.ReceiptReply
+			botGamesPGCheck(t, json.Unmarshal(botRoulettePGPost(t, client, prefix+"lookup", subjects[0], botroulette.QuoteInput{Quote: p.Quote}, 200), &lookup), "HTTP lookup")
+			if !reflect.DeepEqual(lookup, created) || !reflect.DeepEqual(before, f.domain(t, id)) {
+				t.Fatal("receipt replay mutated original room")
+			}
+			f.base.exec(t, `UPDATE public.users SET discord_id='' WHERE id=$1`, users[0])
+			before = f.domain(t, id)
+			var public botroulette.PublicReply
+			botGamesPGCheck(t, json.Unmarshal(botRoulettePGPost(t, client, prefix+"public", "", botroulette.RoomInput{Game: game, RoomID: id}, 200), &public), "service-only public view")
+			if !reflect.DeepEqual(public.Room, state.Room) { // server_now is a fresh read, not a room mutation.
+				public.Room.ServerNow = state.Room.ServerNow
+				if !reflect.DeepEqual(public.Room, state.Room) {
+					t.Fatal("service public view changed after host unlinked")
+				}
+			}
+			for route, in := range map[string]any{"lobby": botroulette.LobbyInput{Game: game}, "state": botroulette.StateInput{RoomID: id}, "prepare": botroulette.PrepareInput{RequestID: freshID(), Purpose: "CREATE", Game: game, Input: botroulette.TypedInput{Create: &botroulette.CreateInput{Stake: "10", Players: count}}}, "commit": botroulette.QuoteInput{Quote: p.Quote}, "lookup": botroulette.QuoteInput{Quote: p.Quote}} {
+				if got := botRoulettePGPost(t, client, prefix+route, subjects[0], in, 404); string(got) != `{"schema_version":"1","error":"NOT_LINKED"}`+"\n" {
+					t.Fatalf("unlinked personal route %s accepted", route)
+				}
+			}
+			if !reflect.DeepEqual(before, f.domain(t, id)) {
+				t.Fatal("unlinked display/personal rejection mutated room or wallet")
+			}
+			t.Logf("SOCKET_FLOW %s: CREATE/JOIN free; READY escrow; PLAYING private state; original receipt replay; public after unlink; five personal routes rejected", game)
+		})
+	}
+	t.Run("disabled_adapter_preserves_existing_routes_and_worker", func(t *testing.T) {
+		cfg := botRoulettePGHTTPConfig(t, f, "0")
+		disabled := botRoulettePGHTTPClient(t, f, cfg)
+		for _, route := range []string{"lobby", "public", "state", "prepare", "commit", "lookup"} {
+			botRoulettePGPost(t, disabled, prefix+route, "", map[string]any{}, 404)
+		}
+		for game, in := range map[string]any{
+			"dice":      map[string]string{"request_id": "1", "wager": "10", "choice": "BIG"},
+			"slot":      map[string]string{"request_id": "1", "total_wager": "10"},
+			"summon":    map[string]string{"request_id": "1", "base_wager": "10", "mode": "SINGLE"},
+			"scratch":   map[string]string{"request_id": "1", "wager": "10"},
+			"blackjack": map[string]string{"request_id": "1", "initial_wager": "10"},
+		} {
+			for _, c := range []*http.Client{client, disabled} {
+				if got := botRoulettePGPost(t, c, "/internal/v1/bot-games/"+game+"/prepare", "18446744073709551615", in, 404); string(got) != `{"error":"NOT_LINKED"}`+"\n" {
+					t.Fatal("legacy response contract changed")
+				}
+			}
+		}
+		id, users := f.room(t, "devil-roulette", false)
+		f.base.exec(t, `UPDATE roulette.rounds SET deadline=clock_timestamp()-interval '1 second',version=version+1 WHERE round_id=$1`, id)
+		_, err := f.worker.StepDue(context.Background(), 50)
+		botGamesPGCheck(t, err, "disabled adapter browser worker")
+		if cfg.roulette != f.engine || f.view(t, users[0], id).State != "CANCELLED" || f.base.balance(t, users[0]) != 50000000 {
+			t.Fatal("adapter switch disabled browser expiry/refund")
+		}
+	})
 }
 
 func TestBotRouletteExpiryRacePG(t *testing.T) {

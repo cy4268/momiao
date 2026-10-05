@@ -106,3 +106,38 @@ func TestBotGamesConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestBotGamesConfigRoulette(t *testing.T) {
+	for _, value := range []string{"absent", "0", "1"} {
+		t.Run(value, func(t *testing.T) {
+			c, m := botGamesTestConfig(t)
+			if value != "absent" {
+				m["MOMIAO_BOT_ROULETTE_ENABLED"] = value
+			}
+			if err := loadBotGamesConfig(&c, func(k string) (string, bool) { v, ok := m[k]; return v, ok }); err != nil || c.BotGames.RouletteEnabled != (value == "1") {
+				t.Fatalf("roulette enable/default mismatch: %v", err)
+			}
+		})
+	}
+	t.Run("explicit_disabled_without_bot", func(t *testing.T) {
+		c := config{}
+		if err := loadBotGamesConfig(&c, func(k string) (string, bool) { return "0", k == "MOMIAO_BOT_ROULETTE_ENABLED" }); err != nil || c.BotGames != (botGamesConfig{}) {
+			t.Fatalf("explicit disabled requires no new infrastructure: %v", err)
+		}
+	})
+	for _, value := range []string{"", "true", "false", "01", "-1", "2", " 1", "1 "} {
+		t.Run("invalid_"+value, func(t *testing.T) {
+			c, m := botGamesTestConfig(t)
+			m["MOMIAO_BOT_ROULETTE_ENABLED"] = value
+			if loadBotGamesConfig(&c, func(k string) (string, bool) { v, ok := m[k]; return v, ok }) == nil {
+				t.Fatal("noncanonical roulette enable flag accepted")
+			}
+		})
+	}
+	t.Run("requires_bot_configuration", func(t *testing.T) {
+		c, _ := botGamesTestConfig(t)
+		if loadBotGamesConfig(&c, func(k string) (string, bool) { return "1", k == "MOMIAO_BOT_ROULETTE_ENABLED" }) == nil {
+			t.Fatal("roulette enabled without private BotGames configuration")
+		}
+	})
+}
