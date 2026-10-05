@@ -316,3 +316,84 @@ func TestMalformedQuoteNeverReachesResolver(t *testing.T) {
 		t.Fatal("malformed quote reached identity/engine")
 	}
 }
+
+func readyWireSeed(t *testing.T, seedJSON string) []byte {
+	t.Helper()
+	raw, err := json.Marshal(readyInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire := strings.Replace(string(raw), `"client_seed":"御主的种子"`, `"client_seed":`+seedJSON, 1)
+	if wire == string(raw) && seedJSON != `"御主的种子"` {
+		t.Fatal("test did not replace the wire seed")
+	}
+	return []byte(wire)
+}
+
+func TestPrepareWireRejectsUnpairedSurrogates(t *testing.T) {
+	for _, tc := range []struct{ name, seedJSON string }{
+		{"lone-high", `"\ud800"`},
+		{"lone-low", `"\udfff"`},
+		{"high-end", `"\udbff"`},
+		{"low-start", `"\udc00"`},
+		{"high-then-text", `"\ud800a"`},
+		{"high-then-bmp", `"\ud800\u0041"`},
+		{"high-then-high", `"\ud800\udbff"`},
+		{"reversed-pair", `"\udfff\ud800"`},
+		{"pair-then-low", `"\ud83d\ude80\udfff"`},
+		{"high-then-literal-escape", `"\ud800\\udc00"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, f, r, _ := fixture(t)
+			var in PrepareInput
+			err := json.Unmarshal(readyWireSeed(t, tc.seedJSON), &in)
+			var preview PreparedReply
+			if err == nil {
+				preview, err = s.Prepare(context.Background(), subject, in)
+			}
+			if err == nil {
+				t.Fatalf("unpaired surrogate admitted: decoded_seed=%q quote_issued=%t", in.Input.Command.Ready.ClientSeed, preview.Quote != "")
+			}
+			requireFault(t, err, "INVALID_REQUEST")
+			if len(r.subjects) != 0 || f.views != 0 || f.mutations != 0 || preview.Quote != "" {
+				t.Fatal("invalid wire seed reached identity, engine or signing")
+			}
+		})
+	}
+}
+
+func TestPrepareWirePreservesValidUnicodeAndEscapes(t *testing.T) {
+	for _, tc := range []struct{ name, seedJSON, want string }{
+		{"chinese", `"御主的种子"`, "御主的种子"},
+		{"escaped-chinese", `"\u5fa1\u4e3b"`, "御主"},
+		{"emoji-pair", `"\ud83d\ude80"`, "🚀"},
+		{"uppercase-pair", `"\uD83D\uDE80"`, "🚀"},
+		{"literal-emoji", `"🚀"`, "🚀"},
+		{"literal-replacement", `"�"`, "�"},
+		{"escaped-replacement", `"\ufffd"`, "�"},
+		{"literal-escape", `"\\ud800"`, `\ud800`},
+		{"literal-escape-pair", `"\\ud800\\udfff"`, `\ud800\udfff`},
+		{"two-backslashes", `"\\\\ud800"`, `\\ud800`},
+		{"backslash-then-pair", `"\\\ud83d\ude80"`, `\🚀`},
+		{"lowest-pair", `"\ud800\udc00"`, "\U00010000"},
+		{"highest-pair", `"\udbff\udfff"`, "\U0010ffff"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, f, _, _ := fixture(t)
+			var in PrepareInput
+			if err := json.Unmarshal(readyWireSeed(t, tc.seedJSON), &in); err != nil {
+				t.Fatal(err)
+			}
+			preview := prepare(t, s, in)
+			if preview.Input.Command.Ready.ClientSeed != tc.want || preview.Quote == "" {
+				t.Fatalf("preview changed seed: got %q, want %q", preview.Input.Command.Ready.ClientSeed, tc.want)
+			}
+			if _, err := s.Lookup(context.Background(), subject, preview.Quote); err != nil {
+				t.Fatal(err)
+			}
+			if f.intent.Command.Ready.ClientSeed != tc.want || f.mutations != 0 {
+				t.Fatal("signed wire seed changed across read-only recovery")
+			}
+		})
+	}
+}

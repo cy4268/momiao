@@ -152,6 +152,47 @@ func validIntent(in PrepareInput) bool {
 	}
 }
 
+// Reject lone UTF-16 escapes before encoding/json can replace them with U+FFFD.
+// In valid JSON backslashes occur only in strings; skip each escaped byte so
+// literal \\u text stays literal. The JSON decoder still owns syntax validation.
+func validSurrogateEscapes(raw []byte) bool {
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\\' {
+			continue
+		}
+		i++
+		if i >= len(raw) {
+			return false
+		}
+		if raw[i] != 'u' {
+			continue
+		}
+		if i+4 >= len(raw) {
+			return false
+		}
+		unit, err := strconv.ParseUint(string(raw[i+1:i+5]), 16, 16)
+		if err != nil {
+			return false
+		}
+		i += 4
+		if unit >= 0xdc00 && unit <= 0xdfff {
+			return false
+		}
+		if unit < 0xd800 || unit > 0xdbff {
+			continue
+		}
+		if i+6 >= len(raw) || raw[i+1] != '\\' || raw[i+2] != 'u' {
+			return false
+		}
+		low, err := strconv.ParseUint(string(raw[i+3:i+7]), 16, 16)
+		if err != nil || low < 0xdc00 || low > 0xdfff {
+			return false
+		}
+		i += 6
+	}
+	return true
+}
+
 // exactObject is used at every request nesting level. A struct decoder alone
 // accepts duplicate keys, case aliases and null scalars, all invalid on wire.
 func exactObject(raw []byte, required, optional string) (map[string]json.RawMessage, error) {
@@ -165,7 +206,7 @@ func exactObject(raw []byte, required, optional string) (map[string]json.RawMess
 			}
 		}
 	}
-	if !utf8.Valid(raw) {
+	if !utf8.Valid(raw) || !validSurrogateEscapes(raw) {
 		return nil, invalid
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
