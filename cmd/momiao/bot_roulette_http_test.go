@@ -17,6 +17,7 @@ import (
 
 	"github.com/cy4268/momiao/internal/botgames"
 	"github.com/cy4268/momiao/internal/botroulette"
+	"github.com/cy4268/momiao/internal/games/fairness"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/roulette"
 )
@@ -94,7 +95,7 @@ func botRouletteHTTPEngineFixture(game string) *botRouletteHTTPEngine {
 	if game == "pressure-roulette" {
 		kind, count, title = "pressure", 3, "压力轮盘"
 	}
-	b := roulette.Binding{ConfigID: botRouletteTestRoom, ConfigHash: strings.Repeat("a", 64), PolicyID: "019923a0-0000-7000-8000-000000000002", PolicyHash: strings.Repeat("b", 64), Ruleset: "momiao-" + kind + "-rules-v1", Algorithm: "momiao-" + kind + "-rng-v1", Stream: "hmac-sha256-v1"}
+	b := roulette.Binding{ConfigID: botRouletteTestRoom, ConfigHash: strings.Repeat("a", 64), PolicyID: "019923a0-0000-7000-8000-000000000002", PolicyHash: strings.Repeat("b", 64), Ruleset: "momiao-" + kind + "-rules-v1", Algorithm: "momiao-" + kind + "-rng-v1", Stream: fairness.StreamVersion}
 	players := []roulette.PlayerView{}
 	for i := 0; i < count; i++ {
 		players = append(players, roulette.PlayerView{Seat: i, Name: fmt.Sprintf("Fixture-%d", i), Ready: true, Alive: true, HP: 3, ItemCount: 1})
@@ -471,6 +472,35 @@ func TestBotRouletteContractFixture(t *testing.T) {
 	}
 	if json.Unmarshal(raw, &fixture) != nil || fixture.SchemaVersion != "1" || len(fixture.Cases) != 26 {
 		t.Fatal("incomplete frozen fixture")
+	}
+	// Wire examples must follow the existing domain, not mutually agreeing fakes.
+	var frozen any
+	if err := json.Unmarshal(raw, &frozen); err != nil {
+		t.Fatal(err)
+	}
+	streams := 0
+	var checkStream func(any)
+	checkStream = func(value any) {
+		switch v := value.(type) {
+		case map[string]any:
+			for key, child := range v {
+				if key == "fairness_stream_version" {
+					streams++
+					if child != fairness.StreamVersion {
+						t.Fatalf("frozen stream=%v; authoritative=%s", child, fairness.StreamVersion)
+					}
+				}
+				checkStream(child)
+			}
+		case []any:
+			for _, child := range v {
+				checkStream(child)
+			}
+		}
+	}
+	checkStream(frozen)
+	if streams != 10 {
+		t.Fatalf("frozen stream coverage=%d", streams)
 	}
 	for _, tc := range fixture.Cases {
 		t.Run(tc.Name, func(t *testing.T) {

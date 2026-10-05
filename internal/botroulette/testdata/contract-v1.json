@@ -29,7 +29,7 @@
           "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           "ruleset_version": "momiao-devil-rules-v1",
           "algorithm_version": "momiao-devil-rng-v1",
-          "fairness_stream_version": "hmac-sha256-v1"
+          "fairness_stream_version": "chaldea-pf-hmac-sha256-v1"
         },
         "minimum_units": "5000000",
         "step_units": "500000",
@@ -90,7 +90,7 @@
             "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "ruleset_version": "momiao-devil-rules-v1",
             "algorithm_version": "momiao-devil-rng-v1",
-            "fairness_stream_version": "hmac-sha256-v1"
+            "fairness_stream_version": "chaldea-pf-hmac-sha256-v1"
           },
           "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "turn_seat": 0,
@@ -168,7 +168,7 @@
             "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "ruleset_version": "momiao-devil-rules-v1",
             "algorithm_version": "momiao-devil-rng-v1",
-            "fairness_stream_version": "hmac-sha256-v1"
+            "fairness_stream_version": "chaldea-pf-hmac-sha256-v1"
           },
           "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "turn_seat": 0,
@@ -282,7 +282,7 @@
             "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "ruleset_version": "momiao-devil-rules-v1",
             "algorithm_version": "momiao-devil-rng-v1",
-            "fairness_stream_version": "hmac-sha256-v1"
+            "fairness_stream_version": "chaldea-pf-hmac-sha256-v1"
           },
           "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "turn_seat": 0,
@@ -365,7 +365,7 @@
             "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "ruleset_version": "momiao-devil-rules-v1",
             "algorithm_version": "momiao-devil-rng-v1",
-            "fairness_stream_version": "hmac-sha256-v1"
+            "fairness_stream_version": "chaldea-pf-hmac-sha256-v1"
           },
           "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "turn_seat": null,
@@ -684,7 +684,7 @@
           "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           "ruleset_version": "momiao-pressure-rules-v1",
           "algorithm_version": "momiao-pressure-rng-v1",
-          "fairness_stream_version": "hmac-sha256-v1"
+          "fairness_stream_version": "chaldea-pf-hmac-sha256-v1"
         },
         "minimum_units": "5000000",
         "step_units": "500000",
@@ -745,7 +745,7 @@
             "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "ruleset_version": "momiao-pressure-rules-v1",
             "algorithm_version": "momiao-pressure-rng-v1",
-            "fairness_stream_version": "hmac-sha256-v1"
+            "fairness_stream_version": "chaldea-pf-hmac-sha256-v1"
           },
           "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "turn_seat": 0,
@@ -854,7 +854,7 @@
             "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "ruleset_version": "momiao-pressure-rules-v1",
             "algorithm_version": "momiao-pressure-rng-v1",
-            "fairness_stream_version": "hmac-sha256-v1"
+            "fairness_stream_version": "chaldea-pf-hmac-sha256-v1"
           },
           "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "turn_seat": 0,
@@ -987,7 +987,7 @@
             "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "ruleset_version": "momiao-pressure-rules-v1",
             "algorithm_version": "momiao-pressure-rng-v1",
-            "fairness_stream_version": "hmac-sha256-v1"
+            "fairness_stream_version": "chaldea-pf-hmac-sha256-v1"
           },
           "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "turn_seat": 0,
@@ -1101,7 +1101,7 @@
             "wager_policy_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "ruleset_version": "momiao-pressure-rules-v1",
             "algorithm_version": "momiao-pressure-rng-v1",
-            "fairness_stream_version": "hmac-sha256-v1"
+            "fairness_stream_version": "chaldea-pf-hmac-sha256-v1"
           },
           "server_seed_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "turn_seat": null,

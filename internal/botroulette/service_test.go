@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cy4268/momiao/internal/botgames"
+	"github.com/cy4268/momiao/internal/games/fairness"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/roulette"
 )
@@ -22,6 +23,15 @@ const subject = "123456789012345678"
 
 var testTime = time.UnixMilli(1791194400000).UTC()
 var testKey = [32]byte{1, 2, 3, 4, 5}
+
+func TestFixtureBindingUsesAuthoritativeFairnessStream(t *testing.T) {
+	_, engine, _, _ := fixture(t)
+	for _, binding := range []roulette.Binding{engine.view.Binding, engine.public.Binding, engine.lobby.Binding} {
+		if binding.Stream != fairness.StreamVersion || projectBinding(binding).Stream != fairness.StreamVersion {
+			t.Fatalf("adapter fixture stream=%q; authoritative stream=%q", binding.Stream, fairness.StreamVersion)
+		}
+	}
+}
 
 type fakeResolver struct {
 	user     int64
@@ -105,7 +115,7 @@ func (f *fakeEngine) FindReceiptMatching(_ context.Context, user int64, intent r
 func fixture(t *testing.T) (*Service, *fakeEngine, *fakeResolver, *time.Time) {
 	t.Helper()
 	now := testTime
-	b := roulette.Binding{ConfigID: roomID, ConfigHash: strings.Repeat("a", 64), PolicyID: otherRoomID, PolicyHash: strings.Repeat("b", 64), Ruleset: "momiao-devil-rules-v1", Algorithm: "momiao-devil-rng-v1", Stream: "hmac-sha256-v1"}
+	b := roulette.Binding{ConfigID: roomID, ConfigHash: strings.Repeat("a", 64), PolicyID: otherRoomID, PolicyHash: strings.Repeat("b", 64), Ruleset: "momiao-devil-rules-v1", Algorithm: "momiao-devil-rng-v1", Stream: fairness.StreamVersion}
 	v := roulette.RoomView{ID: roomID, Game: "devil-roulette", Title: "恶魔轮盘", Version: 7, Sequence: 3, State: "WAITING", TargetPlayers: 2, StakeUnits: 5000000, PoolUnits: 5000000, Binding: b, ServerSeedHash: strings.Repeat("c", 64), ServerNow: now, Players: []roulette.PlayerView{{Seat: 0, Name: "旅人", Alive: true}}, Self: &roulette.SelfView{Seat: 0, AvailableUnits: 123000000, Items: []string{"adrenaline"}, Intel: []roulette.IntelEntry{{Index: 1, Live: true}}}, Actions: []roulette.Action{{Kind: "READY"}}, Log: []roulette.PublicEvent{}}
 	for i := range 25 {
 		v.Log = append(v.Log, roulette.PublicEvent{Sequence: int64(i + 1), At: now, Kind: "PUBLIC", Text: "公开事件"})
