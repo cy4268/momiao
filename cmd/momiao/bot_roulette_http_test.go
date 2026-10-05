@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,9 +25,11 @@ import (
 
 const botRouletteTestRoom = "019923a0-0000-7000-8000-000000000001"
 const botRouletteTestSubject = "123456789012345678"
+const botRouletteTestUser int64 = 42
 const botRoulettePrefix = "/internal/v1/bot-roulette/"
 
 var botRouletteTestTime = time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+var botRouletteTestKey = [32]byte{1, 2, 3, 4, 5}
 
 // Only the database-owning engine is replaced. HTTP parsing, identity,
 // projection, quote signing/verification and deadline forwarding remain real.
@@ -124,9 +127,9 @@ func botRouletteHTTPEngineFixture(game string) *botRouletteHTTPEngine {
 func botRouletteHTTPService(t *testing.T, e *botRouletteHTTPEngine, resolver botgames.Resolver) *botroulette.Service {
 	t.Helper()
 	if resolver == nil {
-		resolver = botGamesTestResolver(func(context.Context, string) (int64, error) { return 42, nil })
+		resolver = botGamesTestResolver(func(context.Context, string) (int64, error) { return botRouletteTestUser, nil })
 	}
-	s, err := botroulette.NewService(e, resolver, [32]byte{1, 2, 3, 4, 5}, func() time.Time { return botRouletteTestTime })
+	s, err := botroulette.NewService(e, resolver, botRouletteTestKey, func() time.Time { return botRouletteTestTime })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +467,13 @@ func TestBotRouletteContractFixture(t *testing.T) {
 	}
 	var fixture struct {
 		SchemaVersion string `json:"schema_version"`
-		Cases         []struct {
+		Synthetic     struct {
+			Now          string `json:"now"`
+			Subject      string `json:"subject"`
+			ResolvedUser string `json:"resolved_user_id"`
+			QuoteKey     string `json:"quote_key_hex"`
+		} `json:"synthetic"`
+		Cases []struct {
 			Name, Game, Route, Subject string
 			Request, Response          json.RawMessage
 			Status                     int
@@ -472,6 +481,12 @@ func TestBotRouletteContractFixture(t *testing.T) {
 	}
 	if json.Unmarshal(raw, &fixture) != nil || fixture.SchemaVersion != "1" || len(fixture.Cases) != 26 {
 		t.Fatal("incomplete frozen fixture")
+	}
+	if fixture.Synthetic.Now != botRouletteTestTime.Format(time.RFC3339) ||
+		fixture.Synthetic.Subject != botRouletteTestSubject ||
+		fixture.Synthetic.ResolvedUser != strconv.FormatInt(botRouletteTestUser, 10) ||
+		fixture.Synthetic.QuoteKey != hex.EncodeToString(botRouletteTestKey[:]) {
+		t.Fatal("synthetic metadata differs from HTTP producer inputs")
 	}
 	// Wire examples must follow the existing domain, not mutually agreeing fakes.
 	var frozen any
@@ -540,7 +555,7 @@ func TestBotRouletteContractFixture(t *testing.T) {
 				if s != botRouletteTestSubject {
 					t.Error("fixture subject changed")
 				}
-				return 42, nil
+				return botRouletteTestUser, nil
 			}))
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, botRouletteRequest(tc.Route, tc.Subject, string(tc.Request)))
@@ -552,7 +567,7 @@ func TestBotRouletteContractFixture(t *testing.T) {
 				if resolves != 0 || !reflect.DeepEqual(e.calls, []string{"public"}) {
 					t.Fatal("public leaked personal resolution")
 				}
-			} else if resolves != 1 || e.user != 42 {
+			} else if resolves != 1 || e.user != botRouletteTestUser {
 				t.Fatal("personal route failed exact re-resolution")
 			}
 			expectedCalls := map[string][]string{"lobby": {"list"}, "public": {"public"}, "state": {"view", "list"}, "prepare": {"view"}, "commit": {"command"}, "lookup": {"lookup"}}[tc.Route]

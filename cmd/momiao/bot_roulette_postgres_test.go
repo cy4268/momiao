@@ -900,6 +900,19 @@ func TestBotRouletteExpiryRacePG(t *testing.T) {
 					}
 					f.awaitCommandLock(t, ctx, lockKey, false)
 					// Observe expiry on the database clock, not a scheduled sleep.
+					var waiterStarted time.Time
+					// The runtime role can inspect its own waiter; the owner role
+					// correctly sees NULL for another role's pg_stat_activity fields.
+					botGamesPGCheck(t, f.base.runtime.WithTx(ctx, func(tx pgx.Tx) error {
+						return tx.QueryRow(ctx, `SELECT s.xact_start FROM pg_locks a
+					 JOIN pg_stat_activity s ON s.pid=a.pid WHERE a.locktype='advisory'
+					 AND a.database=(SELECT oid FROM pg_database WHERE datname=current_database())
+					 AND a.classid=((hashtextextended($1,0)>>32)&4294967295)::oid
+					 AND a.objid=(hashtextextended($1,0)&4294967295)::oid AND a.objsubid=1 AND NOT a.granted`, lockKey).Scan(&waiterStarted)
+					}), "original expiry waiter transaction start")
+					if !waiterStarted.Before(expires) {
+						t.Fatalf("expiry waiter began too late: xact_start=%s expires=%s", waiterStarted, expires)
+					}
 					f.awaitDB(t, ctx, `SELECT clock_timestamp() >= $1`, expires)
 					botGamesPGCheck(t, gate.Commit(ctx), "release expired actor/key gate")
 					if ordering == "commit_wait_expires" {
