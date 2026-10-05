@@ -50,15 +50,25 @@ func uniqueError(e error) error {
 	return e
 }
 func (s *Service) Create(ctx context.Context, user int64, in CreateRequest) (Receipt, error) {
+	return s.create(ctx, user, in, nil)
+}
+func createSemantic(user int64, in CreateRequest) (int64, [32]byte, error) {
 	amount, e := platform.ParseAmount(in.Stake)
 	if e != nil || user <= 0 || !validKey(in.Key) || !IsGame(in.Game) || (in.Game == "devil-roulette" && in.Players != 2) || (in.Game == "pressure-roulette" && (in.Players < 3 || in.Players > 6)) || amount <= 0 || amount > math.MaxInt64/int64(in.Players) {
-		return Receipt{}, ErrInvalidInput
+		return 0, [32]byte{}, ErrInvalidInput
 	}
 	semantic := commandHash("create", struct {
 		Game    string
 		Stake   int64
 		Players int
 	}{in.Game, amount, in.Players})
+	return amount, semantic, nil
+}
+func (s *Service) create(ctx context.Context, user int64, in CreateRequest, expiresAt *time.Time) (Receipt, error) {
+	amount, semantic, e := createSemantic(user, in)
+	if e != nil {
+		return Receipt{}, e
+	}
 	var receipt Receipt
 	e = s.store.WithTx(ctx, func(tx pgx.Tx) error {
 		if e := lockCommand(ctx, tx, user, in.Key); e != nil {
@@ -71,6 +81,9 @@ func (s *Service) Create(ctx context.Context, user int64, in CreateRequest) (Rec
 		if exists {
 			receipt = v
 			return nil
+		}
+		if e = checkBotExpiry(ctx, tx, expiresAt); e != nil {
+			return e
 		}
 		entry, c, p, e := resolve(ctx, tx, in.Game, true)
 		if e != nil {
@@ -147,11 +160,20 @@ func (s *Service) FindReceipt(ctx context.Context, user int64, key string) (Rece
 	return result, e
 }
 func (s *Service) Command(ctx context.Context, user int64, id string, in Command) (Receipt, error) {
+	return s.command(ctx, user, id, in, nil)
+}
+func validateCommand(user int64, id string, in Command) error {
 	if user <= 0 || !ValidRoundID(id) || !validKey(in.Key) || in.ExpectedVersion < 1 || !ValidAction(in.Action, false) || (in.Action.Kind == "READY") != (in.Ready != nil) {
-		return Receipt{}, ErrInvalidInput
+		return ErrInvalidInput
 	}
 	if in.Ready != nil && !validSeed(in.Ready.ClientSeed) {
-		return Receipt{}, ErrInvalidInput
+		return ErrInvalidInput
+	}
+	return nil
+}
+func (s *Service) command(ctx context.Context, user int64, id string, in Command, expiresAt *time.Time) (Receipt, error) {
+	if e := validateCommand(user, id, in); e != nil {
+		return Receipt{}, e
 	}
 	semantic := commandHash(id, in)
 	var result Receipt
@@ -167,6 +189,9 @@ func (s *Service) Command(ctx context.Context, user int64, id string, in Command
 		if exists {
 			result = v
 			return nil
+		}
+		if e = checkBotExpiry(ctx, tx, expiresAt); e != nil {
+			return e
 		}
 		// Gate before room locks; a saved receipt remains readable during maintenance.
 		if in.Action.Kind == "READY" {
