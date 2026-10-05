@@ -18,9 +18,157 @@ import (
 	"time"
 
 	"github.com/cy4268/momiao/internal/botroulette"
+	"github.com/cy4268/momiao/internal/historyaccess"
+	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/roulette"
 	"github.com/jackc/pgx/v5"
 )
+
+// One fixture owns this test's database. Both entry points use the same engine,
+// account rows and UUID; no duplicate wallet or roulette implementation exists.
+func TestBotRouletteCrossPlatformConservation(t *testing.T) {
+	f := newBotRoulettePGFixture(t)
+	ctx := context.Background()
+	observer, err := platform.OpenNativeQuota(ctx, f.base.connection.OwnerURL)
+	botGamesPGCheck(t, err, "cross native quota observer")
+	defer observer.Close()
+	f.engine, err = roulette.NewServiceWithEconomy(f.base.runtime,
+		roulette.Keyring{Active: "bot-fixture-v1", Keys: map[string][32]byte{"bot-fixture-v1": {9}}}, observer)
+	botGamesPGCheck(t, err, "cross engine")
+	f.base.exec(t, `UPDATE games.game_registry SET publication_state='PUBLISHED' WHERE game_slug='pressure-roulette'`)
+	f.base.exec(t, platform.NativeQuotaMigration)
+	f.base.exec(t, `UPDATE momiao_quota.settings SET enabled=true`)
+	f.base.exec(t, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`)
+	service, err := botroulette.NewService(f.engine,
+		botGamesResolver{native: f.base.native, platform: f.base.runtime, declaration: f.base.declaration}, [32]byte{2}, time.Now)
+	botGamesPGCheck(t, err, "cross bot service")
+	serial := uint64(0)
+	prepare := func(subject string, in botroulette.PrepareInput) botroulette.PreparedReply {
+		serial++
+		in.RequestID = strconv.FormatUint(uint64(time.Now().UnixMilli()-1420070400000)<<22|serial, 10)
+		p, e := service.Prepare(ctx, subject, in)
+		botGamesPGCheck(t, e, "cross prepare")
+		return p
+	}
+	for _, count := range []int{2, 3, 4, 6} {
+		t.Run(fmt.Sprintf("players_%d", count), func(t *testing.T) {
+			game := "pressure-roulette"
+			if count == 2 {
+				game = "devil-roulette"
+			}
+			users, subjects := make([]int64, count), make([]string, count)
+			for i := range users {
+				users[i], subjects[i] = f.base.player(t, true, 50000000)
+				_, e := f.base.owner.Apply(ctx, platform.Mutation{UserID: users[i], Asset: platform.ReserveAPICredit,
+					DeltaUnits: platform.AssetCapUnits - 50000000, BizType: "CROSS_CAP", BizID: subjects[i],
+					EntryType: "TEST_GRANT", IdempotencyKey: "cross-cap:" + subjects[i]})
+				botGamesPGCheck(t, e, "cross cap fixture grant")
+			}
+			var id string
+			if count%3 == 0 {
+				p := prepare(subjects[0], botroulette.PrepareInput{Purpose: "CREATE", Game: game,
+					Input: botroulette.TypedInput{Create: &botroulette.CreateInput{Stake: "10", Players: count}}})
+				r, e := service.Commit(ctx, subjects[0], p.Quote)
+				botGamesPGCheck(t, e, "bot creates original room")
+				id = r.Receipt.RoundID
+			} else {
+				r, e := f.engine.Create(ctx, users[0], roulette.CreateRequest{Key: f.key(), Game: game, Stake: "10", Players: count})
+				botGamesPGCheck(t, e, "browser creates original room")
+				id = r.RoundID
+			}
+			botCommand := func(seat int, kind string) (botroulette.PreparedReply, botroulette.ReceiptReply) {
+				v := f.view(t, users[seat], id)
+				in := botroulette.CommandInput{ExpectedVersion: v.Version, Action: botroulette.Action{Kind: kind}}
+				if kind == "READY" {
+					in.Ready = &botroulette.ReadyConfirmation{ClientSeed: "cross-cap-seed", ConfigHash: v.Binding.ConfigHash,
+						PolicyHash: v.Binding.PolicyHash, ServerSeedHash: v.ServerSeedHash, StakeUnits: v.StakeUnits}
+				}
+				p := prepare(subjects[seat], botroulette.PrepareInput{Purpose: "COMMAND", Game: game, RoomID: &id,
+					Input: botroulette.TypedInput{Command: &in}})
+				r, e := service.Commit(ctx, subjects[seat], p.Quote)
+				botGamesPGCheck(t, e, "cross bot command")
+				return p, r
+			}
+			for i := 1; i < count; i++ {
+				if count%3 == 0 {
+					f.command(t, users[i], id, "JOIN")
+				} else {
+					botCommand(i, "JOIN")
+				}
+			}
+			for _, user := range users {
+				if f.base.balance(t, user) != 50000000 {
+					t.Fatal("CREATE/JOIN charged funds")
+				}
+			}
+			p, original := botCommand(0, "READY")
+			f.command(t, users[0], id, "UNREADY")
+			if f.base.balance(t, users[0]) != 50000000 {
+				t.Fatal("UNREADY did not refund principal")
+			}
+			for i := range users {
+				if i%2 == 0 {
+					f.command(t, users[i], id, "READY")
+				} else {
+					botCommand(i, "READY")
+				}
+			}
+			before := f.domain(t, id)
+			lookup, e := service.Lookup(ctx, subjects[0], p.Quote)
+			botGamesPGCheck(t, e, "original READY lookup after newer browser actions")
+			if !reflect.DeepEqual(original, lookup) || !reflect.DeepEqual(before, f.domain(t, id)) {
+				t.Fatal("lookup changed original receipt or funds")
+			}
+			for i := 0; i < count-1; i++ {
+				v := f.view(t, users[0], id)
+				if v.TurnSeat == nil {
+					t.Fatal("missing original room turn")
+				}
+				seat := *v.TurnSeat
+				if i%2 == 0 {
+					botCommand(seat, "SURRENDER")
+				} else {
+					f.command(t, users[seat], id, "SURRENDER")
+				}
+				after := f.view(t, users[0], id)
+				if after.State == "PLAYING" && after.PoolUnits != int64(count)*5000000 {
+					t.Fatal("surrender removed escrow from pool")
+				}
+			}
+			if f.view(t, users[0], id).State != "FINISHED" {
+				t.Fatal("mixed original room did not finish")
+			}
+			var credited, withheld, gross int64
+			for _, user := range users {
+				v := f.view(t, user, id)
+				c := v.EconomySettlement
+				if c == nil || c.GrossPayoutUnits != c.CreditedPayoutUnits+c.WithheldUnits {
+					t.Fatal("gross/actual credit/withheld mismatch")
+				}
+				credited += c.CreditedPayoutUnits
+				withheld += c.WithheldUnits
+				gross += c.GrossPayoutUnits
+				if f.base.balance(t, user)-50000000 != c.ActualNetUnits {
+					t.Fatal("actual wallet delta differs from cap result")
+				}
+				history, e := f.engine.HistoryDetail(ctx, historyaccess.Own(user), id, roulette.HistoryQuery{Limit: 50})
+				botGamesPGCheck(t, e, "same-room history")
+				if history.PayoutUnits != strconv.FormatInt(c.CreditedPayoutUnits, 10) || history.NetUnits != strconv.FormatInt(c.ActualNetUnits, 10) {
+					t.Fatal("history differs from actual money")
+				}
+				proof, e := f.engine.HistoryVerify(ctx, historyaccess.Own(user), id)
+				botGamesPGCheck(t, e, "same-room history verify")
+				if !proof.Valid || !proof.SettlementValid {
+					t.Fatal("history conservation proof invalid")
+				}
+			}
+			if gross != int64(count)*5000000 || credited+withheld != gross || withheld <= 0 {
+				t.Fatal("cross cap conservation")
+			}
+			t.Logf("CROSS_MONEY game=%s players=%d room=%s gross=%d credited=%d withheld=%d held=0 history=VALID", game, count, id, gross, credited, withheld)
+		})
+	}
+}
 
 type botRoulettePGFixture struct {
 	base           *botGamesPGFixture
