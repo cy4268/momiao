@@ -241,6 +241,21 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			gamesDone := make(chan struct{})
 			go func() { defer close(gamesDone); cfg.games.RunWorker(gamesCtx) }()
 			defer func() { stopGames(); <-gamesDone }()
+			if cfg.BotGames.Socket != "" {
+				application, err := openBotGamesApplication(ctx, cfg, store, cfg.games)
+				if err != nil {
+					return errBotGamesStartup
+				}
+				botCtx, stopBot := context.WithCancel(ctx)
+				botDone := make(chan struct{})
+				go func() {
+					defer close(botDone)
+					if err := application.Run(botCtx, cfg.ShutdownTimeout); err != nil {
+						cancelRun(errBotGamesListener)
+					}
+				}()
+				defer func() { stopBot(); <-botDone; _ = application.Close() }()
+			}
 		}
 		if cfg.AdmissionEnabled {
 			key, err := readRegistrationReaderKey(cfg.RegistrationReaderKeyFile)

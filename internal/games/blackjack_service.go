@@ -463,6 +463,24 @@ func (s *Service) BlackjackAction(ctx context.Context, user int64, id string, in
 // Read-only reconciliation for an uncertain action response. It takes the same
 // per-user game lock, so a definitive absent answer cannot overtake an action.
 func (s *Service) FindBlackjackAction(ctx context.Context, user int64, round, id string) (*GameRound, error) {
+	return s.findBlackjackAction(ctx, user, round, id, nil)
+}
+
+// FindBlackjackActionMatching reconciles only the original matching operation.
+// An absent action never invokes BlackjackAction, reads a current snapshot, or
+// mutates a round. The shared lock orders absence after any in-flight action.
+func (s *Service) FindBlackjackActionMatching(ctx context.Context, user int64, round string, input BlackjackActionInput) (*GameRound, error) {
+	if user <= 0 {
+		return nil, ErrInvalidInput
+	}
+	if _, err := normalizeBlackjackAction(input); err != nil {
+		return nil, err
+	}
+	hash := blackjackActionHash(user, round, input)
+	return s.findBlackjackAction(ctx, user, round, input.ActionID, &hash)
+}
+
+func (s *Service) findBlackjackAction(ctx context.Context, user int64, round, id string, expectedHash *[32]byte) (*GameRound, error) {
 	for _, v := range []string{round, id} {
 		if _, err := uuidBytes(v); err != nil {
 			return nil, ErrInvalidInput
@@ -473,13 +491,21 @@ func (s *Service) FindBlackjackAction(ctx context.Context, user int64, round, id
 		if err := lockUserGame(ctx, tx, user, "blackjack"); err != nil {
 			return err
 		}
-		var raw []byte
-		err := tx.QueryRow(ctx, `SELECT original_response FROM games.round_actions WHERE round_id=$1 AND action_id=$2 AND newapi_user_id=$3`, round, id, user).Scan(&raw)
+		var originalRound string
+		var hash, raw []byte
+		err := tx.QueryRow(ctx, `SELECT round_id::text,request_hash,original_response FROM games.round_actions WHERE action_id=$1 AND newapi_user_id=$2`, id, user).Scan(&originalRound, &hash, &raw)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
+		}
+		if expectedHash != nil {
+			if originalRound != round || !bytes.Equal(expectedHash[:], hash) {
+				return platform.ErrIdempotencyConflict
+			}
+		} else if originalRound != round {
+			return nil
 		}
 		var r GameRound
 		if json.Unmarshal(raw, &r) != nil {

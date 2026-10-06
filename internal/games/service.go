@@ -301,6 +301,12 @@ func (s *Service) RevealComplete(ctx context.Context, user int64, id, actionID s
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
+		// A different channel may have completed this ticket after its caller
+		// read it. Preserve cross-round action-ID conflict checks above, but do
+		// not append a second presentation action for an already complete ticket.
+		if r.PresentationCompletedAt != nil {
+			return nil
+		}
 		if _, err = tx.Exec(ctx, `INSERT INTO games.round_actions(action_id,round_id,newapi_user_id,action_sequence,action_type) SELECT $1,$2,$3,coalesce(max(action_sequence),0)+1,'SCRATCH_REVEAL_COMPLETE' FROM games.round_actions WHERE round_id=$2`, actionID, id, user); err != nil {
 			return err
 		}
