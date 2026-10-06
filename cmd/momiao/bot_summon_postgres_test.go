@@ -119,7 +119,7 @@ func TestBotSummonPostgres(t *testing.T) {
 					if p.BaseWager != wager || p.Mode != mode || p.DrawCount != count || p.StakeUnits != strconv.FormatInt(chips*500000*int64(count), 10) || p.MaximumBaseWagerUnits != maximum || p.MinimumBaseWagerUnits != "5000000" || p.Ruleset != "summon-rules-v1" {
 						t.Fatal("summon prepare accounting", p)
 					}
-					if !reflect.DeepEqual(p.Prizes, []games.Prize{{0, "T0", 40000}, {1, "T1", 20000}, {2, "T2", 39000}, {5, "T3", 850}, {20, "T4", 100}, {100, "T5", 50}}) {
+					if !reflect.DeepEqual(p.Prizes, []games.Prize{{Multiplier: 0, Tier: "T0", Weight: 40000}, {Multiplier: 1, Tier: "T1", Weight: 20000}, {Multiplier: 2, Tier: "T2", Weight: 39000}, {Multiplier: 5, Tier: "T3", Weight: 850}, {Multiplier: 20, Tier: "T4", Weight: 100}, {Multiplier: 100, Tier: "T5", Weight: 50}}) {
 						t.Fatal("prepare not using actual active non-default pool", p.Prizes)
 					}
 					before := f.balance(t, user)
@@ -393,7 +393,7 @@ func TestBotSummonPostgres(t *testing.T) {
 // engine. No RNG stub, seeded draw override or production configuration change.
 func installSummonT2Fixture(t *testing.T, f *botGamesPGFixture) {
 	t.Helper()
-	c, e := games.NewSummonConfig("00000000-0000-4000-8000-000000000701", "summon-test-t2-v1", []games.Prize{{2, "T2", 100000}, {100, "T5", 0}, {0, "T0", 0}, {1, "T1", 0}, {5, "T3", 0}, {20, "T4", 0}})
+	c, e := games.NewSummonConfig("00000000-0000-4000-8000-000000000701", "summon-test-t2-v1", []games.Prize{{Multiplier: 2, Tier: "T2", Weight: 100000}, {Multiplier: 100, Tier: "T5", Weight: 0}, {Multiplier: 0, Tier: "T0", Weight: 0}, {Multiplier: 1, Tier: "T1", Weight: 0}, {Multiplier: 5, Tier: "T3", Weight: 0}, {Multiplier: 20, Tier: "T4", Weight: 0}})
 	botGamesPGCheck(t, e, "forced pool config")
 	b := c.Binding()
 	canonical := c.CanonicalJSON()

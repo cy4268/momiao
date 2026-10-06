@@ -18,7 +18,7 @@ import (
 func newSummonFixture(t *testing.T) (*Service, *fakeGames, *fakeResolver, *time.Time, *[]string) {
 	t.Helper()
 	s, g, r, now, order := newFixture(t)
-	c, e := games.NewSummonConfig("00000000-0000-4000-8000-000000000003", "custom-summon-v1", []games.Prize{{100, "T5", 50}, {0, "T0", 40000}, {2, "T2", 39000}, {1, "T1", 20000}, {5, "T3", 850}, {20, "T4", 100}})
+	c, e := games.NewSummonConfig("00000000-0000-4000-8000-000000000003", "custom-summon-v1", []games.Prize{{Multiplier: 100, Tier: "T5", Weight: 50}, {Multiplier: 0, Tier: "T0", Weight: 40000}, {Multiplier: 2, Tier: "T2", Weight: 39000}, {Multiplier: 1, Tier: "T1", Weight: 20000}, {Multiplier: 5, Tier: "T3", Weight: 850}, {Multiplier: 20, Tier: "T4", Weight: 100}})
 	if e != nil {
 		t.Fatal(e)
 	}

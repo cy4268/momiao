@@ -586,7 +586,7 @@ func TestBotScratchPostgres(t *testing.T) {
 
 func installScratchT2Fixture(t *testing.T, f *botGamesPGFixture) {
 	t.Helper()
-	c, e := games.NewScratchConfig("00000000-0000-4000-8000-000000000801", "scratch-test-t2-v1", []games.Prize{{2, "T2", 100000}, {100, "TOP", 0}, {0, "LOSS", 0}, {1, "BREAK_EVEN", 0}, {3, "T3", 0}, {5, "T5", 0}, {10, "T10", 0}, {25, "T25", 0}})
+	c, e := games.NewScratchConfig("00000000-0000-4000-8000-000000000801", "scratch-test-t2-v1", []games.Prize{{Multiplier: 2, Tier: "T2", Weight: 100000}, {Multiplier: 100, Tier: "TOP", Weight: 0}, {Multiplier: 0, Tier: "LOSS", Weight: 0}, {Multiplier: 1, Tier: "BREAK_EVEN", Weight: 0}, {Multiplier: 3, Tier: "T3", Weight: 0}, {Multiplier: 5, Tier: "T5", Weight: 0}, {Multiplier: 10, Tier: "T10", Weight: 0}, {Multiplier: 25, Tier: "T25", Weight: 0}})
 	botGamesPGCheck(t, e, "scratch deterministic pool config")
 	b := c.Binding()
 	canonical := c.CanonicalJSON()
