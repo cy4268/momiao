@@ -661,6 +661,13 @@ func (s *Service) OwnsNativeUICallback(r *http.Request) bool {
 	if err != nil || r.URL.RawQuery == "" || r.URL.ForceQuery {
 		return false
 	}
+	// RFC 9207 metadata is optional for legacy responses, but exact if present.
+	if issuer, present := query["iss"]; present {
+		if len(issuer) != 1 || issuer[0] != "https://discord.com" {
+			return false
+		}
+		query.Del("iss")
+	}
 	for key, values := range query {
 		if len(values) != 1 || key != "state" && key != "code" && key != "error" && key != "error_description" {
 			return false
