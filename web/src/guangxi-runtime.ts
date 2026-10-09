@@ -50,6 +50,25 @@ async function request(path: string | URL, signal: AbortSignal): Promise<Respons
     return response;
 }
 
+async function decodeTexture(blob: Blob, signal: AbortSignal): Promise<HTMLImageElement> {
+    const reader = new FileReader();
+    try {
+        // The portal permits data: images, not blob: URLs. Keep its CSP unchanged.
+        const source = await abortable(new Promise<string>((resolve, reject) => {
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(reader.error ?? new Error('Texture read failed'));
+            reader.readAsDataURL(blob);
+        }), signal);
+        const image = new Image();
+        image.src = source;
+        await abortable(image.decode(), signal);
+        return image;
+    } finally {
+        reader.onload = reader.onerror = null;
+        if (reader.readyState === FileReader.LOADING) reader.abort();
+    }
+}
+
 // R5's generateShaders() is fire-and-forget and neither checks HTTP status nor accepts
 // an AbortSignal. Fill its public, version-pinned source fields, then use the original
 // synchronous compiler. No SDK source is patched and no fetch survives this mount.
@@ -77,7 +96,6 @@ export async function mountGuangxi(canvas: HTMLCanvasElement, signal: AbortSigna
     let motions: CubismMotionManager | null = null;
     let texture: WebGLTexture | null = null;
     let gl: WebGLRenderingContext | null = null;
-    let imageURL: string | undefined;
     let registered = false;
     let releasePrograms = () => {};
     let releaseShaders = () => {};
@@ -105,7 +123,6 @@ export async function mountGuangxi(canvas: HTMLCanvasElement, signal: AbortSigna
         if (registered && --rendererCount === 0) releaseShaders();
         if (model) moc?.deleteModel(model);
         moc?.release();
-        if (imageURL) URL.revokeObjectURL(imageURL);
         // Frees the context's remaining driver resources as well as SDK allocations.
         gl?.getExtension('WEBGL_lose_context')?.loseContext();
         motions = physics = renderer = model = moc = texture = gl = null;
@@ -151,10 +168,7 @@ export async function mountGuangxi(canvas: HTMLCanvasElement, signal: AbortSigna
             resource(references.Textures[0]).then(response => response.blob()),
             Promise.all(Object.entries(shaderFiles).map(async ([field, filename]) => [field, await (await request(SHADER_PATH + filename, pending)).text()] as const)),
         ]);
-        const image = new Image();
-        imageURL = URL.createObjectURL(textureBlob);
-        image.src = imageURL;
-        await abortable(image.decode(), pending);
+        const image = await decodeTexture(textureBlob, pending);
         pending.throwIfAborted();
         gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: true });
         if (!gl) throw new Error('WebGL not available');
@@ -198,8 +212,6 @@ export async function mountGuangxi(canvas: HTMLCanvasElement, signal: AbortSigna
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
         gl.generateMipmap(gl.TEXTURE_2D);
         gl.bindTexture(gl.TEXTURE_2D, null);
-        URL.revokeObjectURL(imageURL);
-        imageURL = undefined;
         renderer.bindTexture(0, texture);
         renderer.setIsPremultipliedAlpha(true);
         const motion = CubismMotion.create(motionBytes, motionBytes.byteLength);
