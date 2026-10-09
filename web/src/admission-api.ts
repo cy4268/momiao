@@ -18,6 +18,11 @@ export function captureDiscordCallback(location: Pick<Location,'pathname'|'searc
     const query = location.search;
     history.replaceState(null, '', '/oauth/discord');
     const p = new URLSearchParams(query);
+    // RFC 9207 issuer metadata is validated before the existing response checks.
+    if (p.has('iss')) {
+        if (p.getAll('iss').length !== 1 || p.get('iss') !== 'https://discord.com') throw new ApiError('授权回调无效或已失效，请重新开始。', 400, 'CALLBACK_INVALID');
+        p.delete('iss');
+    }
     if (p.has('error')) {
         if (query.length > 8192 || p.get('error') !== 'access_denied' || !p.get('state') || [...p.keys()].some(k => !['error','error_description','state'].includes(k) || p.getAll(k).length !== 1) || (p.get('error_description') || '').length > 2048) throw new ApiError('授权回调无效，请重新开始。',400,'CALLBACK_INVALID');
         return { error: 'access_denied', state: p.get('state')!, ...(p.has('error_description') ? { error_description: p.get('error_description')! } : {}) };

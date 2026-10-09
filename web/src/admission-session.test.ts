@@ -41,6 +41,25 @@ describe('native admission session boundary',()=>{
  });
 });
 describe('callback capture and authorized destination',()=>{
+ it.each([
+  ['code=synthetic-code', {code:'synthetic-code',state:'synthetic-state'}],
+  ['error=access_denied', {error:'access_denied',state:'synthetic-state'}],
+  ['error=access_denied&error_description=Cancelled', {error:'access_denied',error_description:'Cancelled',state:'synthetic-state'}],
+ ])('accepts the exact Discord issuer without forwarding it: %s',(response,expected)=>{
+  const history={replaceState:vi.fn()};
+  expect(captureDiscordCallback({pathname:'/oauth/discord',search:`?${response}&state=synthetic-state&iss=https%3A%2F%2Fdiscord.com`,hash:''},history)).toEqual(expected);
+  expect(history.replaceState).toHaveBeenCalledExactlyOnceWith(null,'','/oauth/discord');
+ });
+ it.each(['', 'https://evil.example', 'https://discord.com/', 'https://discord.com.evil.example', 'https://DISCORD.com', 'https://discord.com&iss=https://discord.com'])('rejects invalid or duplicate issuers: %s',issuer=>{
+  for (const response of ['code=synthetic-code','error=access_denied']) {
+   const history={replaceState:vi.fn()};
+   expect(()=>captureDiscordCallback({pathname:'/oauth/discord',search:`?${response}&state=synthetic-state&iss=${issuer}`,hash:''},history)).toThrow();
+   expect(history.replaceState).toHaveBeenCalledExactlyOnceWith(null,'','/oauth/discord');
+  }
+ });
+ it.each(['code=a&state=b&state=c','code=a&code=b&state=c','code=a&state=b&extra=c','error=access_denied&code=a&state=b','error=access_denied&state=b&error=access_denied','code=a','state=b'])('keeps callback validation with a valid issuer: %s',response=>{
+  expect(()=>captureDiscordCallback({pathname:'/oauth/discord',search:`?${response}&iss=https://discord.com`,hash:''},{replaceState:vi.fn()})).toThrow();
+ });
  it('scrubs code and state before the first request and consumes once',()=>{
   const location={pathname:'/oauth/discord',search:'?code=synthetic-code&state=synthetic-state',hash:'#fragment'};
   const history={replaceState:vi.fn()};

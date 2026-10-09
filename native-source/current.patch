@@ -24778,10 +24778,10 @@ index bdeec63..2ee585b 100644
     * Validate if turnstile is ready when required
 diff --git a/web/src/features/auth/lib/opaque-auth.ts b/web/src/features/auth/lib/opaque-auth.ts
 new file mode 100644
-index 0000000..679decc
+index 0000000..fcfe572
 --- /dev/null
 +++ b/web/src/features/auth/lib/opaque-auth.ts
-@@ -0,0 +1,791 @@
+@@ -0,0 +1,801 @@
 +/*
 +Copyright (C) 2023-2026 QuantumNous
 +
@@ -25387,6 +25387,16 @@ index 0000000..679decc
 +  try {
 +    if (!query || query.length > 8192) throw new Error()
 +    const parameters = new URLSearchParams(query)
++    // Validate RFC 9207 metadata without relaxing the callback/state checks.
++    if (parameters.has('iss')) {
++      if (
++        parameters.getAll('iss').length !== 1 ||
++        parameters.get('iss') !== 'https://discord.com'
++      ) {
++        throw new Error()
++      }
++      parameters.delete('iss')
++    }
 +    const keys = [...parameters.keys()]
 +    const state = parameters.get('state') ?? ''
 +    if (!TOKEN_PATTERN.test(state)) throw new Error()
@@ -26559,3 +26569,71 @@ index cbe9c78..a79e5ec 100644
  export const Route = createFileRoute('/oauth/$provider')({
    component: OAuthCallback,
  })
+diff --git a/web/src/features/auth/lib/opaque-auth.test.ts b/web/src/features/auth/lib/opaque-auth.test.ts
+new file mode 100644
+index 0000000..acf12cb
+--- /dev/null
++++ b/web/src/features/auth/lib/opaque-auth.test.ts
+@@ -0,0 +1,62 @@
++/*
++Copyright (C) 2023-2026 QuantumNous
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU Affero General Public License as
++published by the Free Software Foundation, either version 3 of the
++License, or (at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++GNU Affero General Public License for more details.
++
++You should have received a copy of the GNU Affero General Public License
++along with this program. If not, see <https://www.gnu.org/licenses/>.
++
++For commercial licensing, please contact support@quantumnous.com
++*/
++import { beforeEach, describe, expect, it, vi } from 'vitest'
++
++const state = 's'.repeat(43)
++
++beforeEach(() => {
++  vi.resetModules()
++  window.history.replaceState(null, '', '/')
++})
++
++describe('opaque Discord callback issuer', () => {
++  it.each([
++    ['code=synthetic-code', { code: 'synthetic-code', state }],
++    ['error=access_denied', { error: 'access_denied', state }],
++    ['error=access_denied&error_description=Cancelled', { error: 'access_denied', error_description: 'Cancelled', state }],
++  ])('accepts legacy and Discord issuer responses: %s', async (response, input) => {
++    for (const issuer of ['', '&iss=https%3A%2F%2Fdiscord.com']) {
++      vi.resetModules()
++      window.history.replaceState(null, '', `/oauth/discord?${response}&state=${state}${issuer}#fragment`)
++      const { captureOpaqueDiscordCallback } = await import('./opaque-auth')
++      const captured = captureOpaqueDiscordCallback()
++      expect(captured).toEqual({ input })
++      expect(window.location.search).toBe('')
++      expect(window.location.hash).toBe('')
++      expect(captureOpaqueDiscordCallback()).toBe(captured)
++    }
++  })
++
++  it.each(['', 'https://evil.example', 'https://discord.com/', 'https://discord.com.evil.example', 'https://DISCORD.com', 'https://discord.com&iss=https://discord.com'])('rejects invalid or duplicate issuers: %s', async (issuer) => {
++    for (const response of ['code=synthetic-code', 'error=access_denied']) {
++      vi.resetModules()
++      window.history.replaceState(null, '', `/oauth/discord?${response}&state=${state}&iss=${issuer}`)
++      const { captureOpaqueDiscordCallback } = await import('./opaque-auth')
++      expect(captureOpaqueDiscordCallback()).toEqual({ invalid: true })
++      expect(window.location.search).toBe('')
++    }
++  })
++
++  it.each([`code=a&state=${state}&state=${state}`, `code=a&code=b&state=${state}`, `code=a&state=${state}&extra=c`, `error=access_denied&code=a&state=${state}`, 'code=a&state=short', 'code=a', `state=${state}`])('keeps callback validation with a valid issuer: %s', async (response) => {
++    window.history.replaceState(null, '', `/oauth/discord?${response}&iss=https://discord.com`)
++    const { captureOpaqueDiscordCallback } = await import('./opaque-auth')
++    expect(captureOpaqueDiscordCallback()).toEqual({ invalid: true })
++    expect(window.location.search).toBe('')
++  })
++})
