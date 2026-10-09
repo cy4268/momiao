@@ -19,3 +19,9 @@ No third-party character images, screenshots, reference art or logos are include
 ## Marcellus font
 
 The portal locally bundles Marcellus through `@fontsource/marcellus` 5.3.0. Its original copyright notice and SIL Open Font License 1.1 are retained without modification in [web/public/fonts-license.txt](web/public/fonts-license.txt), which is copied to `/fonts-license.txt` in the built site. The font is governed by that license, not relicensed under this repository's AGPL designation. Other package dependencies keep their respective license notices in their distributions and are locked in `web/package-lock.json`.
+
+## Guangxi homepage mascot and Cubism
+
+The homepage uses the project-delivered Guangxi v1 model and the approved v2 preview, copied without re-encoding under `web/public/assets/guangxi/v1/`. It is a separate project character, not an official FGO/Fate character or endorsement. Asset hashes and integration details are recorded in [docs/guangxi-mascot.md](docs/guangxi-mascot.md).
+
+Cubism Core, Framework and WebGL shaders are from the user-supplied **Cubism SDK for Web 5-r.5** archive (SHA-256 `67064a7fb1812cf502f5c4a03bfe12cc638c75a621bb4acf06bb28763df06ba0`). The compiled Framework is in `web/vendor/cubism-r5`; the matching Core and shaders are in `web/public/vendor/cubism-r5`. Original SDK, Core and Framework licenses and NOTICE remain in that public directory. These components retain Live2D's copyrights and their own license terms; the repository's AGPL designation does not relicense them. No SDK sample characters are included. The vendor manifest records the release metadata, source comparison and file hashes.
