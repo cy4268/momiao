@@ -1,0 +1,41 @@
+.guangxi-mascot {
+    --gx-safe-left: env(safe-area-inset-left, 0px);
+    --gx-safe-right: env(safe-area-inset-right, 0px);
+    --gx-safe-top: env(safe-area-inset-top, 0px);
+    --gx-safe-bottom: env(safe-area-inset-bottom, 0px);
+    position: fixed;
+    z-index: 20;
+    pointer-events: none;
+    user-select: none;
+}
+.guangxi-art { position: relative; margin-bottom: 4px; pointer-events: none; }
+.guangxi-art[hidden] { display: none; }
+.guangxi-art img, .guangxi-art canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+}
+.guangxi-controls { display: flex; justify-content: center; pointer-events: none; }
+.guangxi-controls button {
+    box-sizing: border-box;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid #9aaec7;
+    border-radius: 50%;
+    color: #203e63;
+    background: #f9f8f3ed;
+    box-shadow: 0 2px 7px #091b3a30;
+    font: inherit;
+    font-size: 20px;
+    cursor: pointer;
+    pointer-events: auto;
+}
+.guangxi-controls button:hover { color: #315f9d; border-color: #315f9d; }
+.guangxi-controls button:focus-visible { outline: 3px solid #f3afbf; outline-offset: 2px; }
+.guangxi-controls .guangxi-handle { cursor: grab; touch-action: none; }
+.guangxi-controls .guangxi-handle:active { cursor: grabbing; }

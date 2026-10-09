@@ -91,3 +91,7 @@ Thumbs.db
 !/web/public/roulette/items-atlas-v2.png
 !/web/public/roulette/salon-art-atlas-v2.png
 !/web/public/roulette/salon-table-v2.png
+
+# Exact approved Guangxi mascot media only.
+!/web/public/assets/guangxi/v1/preview.png
+!/web/public/assets/guangxi/v1/runtime/guangxi-idle.2048/texture_00.png

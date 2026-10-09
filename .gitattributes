@@ -7,3 +7,7 @@ docs/design/archive/** whitespace=-blank-at-eol,-blank-at-eof
 internal/platform/migrations/0037_roulette.sql -text whitespace=cr-at-eol
 internal/platform/migrations/0038_roulette_history_ops.sql -text whitespace=cr-at-eol
 internal/platform/migrations/0039_pressure_roulette_enable.sql -text whitespace=cr-at-eol
+# Preserve native Cubism export bytes and the verified SDK distribution.
+web/public/assets/guangxi/v1/runtime/** -text whitespace=cr-at-eol
+web/vendor/cubism-r5/** -text whitespace=cr-at-eol
+web/public/vendor/cubism-r5/** -text whitespace=cr-at-eol

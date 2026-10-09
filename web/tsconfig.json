@@ -22,6 +22,7 @@
   },
   "include": [
     "src",
-    "vite.config.ts"
+    "vite.config.ts",
+    "vendor/cubism-r5/live2dcubismcore.d.ts"
   ]
 }
