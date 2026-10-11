@@ -242,7 +242,7 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
             </form>
         </section>
         </div>}{loading&&!bootstrap&&<Loading/>}
-        {salonLayout&&round&&!revealIncomplete&&!(slug==='dice'&&(busy||diceAnimating||pending))&&<RoundReceipt round={round} compact/>}
+        {salonLayout&&round&&!revealIncomplete&&<RoundReceipt round={round} compact concealed={slug==='dice'&&(busy||diceAnimating||!!pending)}/>}
         {salonLayout&&<nav className="direct-tool-dock" aria-label="游戏信息"><button onClick={()=>setInfoPanel('rules')}>规则与奖励 <span aria-hidden="true">+</span></button><button onClick={()=>setInfoPanel('fairness')}>公平验证 <span aria-hidden="true">+</span></button><button disabled={!round||!!revealIncomplete} onClick={()=>round&&navigate('/history/rounds/'+round.id)}>本局记录 ↗</button></nav>}
         {infoPanel&&<Modal busy={seedSaving} title={infoPanel==='rules'?(slug==='slot'?'奖表与固定规则':'游戏规则'):'公平验证'} onClose={()=>setInfoPanel(null)}><div className="slot-dialog-content">{infoPanel==='rules'&&<CapRules single active={!!(round?.economic_policy_version||bootstrap?.economic_policy)}/>}{infoPanel==='rules'?salonLayout?<GameRules slug={slug} config={bootstrap?.game.config}/>:slug==='blackjack'?<><BlackjackRules/><p>规则版本 {round?.ruleset_version||bootstrap?.game.config?.ruleset_version||'读取中'}</p>{round?.blackjack?.phase==='PLAYER_TURN'&&<p>长期未操作处理时间：<time dateTime={round.blackjack.auto_resolve_at}>{new Date(round.blackjack.auto_resolve_at).toLocaleString('zh-CN',{hour12:false})}</time>。最后成功行动后24小时由服务端处理。</p>}</>:<><SlotRules rulesetVersion={round?.ruleset_version||bootstrap?.game.config?.ruleset_version}/><p>本局优先使用锁定的规则版本。插画仅对应原符号，不代表获得新币种或道具。</p><dl className="slot-symbol-key">{Object.entries(slotArt.symbols).map(([symbol,art])=><div key={symbol}><dt>{symbol}</dt><dd>{art.name}</dd></div>)}</dl></>:<>{bootstrap&&<FairnessControl client={client} slug={slug} bootstrap={bootstrap} disabled={blocked} onSavingChange={setSeedSaving} onChanged={()=>void load()}/>} {round&&!revealIncomplete?<DirectRoundVerification key={round.id} client={client} round={round}/>:<p>{revealIncomplete?'完成刮卡揭晓后，可在这里验证本局。':'尚未开局；结算后可在这里验证本局。'}</p>}</>}</div></Modal>}
     </div>;
@@ -279,16 +279,17 @@ function FairnessControl({client,slug,bootstrap,disabled,onChanged,onSavingChang
         {bootstrap.game.config&&<small>配置版本 {bootstrap.game.config.version_id}</small>}
     </section>;
 }
-export function RoundReceipt({round,compact=false}:{round:GameRound;compact?:boolean}) {
+export function RoundReceipt({round,compact=false,concealed=false}:{round:GameRound;compact?:boolean;concealed?:boolean}) {
     if(round.state!=='SETTLED')return <section className="round-receipt" aria-label="本局进行中"><div><p className="eyebrow">PLAYER TURN / 尚未结算</p><h2>{round.recovery_state==='NEEDS_REVIEW'?'本局等待核对':'继续当前牌局'}</h2><p>已投入 {chips(round.total_stake_units)} 筹码，最终派彩与净变化将在结算后显示。</p><Link className="button" to="/games/blackjack">返回牌桌恢复本局 →</Link></div></section>;
     const d=round.dice,actualResult=capResult(round.economy_settlement,round.common_result||'LOSS') as Outcome;
-    return <section className={'round-receipt result-'+actualResult+(compact?' compact-receipt':'')} aria-label="本局结果"><div>{!compact&&<p className="eyebrow">SETTLED / 本局已结算</p>}<h2>{outcomeNames[actualResult]} <strong>{chips(round.economy_settlement?.actual_net_units??round.net_change_units,true)}</strong></h2>
+    // Concealed keeps the same node mounted while dice land: the box never leaves the layout, only its content fades.
+    return <section className={'round-receipt result-'+actualResult+(compact?' compact-receipt':'')+(concealed?' is-concealed':'')} aria-label={concealed?'本局结果揭晓中':'本局结果'} aria-busy={concealed||undefined}><div className="receipt-body" aria-hidden={concealed||undefined}><div>{!compact&&<p className="eyebrow">SETTLED / 本局已结算</p>}<h2>{outcomeNames[actualResult]} <strong>{chips(round.economy_settlement?.actual_net_units??round.net_change_units,true)}</strong></h2>
         {d&&<p>{d.dice.join('、')} · 合计 {d.total} 点 · 实际{d.triple?'豹子':d.side==='BIG'?'大':'小'} · 选择{d.choice==='BIG'?'大':'小'}{d.triple?'（返还下注）':''}</p>}
         {round.scratch&&<p>{round.scratch.reward.payout_multiplier==='0'?'未组成三枚相同星纹':`匹配三枚星纹 · 总派彩 ×${round.scratch.reward.payout_multiplier}`}</p>}
         {round.summon&&<p>{round.summon.draws.length} 抽已结算 · 最高等级 {round.summon.highest_tier} · 以整轮净变化判定结果</p>}
         {!compact&&<Link className="text-link" to={'/history/rounds/'+round.id}>查看本局详情与公平验证 →</Link>}</div>
         <dl><div><dt>总消耗</dt><dd>{chips(round.total_stake_units)}</dd></div><div><dt>到账派彩</dt><dd>{chips(round.economy_settlement?.credited_payout_units??round.total_payout_units)}</dd></div><div><dt>结算后余额</dt><dd>{chips(round.balance_after_units)}</dd></div></dl>
-        <CapReceipt receipt={round.economy_settlement}/>
+        <CapReceipt receipt={round.economy_settlement}/></div>
     </section>;
 }
 

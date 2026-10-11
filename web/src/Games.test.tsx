@@ -110,6 +110,29 @@ it('Blackjack resumes an active hand during maintenance and locks an uncertain a
     expect(request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(1);
 
 });
+it('keeps the dice receipt mounted and concealed while the next roll settles',async()=>{
+    const previous={...result,id:commitment,common_result:'LOSS',net_change_units:'-5000000',total_payout_units:'0',dice:{...result.dice!,dice:[6,6,5],total:17,side:'BIG',reward:{cost_multiplier:'1',payout_multiplier:'0',outcome:'LOSS'}}} as GameRound;
+    vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,latest_round:previous});
+    let resolve!:(value:GameRound)=>void;
+    vi.spyOn(gameAPI,'createGame').mockReturnValue(new Promise(r=>resolve=r));
+    show();
+    const receipt=await screen.findByLabelText('本局结果');
+    expect(receipt).toHaveTextContent('净输');
+    fireEvent.click(screen.getByRole('radio',{name:/小/}));
+    fireEvent.click(screen.getByRole('button',{name:'掷骰'}));
+    // The same node stays in place: no unmount/remount flash, no layout jump.
+    expect(screen.getByLabelText('本局结果揭晓中')).toBe(receipt);
+    expect(receipt).toHaveAttribute('aria-busy','true');
+    vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,latest_round:result,available_units:result.balance_after_units});
+    resolve(result);
+    await waitFor(()=>expect(screen.getByRole('button',{name:'落定中…'})).toBeDisabled());
+    // The new result must not be revealed before the dice land.
+    expect(screen.getByLabelText('本局结果揭晓中')).toBe(receipt);
+    expect(screen.queryByLabelText('本局结果')).not.toBeInTheDocument();
+    await waitFor(()=>expect(screen.getByLabelText('本局结果')).toHaveTextContent('净赢'),{timeout:2500});
+    expect(screen.getByLabelText('本局结果')).toBe(receipt);
+    expect(receipt).not.toHaveAttribute('aria-busy');
+});
 it('publishes commitment before manual wager, locks double click, then displays durable result',async()=>{
     let resolve!:(value:GameRound)=>void;
     const create=vi.spyOn(gameAPI,'createGame').mockReturnValue(new Promise(r=>resolve=r));
