@@ -1,0 +1,33 @@
+/* One header for every page except the lit home page; nothing here may vary per page. */
+.site-header { position: relative; z-index: 30; height: 68px; background: #081321; border-bottom: 1px solid #ffffff14; color: #e8dcc2; }
+.site-header-inner { width: min(1200px, calc(100% - 48px)); height: 100%; margin-inline: auto; display: flex; align-items: center; gap: 28px; }
+.site-brand { flex: none; display: flex; align-items: center; gap: 12px; color: #e8dcc2; text-decoration: none; }
+.site-brand .royal-beacon { width: 40px; height: 40px; color: #d9bf86; }
+.site-brand .brand-wordmark { font-size: 21px; color: #f0dcae; }
+.site-brand .brand-wordmark small { color: #c0d0e4; }
+.site-nav { display: flex; align-items: stretch; gap: 8px; height: 100%; margin-right: auto; }
+.site-nav a, .site-subnav a, .site-assets { display: inline-flex; align-items: center; padding: 0 10px; font-size: 14px; color: #c0d0e4; text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent; }
+.site-nav a:hover, .site-subnav a:hover, .site-assets:hover { color: #f0dcae; }
+.site-nav a[aria-current], .site-assets[aria-current], .site-subnav a.active { color: #f0dcae; border-bottom-color: #d9bf86; }
+.site-account { flex: none; display: flex; align-items: center; gap: 12px; height: 100%; min-width: 180px; justify-content: flex-end; }
+.site-assets { height: 100%; }
+.site-account-placeholder { display: block; width: 180px; height: 40px; }
+.site-sign-in { display: inline-flex; align-items: center; height: 40px; padding: 0 18px; font-size: 14px; color: #e8dcc2; text-decoration: none; border: 1px solid #d9bf8666; border-radius: 4px; }
+.site-header .account-button { min-height: 44px; max-width: 260px; padding: 4px 8px; color: #e8dcc2; background: transparent; border: 0; }
+.site-header .account-button small { display: block; font-size: 12px; color: #c0d0e4; }
+.site-header .avatar { width: 34px; height: 34px; }
+.site-header .avatar .crest { width: 22px; height: 25px; }
+.site-header .account-menu { top: 60px; }
+.site-header .account-menu a { min-height: 44px; display: flex; align-items: center; }
+.site-subnav { height: 48px; background: #0b1a2b; border-bottom: 1px solid #ffffff14; overflow-x: auto; }
+.site-subnav .site-header-inner { gap: 8px; }
+.site-subnav a { height: 100%; font-size: 13px; }
+@media (max-width: 720px) {
+  .site-header-inner { width: calc(100% - 28px); gap: 12px; }
+  .site-nav, .site-assets { display: none; }
+  .site-account { min-width: 0; margin-left: auto; }
+  .site-account-placeholder { width: 120px; }
+  .site-brand .royal-beacon { width: 32px; height: 32px; }
+  .site-brand .brand-wordmark { font-size: 17px; }
+  .site-header .account-button { max-width: 160px; }
+}
