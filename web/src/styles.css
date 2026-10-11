@@ -107,7 +107,7 @@ p {
 small {
   display:block;
   color:var(--muted);
-  font-size:11px;
+  font-size:12px;
   line-height:1.7}
 strong {
   font-weight:600}
@@ -142,7 +142,7 @@ input[type=checkbox] {
   font-weight:400;
   font-size:12px}
 .eyebrow {
-  font-size:10px;
+  font-size:12px;
   letter-spacing:.18em;
   font-weight:600;
   color:var(--azure);
@@ -300,7 +300,7 @@ input[type=checkbox] {
   justify-content:space-between;
   gap:12px;
   color:var(--muted);
-  font-size:9px;
+  font-size:12px;
   letter-spacing:.12em;
   z-index:1}
 .login-entry {
@@ -335,14 +335,14 @@ input[type=checkbox] {
   margin-top:33px;
   padding-top:24px;
   color:var(--muted);
-  font-size:11px}
+  font-size:12px}
 .login-note>span {
   color:var(--azure);
   font-size:18px}
 .login-note p {
   margin:0}
 .login-entry footer {
-  font-size:10px;
+  font-size:12px;
   color:var(--muted);
   padding-top:50px}
 .login-entry footer span {
@@ -370,7 +370,7 @@ input[type=checkbox] {
   height:41px;
   width:36px}
 .nav-label {
-  font-size:9px;
+  font-size:12px;
   font-weight:600;
   letter-spacing:.15em;
   color:var(--muted);
@@ -395,7 +395,7 @@ input[type=checkbox] {
   font-size:21px;
   grid-row:span 2}
 .sidebar nav a small {
-  font-size:9px;
+  font-size:12px;
   font-weight:400;
   letter-spacing:.03em}
 .sidebar nav a.active {
@@ -435,7 +435,7 @@ input[type=checkbox] {
   align-items:center;
   padding:0 42px}
 .topbar-label {
-  font-size:10px;
+  font-size:12px;
   letter-spacing:.08em;
   color:var(--muted)}
 .topbar-label>span {
@@ -482,7 +482,7 @@ input[type=checkbox] {
 .account-menu strong {
   font-size:13px}
 .account-menu>span {
-  font-size:11px;
+  font-size:12px;
   color:var(--muted)}
 .main-content {
   padding:35px 42px 40px;
@@ -497,7 +497,7 @@ input[type=checkbox] {
   border-top:1px solid var(--line);
   padding:20px 0;
   color:var(--muted);
-  font-size:10px}
+  font-size:12px}
 .command-deck {
   position:relative;
   min-height:357px;
@@ -575,7 +575,7 @@ input[type=checkbox] {
   right:0;
   display:flex;
   gap:24px;
-  font-size:10px;
+  font-size:12px;
   color:var(--muted)}
 .deck-status i {
   display:inline-block;
@@ -598,7 +598,7 @@ input[type=checkbox] {
   padding-left:0;
   border:0}
 .account-ledger p {
-  font-size:11px;
+  font-size:12px;
   color:var(--muted);
   margin-bottom:15px}
 .account-ledger strong {
@@ -611,14 +611,14 @@ input[type=checkbox] {
   line-height:1.2}
 .account-ledger span,.account-ledger a {
   display:block;
-  font-size:10px;
+  font-size:12px;
   color:var(--muted);
   margin-top:10px}
 .account-ledger a {
   color:var(--azure);
   text-decoration:none}
 .ledger-note {
-  font-size:10px;
+  font-size:12px;
   margin:11px 0 30px}
 .panel {
   background:#fff;
@@ -665,7 +665,7 @@ table {
   font-size:12px;
   min-width:730px}
 th {
-  font-size:10px;
+  font-size:12px;
   letter-spacing:.015em;
   font-weight:400;
   color:var(--muted);
@@ -683,18 +683,18 @@ tr:last-child td {
 td small {
   margin-top:5px}
 td time {
-  font-size:11px;
+  font-size:12px;
   font-variant-numeric:tabular-nums;
   white-space:nowrap}
 .masked {
   display:block;
-  font-size:10px;
+  font-size:12px;
   color:var(--muted);
   margin-top:6px;
   word-break:break-all}
 .badge {
   display:inline-block;
-  font-size:10px;
+  font-size:12px;
   border:1px solid var(--line);
   border-radius:4px;
   padding:3px 7px;
@@ -734,7 +734,7 @@ td time {
   border-top:1px solid var(--line);
   padding-top:20px;
   margin-top:15px;
-  font-size:11px;
+  font-size:12px;
   color:var(--muted);
   gap:12px}
 .pager>div {
@@ -750,7 +750,7 @@ td time {
   margin-bottom:20px;
   padding-bottom:20px}
 .filters label {
-  font-size:11px;
+  font-size:12px;
   margin:0;
   flex:1;
   min-width:128px}
@@ -854,7 +854,7 @@ td time {
   gap:18px}
 
 .hero-actions .text-link {
-  font-size:11px}
+  font-size:12px}
 }
 @media(max-width:760px) {
   .login-layout {
@@ -939,7 +939,7 @@ td time {
   margin:0 8px}
 .account-button {
   max-width:150px;
-  font-size:11px;
+  font-size:12px;
   gap:7px}
 .avatar {
   height:26px;
@@ -962,7 +962,7 @@ td time {
 .short-rule {
   width:20px}
 .command-greeting p {
-  font-size:10px}
+  font-size:12px}
 .deck-emblem {
   height:150px;
   margin-top:-20px}
@@ -985,7 +985,7 @@ td time {
   flex-wrap:wrap}
 .hero-actions .button { padding:9px 11px }
 .hero-actions .text-link {
-  font-size:10px}
+  font-size:12px}
 .deck-status {
   font-size:8px;
   gap:14px}
@@ -1002,12 +1002,12 @@ td time {
 .account-ledger strong {
   font-size:clamp(18px,5vw,29px)}
 .account-ledger p {
-  font-size:10px;
+  font-size:12px;
   margin-bottom:10px}
 .account-ledger span,.account-ledger a {
-  font-size:9px}
+  font-size:12px}
 .ledger-note {
-  font-size:9px}
+  font-size:12px}
 .panel {
   padding:20px 16px;
   border-radius:8px}
@@ -1016,14 +1016,14 @@ td time {
 .section-heading h2 {
   font-size:16px}
 .section-heading .text-link {
-  font-size:11px}
+  font-size:12px}
 .first-key {
   align-items:flex-start;
   flex-direction:column;
   gap:15px;
   padding:16px}
 .first-key p {
-  font-size:11px}
+  font-size:12px}
 
 .workspace-foot {
   margin:0 20px;
@@ -1039,7 +1039,7 @@ td time {
 .page-heading .eyebrow {
   font-size:8px}
 .page-heading p:last-child {
-  font-size:11px}
+  font-size:12px}
 
 .filters {
   gap:12px}
@@ -1051,11 +1051,11 @@ td time {
 .filter-actions {
   width:100%}
 .hint {
-  font-size:10px}
+  font-size:12px}
 .pager {
   flex-wrap:wrap;
   justify-content:center;
-  font-size:10px}
+  font-size:12px}
 .pager>span {
   width:100%;
   text-align:center}
@@ -1088,7 +1088,7 @@ td time {
 .hero-actions {
   gap:12px}
 .command-greeting p {
-  font-size:10px}
+  font-size:12px}
 .topbar-label {
   max-width:135px;
   line-height:1.8}
@@ -1098,7 +1098,7 @@ td time {
   flex-direction:column;
   gap:5px}
 .sidebar nav a {
-  font-size:11px}
+  font-size:12px}
 }
 @media(prefers-reduced-motion:reduce) {
   *,*:before,*:after {
@@ -1155,14 +1155,14 @@ td time {
 .profile-editor h2 { font-size: 19px; }
 .profile-editor label { margin: 24px 0 10px; }
 .profile-editor .hint { margin: 12px 0 24px; line-height: 1.9; }
-.profile-state { font-size: 11px; color: var(--azure); border: 1px solid var(--moon); border-radius: 4px; padding: 5px 9px; white-space: nowrap; }
+.profile-state { font-size: 12px; color: var(--azure); border: 1px solid var(--moon); border-radius: 4px; padding: 5px 9px; white-space: nowrap; }
 .profile-suggestion { background: var(--ivory); border-left: 2px solid var(--moon); padding: 13px 15px; font-size: 12px; overflow-wrap: anywhere; }
-.profile-suggestion span { color: var(--muted); font-size: 11px; }
+.profile-suggestion span { color: var(--muted); font-size: 12px; }
 .profile-avatar-option { border-block: 1px solid var(--line); display: flex; gap: 15px; align-items: center; padding: 21px 0; margin: 26px 0; }
 .profile-avatar { color: var(--azure); flex-shrink: 0; }
 .profile-avatar .crest { width: 40px; height: 48px; }
 .profile-avatar-option strong { font-size: 13px; }
-.profile-avatar-option p { color: var(--muted); font-size: 11px; margin: 3px 0 0; }
+.profile-avatar-option p { color: var(--muted); font-size: 12px; margin: 3px 0 0; }
 .profile-avatar-option .profile-state { margin-left: auto; }
 .profile-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 .profile-preview { text-align: center; border-top: 3px solid var(--azure); }
@@ -1170,22 +1170,22 @@ td time {
 .profile-preview-emblem { color: var(--azure); border-bottom: 1px solid var(--line); padding: 12px 0 25px; margin: 20px 0 25px; }
 .profile-preview-emblem .crest { width: 103px; height: 120px; }
 .profile-display-name { font-family: var(--display); font-size: clamp(23px,2.5vw,32px); line-height: 1.5; overflow-wrap: anywhere; margin-bottom: 8px; }
-.profile-preview-label { font-size: 11px; color: var(--muted); }
-.profile-details { border-block: 1px solid var(--line); padding: 16px 0; margin: 24px 0 16px; font-size: 11px; text-align: left; }
+.profile-preview-label { font-size: 12px; color: var(--muted); }
+.profile-details { border-block: 1px solid var(--line); padding: 16px 0; margin: 24px 0 16px; font-size: 12px; text-align: left; }
 .profile-details > div { display: flex; justify-content: space-between; gap: 16px; margin: 13px 0; }
 .profile-details dt { color: var(--muted); flex-shrink: 0; }
 .profile-details dd { margin: 0; overflow-wrap: anywhere; text-align: right; font-variant-numeric: tabular-nums; }
 .profile-preview .hint { text-align: left; line-height: 1.9; }
 .profile-notice { border-left: 3px solid var(--azure); padding: 12px 16px; background: var(--paper); font-size: 13px; }
 .account-menu > a { padding: 9px 0; font-size: 12px; }
-.account-button small { font-size: 9px; text-align: left; }
+.account-button small { font-size: 12px; text-align: left; }
 @media(max-width:1000px) { .profile-grid { grid-template-columns: minmax(0,1fr); } }
 @media(max-width:640px) {
   .profile-grid { gap: 18px; }
   .profile-page .page-heading { align-items: flex-start; }
   .profile-page .page-heading h1 { font-size: 25px; }
   .profile-page .page-heading > button { flex-shrink: 0; }
-  .profile-scope { font-size: 11px; }
+  .profile-scope { font-size: 12px; }
   .profile-avatar-option { gap: 10px; flex-wrap: wrap; }
   .profile-actions > button { flex: 1; }
   .profile-details > div { gap: 12px; }
@@ -1215,7 +1215,7 @@ td time {
 .dice-faces { display: flex; justify-content: center; gap: clamp(12px, 3vw, 24px); color: var(--azure); }
 .dice-face { width: clamp(58px, 7vw, 92px); flex-shrink: 0; }
 .dice-result { margin: 24px 0 8px; min-height: 28px; font-size: 17px; font-weight: 600; line-height: 1.6; }
-.dice-previous-choice { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.8; }
+.dice-previous-choice { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.8; }
 .dice-choices { margin: 0 0 20px; padding: 0; border: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-width: 0; }
 .dice-choices legend { padding: 0; margin-bottom: 12px; font-size: 13px; font-weight: 600; }
 .dice-choices label { display: flex; align-items: center; gap: 12px; padding: 16px; border: 1px solid var(--line); cursor: pointer; border-radius: 7px; }
@@ -1223,7 +1223,7 @@ td time {
 .dice-choices input { width: 16px; height: 16px; margin: 0; accent-color: var(--azure); flex-shrink: 0; }
 .dice-choices strong,.dice-choices small { display: block; }
 .dice-choices strong { font-size: 17px; color: var(--azure); }
-.dice-choices small { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.7; }
+.dice-choices small { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.7; }
 .dice-roll { width: 100%; min-height: 48px; justify-content: space-between; }
 .dice-random-note { margin: 14px 0 0; line-height: 1.9; }
 .dice-table .alert { margin-top: 16px; }
@@ -1244,7 +1244,7 @@ td time {
   .dice-page { gap: 18px; }
   .dice-page .page-heading { align-items: flex-start; gap: 12px; }
   .dice-page .page-heading h1 { font-size: 25px; }
-  .dice-mode { padding: 6px 8px; font-size: 10px; }
+  .dice-mode { padding: 6px 8px; font-size: 12px; }
   .dice-layout { gap: 18px; }
   .dice-choices label { padding: 12px 10px; gap: 8px; }
   .dice-result { font-size: 15px; }

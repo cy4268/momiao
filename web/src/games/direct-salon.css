@@ -8,7 +8,7 @@
 .direct-salon .compact-receipt h2 strong { font-size:24px; }
 .direct-salon .compact-receipt p { margin:4px 0 0; font-size:12px; }
 .direct-salon .compact-receipt dl { display:flex; gap:24px; margin:0; }
-.direct-salon .compact-receipt dt { font-size:11px; }
+.direct-salon .compact-receipt dt { font-size:12px; }
 .direct-salon .compact-receipt dd { font-size:22px; margin:4px 0 0; }
 /* Outrank the light base theme for every outcome, so a loss is never a pale card on the night table. */
 .direct-game.direct-salon .round-receipt:is(.result-WIN,.result-LOSS,.result-BREAK_EVEN) { position:relative; background:#0e2339; border-color:#ad997480; border-left-color:#d6be8c; }
@@ -31,7 +31,7 @@
 @media (min-width:1000px) {
  .portal-shell:has(.direct-salon) { height:100dvh; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; }
  .portal-shell:has(.direct-salon) .main-content { min-height:0; }
- .portal-shell:has(.direct-salon) .workspace-foot { padding:6px 24px; margin:0; font-size:10px; }
+ .portal-shell:has(.direct-salon) .workspace-foot { padding:6px 24px; margin:0; font-size:12px; }
  .direct-game.direct-salon { display:flex; flex-direction:column; gap:8px; height:100%; min-height:0; padding:12px clamp(16px,2vw,38px); }
  .direct-salon .game-page-heading { flex:none; margin:0; gap:20px; }
  .direct-salon .game-page-heading .eyebrow { margin:0 0 4px; }
@@ -65,7 +65,7 @@
 @media (min-width:1000px) and (max-height:900px) {
  .direct-game.direct-salon { gap:6px; padding-block:8px; }
  .direct-salon .game-page-heading h1 { font-size:28px; }
- .direct-salon .game-page-heading p:last-child { font-size:11px; }
+ .direct-salon .game-page-heading p:last-child { font-size:12px; }
  .direct-salon .game-console { padding:12px 16px; gap:8px; }
  .direct-salon .game-balance { padding-bottom:6px; }
  .direct-salon .game-balance>strong { font-size:28px; }
@@ -83,7 +83,7 @@
  
  .direct-game.direct-salon .compact-receipt { padding-block:6px; }
  .direct-salon .compact-receipt h2 strong,.direct-salon .compact-receipt dd { font-size:20px; }
- .direct-salon .compact-receipt p { font-size:11px; margin-top:2px; }
+ .direct-salon .compact-receipt p { font-size:12px; margin-top:2px; }
  .direct-salon .direct-tool-dock button { padding-block:6px }
  .direct-salon .summon-play-layout { padding:10px 12px; }
  .direct-salon.game-summon .wager-form { gap:4px; }

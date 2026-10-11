@@ -30,7 +30,7 @@
 }
 .moon-home-brand .royal-beacon { width: 45px; height: 45px; color: #366ab0; }
 .moon-home-brand .brand-wordmark { font-family: var(--display); font-size: 25px; letter-spacing: .055em; line-height: 1.2; }
-.moon-home-brand .brand-wordmark small { display: block; margin-top: 5px; color: #355574; font: 10px/1.6 'Segoe UI', sans-serif; letter-spacing: .28em; }
+.moon-home-brand .brand-wordmark small { display: block; margin-top: 5px; color: #355574; font: 12px/1.6 'Segoe UI', sans-serif; letter-spacing: .28em; }
 .moon-home-content {
     width: min(640px, 49vw);
     margin: 0 0 0 clamp(24px, 6vw, 112px);

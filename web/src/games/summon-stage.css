@@ -10,7 +10,7 @@
 .direct-game.game-summon { width:100%; max-width:none; min-height:calc(100svh - 150px); padding:18px clamp(16px,2.5vw,48px) 40px; color:#f4ecd7; background:radial-gradient(ellipse at 25% 0,#173d6270,transparent 65%),#071527; }
 .game-summon .game-page-heading { margin-bottom:14px; align-items:center; }
 .game-summon .game-page-heading h1 { margin:6px 0 8px; font:500 clamp(30px,3.5vw,50px) "Noto Serif SC","Songti SC",SimSun,serif; letter-spacing:.1em; color:#f7e4b8; }
-.game-summon .eyebrow { color:#d4b574; font-size:10px; letter-spacing:.18em; }
+.game-summon .eyebrow { color:#d4b574; font-size:12px; letter-spacing:.18em; }
 .game-summon .game-page-heading p:last-child { color:#bccfe5; }
 .game-summon .game-heading-links a { min-height:44px; display:inline-flex; align-items:center; color:#d7e3f5; }
 

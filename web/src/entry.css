@@ -1,7 +1,7 @@
 /* M1 / Royal Observatory. The panorama carries atmosphere; DOM carries every action. */
 .royal-beacon { width: 52px; height: 52px; flex-shrink: 0; color: var(--azure); }
 .brand .brand-wordmark { font-family: var(--display); font-size: 25px; letter-spacing: .055em; line-height: 1.2; }
-.brand .brand-wordmark small { font: 10px/1.6 "Segoe UI", sans-serif; letter-spacing: .28em; color: var(--muted); margin-top: 5px; }
+.brand .brand-wordmark small { font: 12px/1.6 "Segoe UI", sans-serif; letter-spacing: .28em; color: var(--muted); margin-top: 5px; }
  .public-footer, .public-home main { width: min(1200px, calc(100% - 48px)); margin-inline: auto; }
  .public-footer nav { display: flex; align-items: center; gap: 28px; }
  .public-footer nav a { font-size: 13px; text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; }
@@ -18,7 +18,7 @@
 .home-art { margin: 0; min-width: 0; border: 1px solid var(--line); border-radius: 140px 140px 14px 14px; overflow: hidden; background: #fbfaf7; }
 .home-art picture { display: block; }
 .home-art img { display: block; width: 100%; height: auto; aspect-ratio: 1672 / 941; object-fit: contain; }
-.home-art figcaption { border-top: 1px solid var(--line); padding: 20px 24px; display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; letter-spacing: .09em; }
+.home-art figcaption { border-top: 1px solid var(--line); padding: 20px 24px; display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; letter-spacing: .09em; }
 .observatory-fallback { aspect-ratio: 1672 / 941; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; color: var(--azure); }
 .observatory-fallback .royal-beacon { width: 110px; height: 110px; }
 .observatory-fallback .brand-wordmark { text-align: center; font: 20px var(--display); }
@@ -45,12 +45,12 @@
 
 /* Shared authenticated header and compact navigation; no permanent global sidebar. */
 .portal-shell { display: flex; min-height: 100vh; flex-direction: column; }
- .mobile-nav small { font-size: 10px; }
+ .mobile-nav small { font-size: 12px; }
  .mobile-nav button:disabled { opacity: 1; color: var(--muted); background: transparent; cursor: default; }
  .mobile-nav [aria-current] { color: var(--azure); border-color: var(--azure); }
 .mobile-nav { display: none; }
 .portal-shell .main-content { width: min(1248px, 100%); padding: 40px 24px 48px; }
-.portal-shell .workspace-foot { width: min(1200px, calc(100% - 48px)); margin: auto auto 0; font-size: 11px; gap: 20px; }
+.portal-shell .workspace-foot { width: min(1200px, calc(100% - 48px)); margin: auto auto 0; font-size: 12px; gap: 20px; }
 .portal-shell .page-heading { padding-top: 0; }
 .portal-shell .page-heading > div > p:last-child { font-size: 14px; }
 
@@ -114,20 +114,20 @@
   .brand .brand-wordmark small { font-size: 8px; }
   .home-hero { grid-template-columns: minmax(0,1fr); padding: 36px 0 32px; gap: 32px; }
   .home-copy h1 { font-size: clamp(30px, 6vw, 40px); line-height: 1.55; margin-bottom: 20px; }
-  .home-copy .eyebrow { margin-bottom: 20px; font-size: 9px; }
+  .home-copy .eyebrow { margin-bottom: 20px; font-size: 12px; }
   .home-description { font-size: 15px; }
   .desktop-break { display: none; }
   .public-home .hero-actions { margin-top: 24px; }
   .home-art { border-radius: 64px 64px 12px 12px; }
-  .home-art figcaption { padding: 15px 18px; font-size: 9px; }
-  .home-access-note { font-size: 11px; }
+  .home-art figcaption { padding: 15px 18px; font-size: 12px; }
+  .home-access-note { font-size: 12px; }
   .home-pathways { grid-template-columns: minmax(0,1fr); gap: 20px; padding: 30px 0; }
   .home-section-title h2, .home-journey h2 { font-size: 23px; }
   .home-path { padding: 24px; }
   .home-path h3 { font-size: 22px; }
   .home-path > p:not(.eyebrow) { font-size: 14px; }
   .home-journey { grid-template-columns: minmax(0,1fr); gap: 20px; padding: 30px 0 36px; }
-  .public-footer { align-items: flex-start; font-size: 11px; }
+  .public-footer { align-items: flex-start; font-size: 12px; }
   .public-footer nav { gap: 8px 20px; flex-wrap: wrap; }
   .public-footer nav a { font-size: 12px; }
   .portal-shell { --mobile-safe-area: env(safe-area-inset-bottom, 0px); padding-bottom: calc(76px + var(--mobile-safe-area)); }
@@ -138,13 +138,13 @@
   .mobile-nav a[aria-current], .mobile-nav button[aria-current] { color: var(--azure); border-top-color: var(--azure); }
   .mobile-nav a:focus-visible { outline-offset: -3px; }
   .portal-shell .main-content { padding: 30px 14px 36px; }
-  .portal-shell .workspace-foot { width: calc(100% - 28px); flex-wrap: wrap; font-size: 10px; }
+  .portal-shell .workspace-foot { width: calc(100% - 28px); flex-wrap: wrap; font-size: 12px; }
   .portal-shell .page-heading > div > p:last-child { font-size: 13px; }
   .master-summary { padding: 24px 18px; align-items: flex-start; gap: 16px; }
   .master-emblem { width: 45px; height: 60px; border: 0; padding: 0; }
   .master-emblem .crest { width: 42px; height: 51px; }
   .master-copy h2 { font-size: 23px; }
-  .master-copy .hint { font-size: 11px; }
+  .master-copy .hint { font-size: 12px; }
   .master-copy .alert { flex-direction: column; gap: 6px; }
   .native-account { align-items: flex-start; flex-direction: column; gap: 16px; }
   .hub-sections { grid-template-columns: minmax(0,1fr); gap: 20px; }
