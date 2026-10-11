@@ -58,6 +58,15 @@ export function chips(value:string,sign=false):string {
     const decimal=remainder?'.'+(remainder*2n).toString().padStart(6,'0').replace(/0+$/,''):'';
     return (n<0n?'-':sign&&n>0n?'+':'')+(absolute/500000n).toLocaleString('en-US')+decimal;
 }
+// Balances show whole chips only, rounded toward zero so the display never overstates what is spendable.
+export function wholeChips(value:string):string {
+    const n=units(value,true),whole=(n<0n?-n:n)/500000n;
+    return (n<0n&&whole>0n?'-':'')+whole.toLocaleString('en-US');
+}
+export function wholeDecimal(value:string):string {
+    const [integer]=value.trim().split('.');
+    return BigInt(integer||'0').toLocaleString('en-US');
+}
 export function wagerCost(wager:string,mode='SINGLE',game:GameSlug='summon'):bigint|null {
     if(!/^\d{1,19}$/.test(wager))return null;
     const base=BigInt(wager);if(base<10n)return null;

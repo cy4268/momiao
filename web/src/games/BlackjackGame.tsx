@@ -1,6 +1,7 @@
 import { CapReceipt, capResult } from '../economy-cap';
 import { useId, useState, type CSSProperties } from 'react';
 import { integer } from '../wallet-api';
+import { wholeChips } from '../games-api';
 import { ExtraNotice, ExtraWager, formatChipUnits, useExtraCommand, type DirectExtraControls } from './SlotGame';
 import { assetUrl, assetSrcSet, type ImageAsset } from '../game-hall-assets';
 import pokerArt from '../poker/poker-art.json';
@@ -63,7 +64,7 @@ export function BlackjackGame(props: BlackjackGameProps) {
         void command.run(() => props.onAction({ hand_id: active.hand_id, action_type: type, expected_round_version: s.round_version }));
     }
     return <section className={`extra-game extra-blackjack${props.salon ? ' blackjack-salon' : ''}`} aria-labelledby={title} aria-busy={props.busy || command.pending}>
-        <header className="extra-heading"><div><h2 id={title}>皇家牌桌 · Blackjack</h2><p>同一副牌序，继续你亲手作出的选择。</p></div><div className="extra-balance"><span>可用筹码</span><strong>{formatChipUnits(props.availableUnits)}</strong></div></header>
+        <header className="extra-heading"><div><h2 id={title}>皇家牌桌 · Blackjack</h2><p>同一副牌序，继续你亲手作出的选择。</p></div><div className="extra-balance"><span>可用筹码</span><strong title={formatChipUnits(props.availableUnits)}>{props.availableUnits?wholeChips(props.availableUnits):'—'}</strong></div></header>
         <div className="extra-layout">
             <div className="extra-royal-table" data-phase={s?.phase || 'READY'} data-hands={hands.length}>
                 {props.salon && <BlackjackArt asset={pokerArt.table} className="blackjack-table-art"/>}
@@ -80,7 +81,7 @@ export function BlackjackGame(props: BlackjackGameProps) {
                 </article>)}</div>
             </div>
             <aside className="extra-console">
-                {props.salon && <div className="blackjack-balance"><BlackjackArt asset={art.chips} className="blackjack-chip-art"/><div><span>可用筹码</span><strong>{formatChipUnits(props.availableUnits)}</strong></div></div>}
+                {props.salon && <div className="blackjack-balance"><BlackjackArt asset={art.chips} className="blackjack-chip-art"/><div><span>可用筹码</span><strong title={formatChipUnits(props.availableUnits)}>{props.availableUnits?wholeChips(props.availableUnits):'—'}</strong></div></div>}
                 {!s || s.phase === 'SETTLED' ? <ExtraWager controls={props} blocked={blocked} label="初始下注 · 筹码" verb="Deal" onSubmit={units => void command.run(() => props.onDeal(units))} /> : <div className="extra-action-dock">
                     <h3>操作当前第 {activeOrdinal || '—'} 手</h3><p className="extra-locked-stake">本局总下注 <strong>{formatChipUnits(s.total_stake_units)} 筹码</strong></p>
                     <div className="extra-main-actions"><button type="button" disabled={blocked || !active || !legal.includes('HIT')} onClick={() => act('HIT')} aria-label="Hit · 要牌"><span>要牌</span><small>HIT</small></button><button type="button" disabled={blocked || !active || !legal.includes('STAND')} onClick={() => act('STAND')} aria-label="Stand · 停牌"><span>停牌</span><small>STAND</small></button></div>

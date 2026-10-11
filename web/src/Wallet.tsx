@@ -6,6 +6,7 @@ import { WalletChamber, WalletRules, BalanceEmblem } from './WalletChamber';
 import { WalletActions } from './WalletActions';
 import { Alert, Empty, Loading, useResource } from './ui';
 import { assets, assetNames, parseWallet, readWallet, readLedger, type Asset } from './wallet-api';
+import { wholeDecimal } from './games-api';
 
 export function Wallet({ client, user }: { client: ApiClient; user: User }) {
     return <WalletView key={`${user.id}:${client.getSessionGeneration()}`} client={client} userID={String(user.id)} />;
@@ -40,7 +41,7 @@ function WalletView({ client, userID }: { client: ApiClient; userID: string }) {
 
         {notice && <Alert>{notice}</Alert>}{receipt && <p className="notice" role="status">{receipt}</p>}
         {r.loading ? <Loading /> : r.error ? <Alert>{r.error} 请使用“刷新钱包”重试读取。</Alert> : r.data && (!r.data.initialized ? <section className="panel wallet-initialize"><Empty title="尚未初始化钱包">读取钱包不会创建账户资产。你可以主动初始化，建立两个独立的零余额钱包。</Empty><button className="primary" onClick={() => void initialize()} disabled={busy || uncertain}>{busy ? '正在初始化…' : '初始化零余额钱包'}</button>{uncertain && <p className="hint">再次初始化已暂停，等待刷新核对。</p>}</section> : <>
-            <section className="wallet-balances" aria-label="平台本地钱包余额">{assets.map(asset => { const w = r.data!.wallets.find(w => w.asset === asset)!; return <article className="panel wallet-balance" key={asset}><BalanceEmblem /><div><h2>{assetNames[asset]}</h2><p className="wallet-amount">{w.amount}</p><p className="hint">{asset === 'RESERVE_API_CREDIT' ? '储备额度，可兑换筹码或转入 API 额度' : '用于游戏，可兑换回 Reserve'}</p></div></article>; })}</section>
+            <section className="wallet-balances" aria-label="平台本地钱包余额">{assets.map(asset => { const w = r.data!.wallets.find(w => w.asset === asset)!; return <article className="panel wallet-balance" key={asset}><BalanceEmblem /><div><h2>{assetNames[asset]}</h2><p className="wallet-amount" title={w.amount}>{asset === 'AVAILABLE_CHIPS' ? wholeDecimal(w.amount) : w.amount}</p><p className="hint">{asset === 'RESERVE_API_CREDIT' ? '储备额度，可兑换筹码或转入 API 额度' : '用于游戏，可兑换回 Reserve'}</p></div></article>; })}</section>
             <WalletActions client={client} userID={userID} wallet={r.data} onChange={t=>{setReceipt(`${transactionStatus[t.status]}。交易编号：${t.id}`);r.reload()}} dailyLinks={<nav className="daily-links" aria-label="资产快捷入口"><Link to="/rewards">奖励中心</Link><Link to="/wallet/activate">转入 API 额度</Link></nav>} ledger={<section className="panel"><div className="section-heading"><div><h2>资产流水</h2></div><label>流水资产<select value={asset} onChange={e => setAsset(e.target.value as Asset)}>{assets.map(a => <option key={a} value={a}>{assetNames[a]}</option>)}</select></label></div><Ledger key={asset} client={client} userID={userID} asset={asset} /></section>} />
         </>)}
         <WalletRules wallet={r.data} />

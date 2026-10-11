@@ -11,7 +11,7 @@ import summonArt from './games/summon-art.json';
 import pokerArt from './poker/poker-art.json';
 import {BlackjackGame,BlackjackRules,type BlackjackCommand} from './games/BlackjackGame';
 import {blackjackActionStorage,findBlackjackAction,readBlackjackAction,type PendingBlackjackAction} from './games-api';
-import { chips, createGame, findPendingGame, gameError, gameNames, gameSlugs, gameUUID, outcomeNames, parseRound, pendingStorage, readGameBootstrap, readPending, units, wagerCost, type Commitment, type GameBootstrap, type GameConfig, type GameEntry, type GameInput, type GameRound, type GameSlug, type GameVerification, type PendingGame, type Outcome } from './games-api';
+import { chips, wholeChips, createGame, findPendingGame, gameError, gameNames, gameSlugs, gameUUID, outcomeNames, parseRound, pendingStorage, readGameBootstrap, readPending, units, wagerCost, type Commitment, type GameBootstrap, type GameConfig, type GameEntry, type GameInput, type GameRound, type GameSlug, type GameVerification, type PendingGame, type Outcome } from './games-api';
 import './games.css';
 import './game-hall.css';
 import './games/direct-salon.css';
@@ -224,7 +224,7 @@ export function GamePage({client,userID,slug}:{client:ApiClient;userID:string;sl
             <div className="game-stage-corners" aria-hidden="true"/>
             {slug==='dice'?<DiceStage key={userID} result={round?.dice} busy={busy} loading={loading} recovering={!!pending} onAnimatingChange={setDiceAnimating}/>:slug==='scratch'?<ScratchStage round={round} onComplete={()=>void completeScratch()} busy={busy}/>:<SummonStage key={userID} round={round} animateRoundID={summonAnimationID} busy={busy} loading={loading} recovering={!!pending}/>}
         </section>
-        <section className="game-console" aria-label="下注控制台"><div className="game-balance"><p>可用筹码</p><strong>{available===null?'—':chips(available.toString())}</strong><div><Link to="/wallet">钱包兑换</Link><Link to="/rewards">免费签到</Link></div></div>
+        <section className="game-console" aria-label="下注控制台"><div className="game-balance"><p>可用筹码</p><strong title={available===null?undefined:chips(available.toString())}>{available===null?'—':wholeChips(available.toString())}</strong><div><Link to="/wallet">钱包兑换</Link><Link to="/rewards">免费签到</Link></div></div>
             <form className="wager-form" onSubmit={e=>{e.preventDefault();void play()}}>
                 <label>基础下注（筹码）<input inputMode="numeric" autoComplete="off" maxLength={19} value={wager} onChange={e=>setWager(e.target.value)} disabled={blocked} aria-describedby="wager-hint"/></label>
                 <div className="wager-quick" aria-label="快捷下注">{['10','100','500','1000'].map(n=>{const quickCost=wagerCost(n,slug==='summon'?mode:'SINGLE',slug);return <button type="button" key={n} disabled={blocked||available===null||quickCost===null||quickCost>available} onClick={()=>setWager(n)}>{n}</button>})}</div>
@@ -285,7 +285,7 @@ export function RoundReceipt({round,compact=false,concealed=false}:{round:GameRo
         {round.scratch&&<p>{round.scratch.reward.payout_multiplier==='0'?'未组成三枚相同星纹':`匹配三枚星纹 · 总派彩 ×${round.scratch.reward.payout_multiplier}`}</p>}
         {round.summon&&<p>{round.summon.draws.length} 抽已结算 · 最高等级 {round.summon.highest_tier} · 以整轮净变化判定结果</p>}
         {!compact&&<Link className="text-link" to={'/history/rounds/'+round.id}>查看本局详情与公平验证</Link>}</div>
-        <dl><div><dt>总消耗</dt><dd>{chips(round.total_stake_units)}</dd></div><div><dt>到账派彩</dt><dd>{chips(round.economy_settlement?.credited_payout_units??round.total_payout_units)}</dd></div><div><dt>结算后余额</dt><dd>{chips(round.balance_after_units)}</dd></div></dl>
+        <dl><div><dt>总消耗</dt><dd>{chips(round.total_stake_units)}</dd></div><div><dt>到账派彩</dt><dd>{chips(round.economy_settlement?.credited_payout_units??round.total_payout_units)}</dd></div><div><dt>结算后余额</dt><dd title={chips(round.balance_after_units)}>{wholeChips(round.balance_after_units)}</dd></div></dl>
         <CapReceipt receipt={round.economy_settlement}/></div>
     </section>;
 }

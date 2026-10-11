@@ -381,3 +381,9 @@ it('hides the economy cap row when nothing was capped', () => {
     render(<MemoryRouter><RoundReceipt round={{ ...result, economic_policy_version: 'economy-cap-v1', economy_settlement: { ...settlement, credited_payout_units: '7500000', withheld_units: '2500000', actual_net_units: '2500000' } }} compact /></MemoryRouter>);
     expect(screen.getByRole('group', { name: '经济结算回执' })).toHaveTextContent('封顶未入账');
 });
+it('shows balances as whole chips without overstating them', () => {
+    expect(gameAPI.wholeChips('3135185395')).toBe('6,270');
+    expect(gameAPI.wholeChips('499999')).toBe('0');
+    expect(gameAPI.wholeDecimal('6270.37079')).toBe('6,270');
+    expect(gameAPI.wholeDecimal('0.99999')).toBe('0');
+});
