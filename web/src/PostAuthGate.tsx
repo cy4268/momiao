@@ -68,7 +68,7 @@ function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,child
   catch{if(active.current&&matches(start)){setReconcile(true);setError('确认结果尚未核实。请先重新核对访问状态；既有确认记录将保留原时间。');}}
   finally{if(active.current&&matches(start)){writeLock.current=false;setSaving(false);}}
  }
- useEffect(()=>{active.current=true;setSaving(false);setReconcile(false);document.title='访问状态核对 · momiao';void load();return()=>{active.current=false;revision.current++;loadLock.current=false;writeLock.current=false;};},[client,user.id,route,generation]);
+ useEffect(()=>{active.current=true;setSaving(false);setReconcile(false);const admittedBefore=admittedSessions.get(client);if(postAuth||poker||roulette||admittedBefore?.userID!==user.id||admittedBefore.generation!==generation)document.title='访问状态核对 · momiao';void load();return()=>{active.current=false;revision.current++;loadLock.current=false;writeLock.current=false;};},[client,user.id,route,generation]);
  if(destination&&matches(destination))return <Navigate to={destination.route} replace/>;
  // Page policy only tightens the UI; domain/controller guards still decide every operation.
  if(roulette&&matches(admitted))return <>{view?.stage==='MAINTENANCE'&&<aside aria-label="轮盘访问状态"><Alert>维护中：已开始对局继续，保留退款与回执核对；新开局暂时关闭。</Alert></aside>}{children}</>;
