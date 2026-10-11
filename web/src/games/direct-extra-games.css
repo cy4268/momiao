@@ -9,21 +9,21 @@
 .extra-balance strong { display:block; font-size:24px; font-variant-numeric:tabular-nums; max-width:28ch; overflow-wrap:anywhere; }
 .extra-layout { display:grid; grid-template-columns:minmax(0,1fr) 286px; gap:22px; align-items:stretch; }
 .extra-console { border:1px solid var(--line,#c8cdd2); background:var(--paper,#fff); padding:23px; border-radius:10px; min-width:0; }
-.extra-game button { min-height:44px; border-radius:6px; font:inherit; font-size:13px; line-height:1.35; cursor:pointer; }
+.extra-game button { line-height:1.35; cursor:pointer }
 .extra-game button:disabled { cursor:not-allowed; opacity:.5; }
-.extra-game button:focus-visible,.extra-game summary:focus-visible,.extra-game input:focus-visible { outline:3px solid var(--azure,#3568b7); outline-offset:4px; }
+.extra-game summary:focus-visible, .extra-game input:focus-visible { outline:3px solid var(--azure,#3568b7); outline-offset:4px }
 .extra-wager label { display:flex; flex-direction:column; align-items:stretch; gap:9px; font-size:13px; font-weight:600; }
 .extra-wager input { width:100%; min-width:0; min-height:50px; padding:10px 12px; border:1px solid var(--line,#c8cdd2); border-radius:6px; background:var(--paper,#fff); color:var(--ink,#17202d); font-size:24px; font-variant-numeric:tabular-nums; }
 .extra-quick { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin:12px 0; }
-.extra-quick button { padding:8px 2px; border:1px solid var(--line,#c8cdd2); color:var(--azure,#3568b7); background:transparent; }
-.extra-game .extra-primary { width:100%; background:var(--azure,#3568b7); color:#fff; border:1px solid var(--azure,#3568b7); padding:13px 10px; font-weight:600; margin:8px 0; }
-.extra-game .extra-primary:hover:not(:disabled) { background:#285796; }
+.extra-quick button { padding:8px 2px }
+.extra-game .extra-primary { width:100%; padding:13px 10px; margin:8px 0 }
+
 .extra-note { font-size:12px; color:var(--muted,#596573); line-height:1.75; margin:10px 0; }
 .extra-current { margin:16px 0 8px; font-size:13px; line-height:1.75; }
 .extra-error { font-size:13px; line-height:1.75; border-inline-start:3px solid var(--azure,#3568b7); padding:10px 12px; background:var(--ivory,#f4f0e8); overflow-wrap:anywhere; }
 .extra-notices>button { width:100%; }
 .extra-links { display:flex; gap:8px; flex-wrap:wrap; }
-.extra-links button { font-size:12px; }
+
 .extra-slot-stage { padding:24px 26px 18px; min-height:490px; border-radius:14px; background:var(--extra-night); border:1px solid var(--extra-gold); color:var(--extra-ivory); }
 .extra-stage-label { display:flex; justify-content:space-between; gap:12px; font-size:9px; letter-spacing:.13em; color:var(--extra-muted); line-height:1.6; }
 .extra-reels { position:relative; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; margin:24px 0 15px; padding:8px; border:1px solid #72809a; border-radius:9px; background:#0c1729; }
@@ -40,7 +40,7 @@
 .extra-line-markers button:hover:not([aria-pressed="true"]) { background:#304863; }
 .extra-line-detail { margin:12px 0; min-height:40px; font-size:12px; line-height:1.7; color:var(--extra-ivory); }
 .extra-replay { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:11px; color:var(--extra-muted); }
-.extra-replay button { color:var(--extra-ivory); border:1px solid #72809a; background:transparent; padding:8px 10px; }
+.extra-replay button { padding:8px 10px }
 .extra-stage-note { font-size:11px; line-height:1.7; color:var(--extra-muted); margin:8px 0 0; }
 .is-replaying .extra-sigil { animation:extra-reveal 900ms ease both; }
 @keyframes extra-reveal { from { opacity:.45; } to { opacity:1; } }
@@ -72,7 +72,7 @@
 .extra-table-empty { color:var(--extra-muted); font-size:12px; }
 .extra-table-arc { border-top:1px solid #788491; border-radius:50%; text-align:center; padding-top:13px; margin:24px 20px 20px; color:var(--extra-gold); font-size:9px; letter-spacing:.18em; }
 .extra-hand-nav { display:flex; flex-wrap:wrap; justify-content:center; gap:6px; margin-bottom:14px; }
-.extra-hand-nav button { color:var(--extra-ivory); border:1px solid #72809a; background:transparent; font-size:11px; padding:7px 10px; }
+.extra-hand-nav button { padding:7px 10px }
 .extra-hand-nav button[aria-pressed="true"] { border-color:var(--extra-gold); background:#304863; }
 .extra-hand-lanes { display:flex; justify-content:center; align-items:stretch; gap:10px; }
 .extra-hand { flex:1; min-width:0; max-width:300px; border:1px solid #60728b; border-radius:9px; padding:12px 9px; background:#142b48; }

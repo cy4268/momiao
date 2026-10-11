@@ -15,7 +15,7 @@ export function GrantStatus({client}: {client:ApiClient}) {
     return <section className="panel account-grant" aria-label="注册赠额状态"><div className="section-heading"><div><p className="eyebrow">REGISTRATION / RESERVE</p><h2>注册赠额</h2></div><button disabled={loading} onClick={()=>void reload()}>核对赠额状态</button></div>{error&&<Alert>{error}</Alert>}{loading&&!data&&<Loading/>}{data&&<>
         <p role="status">{data.grant_status==='CONFIRMED'?'1,000 Reserve 已到账。':data.grant_status==='PENDING'?'注册资格已确认，1,000 Reserve 正在入账。':data.grant_status==='RECOVERING'?'正在恢复原注册赠额，请稍候核对。':'尚未确认新注册来源，当前未发放注册赠额。'}</p>
         <p className="hint">{data.grant_status==='PENDING_SOURCE'?'已有账户不会因为登录或补全资料重复获得新注册赠额。':'同一注册资格只发放一次。网络中断后会继续核对原领取记录，无需重新注册。'}{!data.source_available&&' 注册来源服务暂时不可用，可稍后核对。'}</p>
-        {data.grant_status==='CONFIRMED'&&<Link to="/wallet" className="text-link">前往钱包查看账本 →</Link>}
+        {data.grant_status==='CONFIRMED'&&<Link to="/wallet" className="text-link">前往钱包查看账本</Link>}
     </>}</section>;
 }
 
@@ -47,7 +47,7 @@ export function Account({client,proof,clearProof=()=>{}}: {client:ApiClient;proo
         {account&&<div className="account-grid">
             <section className="panel account-identity"><p className="eyebrow">YOUR LOGIN IDENTITY</p><h2>登录身份</h2><IdentityEmblem/>
                 <dl className="account-details"><div><dt>登录标识 · 只读</dt><dd>{account.username}</dd></div><div><dt>账户短 ID · 仅本人可见</dt><dd>{shortID||'正在核对'}</dd></div><div><dt>Discord 连接</dt><dd>{account.discord_connected?'已连接':'尚未连接'}</dd></div><div><dt>账户密码</dt><dd>{account.has_password?'已设置':'尚未设置'}</dd></div><div><dt>二次验证</dt><dd>{account.two_fa_enabled===undefined?'状态暂未提供':account.two_fa_enabled?'已启用':'未启用'}</dd></div></dl>
-                <p className="hint">公开昵称在 Master 资料中维护，登录标识保持固定。</p><Link to="/master-profile">查看 Master 资料 →</Link>
+                <p className="hint">公开昵称在 Master 资料中维护，登录标识保持固定。</p><Link to="/master-profile">查看 Master 资料</Link>
             </section>
             <section className="panel account-password"><p className="eyebrow">PASSWORD &amp; SESSION</p><h2>{validProof?mode==='set'?'设置首个密码':'重置密码':account.has_password?'更改密码':'设置账户密码'}</h2>
                 {validProof&&<p className="account-proof" role="status">Discord 身份验证已通过。请在本页完成密码操作，离开或刷新后需重新验证。</p>}

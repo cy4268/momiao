@@ -19,7 +19,7 @@ export function MasterSummary({ master }: { master: MasterResource }) {
     return <section className="master-summary" aria-label="Master 身份">
         <div className="master-emblem" role="img" aria-label="系统默认头像"><img src={assetUrl(art.emblem.src)} width={art.emblem.width} height={art.emblem.height} alt="" /></div>
         <div className="master-copy"><p className="eyebrow">MASTER IDENTITY</p>
-            {master.loading ? <Loading /> : master.error ? <><Alert>Master 资料读取未完成。{master.error}</Alert><button onClick={master.reload}>重新读取 Master 资料</button></> : master.data?.status === 'COMPLETE' ? <><h2>{master.data.display_name}</h2><p className="hint">账户短 ID：{master.data.short_account_id} · 仅本人可见</p><Link className="text-link" to="/master-profile">编辑 Master 资料 →</Link></> : <><h2>等待你的 Master 身份</h2><p>设定自己的昵称，并明确保存后开始使用。</p><Link className="button" to="/master-profile">建立 Master 资料</Link></>}
+            {master.loading ? <Loading /> : master.error ? <><Alert>Master 资料读取未完成。{master.error}</Alert><button onClick={master.reload}>重新读取 Master 资料</button></> : master.data?.status === 'COMPLETE' ? <><h2>{master.data.display_name}</h2><p className="hint">账户短 ID：{master.data.short_account_id} · 仅本人可见</p><Link className="text-link" to="/master-profile">编辑 Master 资料</Link></> : <><h2>等待你的 Master 身份</h2><p>设定自己的昵称，并明确保存后开始使用。</p><Link className="button" to="/master-profile">建立 Master 资料</Link></>}
         </div>
     </section>;
 }

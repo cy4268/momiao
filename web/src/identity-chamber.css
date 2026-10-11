@@ -21,8 +21,8 @@
 .command-chamber.identity-chamber label { margin: 0 0 7px; color: #c6d5e8; font-size: 12px; }
 .command-chamber.identity-chamber input { min-width: 0; max-width: 100%; min-height: 40px; padding: 8px 11px; font-size: 14px; border: 1px solid #91a8c278; border-radius: 3px; background: #091b2d; color: #f3ebdb; }
 .command-chamber.identity-chamber input:focus-visible { outline: 2px solid #cae1ff; outline-offset: 2px; }
-.command-chamber.identity-chamber .primary { min-width: 0; background: linear-gradient(115deg,#ddc792,#c1a46b); color: #18212e; border-color: #eed8a3; box-shadow: inset 0 0 0 2px #fff3d42b; }
-.command-chamber.identity-chamber .primary:not(:disabled):hover { background: #ebd5a4; }
+.command-chamber.identity-chamber .primary { min-width: 0 }
+
 .command-chamber.identity-chamber .profile-editor { display: flex; flex-direction: column; }
 .command-chamber.identity-chamber .profile-editor form { display: flex; flex: 1; flex-direction: column; }
 .command-chamber.identity-chamber .profile-avatar-option { padding: 15px 0; margin: 14px 0 8px; gap: 15px; }
@@ -64,7 +64,7 @@
 .command-chamber.identity-chamber .account-grant .section-heading > div { grid-column: 1; grid-row: 1 / 3; align-self: center; padding-right: 14px; border-right: 1px solid var(--line); }
 .command-chamber.identity-chamber .account-grant .eyebrow { display: none; }
 .command-chamber.identity-chamber .account-grant h2 { font-size: 17px; }
-.command-chamber.identity-chamber .account-grant button { grid-column: 3; grid-row: 1; min-height: 28px; padding: 3px 8px; font-size: 10px; }
+.command-chamber.identity-chamber .account-grant button { grid-column: 3; grid-row: 1; padding: 3px 8px }
 .command-chamber.identity-chamber .account-grant > [role=status] { grid-column: 2; grid-row: 1; align-self: center; margin: 0; font-size: 12px; }
 .command-chamber.identity-chamber .account-grant .hint { grid-column: 2; grid-row: 2; font-size: 10px; margin: 0; }
 .command-chamber.identity-chamber .account-grant > a { grid-column: 3; grid-row: 2; align-self: center; font-size: 10px; }
@@ -105,7 +105,7 @@
   .command-chamber.identity-chamber .account-grant { padding: 8px 12px; }.command-chamber.identity-chamber .account-grant .section-heading { margin: 0; padding: 0; }
   .command-chamber.identity-chamber .account-grant h2 { font-size: 16px; }
   .command-chamber.identity-chamber .identity-disclosure { min-height: 36px; padding-block: 7px; }
-  .command-chamber.identity-chamber button { min-height: 34px; padding-block: 6px; }.command-chamber.identity-chamber .password-visibility { min-height: 0; }
+  .command-chamber.identity-chamber button { padding-block: 6px }.command-chamber.identity-chamber .password-visibility { min-height: 0; }
 }
 @media (min-width:1000px) and (max-width:1200px) { .command-chamber.identity-chamber .chamber-content { width: 68%; } }
 @media (max-width:999px) {
@@ -119,14 +119,14 @@
   .command-chamber.identity-chamber .page-heading h1 { font-size: clamp(26px,7vw,38px); }.command-chamber.identity-chamber .page-heading .eyebrow { font-size: 7px; }
   .command-chamber.identity-chamber :is(.profile-grid,.account-grid) { grid-template-columns: minmax(0,1fr); gap: 14px; margin-bottom: 14px; }
   .command-chamber.identity-chamber .panel { padding: 18px 16px; }
-  .command-chamber.identity-chamber :is(.button,button,input) { min-height: 44px; font-size: 12px; }
+  
   .command-chamber.identity-chamber input { font-size: 16px; }.command-chamber.identity-chamber .password-visibility { min-height: 0; font-size: 11px; }
   .command-chamber.identity-chamber .profile-preview-emblem { flex: none; }
   .command-chamber.identity-chamber .identity-disclosure { margin-bottom: 12px; text-align: left; padding: 13px; }
   .command-chamber.identity-chamber .account-grant { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
   .command-chamber.identity-chamber .account-grant .section-heading { display: flex; margin: 0; padding: 0; border: 0; }
   .command-chamber.identity-chamber .account-grant .section-heading > div { border: 0; padding: 0; }
-  .command-chamber.identity-chamber .account-grant button { min-height: 44px; }
+  
   .command-chamber.identity-chamber .account-grant > a { align-self: flex-start; min-height: 36px; display: inline-flex; align-items: center; font-size: 12px; }
   .command-chamber.identity-chamber .account-details :is(dt,dd) { font-size: 12px; }
   .command-chamber.identity-chamber .account-identity > a { min-height: 44px; font-size: 12px; }

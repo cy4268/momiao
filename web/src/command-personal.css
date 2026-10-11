@@ -10,19 +10,19 @@
 .portal-shell:has(.command-chamber) .account-button { color: #d7e0ee; background: transparent; }
 .portal-shell:has(.command-chamber) .avatar { color: #b5c9e8; background: #15283f; border-color: var(--line); }
 .portal-shell:has(.command-chamber) .account-menu { color: #d7e0ee; background: #0c1c30; border-color: #8496af; z-index: 30; }
-.portal-shell:has(.command-chamber) .account-menu button { color: #ede7d9; background: #15263e; }
+
 .portal-shell:has(.command-chamber) .main-content { width: 100%; max-width: none; margin: 0; padding: 0; min-width: 0; }
 .portal-shell:has(.command-chamber) .workspace-foot { width: 100%; margin: 0; padding: 9px 30px; background: #081321; border-top: 1px solid var(--line); font-size: 10px; }
-.portal-shell:has(.command-chamber) :is(a,button,[tabindex]):focus-visible { outline: 2px solid #c4ddff; outline-offset: 3px; }
+
 .command-chamber { position: relative; isolation: isolate; padding: 26px 32px 20px; min-width: 0; }
 .chamber-background { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; object-position: right top; pointer-events: none; }
 .command-chamber::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(90deg,#06102035,transparent 65%); }
 .chamber-content { width: 55%; min-width: 0; }
 .command-chamber a { color: #c4d6ec; }
-.command-chamber :is(.button,button) { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 8px 14px; font-size: 12px; font-weight: 400; border: 1px solid #96a9c071; border-radius: 3px; background: #0c1c30bf; color: #e9e6dd; text-decoration: none; }
-.command-chamber :is(.button,button):hover { background: #253750; border-color: #d5c08d; }
+.command-chamber :is(.button,button) { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 14px; text-decoration: none }
+
 .command-chamber :is(.button,button):disabled { opacity: .5; }
-.command-chamber .primary { border-color: #d8bc78; background: linear-gradient(125deg,#b69b4938,#172235a8); box-shadow: inset 0 0 0 2px #cfb57819; color: #f9e9bc; min-width: 210px; }
+.command-chamber .primary { min-width: 210px }
 .command-chamber .page-heading { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; margin: 0 0 22px; padding: 0; border: 0; }
 .command-chamber .page-heading h1 { font: 400 clamp(40px,4vw,68px)/1.18 var(--display); letter-spacing: .1em; color: #f6e8ce; margin: 0; }
 .command-chamber .eyebrow { color: #9fb6d0; font-size: 9px; letter-spacing: .18em; margin: 0 0 10px; }
@@ -128,16 +128,16 @@
   .command-chamber::before { background: linear-gradient(0deg,#081321 calc(100% - 280px),transparent calc(100% - 160px)),linear-gradient(90deg,#081321d9,transparent 80%); }
   .command-chamber .page-heading { min-height: 250px; width: 55%; justify-content: center; gap: 18px; padding: 20px 0; margin-bottom: 0; }
   .command-chamber .page-heading h1 { font-size: clamp(28px,7.6vw,40px); letter-spacing: .05em; }.command-chamber .page-heading > div > p:last-child { font-size: 12px; line-height: 1.8; }.command-chamber .page-heading .eyebrow { font-size: 7px; line-height: 1.8; letter-spacing: .1em; }
-  .command-chamber .primary { min-width: 0; font-size: 10px; min-height: 44px; padding-inline: 10px; }
+  .command-chamber .primary { min-width: 0; padding-inline: 10px }
   .command-chamber .master-summary { padding: 14px 12px; gap: 10px; }.command-chamber .master-emblem { width: 48px; height: 64px; }.command-chamber .master-copy { display: block; }.command-chamber .master-copy h2 { font-size: 21px; margin: 3px 0; }.command-chamber .master-copy .hint { font-size: 9px; }.command-chamber .master-copy > a { border: 0; padding: 7px 0 0; min-height: 36px; font-size: 11px; }
   .command-chamber .chamber-ledger { padding: 14px; }.command-chamber .account-ledger { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px 0; }.command-chamber .account-ledger > div:nth-child(3) { padding-left: 0; border-left: 0; }.command-chamber .account-ledger strong { font-size: 24px; }.command-chamber .account-ledger p { font-size: 11px; }.command-chamber .account-ledger a { display: inline-flex; min-height: 30px; align-items: center; }
   .command-chamber .ledger-note { font-size: 10px; margin-top: 14px; }.command-chamber .ledger-note a { display: block; margin: 4px 0 0; }
   .command-chamber .dashboard-paths { gap: 6px; }.command-chamber .dashboard-paths a { font-size: 10px; min-height: 44px; padding: 6px 2px; }
   .command-chamber .recent { padding: 14px 12px; }.command-chamber .section-heading h2 { font-size: 20px; }.command-chamber .section-heading > a { font-size: 10px; }
   .command-chamber .table-wrap { overflow-x: auto; }.command-chamber table { min-width: 560px; font-size: 12px; }.command-chamber :is(th,td) { padding: 10px 8px; }
-  .command-chamber .first-key { flex-direction: column; align-items: flex-start; gap: 8px; }.command-chamber .first-key .button { min-height: 44px; }
+  .command-chamber .first-key { flex-direction: column; align-items: flex-start; gap: 8px; }
   .command-chamber .hub-sections { grid-template-columns: minmax(0,1fr); gap: 14px; }.command-chamber .hub-group { padding: 18px; }.command-chamber .hub-group h2 { font-size: 23px; }.command-chamber .hub-link { padding: 16px 0; min-height: 64px; }.command-chamber .hub-link strong { font-size: 14px; }.command-chamber .hub-link div span { font-size: 12px; }
-  .command-chamber .hub-admin { flex-direction: row; align-items: center; padding: 14px; }.command-chamber .hub-admin p:last-child { font-size: 10px; line-height: 1.7; }.command-chamber .hub-admin .button { flex-shrink: 0; min-height: 44px; padding-inline: 10px; }
-  .command-chamber .native-account { flex-direction: column; align-items: stretch; gap: 14px; padding: 16px; }.native-account-actions { width: 100%; }.native-account-actions > * { flex: 1; }.command-chamber .native-account-actions :is(a,button) { min-height: 44px; }
+  .command-chamber .hub-admin { flex-direction: row; align-items: center; padding: 14px; }.command-chamber .hub-admin p:last-child { font-size: 10px; line-height: 1.7; }.command-chamber .hub-admin .button { flex-shrink: 0; padding-inline: 10px }
+  .command-chamber .native-account { flex-direction: column; align-items: stretch; gap: 14px; padding: 16px; }.native-account-actions { width: 100%; }.native-account-actions > * { flex: 1; }
 }
 @media (prefers-reduced-motion:reduce) { .command-chamber * { scroll-behavior: auto; } }

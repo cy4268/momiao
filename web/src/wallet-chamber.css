@@ -12,8 +12,8 @@
 .command-chamber.finance-chamber .hint { font-size: 10px; color: #aebed4; margin: 4px 0; }
 .command-chamber.finance-chamber :is(input,select) { background: #091b2d; color: #eee7d7; border: 1px solid #829bbb79; min-width: 0; max-width: 100%; border-radius: 3px; padding: 7px 9px; font: inherit; }
 .command-chamber.finance-chamber :is(input,select):focus-visible { outline: 2px solid #cae1ff; outline-offset: 2px; }
-.command-chamber.finance-chamber .primary { min-width: 0; border-color: #c3a467; color: #f4e0b6; }
-.command-chamber.finance-chamber .primary:not(:disabled):hover { background: #8c734c; }
+.command-chamber.finance-chamber .primary { min-width: 0 }
+
 .command-chamber.finance-chamber .wallet-balances { gap: 10px; margin: 0; }
 .command-chamber.finance-chamber .wallet-balance { display: flex; align-items: center; gap: 14px; border-top-color: #c0a776; }
 .command-chamber.finance-chamber .wallet-balance > div { min-width: 0; flex: 1; }
@@ -32,7 +32,7 @@
 .command-chamber.finance-chamber .wallet-actions-grid .reward-card :is(.eyebrow,.reward-art,.reward-description,.daily-state,.hint) { display: none; }
 .command-chamber.finance-chamber .wallet-actions-grid .daily-action { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .command-chamber.finance-chamber .daily-action button { margin: 0; }
-.command-chamber.finance-chamber .wallet-actions-grid .daily-action button { font-size: 10px; min-height: 32px; padding: 6px 8px; }
+.command-chamber.finance-chamber .wallet-actions-grid .daily-action button { padding: 6px 8px }
 .command-chamber.finance-chamber .daily-links { display: flex; gap: 12px; flex: 1; justify-content: flex-end; font-size: 11px; }
 .command-chamber.finance-chamber .daily-links a { padding: 5px 0; }
 .command-chamber.finance-chamber .finance-exchange > .eyebrow { display: none; }
@@ -43,16 +43,16 @@
 .command-chamber.finance-chamber .exchange-form :is(input,select) { min-height: 34px; }
 .command-chamber.finance-chamber .exchange-form > .hint { grid-column: 1 / -1; margin: 0; font-size: 9px; }
 .command-chamber.finance-chamber .exchange-form > p[aria-live] { grid-column: 1 / -1; margin: 2px 0 0; font-size: 11px; }
-.command-chamber.finance-chamber .exchange-form > .primary { grid-column: 3; grid-row: 1; min-height: 34px; white-space: normal; }
+.command-chamber.finance-chamber .exchange-form > .primary { grid-column: 3; grid-row: 1; white-space: normal }
 .command-chamber.finance-chamber .finance-history { padding: 0; }
 .command-chamber.finance-chamber .finance-history-switch { display: flex; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); }
-.command-chamber.finance-chamber .finance-history-switch button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 5px; min-height: 34px; }
+.command-chamber.finance-chamber .finance-history-switch button { border-bottom: 2px solid transparent; padding: 8px 5px }
 .command-chamber.finance-chamber .finance-history-switch button[aria-pressed=true] { border-bottom-color: #ddc486; color: #f4e5c7; }
 .command-chamber.finance-chamber .finance-history-page > .panel { border: 0; background: transparent; padding: 9px 13px; }
 .command-chamber.finance-chamber .finance-history .section-heading { margin: 0 0 5px; gap: 10px; }
 .command-chamber.finance-chamber .finance-history .section-heading h2 { font-size: 17px; }
 .command-chamber.finance-chamber .finance-history .section-heading .eyebrow { display: none; }
-.command-chamber.finance-chamber .finance-history .section-heading button { min-height: 28px; padding: 4px 8px; font-size: 10px; }
+.command-chamber.finance-chamber .finance-history .section-heading button { padding: 4px 8px }
 .command-chamber.finance-chamber .finance-history .section-heading label { display: flex; align-items: center; gap: 7px; font-size: 10px; }
 .command-chamber.finance-chamber .finance-history .section-heading select { padding: 4px; }
 .command-chamber.finance-chamber .finance-history .empty { padding: 12px; }
@@ -63,7 +63,7 @@
 .command-chamber.finance-chamber td small { font-size: 9px; }
 .command-chamber.finance-chamber .pager { border: 0; margin: 5px 0 0; padding: 0; gap: 5px; font-size: 9px; }
 .command-chamber.finance-chamber .pager div { display: flex; gap: 5px; }
-.command-chamber.finance-chamber .pager button { min-height: 26px; padding: 4px 8px; font-size: 9px; }
+.command-chamber.finance-chamber .pager button { padding: 4px 8px }
 .command-chamber.finance-chamber .finance-disclosure { width: 100%; justify-content: space-between; min-height: 34px; flex-shrink: 0; }
 .command-chamber.finance-chamber .modal { color: #e6decd; background: #0c1c2e; border: 1px solid #8496af; max-height: 85dvh; width: min(660px,calc(100vw - 28px)); }
 .command-chamber.finance-chamber .finance-rules { font-size: 13px; line-height: 1.9; }
@@ -89,14 +89,14 @@
 .command-chamber.finance-chamber .reward-detail .daily-action { flex: 1; display: flex; flex-direction: column; align-items: stretch; border: 0; padding: 0; gap: 2px; }
 .command-chamber.finance-chamber .reward-detail .daily-state { font-size: 12px; color: #e9d9b7; margin: 5px 0 0; }
 .command-chamber.finance-chamber .reward-detail .hint { font-size: 9px; line-height: 1.5; margin: 4px 0 6px; flex: 1; }
-.command-chamber.finance-chamber .reward-detail .primary { min-height: 34px; padding: 7px 5px; width: 100%; font-size: 11px; }
-.command-chamber.finance-chamber .reward-detail .primary:not(:disabled) { background: linear-gradient(110deg,#e3c98e,#b49356); color: #192333; }
+.command-chamber.finance-chamber .reward-detail .primary { padding: 7px 5px; width: 100% }
+
 .command-chamber.finance-chamber .reward-detail .quiet { min-height: 22px; padding: 3px; border: 0; background: none; color: #a4b7cf; font-size: 9px; }
 .command-chamber.finance-chamber .reward-next { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 14px; }
 .command-chamber.finance-chamber .reward-next .eyebrow { display: none; }
 .command-chamber.finance-chamber .reward-next h2 { font-size: 17px; margin: 0; }
 .command-chamber.finance-chamber .reward-next p { font-size: 10px; margin: 3px 0 0; color: var(--muted); }
-.command-chamber.finance-chamber .reward-next .button { flex-shrink: 0; min-height: 32px; font-size: 11px; }
+.command-chamber.finance-chamber .reward-next .button { flex-shrink: 0 }
 .command-chamber.finance-chamber .finance-transfers { padding: 12px 15px; }
 .command-chamber.finance-chamber .history-fields { gap: 12px; }
 .command-chamber.finance-chamber .history-fields > div { background: transparent; }
@@ -136,7 +136,7 @@
   .command-chamber.finance-chamber .reward-detail h2 { font-size: 17px; }
   .command-chamber.finance-chamber .reward-detail .wallet-amount { font-size: 24px; }
   .command-chamber.finance-chamber .reward-detail .reward-description { display: none; }
-  .command-chamber.finance-chamber .reward-detail .primary { min-height: 30px; padding: 5px; font-size: 10px; }
+  .command-chamber.finance-chamber .reward-detail .primary { padding: 5px }
   .command-chamber.finance-chamber .reward-rail { padding-block: 4px; }
   .command-chamber.finance-chamber .reward-rail strong { font-size: 24px; }
   .command-chamber.finance-chamber .finance-history { flex-basis: 150px; }
@@ -158,10 +158,10 @@
   .command-chamber.finance-chamber .wallet-balance .hint { font-size: 11px; }
   .command-chamber.finance-chamber .wallet-actions-grid .reward-card { align-items: stretch; padding: 14px; gap: 12px; }
   .command-chamber.finance-chamber .wallet-actions-grid .daily-action { width: 100%; }
-  .command-chamber.finance-chamber .wallet-actions-grid .daily-action button { min-height: 42px; font-size: 12px; }
+  
   .command-chamber.finance-chamber .daily-links { justify-content: space-between; font-size: 12px; }
   .command-chamber.finance-chamber .exchange-form { grid-template-columns: minmax(0,1fr); gap: 10px; }
-  .command-chamber.finance-chamber .exchange-form > .primary { grid-column: 1; grid-row: auto; width: 100%; min-height: 44px; font-size: 13px; }
+  .command-chamber.finance-chamber .exchange-form > .primary { grid-column: 1; grid-row: auto; width: 100% }
   .command-chamber.finance-chamber .exchange-form label { font-size: 12px; }
   .command-chamber.finance-chamber .exchange-form :is(input,select) { min-height: 42px; }
   .command-chamber.finance-chamber .exchange-form > .hint { font-size: 10px; }
@@ -174,18 +174,18 @@
   .command-chamber.finance-chamber .reward-art { height: 100px; }
   .command-chamber.finance-chamber .reward-detail .daily-action { justify-content: center; }
   .command-chamber.finance-chamber .reward-detail .hint { flex: none; font-size: 10px; }
-  .command-chamber.finance-chamber .reward-detail .primary { min-height: 44px; font-size: 11px; padding-inline: 5px; }
+  .command-chamber.finance-chamber .reward-detail .primary { padding-inline: 5px }
   .command-chamber.finance-chamber .reward-detail .quiet { min-height: 36px; font-size: 11px; }
   .command-chamber.finance-chamber .reward-next { flex-wrap: wrap; padding: 14px; }
-  .command-chamber.finance-chamber .reward-next .button { min-height: 44px; }
+  
   .command-chamber.finance-chamber .finance-history .section-heading { flex-wrap: wrap; }
-  .command-chamber.finance-chamber .finance-history .section-heading button { min-height: 36px; }
+  
   .command-chamber.finance-chamber .finance-history .table-wrap { max-height: none; }
   .command-chamber.finance-chamber table { min-width: 520px; }
   .command-chamber.finance-chamber .pager { flex-wrap: wrap; gap: 6px; }
-  .command-chamber.finance-chamber .pager button { min-height: 40px; font-size: 11px; }
+  
   .command-chamber.finance-chamber .finance-disclosure { min-height: 44px; }
-  .command-chamber.finance-chamber .finance-history-switch button { min-height: 42px; }
+  
   .command-chamber.finance-chamber .transaction-id { font-size: 10px; overflow-wrap: anywhere; }
   .command-chamber.finance-chamber .history-fields { grid-template-columns: minmax(0,1fr); }
 }

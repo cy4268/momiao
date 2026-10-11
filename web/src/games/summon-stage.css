@@ -13,7 +13,7 @@
 .game-summon .eyebrow { color:#d4b574; font-size:10px; letter-spacing:.18em; }
 .game-summon .game-page-heading p:last-child { color:#bccfe5; }
 .game-summon .game-heading-links a { min-height:44px; display:inline-flex; align-items:center; color:#d7e3f5; }
-.game-summon button { min-height:44px; border-color:#6982a1; background:#142a46; color:#e6eefb; }
+
 .game-summon :focus-visible { outline:3px solid #a8d2ff; outline-offset:4px; }
 .game-summon .summon-play-layout { position:relative; isolation:isolate; display:grid; grid-template-columns:minmax(0,1fr) clamp(320px,27vw,420px); gap:24px; align-items:start; padding:26px 22px 22px; border:1px solid #8295a857; border-radius:5px; overflow:hidden; }
 .game-summon .game-stage { position:static; min-width:0; min-height:0; border:0; background:transparent; overflow:visible; }
@@ -51,7 +51,7 @@
 .spirit-caption b,.spirit-caption strong { font-weight:400; }
 .summon-status { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; min-height:48px; gap:12px; padding:8px 16px; border:1px solid #7a98c566; border-radius:4px; background:#061425dd; text-align:center; }
 .summon-status p { margin:0; color:#d9e5f4; font-size:14px; line-height:1.6; }
-.game-summon .summon-status button { background:linear-gradient(#e7ce94,#c4a56b); color:#14273f; border-color:#e8d09c; }
+
 .summon-roster { width:100%; color:#c8d9ee; background:#061425e8; border:1px solid #7a98c588; border-radius:4px; padding:0 16px; }
 .summon-roster summary { cursor:pointer; min-height:48px; display:list-item; align-content:center; color:#efe2c3; font-size:14px; }
 .summon-roster dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:8px 0 16px; font-size:13px; }
@@ -69,7 +69,7 @@
 .game-summon .summon-mode input { position:absolute; opacity:0; width:1px; height:1px; min-height:0; padding:0; }.game-summon .summon-mode label:has(:focus-visible) { outline:3px solid #a8d2ff; outline-offset:3px; }
 .game-summon .wager-hint { color:#bdcee2; line-height:1.6; }.game-summon .wager-hint.invalid { color:#f2ce97; }
 .game-summon .wager-cost { display:grid; gap:12px; border-color:#ad997450; color:#bdcce1; padding-block:14px 8px; }.game-summon .wager-cost>span { display:flex; justify-content:space-between; gap:8px; }.game-summon .wager-cost strong { color:#f3ecd8; font-size:16px; }
-.game-summon .game-play { min-height:58px!important; margin-top:8px; border:1px solid #f3d39b!important; background:linear-gradient(#f0d598,#c3a166)!important; color:#152944!important; font:600 19px "Noto Serif SC",SimSun,serif; letter-spacing:.04em; box-shadow:inset 0 0 12px #fff1c940; }.game-summon .game-play:disabled { opacity:.55; }
+.game-summon .game-play { margin-top:8px; letter-spacing:.04em }.game-summon .game-play:disabled { opacity:.55; }
 .direct-game.game-summon .round-receipt { margin:22px 0 0; background:#0e2339; border-color:#ad997480; border-left-color:#d6be8c; }.direct-game.game-summon .round-receipt h2,.direct-game.game-summon .round-receipt dd { color:#f0dcae; }.direct-game.game-summon .round-receipt p:not(.eyebrow),.direct-game.game-summon .round-receipt dt { color:#c0d0e4; }
 .game-summon .text-link { color:#b1d9ff; }.game-summon .game-information { gap:24px; margin-top:24px; padding:0; border:0; }.game-summon .game-information>section { padding:24px 28px; border:1px solid #ad997470; background:linear-gradient(140deg,#14293eee,#0b192ae6); border-radius:5px; }.game-summon .game-information h2 { color:#f1dfb6; font-family:"Noto Serif SC",SimSun,serif; }.game-summon .game-information p:not(.eyebrow),.game-summon .game-information small { color:#bbcade; }
 .game-summon .game-rules th,.game-summon .game-rules td { border-color:#52677e; }.game-summon .fairness-hash { background:#071726; color:#c8dcf1; border-color:#6886a05c; }.game-summon .game-fairness summary { color:#b1d9ff; }.game-summon .game-fairness details { border-color:#6d819b70; }.game-summon .game-recovery { color:#f2dbab; border-color:#a28a63; background:#2e2930; }
@@ -83,7 +83,7 @@
     .direct-game.game-summon { padding:16px 10px 30px; }.game-summon .game-page-heading { align-items:start; flex-direction:column; gap:4px; }.game-summon .game-page-heading p:last-child { font-size:13px; margin:0; }.game-summon .game-heading-links { gap:10px; font-size:12px; width:100%; justify-content:space-between; }
     .game-summon .summon-play-layout { padding:18px 8px 10px; gap:14px; }.summon-scene { gap:12px; }.summon-idle { width:min(84%,300px); }.spirit-cards.single { width:min(94%,370px); }.spirit-cards.tenfold { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 8px; }
     .summon-status { padding:8px 10px; width:100%; }.summon-status p { font-size:12px; }.summon-roster { padding-inline:12px; }.summon-roster dl { grid-template-columns:repeat(2,minmax(0,1fr)); }
-    .game-summon .game-console { padding:20px 16px; gap:14px; }.game-summon .game-balance>strong { font-size:32px; }.game-summon .game-balance a { min-height:44px; }.game-summon .game-play { font-size:18px; }
+    .game-summon .game-console { padding:20px 16px; gap:14px; }.game-summon .game-balance>strong { font-size:32px; }.game-summon .game-balance a { min-height:44px; }
     .game-summon .game-information { grid-template-columns:minmax(0,1fr); gap:16px; }.game-summon .game-information>section { padding:20px; }.direct-game.game-summon .round-receipt { padding:20px; gap:16px; grid-template-columns:minmax(0,1fr); }.direct-game.game-summon .round-receipt dl { gap:12px; }.direct-game.game-summon .round-receipt dd { font-size:22px; }
 }
 @media (prefers-reduced-motion:reduce) {

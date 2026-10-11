@@ -18,7 +18,7 @@ it('keeps the archive filter, inner scroll and focus through a read-only round a
   });
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   const view = render(<MemoryRouter initialEntries={['/history?game_slug=dice&status=SETTLED']}><Routes><Route path="/history" element={<HistoryList client={client} />} /><Route path="/history/rounds/:id" element={<HistoryRound client={client} />} /></Routes></MemoryRouter>);
-  expect(await screen.findByRole('link', { name: '查看详情 →' })).toBeVisible();
+  expect(await screen.findByRole('link', { name: '查看详情' })).toBeVisible();
   expect(view.container.querySelector('.history-archive')).not.toBeNull();
   const filters = screen.getByRole('button', { name: /更多筛选/ });
   filters.focus(); fireEvent.click(filters);
@@ -27,12 +27,12 @@ it('keeps the archive filter, inner scroll and focus through a read-only round a
   expect(within(dialog).getByLabelText('状态')).toHaveValue('SETTLED');
   fireEvent.change(within(dialog).getByLabelText('游玩模式'), { target: { value: 'DIRECT_PLAY' } });
   fireEvent.click(within(dialog).getByRole('button', { name: '应用筛选' }));
-  expect(await screen.findByRole('link', { name: '查看详情 →' })).toBeVisible();
+  expect(await screen.findByRole('link', { name: '查看详情' })).toBeVisible();
   await waitFor(() => expect(request.mock.calls.filter(([path]) => path.startsWith('/api/v1/history?'))).toHaveLength(2));
   await new Promise(resolve => requestAnimationFrame(resolve));
   expect.soft(screen.getByRole('button', { name: /更多筛选/ })).toHaveFocus();
   const rows = screen.getByRole('region', { name: '历史记录列表' }); rows.scrollTop = 240;
-  fireEvent.click(screen.getByRole('link', { name: '查看详情 →' }));
+  fireEvent.click(screen.getByRole('link', { name: '查看详情' }));
   expect(await screen.findByLabelText('骰子点数 2、3、4，合计 9 点')).toBeVisible();
   expect(screen.getByLabelText('经济结算回执')).toHaveTextContent('实际到账15');expect(screen.getByLabelText('经济结算回执')).toHaveTextContent('封顶未入账5');
   for (const name of ['本局输入与版本记录', '钱包交易', '公平性记录']) expect(screen.getByText(name, { selector: 'summary' }).closest('details')).not.toHaveAttribute('open');
@@ -41,7 +41,7 @@ it('keeps the archive filter, inner scroll and focus through a read-only round a
   expect(await screen.findByText('a'.repeat(64))).toBeVisible();
   expect(screen.queryByText('验证通过')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('link', { name: '← 返回筛选列表' }));
-  const restored = await screen.findByRole('link', { name: '查看详情 →' });
+  const restored = await screen.findByRole('link', { name: '查看详情' });
   await waitFor(() => expect(restored).toHaveFocus());
   expect(screen.getByRole('region', { name: '历史记录列表' }).scrollTop).toBe(240);
   const last = new URL(request.mock.calls.at(-1)![0], 'https://example.test');

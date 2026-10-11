@@ -50,7 +50,7 @@ export function Keys({ client }: {
     } }
     return <ApiWorkbench page="keys">
         <header className="page-heading"><div><p className="eyebrow">DA VINCI'S WORKSHOP / API KEYS</p><h1>密钥管理</h1><p>为不同应用分别配置密钥、额度与到期时间。</p></div><div className="workbench-heading-actions"><button disabled={resource.loading || busy} onClick={reload}>刷新列表</button><button className="primary" onClick={() => { setNotice(''); setDialog({ kind: 'create' }); }}>创建 API 密钥</button></div></header>
-        {modelID && <section className="api-model-selection"><p>已选择模型：<code>{modelID}</code></p><p className="hint">创建密钥需要你主动确认；模型选择不会替你创建或修改密钥。</p><Link className="text-link" to={catalogSelectionPath(modelID, false)}>继续查看 API 接入设置 →</Link></section>}
+        {modelID && <section className="api-model-selection"><p>已选择模型：<code>{modelID}</code></p><p className="hint">创建密钥需要你主动确认；模型选择不会替你创建或修改密钥。</p><Link className="text-link" to={catalogSelectionPath(modelID, false)}>继续查看 API 接入设置</Link></section>}
         {notice && <p className="notice" role="status">{notice}</p>}{error && <Alert>{error}</Alert>}
         <section className="api-ledger" aria-label="我的密钥"><p className="hint">额度按原生单位显示，不代表平台 Reserve 或 API Credit。密钥默认隐藏。</p>
             {resource.loading ? <Loading /> : resource.error ? <><Alert>{resource.error}</Alert><button onClick={reload}>重新加载</button></> : resource.data && <>

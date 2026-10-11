@@ -1,6 +1,4 @@
 :root {
-  /* Reserve the scrollbar lane on every page so centered content and the header never shift between pages. */
-  scrollbar-gutter:stable;
   font-family:"Segoe UI","Microsoft YaHei",sans-serif;
   color:#17202d;
   background:#f4f0e8;
@@ -20,37 +18,67 @@ body {
   margin:0}
 button,input,select,textarea {
   font:inherit}
+/* One button system for every player page: solid gold primary, gold-hairline secondary, gold text links.
+   Page stylesheets may place and size buttons but never restyle them (see button-style.test.ts). */
+:root {
+  --gold:#d9bf86;
+  --gold-line:#d9bf8666;
+  --ink-on-gold:#14243a;
+  --text-strong:#f0dcae;
+  --text-body:#e8dcc2;
+  --text-soft:#c0d0e4;
+  --control-h:40px;
+  --control-radius:4px;
+  --btn-fg:var(--text-body);
+  --btn-line:var(--gold-line);
+  --btn-hover-bg:#d9bf861a}
+@media (max-width:720px) { :root { --control-h:44px } }
+/* The lit home page and sign-in page keep their light ground, so secondary buttons switch to ink. */
+.moon-home,.auth-layout {
+  --btn-fg:#14243a;
+  --btn-line:#14243a40;
+  --btn-hover-bg:#14243a0d}
 button,.button {
-  min-height:44px;
-  padding:9px 16px;
-  border:1px solid var(--azure);
-  border-radius:7px;
+  min-height:var(--control-h);
+  padding:0 18px;
+  border:1px solid var(--btn-line);
+  border-radius:var(--control-radius);
   background:transparent;
-  color:var(--azure);
+  color:var(--btn-fg);
   cursor:pointer;
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  gap:12px;
+  gap:8px;
   text-decoration:none;
-  line-height:1.5;
-  font-size:13px;
-  font-weight:600}
-button:hover,.button:hover {
-  background:var(--moon);
-  color:var(--ink);
-  border-color:var(--azure)}
+  line-height:1.3;
+  font-size:14px;
+  font-weight:500;
+  text-shadow:none;
+  transition:background-color .15s,border-color .15s,color .15s}
+button:hover:not(:disabled),.button:hover {
+  background:var(--btn-hover-bg);
+  border-color:var(--gold);
+  color:var(--btn-fg)}
+button:focus-visible,.button:focus-visible {
+  outline:2px solid var(--gold);
+  outline-offset:2px}
 button:disabled {
-  opacity:.5;
+  opacity:.45;
   cursor:not-allowed}
-.primary {
-  background:var(--azure);
-  border-color:var(--azure);
-  color:var(--ivory)}
-.primary:hover {
-  background:var(--moon);
-  color:var(--ink);
-  border-color:var(--azure)}
+.primary,.game-play,.extra-primary,.pk-primary,.roulette-primary {
+  background:var(--gold);
+  border-color:var(--gold);
+  color:var(--ink-on-gold);
+  font-weight:600}
+:is(.primary,.game-play,.extra-primary,.pk-primary,.roulette-primary):hover:not(:disabled) {
+  background:#e6cf9c;
+  border-color:#e6cf9c;
+  color:var(--ink-on-gold)}
+button[aria-pressed="true"],[role="tab"][aria-selected="true"] {
+  background:#d9bf8626;
+  border-color:var(--gold);
+  color:var(--text-strong)}
 .quiet {
   border-color:transparent}
 .icon-button {
@@ -610,9 +638,7 @@ input[type=checkbox] {
 .section-heading .eyebrow {
   font-size:8px;
   margin-bottom:8px}
-.section-heading button {
-  font-size:11px;
-  min-height:34px}
+
 .first-key {
   padding:20px;
   background:#f6f7fa;
@@ -683,10 +709,7 @@ td time {
   gap:5px;
   flex-wrap:wrap;
   min-width:140px}
-.row-actions button {
-  font-size:10px;
-  padding:5px 8px;
-  min-height:32px}
+.row-actions button { padding:5px 8px }
 .page-heading {
   display:flex;
   align-items:center;
@@ -717,10 +740,7 @@ td time {
 .pager>div {
   display:flex;
   gap:7px}
-.pager button {
-  font-size:11px;
-  min-height:35px;
-  padding:7px 10px}
+.pager button { padding:7px 10px }
 .filters {
   display:flex;
   align-items:flex-end;
@@ -743,8 +763,7 @@ td time {
 .filter-actions {
   display:flex;
   gap:8px}
-.filter-actions button {
-  font-size:11px}
+
 .modal {
   width:min(520px,calc(100% - 32px));
   border:1px solid var(--moon);
@@ -833,8 +852,7 @@ td time {
   padding:0 16px}
 .hero-actions {
   gap:18px}
-.hero-actions .button {
-  font-size:11px}
+
 .hero-actions .text-link {
   font-size:11px}
 }
@@ -965,10 +983,7 @@ td time {
 .hero-actions {
   gap:15px;
   flex-wrap:wrap}
-.hero-actions .button {
-  padding:9px 11px;
-  font-size:10px;
-  min-height:36px}
+.hero-actions .button { padding:9px 11px }
 .hero-actions .text-link {
   font-size:10px}
 .deck-status {
@@ -1009,8 +1024,7 @@ td time {
   padding:16px}
 .first-key p {
   font-size:11px}
-.first-key .button {
-  font-size:11px}
+
 .workspace-foot {
   margin:0 20px;
   font-size:8px;
@@ -1026,9 +1040,7 @@ td time {
   font-size:8px}
 .page-heading p:last-child {
   font-size:11px}
-.page-heading>button {
-  min-height:37px;
-  font-size:12px}
+
 .filters {
   gap:12px}
 .filters label {
@@ -1101,7 +1113,7 @@ td time {
 .model-list li { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:21px 0; border-top:1px solid var(--line) }
 .model-list code { overflow-wrap:anywhere; min-width:0; font-size:14px }
 .model-list .row-actions { flex-shrink:0; align-items:center }
-.model-list .button { font-size:11px; min-height:34px; padding:6px 11px }
+.model-list .button { padding:6px 11px }
 @media(max-width:760px) {
  .sidebar nav { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3px; padding-bottom:10px }
  .sidebar nav a { min-width:0; padding:10px 4px; border-radius:0; white-space:nowrap }

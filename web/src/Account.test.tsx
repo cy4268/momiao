@@ -43,7 +43,7 @@ it('hands the sensitive callback proof to the account form and clears it on leav
  render(<MemoryRouter initialEntries={['/oauth/discord']}><App client={c} capturedCallback={{input:{code:'synthetic-code',state:'synthetic-state'}}}/><ReturnToAccount/></MemoryRouter>);
  expect(await screen.findByRole('heading',{name:'设置首个密码'})).toBeVisible();
  expect(screen.getByLabelText('新密码')).toBeVisible();
- fireEvent.click(screen.getByRole('link',{name:'查看 Master 资料 →'}));
+ fireEvent.click(screen.getByRole('link',{name:'查看 Master 资料'}));
  await screen.findByRole('heading',{name:'Master 资料'});
  fireEvent.click(screen.getByRole('button',{name:'Test return to account'}));
  expect(await screen.findByRole('button',{name:'验证 Discord 并设置密码'})).toBeEnabled();

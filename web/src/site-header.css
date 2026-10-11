@@ -2,7 +2,8 @@
    Every selector starts with a doubled class so page stylesheets loaded later
    (".announcement-site .royal-beacon", ".catalog-shell a", ...) cannot win the cascade. */
 .site-header.site-header { position: relative; z-index: 30; box-sizing: border-box; height: 68px; margin: 0; padding: 0; background: #081321; border: 0; border-bottom: 1px solid #ffffff14; color: #e8dcc2; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
-.site-header.site-header .site-header-inner, .site-subnav.site-subnav .site-header-inner { box-sizing: border-box; width: min(1200px, calc(100% - 48px)); height: 100%; margin: 0 auto; padding: 0; display: flex; align-items: center; gap: 28px; }
+/* Positioned against the viewport, not the body, so pages with and without a scrollbar place the bar identically. */
+.site-header.site-header .site-header-inner, .site-subnav.site-subnav .site-header-inner { box-sizing: border-box; width: min(1200px, calc(100vw - 48px)); height: 100%; margin: 0 0 0 max(24px, calc((100vw - 1200px) / 2)); padding: 0; display: flex; align-items: center; gap: 28px; }
 .site-header.site-header .site-brand { flex: none; display: flex; align-items: center; gap: 12px; margin: 0; padding: 0; color: #e8dcc2; text-decoration: none; white-space: nowrap; }
 .site-header.site-header .site-brand .royal-beacon { flex: none; width: 40px; height: 40px; color: #d9bf86; }
 .site-header.site-header .site-brand .brand-wordmark { display: flex; flex-direction: column; font: 21px/1.15 Marcellus, Georgia, serif; letter-spacing: .055em; color: #f0dcae; }
@@ -25,7 +26,7 @@
 .site-subnav.site-subnav .site-header-inner { gap: 8px; }
 .site-subnav.site-subnav a { height: 100%; font-size: 13px; }
 @media (max-width: 720px) {
-  .site-header.site-header .site-header-inner, .site-subnav.site-subnav .site-header-inner { width: calc(100% - 28px); gap: 12px; }
+  .site-header.site-header .site-header-inner, .site-subnav.site-subnav .site-header-inner { width: calc(100vw - 28px); margin-left: 14px; gap: 12px; }
   .site-header.site-header .site-nav, .site-header.site-header .site-assets { display: none; }
   .site-header.site-header .site-account { min-width: 0; margin-left: auto; }
   .site-header.site-header .site-account-placeholder { width: 120px; }

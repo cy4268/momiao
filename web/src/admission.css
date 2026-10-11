@@ -13,7 +13,7 @@
 .auth-card h2{font:400 32px/1.5 var(--display);margin:14px 0}
 .auth-card .subtitle{font-size:14px;line-height:1.9;color:var(--muted);margin-bottom:28px}
 .auth-card form>input{margin:8px 0 20px}.auth-card label{font-size:13px}.auth-card .alert{margin-block:18px}
-.auth-discord>button,.auth-submit{width:100%;justify-content:space-between;min-height:50px}.auth-discord .hint{margin-top:14px}
+.auth-submit { width:100%; justify-content:space-between; min-height:50px } .auth-discord>button { width:100%; justify-content:space-between }.auth-discord .hint{margin-top:14px}
 .auth-divider{display:flex;align-items:center;gap:14px;margin:26px 0;font-size:11px;color:var(--muted)}.auth-divider:before,.auth-divider:after{content:'';height:1px;flex:1;background:var(--line)}
 .password-field{margin:0 0 24px}.password-field>div{display:flex;position:relative;margin-top:8px}.password-field input{width:100%;padding-right:68px}.password-visibility{position:absolute;right:2px;top:2px;bottom:2px;min-height:40px;border:0;padding-inline:14px;font-size:12px}.password-visibility:hover{background:transparent}
 .auth-switch{border-top:1px solid var(--line);padding-top:24px;margin-top:28px;font-size:13px}.auth-switch a{display:inline-flex;min-height:44px;align-items:center}

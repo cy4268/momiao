@@ -1,6 +1,6 @@
 /* Finish the three early live game rooms; history and other games keep their layouts. */
 .direct-salon .direct-tool-dock { display:flex; gap:8px; margin-top:12px; }
-.direct-salon .direct-tool-dock button { flex:1; display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:44px; padding:8px 16px; border:1px solid #b79a627a; border-radius:2px; background:#081a2d; font-size:13px; }
+.direct-salon .direct-tool-dock button { flex:1; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:8px 16px }
 .direct-salon .direct-tool-dock button:last-child { flex:0 0 auto; }
 .direct-tool-dock span { color:#e3c98f; font-size:18px; }
 .direct-game.direct-salon .compact-receipt { grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:16px; padding:10px 18px; margin:12px 0 0; }
@@ -56,7 +56,7 @@
  .direct-salon .game-balance a { min-height:28px; }
  .direct-salon .wager-form { gap:8px; }
  .direct-salon .wager-cost { gap:8px; padding:10px 0 4px; }
- .direct-salon .game-play { min-height:52px!important; margin-top:auto; font-size:20px; }
+ .direct-salon .game-play { margin-top:auto }
  .direct-salon .game-choice label { min-height:76px; }
  .direct-salon .summon-mode label { margin:0; }
  .direct-salon .compact-receipt,.direct-salon .direct-tool-dock { flex:none; margin:0; }
@@ -80,11 +80,11 @@
  .direct-salon .game-choice strong { font-size:26px; }
  .direct-salon .game-choice span { margin-top:0; font-size:12px; }
  .direct-salon .wager-cost { gap:4px; padding:6px 0 2px; }
- .direct-salon .game-play { min-height:48px!important; }
+ 
  .direct-game.direct-salon .compact-receipt { padding-block:6px; }
  .direct-salon .compact-receipt h2 strong,.direct-salon .compact-receipt dd { font-size:20px; }
  .direct-salon .compact-receipt p { font-size:11px; margin-top:2px; }
- .direct-salon .direct-tool-dock button { min-height:40px; padding-block:6px; }
+ .direct-salon .direct-tool-dock button { padding-block:6px }
  .direct-salon .summon-play-layout { padding:10px 12px; }
  .direct-salon.game-summon .wager-form { gap:4px; }
  .direct-salon .summon-mode label { min-height:44px; padding-block:6px; }

@@ -56,7 +56,7 @@ export function QuotaActivation({client,userID}:{client:ApiClient;userID:string}
   }}catch(e){if(current())setNotice(transferError(e))}finally{lock.current=false;if(current())setBusy(false)}
  }
  function submit(e:FormEvent){e.preventDefault();if(!blocked && valid)void send({key:crypto.randomUUID(),amount})}
- return <WalletChamber page="activation"><header className="page-heading"><div><p className="eyebrow">RESERVE → ACTIVE / API CREDIT</p><h1>转入原生额度</h1><p>将储备接入 API 调用，而不是仅停留在钱包中。</p></div><Link className="text-link" to="/wallet">返回我的钱包 →</Link></header>
+ return <WalletChamber page="activation"><header className="page-heading"><div><p className="eyebrow">RESERVE → ACTIVE / API CREDIT</p><h1>转入原生额度</h1><p>将储备接入 API 调用，而不是仅停留在钱包中。</p></div><Link className="text-link" to="/wallet">返回我的钱包</Link></header>
   <div className="wallet-scope"><p>Reserve 与原生额度 1:1 转入，无手续费；1 API Credit = 500,000 原生单位。</p><p>本页暂不支持转回 Reserve。受理后由后台继续处理，关闭页面不取消划转。</p></div>
   {notice && <Alert>{notice}</Alert>}{storageError && <Alert>浏览器待核对请求读取异常，新的划转已暂停。请保留原请求记录。</Alert>}
   {pending && <section className="panel pending-operation" aria-label="待核对划转"><h2>先核对上一笔划转</h2><p>转入 {pending.amount} API Credit</p><code>{pending.key}</code><div className="actions"><button disabled={busy} onClick={()=>void reconcile()}>核对划转结果</button>{retry && <button disabled={busy} onClick={()=>void send(pending,true)}>按原请求重试</button>}</div></section>}

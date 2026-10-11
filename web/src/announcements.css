@@ -3,7 +3,7 @@
 .announcement-title h1, .announcement-detail h1 { font-family: var(--display); font-size: clamp(30px,4vw,44px); font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; margin: 14px 0; }
 .announcement-title p:last-child { color: var(--muted); line-height: 1.8; }
 .announcement-tabs { display: flex; gap: 24px; margin-bottom: 22px; }
-.announcement-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 0; background: transparent; color: var(--muted); }
+.announcement-tabs button { border-bottom: 2px solid transparent; padding: 8px 0 }
 .announcement-tabs button[aria-pressed=true] { color: var(--azure); border-color: var(--azure); }
 .announcement-filters { display: grid; grid-template-columns: 140px minmax(140px,1fr) 155px 155px auto; gap: 12px; align-items: end; }
 .announcement-filters label { min-width: 0; }

@@ -27,11 +27,7 @@
   object-position: right center;
   pointer-events: none;
 }
-.announcement-site :is(a, button, input, select):focus-visible,
-.announcement-site [role=region]:focus-visible {
-  outline: 2px solid #c3dff4;
-  outline-offset: 3px;
-}
+.announcement-site [role=region]:focus-visible { outline: 2px solid #c3dff4; outline-offset: 3px }
 .announcement-site .skip-link { background: #eee3d1; color: #071423; }
  .announcement-site .public-footer {
   width: 100%;
@@ -74,22 +70,16 @@
 .announcement-site .announcement-title h1 { font-size: clamp(32px, 3vw, 46px); line-height: 1.25; margin: 10px 0; }
 .announcement-site .announcement-title p:last-child { margin: 0; font-size: 14px; }
 .announcement-site .announcement-tabs { gap: 28px; border-bottom: 1px solid var(--line); margin: 0 0 16px; flex-shrink: 0; }
-.announcement-site .announcement-tabs button { min-height: 44px; padding-inline: 12px; margin-bottom: -1px; }
+.announcement-site .announcement-tabs button { padding-inline: 12px; margin-bottom: -1px }
 .announcement-site .announcement-tabs button[aria-pressed=true] { color: var(--ink); border-color: #d8e6f6; }
 .announcement-site .announcement-filters { grid-template-columns: 120px minmax(120px, 1fr) 138px 138px auto; gap: 10px; flex-shrink: 0; }
 .announcement-site .announcement-filters label { font-size: 11px; color: var(--muted); margin: 0; gap: 0; font-weight: 400; }
 .announcement-site .announcement-filters :is(input, select) { min-height: 40px; height: 40px; padding: 8px; margin-top: 7px; color: var(--ink); background: #0a1a29; border-color: #8ca5be66; font-size: 12px; }
 .announcement-site input::placeholder { color: #94a6b9; opacity: 1; }
-.announcement-site button:not(.announcement-tabs button), .announcement-entry-overlay :is(button, .button) {
-  background: #102336;
-  color: var(--ink);
-  border: 1px solid #afc5dc70;
-  border-radius: 3px;
-  font-size: 12px;
-}
-.announcement-site .announcement-filters button { min-height: 40px; padding: 8px 12px; border-color: #c4a67b; background: #c4a67b20; }
+
+.announcement-site .announcement-filters button { padding: 8px 12px }
 .announcement-site button:disabled { opacity: .4; }
-.announcement-site button:not(:disabled):hover, .announcement-entry-overlay button:hover { background: #24405a; }
+
 .announcement-site .hint { font-size: 11px; color: var(--muted); line-height: 1.6; margin: 10px 0 14px; }
 .announcement-site :is(.announcement-list, .announcement-reading) { min-height: 120px; flex: 1; overflow: auto; scrollbar-width: thin; scrollbar-color: #8d9bab66 transparent; overscroll-behavior: contain; }
 .announcement-site .announcement-row {
@@ -114,7 +104,7 @@
 .announcement-read[data-read=false] { color: #efc781; }
 .announcement-site .announcement-row-arrow { position: static; grid-column: 5; font-size: 16px; }
 .announcement-site .announcement-pager { justify-content: center; margin: 18px 0 0; font-size: 12px; flex-shrink: 0; }
-.announcement-site .announcement-pager button { min-height: 36px; }
+
 .announcement-site .announcement-back { flex-shrink: 0; min-height: 30px; margin: 0 0 18px; align-self: start; font-size: 13px; }
 .announcement-site .announcement-detail { display: flex; flex-direction: column; flex: 1; width: 100%; min-height: 0; max-width: none; margin: 0; }
 .announcement-site .announcement-detail header { flex-shrink: 0; padding: 0 0 18px; margin: 0 0 20px; }
@@ -136,7 +126,7 @@
 .announcement-entry-overlay .modal p { color: var(--muted); }
 .announcement-entry-overlay .eyebrow { color: #c4a67b; }
 .announcement-entry-overlay .announcement-actions { border-top: 1px solid var(--line); padding-top: 20px; }
-.announcement-entry-overlay .button.primary { background: #c4a67b24; border-color: #c4a67b; }
+
 @media (min-width: 901px) and (max-width: 1200px) {
   .announcement-panel { width: 80%; padding: 22px; }
   .announcement-site .announcement-filters { grid-template-columns: 104px minmax(110px, 1fr) 128px 128px auto; gap: 8px; }
