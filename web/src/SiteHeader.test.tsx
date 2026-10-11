@@ -94,3 +94,9 @@ it('shows the domain sub-navigation', () => {
     show('/rankings');
     expect(screen.queryByRole('navigation', { name: '页面导航' })).not.toBeInTheDocument();
 });
+it('uses the shared master resource without a second profile request', () => {
+    session(true);
+    render(<MemoryRouter initialEntries={['/dashboard']}><SiteHeader client={client} master={{ data: profile('改名后的墨恒'), loading: false, error: '', reload: () => {} }} /></MemoryRouter>);
+    expect(screen.getByRole('button', { name: '账户菜单' })).toHaveTextContent('改名后的墨恒');
+    expect(profileAPI.readProfile).not.toHaveBeenCalled();
+});

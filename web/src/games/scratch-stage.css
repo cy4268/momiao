@@ -1,10 +1,8 @@
 /* Scoped to the scratch page, not the scratch card in the game directory. */
 .portal-shell:has(.direct-game.game-scratch) { --ink:#f4ecd7; --muted:#b9cadd; --line:#7185a34d; color-scheme:dark; color:var(--ink); background:#081628; }
 .portal-shell:has(.direct-game.game-scratch) .main-content { width:100%; max-width:none; padding:0; margin:0; }
-.portal-shell:has(.direct-game.game-scratch) .portal-header { max-width:none; width:100%; padding-inline:clamp(16px,2.5vw,48px); background:#091626; border-color:#bba57a70; }
-.portal-shell:has(.direct-game.game-scratch) .portal-header a,.portal-shell:has(.direct-game.game-scratch) .account-button { color:#e1e8f4; }
+.portal-shell:has(.direct-game.game-scratch) .account-button { color:#e1e8f4; }
 .portal-shell:has(.direct-game.game-scratch) .brand { color:#eddbb3; }
-.portal-shell:has(.direct-game.game-scratch) .portal-context { display:none; }
 .portal-shell:has(.direct-game.game-scratch) .workspace-foot { max-width:none; padding-inline:clamp(16px,2.5vw,48px); color:#a9b8ce; background:#081628; border-color:#63758d50; }
 .portal-shell:has(.direct-game.game-scratch) .mobile-nav,.portal-shell:has(.direct-game.game-scratch) .account-menu { background:#10223a; color:#e1e8f4; border-color:#7087a8; }
 .portal-shell:has(.direct-game.game-scratch) .mobile-nav a { color:#afc5e3; }

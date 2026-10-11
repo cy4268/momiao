@@ -103,10 +103,8 @@
 .command-chamber.finance-chamber .history-transaction { color: var(--ink); background: #0e2034; border-color: var(--line); }
 .command-chamber.finance-chamber .history-transaction summary { color: #d7c5a2; }
 .command-chamber.finance-chamber .history-transaction :is(code,dd) { overflow-wrap: anywhere; }
-.portal-shell:has(.finance-chamber) .portal-context { width: 100%; margin: 0; padding: 5px 32px; background: #0a1828; border-bottom: 1px solid #758ba34d; }
 @media (min-width:1000px) {
   .command-chamber.finance-chamber .reward-detail .reward-description { display: none; }
-  .portal-shell:has(.finance-chamber) .portal-context a { min-height: 28px; padding: 4px 8px; font-size: 11px; }
   .portal-shell:has(.finance-chamber) { grid-template-rows: auto auto minmax(0,1fr) auto; }
   .command-chamber.finance-chamber .finance-history { display: flex; flex-direction: column; flex: 1 0 144px; min-height: 0; }
   .command-chamber.finance-chamber .finance-history-page:not([hidden]) { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -153,7 +151,6 @@
   .command-chamber.finance-chamber .page-heading { flex-direction: column; align-items: flex-start; justify-content: center; min-height: 245px; width: 60%; }
   .command-chamber.finance-chamber .page-heading h1 { font-size: clamp(28px,7vw,38px); }
   .command-chamber.finance-chamber .page-heading > div > p:last-child { font-size: 12px; }
-  .portal-shell:has(.finance-chamber) .portal-context { padding: 7px 14px; }
   .command-chamber.finance-chamber .wallet-balances { grid-template-columns: minmax(0,1fr); }
   .command-chamber.finance-chamber .wallet-balance { padding: 14px; }
   .command-chamber.finance-chamber .wallet-amount { font-size: 32px; }

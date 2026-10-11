@@ -42,7 +42,7 @@ it('selects exact channel model IDs inside one family without retaining stale de
  browser('/models?view=family&family=gemini&recommended=true&q=old-search',<Catalog client={c}/>);
  expect(await screen.findByRole('link',{name:'查看接入示例 →'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(model.model_id));
  const familyImage=screen.getByAltText('共享家族封面');expect(familyImage).toHaveAttribute('src',cover.image.src);
- expect(paths.find(p=>!p.includes('/detail?'))).toBe('/platform/v1/models?family=gemini');
+ expect(paths.find(p=>!p.includes('/detail?')&&p!=='/platform/v1/master-profile')).toBe('/platform/v1/models?family=gemini');
  fireEvent.click(screen.getByRole('button',{name:'使用此模型'}));
  fireEvent.click(screen.getByRole('button',{name:new RegExp(second.metadata.display_name)}));
  expect(screen.queryByRole('link',{name:'查看接入示例 →'})).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'使用此模型'})).not.toBeInTheDocument();

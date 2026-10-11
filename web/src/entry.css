@@ -2,11 +2,9 @@
 .royal-beacon { width: 52px; height: 52px; flex-shrink: 0; color: var(--azure); }
 .brand .brand-wordmark { font-family: var(--display); font-size: 25px; letter-spacing: .055em; line-height: 1.2; }
 .brand .brand-wordmark small { font: 10px/1.6 "Segoe UI", sans-serif; letter-spacing: .28em; color: var(--muted); margin-top: 5px; }
-.public-header, .public-footer, .public-home main { width: min(1200px, calc(100% - 48px)); margin-inline: auto; }
-.public-header, .portal-header { min-height: 88px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
-.public-header { border-bottom: 1px solid var(--line); }
-.public-header nav, .public-footer nav { display: flex; align-items: center; gap: 28px; }
-.public-header nav a, .public-footer nav a { font-size: 13px; text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; }
+ .public-footer, .public-home main { width: min(1200px, calc(100% - 48px)); margin-inline: auto; }
+ .public-footer nav { display: flex; align-items: center; gap: 28px; }
+ .public-footer nav a { font-size: 13px; text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; }
 .home-hero { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.25fr); align-items: center; gap: 40px; padding: 68px 0 64px; }
 .home-copy { position: relative; min-width: 0; }
 .home-copy .eyebrow { margin-bottom: 28px; }
@@ -47,23 +45,10 @@
 
 /* Shared authenticated header and compact navigation; no permanent global sidebar. */
 .portal-shell { display: flex; min-height: 100vh; flex-direction: column; }
-.portal-header { width: min(1200px, calc(100% - 48px)); margin-inline: auto; border-bottom: 1px solid var(--line); }
-.portal-global, .portal-account { display: flex; align-items: center; gap: 16px; }
-.portal-global { margin-right: auto; }
-.portal-global a, .portal-global button, .asset-shortcut { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; font-size: 13px; text-decoration: none; white-space: nowrap; border: 0; border-radius: 0; border-bottom: 2px solid transparent; color: var(--muted); }
-.portal-global button { flex-direction: column; gap: 0; font-weight: 400; }
-.portal-global small, .mobile-nav small { font-size: 10px; }
-.portal-global button:disabled, .mobile-nav button:disabled { opacity: 1; color: var(--muted); background: transparent; cursor: default; }
-.asset-shortcut { border: 1px solid var(--line); border-radius: 7px; }
-.portal-context { display: flex; gap: 24px; overflow-x: auto; border-bottom: 1px solid var(--line); background: #fbfaf7; padding: 4px max(24px, calc((100% - 1200px) / 2)); }
-.portal-context a { display: inline-flex; flex-shrink: 0; min-height: 44px; padding: 10px 8px; align-items: center; border-bottom: 2px solid transparent; text-decoration: none; font-size: 13px; color: var(--muted); white-space: nowrap; }
-.portal-context a:hover, .portal-global a:hover { color: var(--azure); }
-.portal-context a.active, .portal-global [aria-current], .asset-shortcut[aria-current], .mobile-nav [aria-current] { color: var(--azure); border-color: var(--azure); }
+ .mobile-nav small { font-size: 10px; }
+ .mobile-nav button:disabled { opacity: 1; color: var(--muted); background: transparent; cursor: default; }
+ .mobile-nav [aria-current] { color: var(--azure); border-color: var(--azure); }
 .mobile-nav { display: none; }
-.portal-header .account-button { min-height: 44px; max-width: 290px; padding: 4px 8px; }
-.portal-header .avatar { width: 35px; height: 35px; }
-.portal-header .avatar .crest { width: 24px; height: 27px; }
-.portal-header .account-menu a { min-height: 44px; display: flex; align-items: center; padding-block: 8px; }
 .portal-shell .main-content { width: min(1248px, 100%); padding: 40px 24px 48px; }
 .portal-shell .workspace-foot { width: min(1200px, calc(100% - 48px)); margin: auto auto 0; font-size: 11px; gap: 20px; }
 .portal-shell .page-heading { padding-top: 0; }
@@ -112,30 +97,21 @@
 .reward-next p:last-child { color: var(--muted); font-size: 13px; max-width: 60ch; }
 .reward-next > a { flex-shrink: 0; }
 .public-home, .personal-hub, .rewards-page { overflow-wrap: anywhere; }
-.public-home button, .public-home a, .portal-shell button, .portal-context a { transition: color 100ms, background-color 100ms, border-color 100ms; }
+.public-home button, .public-home a, .portal-shell button { transition: color 100ms, background-color 100ms, border-color 100ms; }
 
 @media (max-width: 1100px) {
-  .public-header, .public-footer, .public-home main, .portal-header { width: calc(100% - 32px); }
+   .public-footer, .public-home main { width: calc(100% - 32px); }
   .home-hero { gap: 28px; padding-block: 48px; }
   .home-copy h1 { font-size: 36px; }
   .home-art { border-radius: 80px 80px 14px 14px; }
-  .portal-context { padding-inline: 16px; }
-  .portal-global, .portal-account { gap: 8px; }
-  .portal-header .brand-wordmark { font-size: 20px; }
-  .portal-header .account-button { max-width: 190px; }
   .portal-shell .main-content { padding-inline: 16px; }
   .portal-shell .workspace-foot { width: calc(100% - 32px); }
 }
 @media (max-width: 720px) {
-  .public-header, .public-footer, .public-home main, .portal-header { width: calc(100% - 28px); }
-  .public-header, .portal-header { min-height: 72px; gap: 12px; }
+   .public-footer, .public-home main { width: calc(100% - 28px); }
   .royal-beacon { width: 38px; height: 38px; }
   .brand .brand-wordmark { font-size: 19px; }
   .brand .brand-wordmark small { font-size: 8px; }
-  .public-header .brand, .portal-header .brand { gap: 10px; }
-  .public-header nav { gap: 10px; }
-  .public-header nav > a:not(.button) { display: none; }
-  .public-header nav .button { padding-inline: 12px; font-size: 12px; }
   .home-hero { grid-template-columns: minmax(0,1fr); padding: 36px 0 32px; gap: 32px; }
   .home-copy h1 { font-size: clamp(30px, 6vw, 40px); line-height: 1.55; margin-bottom: 20px; }
   .home-copy .eyebrow { margin-bottom: 20px; font-size: 9px; }
@@ -154,9 +130,6 @@
   .public-footer { align-items: flex-start; font-size: 11px; }
   .public-footer nav { gap: 8px 20px; flex-wrap: wrap; }
   .public-footer nav a { font-size: 12px; }
-  .portal-global, .asset-shortcut { display: none; }
-  .portal-context { padding-inline: 14px; gap: 12px; }
-  .portal-context a { font-size: 12px; padding-inline: 4px; }
   .portal-shell { --mobile-safe-area: env(safe-area-inset-bottom, 0px); padding-bottom: calc(76px + var(--mobile-safe-area)); }
   html:has(.portal-shell) { scroll-padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
   .portal-shell :where(a, button, input, select, textarea, [tabindex]) { scroll-margin-bottom: calc(76px + var(--mobile-safe-area)); }
@@ -164,10 +137,6 @@
   .mobile-nav a, .mobile-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; min-width: 0; min-height: 52px; padding: 6px 2px; border: 0; border-top: 2px solid transparent; border-radius: 0; color: var(--muted); font-size: 13px; text-decoration: none; }
   .mobile-nav a[aria-current], .mobile-nav button[aria-current] { color: var(--azure); border-top-color: var(--azure); }
   .mobile-nav a:focus-visible { outline-offset: -3px; }
-  .portal-header .account-button { max-width: 150px; font-size: 11px; gap: 6px; padding-inline: 3px; }
-  .portal-header .avatar { width: 28px; height: 28px; }
-  .portal-header .avatar .crest { width: 20px; height: 23px; }
-  .portal-header .account-menu { top: 48px; max-width: calc(100vw - 28px); }
   .portal-shell .main-content { padding: 30px 14px 36px; }
   .portal-shell .workspace-foot { width: calc(100% - 28px); flex-wrap: wrap; font-size: 10px; }
   .portal-shell .page-heading > div > p:last-child { font-size: 13px; }
@@ -186,12 +155,6 @@
   .reward-detail .daily-action { border-left: 0; border-top: 1px solid var(--line); padding: 22px 0 0; }
   .reward-next { flex-direction: column; align-items: flex-start; gap: 12px; }
   .rewards-page .pager { flex-wrap: wrap; gap: 14px; }
-}
-@media (max-width: 420px) {
-  .portal-header .brand-wordmark { font-size: 15px; }
-  .portal-header .royal-beacon { width: 30px; height: 30px; }
-  .portal-header .account-button { max-width: 138px; }
-  .public-header .brand-wordmark { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .public-home *, .portal-shell * { scroll-behavior: auto !important; animation: none !important; transition-duration: 0ms !important; }

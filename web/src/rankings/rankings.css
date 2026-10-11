@@ -4,13 +4,6 @@
 .ranking-workspace button:disabled{opacity:.4}
 .ranking-workspace button:not(:disabled):hover{border-color:#e0c58f;background:#203451}
 .ranking-workspace :is(button,a,input,select,summary,[tabindex]):focus-visible{outline:2px solid #aaceff;outline-offset:3px}
-.ranking-workspace .ranking-header{width:100%;max-width:none;margin:0;padding:12px 30px;gap:30px;background:#081321;border-bottom:1px solid #b49a6477}
-.ranking-header .brand{color:#d7dbea}.ranking-header .royal-beacon{color:#afc4e1}
-.ranking-header .portal-global{flex:1;gap:26px}
-.ranking-header .portal-global a{color:#cdd6e5;font-size:13px;white-space:nowrap}
-.ranking-header .portal-global a[aria-current=page]{color:#f2dfb7;border-color:#c9af75}
-.ranking-account{display:flex;align-items:center;gap:18px;font-size:12px;white-space:nowrap}
-.ranking-account a+a{border-left:1px solid var(--line);padding-left:18px}
 .ranking-main{position:relative;isolation:isolate;min-width:0;padding:24px 30px}
 .ranking-background{position:absolute;z-index:-2;inset:0;width:100%;height:100%;object-fit:cover;object-position:75% center}
 .ranking-main::before{content:'';position:absolute;z-index:-1;inset:0;pointer-events:none;background:linear-gradient(90deg,#050d1c25,transparent 70%)}
@@ -77,12 +70,9 @@
 .ranking-domains button{padding:7px 24px;min-height:36px}.ranking-main :is(th,td){padding-block:7px}.ranking-rank{height:32px;width:32px}.ranking-filters{padding-bottom:8px}
 }
 @media(max-width:1150px) and (min-width:1000px){
-.ranking-body{width:65%}.ranking-workspace .ranking-header{gap:18px;padding-inline:24px}.ranking-header .portal-global{gap:16px}.ranking-header .brand-wordmark{font-size:23px}
+.ranking-body{width:65%}
 }
 @media(max-width:999px){
-.ranking-workspace .ranking-header{display:grid;grid-template-columns:1fr auto;gap:12px;padding:14px 16px 0}.ranking-header .brand-wordmark{font-size:22px}.ranking-header .royal-beacon{width:36px;height:36px}
-.ranking-header .portal-global{display:flex;grid-column:1/-1;grid-row:2;gap:0;width:100%;justify-content:space-between;overflow:visible}.ranking-header .portal-global a{font-size:12px;padding:12px 5px;min-height:44px}
-.ranking-account{font-size:11px;gap:10px}.ranking-account>a:first-child{display:none}.ranking-account a+a{border:0;padding-left:0}
 .ranking-main{padding:24px 14px}.ranking-background{height:260px;object-fit:cover;object-position:right top}
 .ranking-main::before{background:linear-gradient(0deg,#07111e calc(100% - 260px),transparent calc(100% - 100px)),linear-gradient(90deg,#07111edb,transparent)}
 .ranking-body,.ranking-rp .ranking-body{width:100%}.ranking-heading{min-height:180px;display:flex;flex-direction:column;justify-content:center;align-items:start;width:56%;padding-bottom:22px}

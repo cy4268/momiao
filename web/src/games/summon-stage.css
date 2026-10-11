@@ -1,10 +1,8 @@
 /* Page-scoped art direction: no changes to the hall, wallet or other games. */
 .portal-shell:has(.direct-game.game-summon) { --ink:#f4ecd7; --muted:#b9cadd; --line:#7185a34d; color-scheme:dark; color:var(--ink); background:#071527; }
 .portal-shell:has(.direct-game.game-summon) .main-content { width:100%; max-width:none; padding:0; margin:0; }
-.portal-shell:has(.direct-game.game-summon) .portal-header { max-width:none; width:100%; padding-inline:clamp(16px,2.5vw,48px); background:#081526; border-color:#bba57a70; }
-.portal-shell:has(.direct-game.game-summon) .portal-header a,.portal-shell:has(.direct-game.game-summon) .account-button { color:#e1e8f4; }
+.portal-shell:has(.direct-game.game-summon) .account-button { color:#e1e8f4; }
 .portal-shell:has(.direct-game.game-summon) .brand { color:#eddbb3; }
-.portal-shell:has(.direct-game.game-summon) .portal-context { display:none; }
 .portal-shell:has(.direct-game.game-summon) .workspace-foot { max-width:none; padding-inline:clamp(16px,2.5vw,48px); color:#a9b8ce; background:#081628; border-color:#63758d50; }
 .portal-shell:has(.direct-game.game-summon) .mobile-nav,.portal-shell:has(.direct-game.game-summon) .account-menu { background:#10223a; color:#e1e8f4; border-color:#7087a8; }
 .portal-shell:has(.direct-game.game-summon) .mobile-nav a { color:#afc5e3; }

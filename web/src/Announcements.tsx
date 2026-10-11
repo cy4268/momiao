@@ -1,7 +1,8 @@
+import { SiteHeader } from './SiteHeader';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { ApiClient } from './api';
-import { Alert, Brand, Empty, Modal, useResource } from './ui';
+import { Alert, Empty, Modal, useResource } from './ui';
 import { announcementError, announcementRoot, announcementStates, announcementTime, announcementTypes, checkedAnnouncement, markPopupSeen, popupSeen, publicAnnouncements, type Announcement } from './announcement-api';
 import { assetUrl } from './game-hall-assets';
 import art from './announcement-art.json';
@@ -10,7 +11,7 @@ import './announcement-chamber.css';
 
 function AnnouncementShell({ client, children }: { client: ApiClient; children: ReactNode }) {
     const signedIn = !!client.getSnapshot().user;
-    return <div className='announcement-site'><img className='announcement-backdrop' src={assetUrl(art.background)} alt='' decoding='async' /><a className='skip-link' href='#announcement-content'>跳至公告内容</a><header className='public-header'><Link to='/' className='brand' aria-label='Chaldea Platform 首页'><Brand /></Link><nav aria-label='公告导航'><Link to='/models'>模型目录</Link><Link to='/entertainment'>娱乐</Link><Link to='/rankings'>排行榜</Link><Link to='/announcements' aria-current='page'>公告</Link><Link to={signedIn ? '/dashboard' : '/login'}>{signedIn ? '指挥台' : '登录账户'}</Link></nav></header><main id='announcement-content' className='announcement-main' tabIndex={-1}><div className='announcement-panel'>{children}</div></main><footer className='public-footer'><span>Chaldea Platform / 公告与更新</span><nav><Link to='/'>返回首页</Link>{signedIn && <Link to='/ops/announcements'>公告运营</Link>}</nav></footer></div>;
+    return <div className='announcement-site'><img className='announcement-backdrop' src={assetUrl(art.background)} alt='' decoding='async' /><a className='skip-link' href='#announcement-content'>跳至公告内容</a><SiteHeader client={client} /><main id='announcement-content' className='announcement-main' tabIndex={-1}><div className='announcement-panel'>{children}</div></main><footer className='public-footer'><span>Chaldea Platform / 公告与更新</span><nav><Link to='/'>返回首页</Link>{signedIn && <Link to='/ops/announcements'>公告运营</Link>}</nav></footer></div>;
 }
 export function AnnouncementBody({ item }: { item: Announcement }) {
     return <><div className='announcement-body' dangerouslySetInnerHTML={{ __html: item.sanitized_html }} />{item.acknowledgements.length > 0 && <section className='announcement-acknowledgements' aria-label='致谢名单'>{item.acknowledgements.map(entry => <article key={entry.manual_order}>{entry.group_name && <small>{entry.group_name}</small>}<h3>{entry.external_link ? <a href={entry.external_link} target='_blank' rel='noopener noreferrer nofollow'>{entry.display_name}</a> : entry.display_name}</h3>{entry.acknowledgement_note && <p>{entry.acknowledgement_note}</p>}</article>)}</section>}</>;

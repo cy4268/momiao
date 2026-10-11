@@ -1,7 +1,8 @@
+import { SiteHeader } from '../SiteHeader';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ApiClient } from '../api';
-import { Alert, Brand, Empty, Modal, useResource } from '../ui';
+import { Alert, Empty, Modal, useResource } from '../ui';
 import { saveRouteIntent } from '../post-auth-intent';
 import { assetSrcSet, assetUrl } from '../game-hall-assets';
 import art from './rankings-art.json';
@@ -68,11 +69,7 @@ export function Rankings({client}:{client:ApiClient}) {
     const unit=metric==='RP_CREDITS'?'Credit':metric==='TOTAL_ASSETS'?'Credit 等值':rp?'次':'筹码';
     return <div className="ranking-workspace">
       <a className="skip-link" href="#ranking-content">跳至排行榜</a>
-      <header className="portal-header ranking-header">
-        <Link to="/" className="brand" aria-label="Chaldea Platform 首页"><Brand/></Link>
-        <nav className="portal-global" aria-label="主导航"><Link to="/dashboard">指挥台</Link><Link to="/models">模型目录</Link><Link to="/entertainment">娱乐</Link><Link to="/rankings" aria-current="page">排行榜</Link><Link to="/announcements">公告</Link></nav>
-        <div className="ranking-account"><Link to="/wallet">资产</Link><Link to={session.user?'/me':'/login'} onClick={()=>{if(!session.user)saveRouteIntent('/rankings?'+serialized)}}>{session.user?'个人中心':'登录账户'}</Link></div>
-      </header>
+      <SiteHeader client={client}/>
       <main ref={main} tabIndex={-1} id="ranking-content" className={'ranking-main'+(rp?' ranking-rp':'')}>
         <img className="ranking-background" src={assetUrl(art.background.src)} srcSet={assetSrcSet(art.background)} sizes="100vw" width={art.background.width} height={art.background.height} alt="梅塔特隆·贞德，第二再临形态，戴着耳机倚坐在龙骨游戏座椅上" fetchPriority="high"/>
         <div className="ranking-body">

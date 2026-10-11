@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
-import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
+import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { api, ApiClient, type User, type UsageLog, errorText } from './api';
 import { Keys } from './Keys';
 import { RPUsage } from './RPUsage';
@@ -7,7 +7,6 @@ import { ApiWorkbench, UsageNavigation } from './ApiWorkbench';
 import { Catalog, CatalogDetailPage, APIAccess } from './Catalog';
 import { OpsCatalog } from './OpsCatalog';
 import { OpsShell, OpsHome } from './ops/OpsShell';
-import { readOpsBootstrap } from './ops/ops-api';
 import { OpsAttention, OpsJobs, OpsServiceHealth } from './ops/OpsRuntime';
 import { OpsOperationDetail, OpsOperationLookup } from './ops/OpsOperationDetail';
 import { OpsAudit, OpsAuditDetail } from './ops/OpsAudit';
@@ -40,13 +39,14 @@ import { OpsAnnouncements } from './OpsAnnouncements';
 import { PersonalHub, MasterSummary, CommandChamber, type MasterResource } from './PersonalHub';
 import { Rewards } from './Rewards';
 import { readProfile, profileError } from './profile-api';
-import { Alert, Brand, Crest, Empty, Loading, Pager, date, number, role, useResource } from './ui';
+import { Alert, Crest, Empty, Loading, Pager, date, number, useResource } from './ui';
 import { DiscordCallback, type CapturedCallback } from './Authentication';
 import { Account } from './Account';
 import { AccessGate, LoginRequired, PostAuthGate } from './PostAuthGate';
 import type { SensitiveProof } from './admission-api';
 import { PokerRoute } from './poker/PokerRoute';
 import { Rankings } from './rankings/Rankings';
+import { SiteHeader } from './SiteHeader';
 const missingCallback:CapturedCallback={error:'授权回调已失效，请重新开始。'};
 export function App({ client = api, capturedCallback = missingCallback, onCatalogLoginRequired }: { client?: ApiClient; capturedCallback?:CapturedCallback; onCatalogLoginRequired?: CatalogLoginRequired }) {
     const session = useSyncExternalStore(client.subscribe, client.getSnapshot);
@@ -172,36 +172,11 @@ function Shell({ client, user, children }: { client: ApiClient; user: User; chil
         : ['/wallet', '/wallet/activate', '/rewards'].includes(location.pathname) || location.pathname.startsWith('/wallet/transactions/') ? 'assets'
         : ['/me', '/account', '/account/security', '/master-profile', '/admin/channels'].includes(location.pathname) ? 'my'
         : location.pathname==='/poker' || location.pathname.startsWith('/games/') || location.pathname.startsWith('/roulette/') || location.pathname.startsWith('/history') ? 'experience' : 'home';
-    const contextLinks = domain === 'models' ? [['/models', '发现模型'], ['/api/access', 'API 接入'], ['/keys', '密钥管理'], ['/logs', '调用记录']]
-        : domain === 'assets' ? [['/wallet', '我的钱包'], ['/rewards', '奖励中心']]
-        : domain === 'experience' ? [['/games', '游戏目录'],['/games/dice', '命运骰盅'],['/games/scratch','星纹刮刮卡'],['/games/summon','圣晶召唤'],['/games/slot','月光回响'],['/games/blackjack','二十一点'],['/poker','Poker 大厅'],['/history','游戏记录']] : [];
-    const [menu, setMenu] = useState(false);
-    const opsEntry=useResource(async()=>{if(!menu||client.getSessionMode()!=='opaque')return false;try{return (await readOpsBootstrap(client)).principal.permissions.length>0}catch{return false}},[client,user.id,menu]);
     const main = useRef<HTMLElement>(null);
-    const account = useRef<HTMLDivElement>(null);
-    const trigger = useRef<HTMLButtonElement>(null);
     const master = useResource(() => readProfile(client, String(user.id)).catch(e => { throw new Error(profileError(e)); }), [client, user.id, location.pathname]);
-    useEffect(() => { setMenu(false); document.title = (pageTitles[location.pathname] || (location.pathname.startsWith('/wallet/transactions/') ? '钱包交易详情' : location.pathname.startsWith('/history/sessions/') ? '牌桌会话详情' : location.pathname.startsWith('/history/hands/') ? '手牌详情' : location.pathname.startsWith('/history/') ? '本局详情' : '指挥台')) + ' · momiao'; main.current?.focus(); }, [location.pathname]);
-    useEffect(() => {
-        if (!menu) return;
-        const outside = (e: PointerEvent) => { if (!account.current?.contains(e.target as Node)) setMenu(false); };
-        document.addEventListener('pointerdown', outside);
-        return () => document.removeEventListener('pointerdown', outside);
-    }, [menu]);
-    const masterName = master.loading ? '正在读取 Master' : master.error ? 'Master 资料待核对' : master.data?.status === 'COMPLETE' ? master.data.display_name : 'Master 资料未完成';
+    useEffect(() => { document.title = (pageTitles[location.pathname] || (location.pathname.startsWith('/wallet/transactions/') ? '钱包交易详情' : location.pathname.startsWith('/history/sessions/') ? '牌桌会话详情' : location.pathname.startsWith('/history/hands/') ? '手牌详情' : location.pathname.startsWith('/history/') ? '本局详情' : '指挥台')) + ' · momiao'; main.current?.focus(); }, [location.pathname]);
     return <div className="portal-shell"><a className="skip-link" href="#main-content">跳至主要内容</a>
-        <header className="portal-header"><Link to="/" className="brand" aria-label="Chaldea Platform 首页"><Brand /></Link>
-            <nav className="portal-global" aria-label="主导航">
-                <Link to="/dashboard" aria-current={domain === 'home' ? 'page' : undefined}>指挥台</Link>
-                <Link to="/models" aria-current={domain === 'models' ? 'true' : undefined}>模型目录</Link>
-                <Link to="/entertainment" aria-current={domain === 'experience' ? 'true' : undefined}>娱乐</Link>
-                <Link to="/rankings">排行榜</Link><Link to="/announcements">公告</Link>
-            </nav>
-            <div className="portal-account"><Link className="asset-shortcut" to="/wallet" aria-label="资产快捷入口" aria-current={domain === 'assets' ? 'true' : undefined}><span aria-hidden="true">◇</span> 资产</Link><div className="account-wrap" ref={account} onKeyDown={e => { if (e.key === 'Escape' && menu) { setMenu(false); trigger.current?.focus(); } }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setMenu(false); }}>
-            <button ref={trigger} className="account-button" aria-label="账户菜单" aria-expanded={menu} aria-controls="account-menu" onClick={() => setMenu(!menu)}><span className="avatar"><Crest /></span><span>{masterName}<small>Master 身份</small></span><span aria-hidden="true">⌄</span></button>
-            {menu && <div className="account-menu" id="account-menu"><strong>{user.display_name || user.username}</strong><span>原生登录身份 · {user.username}</span><span>{role(user.role)}</span><Link to="/me">个人中心</Link><Link to="/master-profile">Master 资料</Link><Link to="/rewards">奖励中心</Link>{opsEntry.data&&<Link to="/ops">运营工作台</Link>}{user.role >= 10 && <Link to="/admin/channels">渠道管理</Link>}<button onClick={() => void client.logout().catch(() => {})}>退出登录</button></div>}
-        </div></div></header>
-        {contextLinks.length > 0 && <nav className="portal-context" aria-label="页面导航">{contextLinks.map(([path, title]) => <NavLink to={path} key={path}>{title}</NavLink>)}</nav>}
+        <SiteHeader client={client} master={master} />
         <main ref={main} id="main-content" tabIndex={-1} className="main-content">{children??<Outlet context={master} />}</main>
         <footer className="workspace-foot"><span>momiao / Chaldea Platform <span> / </span><a href="https://github.com/cy4268/momiao" target="_blank" rel="noopener noreferrer">源代码</a></span><span>你的连接，由你掌握。</span></footer>
         <nav className="mobile-nav" aria-label="底部导航">

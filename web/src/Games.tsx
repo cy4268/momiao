@@ -1,8 +1,9 @@
+import { SiteHeader } from './SiteHeader';
 import { CapReceipt, CapRules, capResult } from './economy-cap';
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ApiClient, ApiError } from './api';
-import { Alert, Brand, Empty, Loading, Modal, useResource } from './ui';
+import { Alert, Empty, Loading, Modal, useResource } from './ui';
 import { DiceStage, ScratchStage, SummonStage } from './games/DirectStages';
 import {SlotGame, SlotRules} from './games/SlotGame';
 import slotArt from './games/slot-art.json';
@@ -70,11 +71,7 @@ export function GamesCatalog({client}:{client:ApiClient}) {
     const catalog=useResource(async()=>query?parsePublicCatalog(await client.gameCatalog<unknown>(discovery?query:undefined)):null,[client,session.user?.id,search,discovery]);
     const clear=()=>navigate({pathname:location.pathname,search:''});
     return <div className="games-catalog game-hall"><a className="skip-link" href="#games-catalog-content">跳至主要内容</a>
-        <header className="portal-header">
-            <Link to="/" className="brand hall-brand" aria-label="Chaldea Platform 首页"><span>CHALDEA</span><small>MOMIAO</small></Link>
-            <nav className="portal-global" aria-label="主导航"><Link to="/">首页</Link><Link to="/models">模型目录</Link><Link to="/entertainment" aria-current="page">娱乐</Link><Link to="/rankings">排行榜</Link><Link to="/announcements">公告</Link></nav>
-            <Link className="button hall-account" to={session.user?'/me':'/login'}>{session.user?'个人中心':'登录账户'}</Link>
-        </header>
+        <SiteHeader client={client}/>
         <main id="games-catalog-content">
             <section className="entertainment-hero">
                 <HallImage asset={hallArt.hero.background} className="hall-backdrop" sizes="(max-width: 1440px) 100vw, 1440px"/>

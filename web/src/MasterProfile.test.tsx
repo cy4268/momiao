@@ -32,10 +32,10 @@ it('opens an optional profile route without initializing or copying native ident
     expect(await screen.findByLabelText('Master 昵称')).toHaveValue('');
     expect(screen.getByRole('button', { name: '保存并初始化' })).toBeDisabled();
     expect(screen.getByText('尚未初始化')).toBeVisible(); expect(writes(f)).toHaveLength(0);
-    expect(screen.getByRole('button', { name: '账户菜单' })).toHaveTextContent('Master 资料未完成');
+    expect(screen.getByRole('button', { name: '账户菜单' })).toHaveTextContent('Native User');
     fireEvent.click(screen.getByRole('button', { name: '账户菜单' }));
     expect(within(document.getElementById('account-menu')!).getByText('Native User')).toBeVisible();
-    expect(within(document.getElementById('account-menu')!).getByText('原生登录身份 · native-user')).toBeVisible();
+    expect(document.getElementById('account-menu')).not.toHaveTextContent('原生登录身份');
     expect(within(document.getElementById('account-menu')!).getByRole('link', { name: 'Master 资料' })).toHaveAttribute('href', '/master-profile');
 });
 it('previews without writing, explicitly initializes once and round-trips the identity', async () => {

@@ -1,11 +1,9 @@
 /* The dice room owns the viewport, without widening any other game. */
 .portal-shell:has(.game-dice) { --ink:#ecf0f7; --muted:#b3c3d9; --line:#7185a34d; color-scheme:dark; color:var(--ink); background:#081323; }
 .portal-shell:has(.game-dice) .main-content { width:100%; max-width:none; padding:0; margin:0; }
-.portal-shell:has(.game-dice) .portal-header { max-width:none; width:100%; padding-inline:clamp(16px,2.5vw,48px); background:#091626; border-color:#bba57a70; }
-.portal-shell:has(.game-dice) .portal-header a,
+
 .portal-shell:has(.game-dice) .account-button { color:#e1e8f4; }
 .portal-shell:has(.game-dice) .brand { color:#eddbb3; }
-.portal-shell:has(.game-dice) .portal-context { display:none; }
 .portal-shell:has(.game-dice) .workspace-foot { max-width:none; padding-inline:clamp(16px,2.5vw,48px); color:#a9b8ce; background:#081323; border-color:#63758d50; }
 .portal-shell:has(.game-dice) .mobile-nav,
 .portal-shell:has(.game-dice) .account-menu { background:#10223a; color:#e1e8f4; border-color:#7087a8; }

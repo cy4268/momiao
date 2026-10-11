@@ -25,7 +25,7 @@ it('keeps the public hourly leaderboard, exact values, filters and private own-r
   fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));
   expect(medal).toHaveFocus();
   expect(screen.getByRole('heading',{name:'迦勒底排行榜'})).toBeInTheDocument();
-  expect(within(screen.getByRole('navigation',{name:'主导航'})).getAllByRole('link').map(link=>link.getAttribute('href'))).toEqual(['/dashboard','/models','/entertainment','/rankings','/announcements']);
+  expect(within(screen.getByRole('navigation',{name:'主导航'})).getAllByRole('link').map(link=>link.getAttribute('href'))).toEqual(['/','/models','/entertainment','/rankings','/announcements']);
   expect(screen.getByText('每小时更新 · 公开榜单')).toBeInTheDocument();
   expect(screen.getByText('18,014,398,509.481986')).toBeInTheDocument();
   expect(fetcher.mock.calls.some(([path])=>path.startsWith('/api/v1/rankings/me'))).toBe(false);

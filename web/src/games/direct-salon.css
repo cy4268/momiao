@@ -30,7 +30,6 @@
 .direct-salon .summon-roster { margin-top:20px; }
 @media (min-width:1000px) {
  .portal-shell:has(.direct-salon) { height:100dvh; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; }
- .portal-shell:has(.direct-salon) .portal-header { min-height:64px; padding:6px clamp(16px,2vw,38px); }
  .portal-shell:has(.direct-salon) .main-content { min-height:0; }
  .portal-shell:has(.direct-salon) .workspace-foot { padding:6px 24px; margin:0; font-size:10px; }
  .direct-game.direct-salon { display:flex; flex-direction:column; gap:8px; height:100%; min-height:0; padding:12px clamp(16px,2vw,38px); }

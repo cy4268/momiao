@@ -21,9 +21,7 @@
 /* The lobby keeps the existing portal identity, without the old narrow content column. */
 .portal-shell:has(.pk-lobby.pk-salon){--ink:#eee4d0;--muted:#a8bed1;--line:#b69d6659;color-scheme:dark;background:#071425}
 .portal-shell:has(.pk-lobby.pk-salon) .main-content{width:100%;max-width:none;margin:0;padding:0;min-width:0}
-.portal-shell:has(.pk-lobby.pk-salon) .portal-header{width:100%;max-width:none;background:#071425;border-color:#b69d6659;padding:10px 24px}
-.portal-shell:has(.pk-lobby.pk-salon) .portal-header a,.portal-shell:has(.pk-lobby.pk-salon) .account-button{color:#e1e9f5}
-.portal-shell:has(.pk-lobby.pk-salon) .portal-context{display:none}
+.portal-shell:has(.pk-lobby.pk-salon) .account-button{color:#e1e9f5}
 .portal-shell:has(.pk-lobby.pk-salon) .workspace-foot{max-width:none;width:100%;padding:5px 24px;margin:0;background:#071425;color:#a8bed1;font-size:10px}
 .portal-shell:has(.pk-lobby.pk-salon) .account-menu,.portal-shell:has(.pk-lobby.pk-salon) .mobile-nav{background:#102337;border-color:#778899;color:#eee4d0}
 .pk-lobby.pk-salon{max-width:none;width:100%;margin:0;padding:18px clamp(16px,2vw,36px) 0;display:flex;flex-direction:column;gap:10px}
@@ -79,7 +77,6 @@
 #root:has(.pk-salon)>aside[aria-label="Poker 访问状态"]{background:#071425;color:#b9cfdf;text-align:right;border-bottom:1px solid #b69d6633}
 #root:has(.pk-salon)>aside[aria-label="Poker 访问状态"]>button{background:transparent;border:0;color:#b9cfdf;font-size:11px;min-height:44px;padding:5px 12px}
 @media(min-width:1100px) and (min-height:700px){
- .portal-shell:has(.pk-lobby.pk-salon) .portal-header{min-height:64px;padding-block:6px}
  .pk-salon.pk-lobby h1{font-size:32px;margin-block:2px 4px}.pk-salon .pk-lobby-heading{max-height:82px}.pk-salon .pk-lobby-summary{padding-block:6px}.pk-salon .pk-lobby-summary strong{line-height:1.15;font-size:24px}.pk-salon .pk-lobby-summary .pk-caption,.pk-salon .pk-lobby-summary small{font-size:10px;line-height:1.4}
  .pk-salon .pk-lobby-layout .pk-flow label{margin-bottom:7px}.pk-salon .pk-flow>p{margin-bottom:8px}.pk-salon .pk-flow .pk-check{min-height:36px}.pk-salon .pk-flow fieldset>p{margin:8px 0}
  .pk-salon .pk-lobby-summary>div:not(.pk-service):not(.pk-summary-links){display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:baseline}.pk-salon .pk-lobby-summary .pk-caption{grid-column:1/-1}

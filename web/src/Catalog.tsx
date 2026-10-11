@@ -1,8 +1,9 @@
+import { SiteHeader } from './SiteHeader';
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiClient } from './api';
 import { normalizeRouteIntent, saveRouteIntent } from './post-auth-intent';
-import { Alert, Brand, Empty, Modal, Pager, useResource } from './ui';
+import { Alert, Empty, Modal, Pager, useResource } from './ui';
 import { availabilityLabels, catalogCurl, catalogError, catalogModelPath, catalogSelectionPath, catalogTime, decodeCatalogModelPath, decimalDisplay, dimensionLabels, endpointLabels, readCatalog, readCatalogDetail, readPersonalPrice, selectedModel, useCatalogModel, validCatalogCoverSrc, type CatalogAsset, type CatalogChoice, type CatalogFreshness, type CatalogLoginRequired, type CatalogModel, type CatalogPrice, type CatalogVocabulary } from './catalog-api';
 import { assetUrl } from './game-hall-assets';
 import workshopArt from './catalog-workshop-art.json';
@@ -15,15 +16,10 @@ function useCatalogLogin(onLoginRequired?:CatalogLoginRequired){
     return onLoginRequired||((returnPath:string)=>{saveRouteIntent(returnPath);navigate('/login');});
 }
 export function CatalogShell({client,title,children}:{client:ApiClient;title:string;children:ReactNode}){
-    const session=useSyncExternalStore(client.subscribe,client.getSnapshot);
     const location=useLocation();const main=useRef<HTMLElement>(null);
     useEffect(()=>{document.title=title+' · Chaldea';main.current?.focus()},[location.pathname,title]);
     return <div className="catalog-shell" style={{'--workshop-art':`url("${assetUrl(workshopArt.background)}")`} as CSSProperties}><a className="skip-link" href="#catalog-content">跳至主要内容</a>
-        <header className="portal-header"><Link className="brand" to="/" aria-label="Chaldea Platform 首页"><Brand/></Link>
-            <nav className="portal-global" aria-label="主导航"><Link to="/">首页</Link><NavLink to="/models">模型目录</NavLink><Link to="/entertainment">娱乐</Link><Link to="/rankings">排行榜</Link><Link to="/announcements">公告</Link></nav>
-            <Link className="button" to={session.user?'/me':'/login'}>{session.user?'个人中心':'登录账户'}</Link>
-        </header>
-        <nav className="portal-context" aria-label="模型服务导航"><NavLink to="/models">发现模型</NavLink><NavLink to="/api/access">API 接入</NavLink><Link to="/keys">密钥管理</Link><Link to="/logs">调用记录</Link></nav>
+        <SiteHeader client={client}/>
         <main ref={main} tabIndex={-1} id="catalog-content" className="catalog-content">{children}</main>
         <footer className="workspace-foot"><span>CHALDEA / DA VINCI WORKSHOP</span><span>模型工房 · 发现你的下一位搭档</span></footer>
     </div>;

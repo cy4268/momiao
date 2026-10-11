@@ -29,6 +29,21 @@ it.each([
     if (!contextPaths.length) expect(context).not.toBeInTheDocument();
     else expect(within(context!).getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(contextPaths);
 });
+it.each(['/dashboard', '/games', '/models', '/rankings', '/announcements'])('one header across public and signed-in pages: %s', async path => {
+    const { client } = fixtureClient();
+    const view = render(<MemoryRouter initialEntries={[path]}><App client={client} /></MemoryRouter>);
+    await screen.findByRole('navigation', { name: '主导航' });
+    await waitFor(() => expect(within(screen.getByRole('navigation', { name: '主导航' })).getAllByRole('link').map(link => link.textContent)).toEqual(['指挥台', '模型目录', '娱乐', '排行榜', '公告']), { timeout: 4000 });
+    expect(document.querySelectorAll('header.site-header')).toHaveLength(1);
+    expect(document.querySelectorAll('.portal-header, .public-header, .ranking-header')).toHaveLength(0);
+    view.unmount();
+});
+it('signed-out visitors reaching a game page get the sign-in entry', async () => {
+    const { client } = fixtureClient(() => new Response(JSON.stringify({ success: false }), { status: 401 }));
+    render(<MemoryRouter initialEntries={['/games/dice']}><App client={client} /></MemoryRouter>);
+    // LoginRequired keeps sending signed-out visitors to the sign-in page.
+    expect(await screen.findByRole('link', { name: '前往 New API 登录' }, { timeout: 4000 })).toHaveAttribute('href', '/sign-in');
+});
 it('R1 separates desktop global routes, asset shortcut and account destinations', async () => {
     const { client } = fixtureClient();
     render(<MemoryRouter initialEntries={['/keys']}><App client={client} /></MemoryRouter>);
@@ -37,7 +52,7 @@ it('R1 separates desktop global routes, asset shortcut and account destinations'
     expect(within(global).getByRole('link', { name: '模型目录' })).toHaveAttribute('aria-current');
     expect(within(global).getByRole('link', { name: '娱乐' })).toHaveAttribute('href', '/entertainment');
     expect(within(global).getByRole('link', { name: '公告' })).toHaveAttribute('href', '/announcements');
-    expect(screen.getByRole('link', { name: '资产快捷入口' })).toHaveAttribute('href', '/wallet');
+    expect(within(document.querySelector('header.site-header') as HTMLElement).getByRole('link', { name: '资产' })).toHaveAttribute('href', '/wallet');
     fireEvent.click(screen.getByRole('button', { name: '账户菜单' }));
     const menu = within(document.getElementById('account-menu')!);
     expect(menu.getByRole('link', { name: '个人中心' })).toHaveAttribute('href', '/me');

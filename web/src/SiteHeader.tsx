@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import type { ApiClient } from './api';
+import type { MasterResource } from './PersonalHub';
 import { readOpsBootstrap } from './ops/ops-api';
 import { saveRouteIntent } from './post-auth-intent';
 import { readProfile } from './profile-api';
@@ -27,9 +28,9 @@ const subnav: Partial<Record<Exclude<NavDomain, null>, [string, string][]>> = {
 };
 // The header remounts whenever the page layout changes, so the last confirmed
 // Master name paints the first frame instead of a loading label.
-const masterNames = new Map<number, string>();
+const masterNames = new WeakMap<ApiClient, Map<number, string>>();
 
-export function SiteHeader({ client }: { client: ApiClient }) {
+export function SiteHeader({ client, master }: { client: ApiClient; master?: MasterResource }) {
     const session = useSyncExternalStore(client.subscribe, client.getSnapshot);
     const location = useLocation();
     const domain = navDomain(location.pathname);
@@ -46,7 +47,7 @@ export function SiteHeader({ client }: { client: ApiClient }) {
                 <nav className="site-nav" aria-label="主导航">{links.map(([to, label, d]) => <Link key={to} to={to} aria-current={d ? current(d) : undefined}>{label}</Link>)}</nav>
                 <div className="site-account">
                     {!session.ready ? <span data-testid="account-placeholder" className="site-account-placeholder" aria-hidden="true" />
-                        : user ? <><Link className="site-assets" to="/wallet" aria-current={current('assets')}>资产</Link><AccountMenu client={client} /></>
+                        : user ? <><Link className="site-assets" to="/wallet" aria-current={current('assets')}>资产</Link><AccountMenu client={client} master={master} /></>
                         : <Link className="site-sign-in" to="/login" onClick={() => saveRouteIntent(location.pathname + location.search)}>登录</Link>}
                 </div>
             </div>
@@ -55,15 +56,19 @@ export function SiteHeader({ client }: { client: ApiClient }) {
     </>;
 }
 
-function AccountMenu({ client }: { client: ApiClient }) {
+function AccountMenu({ client, master: shared }: { client: ApiClient; master?: MasterResource }) {
     const user = client.getSnapshot().user!;
     const location = useLocation();
     const [menu, setMenu] = useState(false);
     const account = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
-    const master = useResource(() => readProfile(client, String(user.id)), [client, user.id]);
+    // Shell pages share their profile resource so a saved rename shows here at once; public pages read their own.
+    const own = useResource(() => shared ? Promise.resolve(undefined) : readProfile(client, String(user.id)), [client, user.id, !!shared]);
+    const master = shared ?? own;
     const opsEntry = useResource(async () => { if (!menu || client.getSessionMode() !== 'opaque') return false; try { return (await readOpsBootstrap(client)).principal.permissions.length > 0; } catch { return false; } }, [client, user.id, menu]);
-    if (master.data?.status === 'COMPLETE') masterNames.set(user.id, master.data.display_name);
-    const name = masterNames.get(user.id) ?? (user.display_name || user.username);
+    const names = masterNames.get(client) ?? new Map<number, string>();
+    masterNames.set(client, names);
+    if (master.data?.status === 'COMPLETE') names.set(user.id, master.data.display_name);
+    const name = names.get(user.id) ?? (user.display_name || user.username);
     useEffect(() => setMenu(false), [location.pathname]);
     useEffect(() => {
         if (!menu) return;
