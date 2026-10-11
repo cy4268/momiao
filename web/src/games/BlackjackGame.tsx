@@ -100,6 +100,6 @@ export function BlackjackGame(props: BlackjackGameProps) {
             <button type="button" onClick={props.onFairness}>公平验证<span aria-hidden="true">＋</span></button>
             {props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}
             <span className="blackjack-round">{props.roundID ? `Round · ${props.roundID} · v${s?.round_version || '—'}` : 'CASINO CAMELOT · ROYAL TABLE'}</span>
-        </nav> : <div className="extra-utilities"><details><summary>六副牌与固定规则</summary><BlackjackRules/></details><div className="extra-links">{props.onFairness && <button type="button" onClick={props.onFairness}>公平详情</button>}{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div>{props.roundID && <p className="extra-round-id">Round · {props.roundID} · v{s?.round_version || '—'}</p>}</div>}
+        </nav> : <div className="extra-utilities"><details><summary>六副牌与固定规则</summary><BlackjackRules/></details><div className="extra-links">{props.onFairness && <button type="button" onClick={props.onFairness}>公平详情</button>}{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div></div>}
     </section>;
 }
