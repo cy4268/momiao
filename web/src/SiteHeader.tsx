@@ -40,7 +40,8 @@ export function SiteHeader({ client, master }: { client: ApiClient; master?: Mas
         ? [['/dashboard', '指挥台', 'home'], ['/models', '模型目录', 'models'], ['/entertainment', '娱乐', 'experience'], ['/rankings', '排行榜', 'rankings'], ['/announcements', '公告', 'announcements']]
         : [['/', '首页', null], ['/models', '模型目录', 'models'], ['/entertainment', '娱乐', 'experience'], ['/rankings', '排行榜', 'rankings'], ['/announcements', '公告', 'announcements']];
     const context = domain ? subnav[domain] ?? [] : [];
-    return <>
+    // One wrapper element: full-height pages lay out as a grid of chrome / main / footer.
+    return <div className="site-chrome">
         <header className="site-header">
             <div className="site-header-inner">
                 <Link to="/" className="site-brand" aria-label="Chaldea Platform 首页"><Brand /></Link>
@@ -53,7 +54,7 @@ export function SiteHeader({ client, master }: { client: ApiClient; master?: Mas
             </div>
         </header>
         {context.length > 0 && <nav className="site-subnav" aria-label="页面导航"><div className="site-header-inner">{context.map(([to, label]) => <NavLink key={to} to={to} end>{label}</NavLink>)}</div></nav>}
-    </>;
+    </div>;
 }
 
 function AccountMenu({ client, master: shared }: { client: ApiClient; master?: MasterResource }) {

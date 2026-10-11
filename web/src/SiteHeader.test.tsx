@@ -104,7 +104,7 @@ it('site header styles are scoped tightly enough to outrank page stylesheets', a
     const { readFileSync } = await import('node:fs');
     const css = readFileSync('src/site-header.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
     const selectors = [...css.matchAll(/([^{}@]+)\{[^{}]*\}/g)].flatMap(m => m[1].split(',').map(s => s.trim())).filter(Boolean);
-    const loose = selectors.filter(s => !/^\.site-(header|subnav)\.site-(header|subnav)\b/.test(s));
+    const loose = selectors.filter(s => !/^\.site-(header|subnav|chrome)\.site-(header|subnav|chrome)\b/.test(s));
     expect(loose).toEqual([]);
 });
 it('the brand link does not inherit legacy .brand page styles', () => {

@@ -1,3 +1,5 @@
+/* The header and page sub-navigation share one wrapper so grid page layouts keep a single top row. */
+.site-chrome.site-chrome { position: relative; z-index: 30; }
 /* One header for every page except the lit home page; nothing here may vary per page.
    Every selector starts with a doubled class so page stylesheets loaded later
    (".announcement-site .royal-beacon", ".catalog-shell a", ...) cannot win the cascade. */

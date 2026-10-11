@@ -105,7 +105,7 @@
 .command-chamber.finance-chamber .history-transaction :is(code,dd) { overflow-wrap: anywhere; }
 @media (min-width:1000px) {
   .command-chamber.finance-chamber .reward-detail .reward-description { display: none; }
-  .portal-shell:has(.finance-chamber) { grid-template-rows: auto auto minmax(0,1fr) auto; }
+  .portal-shell:has(.finance-chamber) { grid-template-rows: auto minmax(0,1fr) auto; }
   .command-chamber.finance-chamber .finance-history { display: flex; flex-direction: column; flex: 1 0 144px; min-height: 0; }
   .command-chamber.finance-chamber .finance-history-page:not([hidden]) { display: flex; flex-direction: column; flex: 1; min-height: 0; }
   .command-chamber.finance-chamber .finance-history-page > .panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
