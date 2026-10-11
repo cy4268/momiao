@@ -126,8 +126,9 @@ it('keeps the dice receipt mounted and concealed while the next roll settles',as
     vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,latest_round:result,available_units:result.balance_after_units});
     resolve(result);
     await waitFor(()=>expect(screen.getByRole('button',{name:'落定中…'})).toBeDisabled());
-    // The new result must not be revealed before the dice land.
+    // The new result must not be revealed before the dice land, not even by the border colour.
     expect(screen.getByLabelText('本局结果揭晓中')).toBe(receipt);
+    expect(receipt).not.toHaveClass('result-WIN');
     expect(screen.queryByLabelText('本局结果')).not.toBeInTheDocument();
     await waitFor(()=>expect(screen.getByLabelText('本局结果')).toHaveTextContent('净赢'),{timeout:2500});
     expect(screen.getByLabelText('本局结果')).toBe(receipt);

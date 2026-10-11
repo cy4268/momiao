@@ -32,6 +32,9 @@ const messages:Record<string,string>={
  RESOURCE_UNVERIFIED:'目标功能的开放状态尚未核实，请重新读取。',
  MAINTENANCE:'目标功能正在维护，恢复开放后再继续。',
 };
+// Admission already confirmed in this session (per client, user and session generation). A route change
+// re-checks in the background instead of blanking the whole page; a non-READY answer still takes over.
+const admittedSessions = new WeakMap<ApiClient, { userID: number; generation: number }>();
 function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,children}:{client:ApiClient;user:User;route:string;postAuth?:boolean;pokerRecovery?:boolean;children?:ReactNode}){
  const [loaded,setLoaded]=useState<{value:AccessGateView;scope:GateScope}>();const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [destination,setDestination]=useState<GateScope>();
  const [admitted,setAdmitted]=useState<GateScope>();const revision=useRef(0);const generation=client.getSessionGeneration();const scope=useRef<GateScope>({client,userID:user.id,generation,route});
@@ -56,6 +59,7 @@ function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,child
     setDestination(start);return;
    }
    setLoaded({value:next,scope:start});
+   if(next.stage==='READY')admittedSessions.set(client,{userID:start.userID,generation:start.generation});else admittedSessions.delete(client);
   }catch{if(valid())setError('访问状态尚未核实。请重新读取；当前不会自动放行或重放先前操作。');}
   finally{if(valid()){loadLock.current=false;setLoading(false);}}
  }
@@ -72,6 +76,8 @@ function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,child
   <aside aria-label="Poker 访问状态">{loading&&<Loading/>}{error&&<Alert>{error}</Alert>}{view?.stage==='MAINTENANCE'&&<Alert>仅保留既有对局、回执核对与安全退出入口；新开局等入口暂时关闭。</Alert>}<button disabled={loading||saving} onClick={()=>void load()}>重新核对访问状态</button></aside>
   {children}
  </PokerGateContext.Provider>;
+ const admittedBefore=admittedSessions.get(client);
+ if(!postAuth&&!poker&&!roulette&&loading&&!error&&admittedBefore?.userID===user.id&&admittedBefore.generation===generation)return <>{children}</>;
  if(!loading&&view?.stage==='READY')return <>{children}</>;
  const notice=view?.migration_notice;
  return <main className="welcome-page"><Link to="/" className="brand"><Brand/></Link>

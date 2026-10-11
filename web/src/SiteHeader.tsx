@@ -53,7 +53,7 @@ export function SiteHeader({ client, master }: { client: ApiClient; master?: Mas
                 </div>
             </div>
         </header>
-        {context.length > 0 && <nav className="site-subnav" aria-label="页面导航"><div className="site-header-inner">{context.map(([to, label]) => <NavLink key={to} to={to} end>{label}</NavLink>)}</div></nav>}
+        {context.length > 0 && <nav className="site-subnav" aria-label="页面导航"><div className="site-header-inner">{context.map(([to, label]) => <NavLink key={to} to={to} end={to === '/games' || to === '/wallet'}>{label}</NavLink>)}</div></nav>}
     </div>;
 }
 
@@ -68,8 +68,15 @@ function AccountMenu({ client, master: shared }: { client: ApiClient; master?: M
     const opsEntry = useResource(async () => { if (!menu || client.getSessionMode() !== 'opaque') return false; try { return (await readOpsBootstrap(client)).principal.permissions.length > 0; } catch { return false; } }, [client, user.id, menu]);
     const names = masterNames.get(client) ?? new Map<number, string>();
     masterNames.set(client, names);
-    if (master.data?.status === 'COMPLETE') names.set(user.id, master.data.display_name);
-    const name = names.get(user.id) ?? (user.display_name || user.username);
+    const storageKey = 'momiao.header-name.' + user.id;
+    if (master.data?.status === 'COMPLETE' && names.get(user.id) !== master.data.display_name) {
+        names.set(user.id, master.data.display_name);
+        try { localStorage.setItem(storageKey, master.data.display_name); } catch { /* storage blocked: the in-memory name still works */ }
+    }
+    let stored: string | null = null;
+    try { stored = localStorage.getItem(storageKey); } catch { /* storage blocked */ }
+    // Never fall back to the login name; a neutral label until the Master name is known.
+    const name = names.get(user.id) ?? stored ?? (user.display_name || 'Master');
     useEffect(() => setMenu(false), [location.pathname]);
     useEffect(() => {
         if (!menu) return;

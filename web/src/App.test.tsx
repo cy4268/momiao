@@ -254,3 +254,13 @@ it('keeps native and RP usage separate with existing filter semantics and no mod
     await waitFor(() => expect(fetcher.mock.calls.some(([path]) => { const q=new URLSearchParams(path.split('?')[1]); return path.startsWith('/api/v1/usage/rp?') && q.get('model')==='rp-model' && q.get('from')==='2026-09-05T16:00:00.000Z' && q.get('to')==='2026-09-06T16:00:00.000Z'; })).toBe(true));
     expect(fetcher.mock.calls.some(([path]) => path.startsWith('/v1/') || path.startsWith('/pg/'))).toBe(false);
 });
+it('keeps the page and header on screen while an admitted user changes route', async () => {
+    const { client } = fixtureClient();
+    render(<MemoryRouter initialEntries={['/dashboard']}><App client={client} /></MemoryRouter>);
+    await screen.findByRole('heading', { name: '指挥台', level: 1 });
+    fireEvent.click(within(document.querySelector('header.site-header') as HTMLElement).getByRole('link', { name: '资产' }));
+    // The access re-check for /wallet runs in the background; the shell must not blank out meanwhile.
+    expect(document.querySelector('header.site-header')).not.toBeNull();
+    expect(document.querySelector('.welcome-page')).toBeNull();
+    expect(await screen.findByRole('heading', { name: '我的钱包', level: 1 })).toBeVisible();
+});
