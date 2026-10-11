@@ -1,4 +1,6 @@
 :root {
+  /* Reserve the scrollbar lane on every page so centered content and the header never shift between pages. */
+  scrollbar-gutter:stable;
   font-family:"Segoe UI","Microsoft YaHei",sans-serif;
   color:#17202d;
   background:#f4f0e8;

@@ -43,7 +43,7 @@ export function SiteHeader({ client, master }: { client: ApiClient; master?: Mas
     return <>
         <header className="site-header">
             <div className="site-header-inner">
-                <Link to="/" className="site-brand brand" aria-label="Chaldea Platform 首页"><Brand /></Link>
+                <Link to="/" className="site-brand" aria-label="Chaldea Platform 首页"><Brand /></Link>
                 <nav className="site-nav" aria-label="主导航">{links.map(([to, label, d]) => <Link key={to} to={to} aria-current={d ? current(d) : undefined}>{label}</Link>)}</nav>
                 <div className="site-account">
                     {!session.ready ? <span data-testid="account-placeholder" className="site-account-placeholder" aria-hidden="true" />

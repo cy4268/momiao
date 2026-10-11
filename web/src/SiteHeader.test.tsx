@@ -100,3 +100,15 @@ it('uses the shared master resource without a second profile request', () => {
     expect(screen.getByRole('button', { name: '账户菜单' })).toHaveTextContent('改名后的墨恒');
     expect(profileAPI.readProfile).not.toHaveBeenCalled();
 });
+it('site header styles are scoped tightly enough to outrank page stylesheets', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync('src/site-header.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const selectors = [...css.matchAll(/([^{}@]+)\{[^{}]*\}/g)].flatMap(m => m[1].split(',').map(s => s.trim())).filter(Boolean);
+    const loose = selectors.filter(s => !/^\.site-(header|subnav)\.site-(header|subnav)\b/.test(s));
+    expect(loose).toEqual([]);
+});
+it('the brand link does not inherit legacy .brand page styles', () => {
+    session(true);
+    show('/dashboard');
+    expect(screen.getByRole('link', { name: 'Chaldea Platform 首页' })).not.toHaveClass('brand');
+});
