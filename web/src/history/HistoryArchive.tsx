@@ -15,7 +15,7 @@ export function HistoryArchive({ title, detail, navigation, list = false, childr
     </aside>
     <div className="archive-main">
       {navigation}
-      <header className="page-heading archive-heading"><div><p className="eyebrow">CHALDEA / ARCHIVE</p><h1>{title}</h1><p>{detail}</p></div><Link className="archive-exit" to="/games">返回游戏目录 ↗</Link></header>
+      <header className="page-heading archive-heading"><div><p className="eyebrow">ARCHIVE</p><h1>{title}</h1><p>{detail}</p></div><Link className="archive-exit" to="/games">返回游戏目录</Link></header>
       <div className="archive-content" tabIndex={list ? undefined : 0} role={list ? undefined : 'region'} aria-label={list ? undefined : '记录详情内容'}>{children}</div>
     </div>
   </div>;

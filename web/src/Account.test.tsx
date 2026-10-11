@@ -15,6 +15,9 @@ it('shows actual read-only login identifier and first set requires a fresh proof
  const f=vi.fn(async(path:string)=>ok(path==='/api/user/login'?bundle:path==='/api/momiao/account'?{id:12,username:'native-readonly',has_password:false,discord_connected:true,two_fa_enabled:true}:path.includes('master-profile')?profile:status));const c=new ApiClient(withReadyAccessGate(f));await c.login('a','b');
  render(<MemoryRouter><Account client={c}/></MemoryRouter>);
  expect(await screen.findByText('native-readonly')).toBeVisible();expect(screen.queryByLabelText('用户名')).not.toBeInTheDocument();
+ // The account page is the one place that keeps the login name and account number, labelled plainly.
+ expect(screen.getByText('登录名').nextElementSibling).toHaveTextContent('native-readonly');
+ await waitFor(()=>expect(screen.getByText('账户编号').nextElementSibling).toHaveTextContent('CA-00000000000C'));
  expect(document.querySelector('.identity-chamber.chamber-security')).toBeInTheDocument();
  expect(screen.getByRole('button',{name:'账户与会话说明'})).toHaveAttribute('aria-expanded','false');
  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

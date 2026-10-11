@@ -26,7 +26,7 @@ export function AccessGate({client,user,route,children,pokerRecovery=false}:{cli
 const messages:Record<string,string>={
  ACCOUNT_RESTRICTED:'账户当前受到访问限制。请退出登录，或通过既有支持入口核对账户状态。',
  MIGRATION_UNVERIFIED:'迁移适用状态尚未核实。本站不会把缺少迁移记录解释为迁移已经完成。',
- ROLE_DENIED:'当前账户未具备此页面所需权限。原生管理员与平台运营权限保持独立。',
+ ROLE_DENIED:'当前账户没有访问此页面的权限。',
  ROLE_UNVERIFIED:'当前权限状态尚未核实，请重新读取。',
  RESOURCE_UNAVAILABLE:'目标功能当前未开放，请选择已开放入口。',
  RESOURCE_UNVERIFIED:'目标功能的开放状态尚未核实，请重新读取。',

@@ -170,7 +170,7 @@ it('separates future public name/avatar usage from private account identifiers a
     privateInfo.focus();
     fireEvent.click(privateInfo);
     expect(within(screen.getByRole('region', { name: '仅本人可见的账户信息' })).getByText('CA-123456789ABC')).toBeVisible();
-    expect(screen.getByText(/账户短 ID、版本与改名时间仅本人可见/)).toBeVisible();
+    expect(screen.getByText(/账户编号与改名时间仅本人可见/)).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '关闭对话框' }));
     expect(privateInfo).toHaveFocus();
     expect(screen.queryByText('CA-123456789ABC')).not.toBeInTheDocument();

@@ -373,3 +373,11 @@ it('restores last durable wager on first entry without overwriting a live edit',
     await waitFor(()=>expect(gameAPI.readGameBootstrap).toHaveBeenCalledTimes(2));
     expect(screen.getByLabelText('基础下注（筹码）')).toHaveValue('50');
 });
+it('hides the economy cap row when nothing was capped', () => {
+    const settlement = { policy_version: 'economy-cap-v1', policy_hash: hash, gross_payout_units: '10000000', credited_payout_units: '10000000', withheld_units: '0', actual_net_units: '5000000' };
+    const view = render(<MemoryRouter><RoundReceipt round={{ ...result, economic_policy_version: 'economy-cap-v1', economy_settlement: settlement }} compact /></MemoryRouter>);
+    expect(screen.queryByRole('group', { name: '经济结算回执' })).not.toBeInTheDocument();
+    view.unmount();
+    render(<MemoryRouter><RoundReceipt round={{ ...result, economic_policy_version: 'economy-cap-v1', economy_settlement: { ...settlement, credited_payout_units: '7500000', withheld_units: '2500000', actual_net_units: '2500000' } }} compact /></MemoryRouter>);
+    expect(screen.getByRole('group', { name: '经济结算回执' })).toHaveTextContent('封顶未入账');
+});

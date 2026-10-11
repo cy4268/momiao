@@ -13,8 +13,8 @@ export function ApiWorkbench({ page, children }: { page: 'keys' | 'logs'; childr
 
 export function UsageNavigation({ roleplay = false }: { roleplay?: boolean }) {
     return <nav className="usage-navigation" aria-label="调用记录类别">
-        <Link to="/logs" aria-current={!roleplay ? 'page' : undefined}>原生调用</Link>
+        <Link to="/logs" aria-current={!roleplay ? 'page' : undefined}>API 调用</Link>
         <Link to="/logs?purpose=ROLEPLAY" aria-current={roleplay ? 'page' : undefined}>RP 调用</Link>
-        {roleplay && <Link className="usage-ranking-link" to="/rankings?metric=RP_CALLS">RP 排行榜 ↗</Link>}
+        {roleplay && <Link className="usage-ranking-link" to="/rankings?metric=RP_CALLS">RP 排行榜</Link>}
     </nav>;
 }

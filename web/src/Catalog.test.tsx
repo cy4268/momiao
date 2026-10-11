@@ -18,7 +18,7 @@ it('keeps public model detail anonymous and saves its choice through the single 
 });
 it('does not mount model operations before the central Gate resolves its scope',async()=>{
  const calls:string[]=[];const c=new ApiClient(async path=>{calls.push(path);if(path.includes('/auth/refresh'))return ok(bundle);if(path.startsWith('/platform/v1/access-gate?'))return ok({user_id:'1',route:'/ops/models',stage:'ROLE_DENIED'});return new Response('{}',{status:503})});
- browser('/ops/models',<App client={c}/>);expect(await screen.findByRole('alert')).toHaveTextContent('当前账户未具备此页面所需权限');expect(calls.some(path=>path.startsWith('/platform/v1/ops/models'))).toBe(false);
+ browser('/ops/models',<App client={c}/>);expect(await screen.findByRole('alert')).toHaveTextContent('当前账户没有访问此页面的权限');expect(calls.some(path=>path.startsWith('/platform/v1/ops/models'))).toBe(false);
 });
 it('binds the key-page Gate to the exact selected model query',async()=>{
  const routes:string[]=[];const c=new ApiClient(async path=>{if(path.includes('/auth/refresh'))return ok(bundle);if(path.startsWith('/platform/v1/access-gate?')){const route=new URLSearchParams(path.split('?')[1]).get('route')!;routes.push(route);return ok({user_id:'1',route,stage:'MIGRATION_UNVERIFIED'})}return new Response('{}',{status:503})});

@@ -73,7 +73,7 @@ export function Rankings({client}:{client:ApiClient}) {
       <main ref={main} tabIndex={-1} id="ranking-content" className={'ranking-main'+(rp?' ranking-rp':'')}>
         <img className="ranking-background" src={assetUrl(art.background.src)} srcSet={assetSrcSet(art.background)} sizes="100vw" width={art.background.width} height={art.background.height} alt="梅塔特隆·贞德，第二再临形态，戴着耳机倚坐在龙骨游戏座椅上" fetchPriority="high"/>
         <div className="ranking-body">
-          <header className="ranking-heading"><p className="eyebrow">CHALDEA / RANKINGS</p><h1>迦勒底排行榜</h1><p>每小时更新 · 公开榜单</p></header>
+          <header className="ranking-heading"><p className="eyebrow">RANKINGS</p><h1>迦勒底排行榜</h1><p>每小时更新 · 公开榜单</p></header>
           <nav className="ranking-domains" aria-label="排行类别"><button aria-pressed={!rp} onClick={()=>change({metric:'TOTAL_ASSETS',period:'CURRENT',date:'',model:''})}>资产与游戏</button><button aria-pressed={rp} onClick={()=>change({metric:'RP_CALLS',period:'DAY',date:'',model:''})}>调用统计</button></nav>
           <nav className="ranking-metrics" aria-label="排行指标">{Object.entries(labels).filter(([key])=>key.startsWith('RP_')===rp).map(([key,label])=><button key={key} aria-pressed={metric===key} onClick={()=>chooseMetric(key)}>{label}</button>)}</nav>
           <section className="ranking-board" aria-label="榜单内容">
@@ -91,13 +91,13 @@ export function Rankings({client}:{client:ApiClient}) {
                 </tr>)}</tbody></table>}
               </>}
             </div>
-            {session.user?<aside className="ranking-mine" aria-label="我的名次"><h2>我的排名</h2>{mine.loading?<p role="status">正在读取我的名次…</p>:mine.error?<Alert>{mine.error}</Alert>:mine.data?.state==='UNAVAILABLE'?<p>个人名次尚未就绪。</p>:mine.data?.my_rank?<p><strong>第 {mine.data.my_rank.rank} 名</strong><span> · {valueText(metric,mine.data.my_rank.value)} {unit}{mine.data.state==='STALE'?' · 数据更新延迟':''}</span></p>:<p>你在当前筛选下尚未上榜。</p>}{rp&&<Link to="/logs?purpose=ROLEPLAY">我的调用记录 ↗</Link>}</aside>:<div className="ranking-guest"><Link to="/login" onClick={()=>saveRouteIntent('/rankings?'+serialized)}>登录查看我的排名</Link><span>榜单向所有访客公开</span></div>}
+            {session.user?<aside className="ranking-mine" aria-label="我的名次"><h2>我的排名</h2>{mine.loading?<p role="status">正在读取我的名次…</p>:mine.error?<Alert>{mine.error}</Alert>:mine.data?.state==='UNAVAILABLE'?<p>个人名次尚未就绪。</p>:mine.data?.my_rank?<p><strong>第 {mine.data.my_rank.rank} 名</strong><span> · {valueText(metric,mine.data.my_rank.value)} {unit}{mine.data.state==='STALE'?' · 数据更新延迟':''}</span></p>:<p>你在当前筛选下尚未上榜。</p>}{rp&&<Link to="/logs?purpose=ROLEPLAY">我的调用记录</Link>}</aside>:<div className="ranking-guest"><Link to="/login" onClick={()=>saveRouteIntent('/rankings?'+serialized)}>登录查看我的排名</Link><span>榜单向所有访客公开</span></div>}
             <footer className="ranking-board-footer"><nav className="pager" aria-label="排行分页"><span>{data&&data.state!=='UNAVAILABLE'?`共 ${count(data.total)} 位 · 第 ${page} 页`:'公开排行'}</span><div><button disabled={result.loading||page<=1} onClick={()=>change({page:String(page-1)})}>上一页</button><button disabled={result.loading||!data||data.state==='UNAVAILABLE'||BigInt(page*50)>=BigInt(data.total)||page>=10000} onClick={()=>change({page:String(page+1)})}>下一页</button></div></nav><button className="ranking-info" aria-label="统计口径" aria-haspopup="dialog" onClick={()=>setInfo(true)}>统计口径 <span aria-hidden="true">＋</span></button></footer>
           </section>
         </div>
         <p className="ranking-character-label" aria-hidden="true">METATRON JEANNE<small>CHALDEA / NIGHT LOUNGE</small></p>
         {info&&<Modal title="统计口径" onClose={()=>setInfo(false)}><p>榜单由服务端每小时生成并发布。页面自动读取已发布快照，手动刷新也只读取，不会触发重新计算。</p><p>日期按 Asia/Shanghai（UTC+8）划分；周榜从周一开始。更新时间来自数据源核验时间，更新延迟时保留上次快照并明确标识。</p><p>{rp?'按请求发生时的 RP 用途归类，使用最终结算值。同一逻辑请求的渠道重试不重复计数。':metric==='TOTAL_ASSETS'?'当前资产的 Credit 等值快照，包含 API 额度、娱乐筹码及尚属本人的德州与处理中资产。':'仅统计正式结算的游戏结果；德州在牌桌会话完成离桌结算后计入。'}</p><p>指标为零的用户不进入对应榜单，相同指标值并列排名。公开榜单只展示御主显示名及聚合统计；个人名次仅供本人登录后查看。</p></Modal>}
       </main>
-      <footer className="ranking-site-footer"><span>CHALDEA / PUBLIC RANKINGS</span><Link to="/entertainment">返回娱乐大厅 ↗</Link></footer>
+      <footer className="ranking-site-footer"><span>CHALDEA / PUBLIC RANKINGS</span><Link to="/entertainment">返回娱乐大厅</Link></footer>
     </div>;
 }

@@ -113,7 +113,7 @@ describe('Live Lobby original entry pipeline',()=>{
     const uuid=vi.spyOn(crypto,'randomUUID'),view=await prepare(r,kind),visibility=vi.spyOn(document,'visibilityState','get'),online=vi.spyOn(navigator,'onLine','get');let visible=false,connected=false;
     visibility.mockImplementation(()=>visible?'visible':'hidden');online.mockImplementation(()=>connected);vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});view.submit();await act(async()=>{});
     const original=writes(r).at(-1)!,keyCount=uuid.mock.calls.length,pendingCalls=vi.mocked(r.p.onPendingChange).mock.calls.length;
-    expect(screen.getByRole('button',{name:'收起'})).toBeDisabled();expect(screen.getByRole('button',{name:'查看钱包 ↗'})).toBeDisabled();
+    expect(screen.getByRole('button',{name:'收起'})).toBeDisabled();expect(screen.getByRole('button',{name:'查看钱包'})).toBeDisabled();
     expect(screen.queryByRole('region',{name:'原入桌操作'})).not.toBeInTheDocument();openEntryStatus();expect(screen.getByText(/自动只读核对中/)).toBeInTheDocument();expect(screen.queryByRole('button',{name:/查询原操作回执|重试原请求|继续核对原结果/})).not.toBeInTheDocument();
     await act(async()=>vi.advanceTimersByTime(30_000));expect(lookups).toBe(0);connected=true;act(()=>window.dispatchEvent(new Event('online')));expect(lookups).toBe(0);
     visible=true;await act(async()=>document.dispatchEvent(new Event('visibilitychange')));expect(lookups).toBe(1);expect(screen.getByText(/NOT_FOUND 仅代表当前不可见/)).toBeInTheDocument();

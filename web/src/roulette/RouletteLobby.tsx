@@ -88,7 +88,7 @@ export function RouletteLobby({client,userID,slug}:{client:ApiClient;userID:stri
   <p className="roulette-lobby-note">{devil?'同一片星空，不同的选择。':'一把左轮，一圈同伴。'}<span>{devil?'4 点生命 · 9 种道具 · 固定投入':'3—6 人圆桌 · 六格弹巢 · 固定投入'}</span></p>
  </section>;
  return <div className={'roulette-page roulette-salon-lobby'+(devil?' roulette-devil-lobby':' roulette-pressure-lobby')} style={{'--roulette-room-art':`url("${rouletteImage('room')}")`,'--roulette-table-art':`url("${rouletteImage('table')}")`} as CSSProperties}>
-  <nav className="roulette-breadcrumb" aria-label="轮盘导航"><Link to="/games">← 游戏目录</Link><span>CHALDEA ROYAL SALON</span><Link to="/history">游戏记录 ↗</Link></nav>
+  <nav className="roulette-breadcrumb" aria-label="轮盘导航"><Link to="/games">← 游戏目录</Link><span>CHALDEA ROYAL SALON</span><Link to="/history">游戏记录</Link></nav>
   <header className="roulette-heading"><div><p className="roulette-kicker">{devil?'DUEL OF FATE · ROOM LOBBY':'A TABLE OF CHANCES · 多人博弈'}</p><h1>{devil?'命运对决 · ':'圆桌危局 · '}{rouletteNames[slug]}</h1><p>{devil?'在星光落定之前，选好你的对手。':'一把左轮，一圈同伴。压力会增加，投入不会。'}</p></div><div className="roulette-switch"><Link aria-current={devil?'page':undefined} to="/roulette/devil-roulette">双人对决</Link><Link aria-current={!devil?'page':undefined} to="/roulette/pressure-roulette">圆桌危局</Link></div></header>
   {notice&&<p className="roulette-notice" role="alert">{notice}</p>}
   {active?.own_round_id&&<div className="roulette-resume"><span>你的座位仍在等你。</span><Link to={'/roulette/rooms/'+active.own_round_id}>返回未结束房间</Link></div>}

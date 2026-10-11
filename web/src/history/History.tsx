@@ -56,7 +56,7 @@ export function Back({ parent }: { parent?: { path: string; title: string } }) {
   return <nav className="history-back" aria-label="历史记录层级">{parent && <Link to={parent.path + suffix} state={location.state}>← {parent.title}</Link>}<Link to={'/history' + saved.search} state={{ historyReturn: saved }}>← 返回筛选列表</Link></nav>;
 }
 function Title({ title, detail }: { title: string; detail: string }) {
-  return <header className="page-heading"><div><p className="eyebrow">YOUR RECORDS / CHALDEA</p><h1>{title}</h1><p>{detail}</p></div><Link className="button" to="/games">浏览游戏</Link></header>;
+  return <header className="page-heading"><div><p className="eyebrow">CHALDEA</p><h1>{title}</h1><p>{detail}</p></div><Link className="button" to="/games">浏览游戏</Link></header>;
 }
 
 export function HistoryList({ client }: HistoryProps) {
@@ -154,7 +154,7 @@ export function HistoryTransaction({ client }: HistoryProps) {
 }
 function TransactionContent({ id, client }: { id: string; client: ApiClient }) {
   const read = useHistory(client, '/api/v1/history/transactions/' + id, transactionSchema);
-  return <WalletChamber page="transaction"><header className="page-heading"><div><p className="eyebrow">WALLET / TRANSACTION</p><h1>钱包交易详情</h1><p className="transaction-id">{id}</p></div><Link className="button" to="/wallet">← 返回钱包</Link></header><Back /><Status {...read} />{read.data && <section className="panel"><Fields values={[["交易类型", label(read.data.kind)], ['状态', label(read.data.status)], ['创建时间', when(read.data.created_at)], ['确认时间', when(read.data.confirmed_at)]]} /><Transactions items={[read.data]} /></section>}</WalletChamber>;
+  return <WalletChamber page="transaction"><header className="page-heading"><div><p className="eyebrow">TRANSACTION</p><h1>钱包交易详情</h1><p className="transaction-id">{id}</p></div><Link className="button" to="/wallet">← 返回钱包</Link></header><Back /><Status {...read} />{read.data && <section className="panel"><Fields values={[["交易类型", label(read.data.kind)], ['状态', label(read.data.status)], ['创建时间', when(read.data.created_at)], ['确认时间', when(read.data.confirmed_at)]]} /><Transactions items={[read.data]} /></section>}</WalletChamber>;
 }
 function Snapshot({ data }: { data: z.infer<typeof roundSchema>['metadata'] }) {
   return <p className="history-snapshot">当时昵称：{data.actor_display_name ?? '未记录'} · 快照来源：{data.metadata_origin} · {when(data.captured_at)}</p>;

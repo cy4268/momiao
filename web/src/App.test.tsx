@@ -109,7 +109,7 @@ it('prevents duplicate key creation and refreshes the list without revealing key
     fireEvent.click(await screen.findByRole('button', { name: '创建 API 密钥' }));
     fireEvent.change(screen.getByLabelText('用途'), { target: { value: 'GENERAL' } });
     fireEvent.change(screen.getByLabelText('密钥名称'), { target: { value: 'synthetic-key' } });
-    fireEvent.change(screen.getByLabelText('额度上限（原生单位）'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('额度上限'), { target: { value: '100' } });
     const button = screen.getByRole('button', { name: '确认创建' });
     fireEvent.click(button); fireEvent.click(button);
     await waitFor(() => expect(f.mock.calls.filter(c => c[0] === '/api/token/' && c[1]?.method === 'POST')).toHaveLength(1));
@@ -139,7 +139,7 @@ it('ambiguous create blocks resubmission until the user checks the refreshed lis
     fireEvent.click(await screen.findByRole('button', { name: '创建 API 密钥' }));
     fireEvent.change(screen.getByLabelText('用途'), { target: { value: 'ROLEPLAY' } });
     fireEvent.change(screen.getByLabelText('密钥名称'), { target: { value: 'test' } });
-    fireEvent.change(screen.getByLabelText('额度上限（原生单位）'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('额度上限'), { target: { value: '1' } });
     fireEvent.click(screen.getByRole('button', { name: '确认创建' }));
     await screen.findByText('请关闭此窗口并核对列表后，再决定是否创建。');
     expect(screen.getByRole('button', { name: '确认创建' })).toBeDisabled();
@@ -166,10 +166,10 @@ it('edits current basic key fields once and refreshes after the verified receipt
     render(<MemoryRouter initialEntries={['/keys']}><App client={new ApiClient(withReadyAccessGate(f))}/></MemoryRouter>);
     fireEvent.click(await screen.findByRole('button', { name: '编辑基础设置' }));
     expect(screen.getByLabelText('密钥名称')).toHaveValue('synthetic-key');
-    expect(screen.getByLabelText('额度上限（原生单位）')).toHaveValue(100);
+    expect(screen.getByLabelText('额度上限')).toHaveValue(100);
     expect(screen.getByLabelText('有效期')).toHaveValue('never');
     fireEvent.change(screen.getByLabelText('密钥名称'), { target: { value: ' edited key ' } });
-    fireEvent.change(screen.getByLabelText('额度上限（原生单位）'), { target: { value: '200' } });
+    fireEvent.change(screen.getByLabelText('额度上限'), { target: { value: '200' } });
     const save = screen.getByRole('button', { name: '保存基础设置' });
     fireEvent.click(save);
     fireEvent.click(save);
@@ -187,7 +187,7 @@ it('rejects an edit above the Native quota bound before sending it', async () =>
     const f = vi.fn(async (path: string, _init?: RequestInit) => path.includes('/auth/refresh') ? ok(bundle) : path === '/api/user/self' ? ok(user) : path === '/platform/v1/key-purposes' ? ok({ items: [] }) : ok({ ...list, items: [key], total: 1 }));
     render(<MemoryRouter initialEntries={['/keys']}><App client={new ApiClient(withReadyAccessGate(f))}/></MemoryRouter>);
     fireEvent.click(await screen.findByRole('button', { name: '编辑基础设置' }));
-    fireEvent.change(screen.getByLabelText('额度上限（原生单位）'), { target: { value: '2147483648' } });
+    fireEvent.change(screen.getByLabelText('额度上限'), { target: { value: '2147483648' } });
     fireEvent.click(screen.getByRole('button', { name: '保存基础设置' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('1 至 2,147,483,647');
     expect(f.mock.calls.some(call => call[0] === '/api/token/' && call[1]?.method === 'PUT')).toBe(false);
@@ -234,8 +234,8 @@ it('keeps native and RP usage separate with existing filter semantics and no mod
     });
     render(<MemoryRouter initialEntries={['/logs']}><App client={client}/></MemoryRouter>);
     await screen.findByText('account-model');
-    expect(screen.getByRole('link', { name: '原生调用' })).toHaveAttribute('aria-current','page');
-    expect(screen.getByRole('columnheader', { name: '额度（原生单位）' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'API 调用' })).toHaveAttribute('aria-current','page');
+    expect(screen.getByRole('columnheader', { name: '额度' })).toBeVisible();
     fireEvent.change(screen.getByLabelText('模型名称'), { target: { value: 'account-model' } });
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-06' } });
     fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-09-06' } });
@@ -245,7 +245,7 @@ it('keeps native and RP usage separate with existing filter semantics and no mod
     await screen.findByText('RP model');
     expect(screen.getByRole('link', { name: 'RP 调用' })).toHaveAttribute('aria-current','page');
     expect(screen.getByRole('columnheader', { name: 'API Credit 消耗' })).toBeVisible();
-    expect(screen.queryByRole('columnheader', { name: '额度（原生单位）' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '额度' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '下一页' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('模型 ID'), { target: { value: 'rp-model' } });
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-06' } });

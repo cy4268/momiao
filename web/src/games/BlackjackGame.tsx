@@ -63,7 +63,7 @@ export function BlackjackGame(props: BlackjackGameProps) {
         void command.run(() => props.onAction({ hand_id: active.hand_id, action_type: type, expected_round_version: s.round_version }));
     }
     return <section className={`extra-game extra-blackjack${props.salon ? ' blackjack-salon' : ''}`} aria-labelledby={title} aria-busy={props.busy || command.pending}>
-        <header className="extra-heading"><div><p className="extra-eyebrow">CASINO CAMELOT / VIP ROYAL TABLE</p><h2 id={title}>皇家牌桌 · Blackjack</h2><p>同一副牌序，继续你亲手作出的选择。</p></div><div className="extra-balance"><span>可用筹码</span><strong>{formatChipUnits(props.availableUnits)}</strong></div></header>
+        <header className="extra-heading"><div><h2 id={title}>皇家牌桌 · Blackjack</h2><p>同一副牌序，继续你亲手作出的选择。</p></div><div className="extra-balance"><span>可用筹码</span><strong>{formatChipUnits(props.availableUnits)}</strong></div></header>
         <div className="extra-layout">
             <div className="extra-royal-table" data-phase={s?.phase || 'READY'} data-hands={hands.length}>
                 {props.salon && <BlackjackArt asset={pokerArt.table} className="blackjack-table-art"/>}
@@ -82,7 +82,7 @@ export function BlackjackGame(props: BlackjackGameProps) {
             <aside className="extra-console">
                 {props.salon && <div className="blackjack-balance"><BlackjackArt asset={art.chips} className="blackjack-chip-art"/><div><span>可用筹码</span><strong>{formatChipUnits(props.availableUnits)}</strong></div></div>}
                 {!s || s.phase === 'SETTLED' ? <ExtraWager controls={props} blocked={blocked} label="初始下注 · 筹码" verb="Deal" onSubmit={units => void command.run(() => props.onDeal(units))} /> : <div className="extra-action-dock">
-                    <p className="extra-eyebrow">PLAYER TURN</p><h3>操作当前第 {activeOrdinal || '—'} 手</h3><p className="extra-locked-stake">本局总下注 <strong>{formatChipUnits(s.total_stake_units)} 筹码</strong></p>
+                    <h3>操作当前第 {activeOrdinal || '—'} 手</h3><p className="extra-locked-stake">本局总下注 <strong>{formatChipUnits(s.total_stake_units)} 筹码</strong></p>
                     <div className="extra-main-actions"><button type="button" disabled={blocked || !active || !legal.includes('HIT')} onClick={() => act('HIT')} aria-label="Hit · 要牌"><span>要牌</span><small>HIT</small></button><button type="button" disabled={blocked || !active || !legal.includes('STAND')} onClick={() => act('STAND')} aria-label="Stand · 停牌"><span>停牌</span><small>STAND</small></button></div>
                     <div className="extra-add-actions">{(['DOUBLE', 'SPLIT'] as const).filter(type => legal.includes(type)).map(type => <button key={type} type="button" disabled={blocked || !canAdd} onClick={() => act(type)} aria-label={`${type === 'DOUBLE' ? 'Double' : 'Split'} · +${formatChipUnits(active?.stake_units || null)} 筹码`}><span>{type === 'DOUBLE' ? '加倍' : '分牌'}</span><small>+{formatChipUnits(active?.stake_units || null)} 筹码</small></button>)}</div>
                     {active && !canAdd && <p className="extra-note">{!withinCap?'整局累计下注上限 1,000,000 筹码；要牌与停牌仍可使用。':balance === null ? '正在核对追加下注所需余额。' : `当前余额不足以追加 ${formatChipUnits(active.stake_units)} 筹码；合法的要牌与停牌仍可使用。`}</p>}
@@ -97,7 +97,7 @@ export function BlackjackGame(props: BlackjackGameProps) {
         {props.salon ? <nav className="blackjack-tool-dock" aria-label="牌桌辅助信息">
             <button type="button" onClick={props.onRules}>游戏规则<span aria-hidden="true">＋</span></button>
             <button type="button" onClick={props.onFairness}>公平验证<span aria-hidden="true">＋</span></button>
-            {props.onHistory && <button type="button" onClick={props.onHistory}>本局记录 ↗</button>}
+            {props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}
             <span className="blackjack-round">{props.roundID ? `Round · ${props.roundID} · v${s?.round_version || '—'}` : 'CASINO CAMELOT · ROYAL TABLE'}</span>
         </nav> : <div className="extra-utilities"><details><summary>六副牌与固定规则</summary><BlackjackRules/></details><div className="extra-links">{props.onFairness && <button type="button" onClick={props.onFairness}>公平详情</button>}{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div>{props.roundID && <p className="extra-round-id">Round · {props.roundID} · v{s?.round_version || '—'}</p>}</div>}
     </section>;
