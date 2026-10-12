@@ -8,8 +8,8 @@ import { Catalog, CatalogDetailPage, APIAccess } from './Catalog';
 import { OpsCatalog } from './OpsCatalog';
 import { OpsShell, OpsHome, OpsLegacyBoundary } from './ops/OpsShell';
 import { OpsAttention, OpsJobs, OpsServiceHealth } from './ops/OpsRuntime';
-import { OpsOperationDetail, OpsOperationLookup } from './ops/OpsOperationDetail';
-import { OpsAudit, OpsAuditDetail } from './ops/OpsAudit';
+import { OpsOperationDetail } from './ops/OpsOperationDetail';
+import { OpsAudit } from './ops/OpsAudit';
 import { OpsMaintenance } from './ops/OpsMaintenance';
 import { OpsAccessControl } from './ops/OpsAccessControl';
 import { OpsEconomy } from './ops/OpsEconomy';
@@ -91,10 +91,7 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="announcements" element={<OpsAnnouncements client={client} embedded/>}/>
             <Route path="jobs" element={<OpsJobs/>}/>
             <Route path="attention" element={<OpsAttention/>}/>
-            <Route path="operations" element={<OpsOperationLookup/>}/>
             <Route path="operations/:operationID" element={<OpsOperationDetail/>}/>
-            <Route path="audit" element={<OpsAudit/>}/>
-            <Route path="audit/:auditID" element={<OpsAuditDetail/>}/>
             <Route path="access-control" element={<OpsAccessControl/>}/>
             <Route path="economy" element={<OpsEconomy/>}/>
             <Route path="rewards" element={<OpsRewards/>}/>
@@ -108,6 +105,9 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="service-health" element={<OpsServiceHealth/>}/>
             </Route>
             <Route path="maintenance" element={<OpsMaintenance/>}/>
+            <Route path="operations" element={<Navigate to="/ops/audit" replace/>}/>
+            <Route path="audit" element={<OpsAudit/>}/>
+            <Route path="audit/:auditID" element={<OpsAudit/>}/>
             <Route index element={<OpsHome/>}/>
         </Route>
         <Route path="/login" element={!session.ready?loading:session.user?<Navigate to="/welcome" replace/>:<Authentication client={client} mode="login"/>} />

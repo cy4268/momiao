@@ -74,6 +74,8 @@ Discord 配置使用 `MOMIAO_DISCORD_CONFIG_FILE` 指向私有 JSON，包含 `cl
 
 运营维护页已改为本地管理员（role ≥ 10）的开关、可选提示语和范围直接保存；每次保存与一行 `ops.audit_log` 同事务提交。发布前应用 0050 及 `deploy/sql/runtime-grants-0050-local-ops.psql`。维护不再使用预约、预览或 fresh，已有业务准入锁继续复用。其他运营页面仍在迁移，整套开发验收前不切生产。
 
+操作日志 `/ops/audit` 使用本地管理员权限，统一显示直接保存日志与保留的历史审计，支持分页、时间、操作人和对象筛选；详情在弹窗查看。发布前应用 0051 和 `deploy/sql/runtime-grants-0051-ops-audit.psql`。`/ops/operations` 列表入口合并到此页；旧写流程所需的单条回执暂随未迁移页面保留。
+
 **只运行存活探针**：不设置额外环境变量，执行构建出的 `momiao`（Windows 为 `momiao.exe`），默认监听 `127.0.0.1:8080`。`GET/HEAD /healthz` 返回 `{"status":"ok"}`；该模式其他路径为 404。存活不代表上游或业务就绪。
 
 **完整界面**：需要一个运行中的兼容 NewAPI，以及指向它的私有 Unix HTTP Socket。Linux 示例：

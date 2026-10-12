@@ -95,6 +95,7 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	t.Cleanup(remote.Close)
 	cfg.poker = remote.handler
 	cfg.opsMaintenance = newOpsMaintenanceHandler(wallets, "DEVELOPMENT")
+	cfg.opsAudit = newOpsAuditHandler(wallets)
 	handler := newPortalHandler(cfg, nil)
 	call := func(method, path string, body any, cookie *http.Cookie, csrf string) *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(body)
@@ -203,6 +204,16 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	if prepared.Header.Get("Authorization") != "" || prepared.Header.Get("New-Api-User") != "" {
 		t.Fatal("native credential projection remains")
 	}
+	audits := call("GET", "/api/v1/ops/audit?page=1&page_size=20", nil, cookie, "")
+	if audits.Code != 200 || !strings.Contains(audits.Body.String(), `"items":`) {
+		t.Fatal("local audit list", audits.Code)
+	}
+	if denied := call("GET", "/api/v1/ops/audit", nil, nil, ""); denied.Code != 401 {
+		t.Fatal("anonymous audit read", denied.Code)
+	}
+	if invalid := call("GET", "/api/v1/ops/audit?page=-1", nil, cookie, ""); invalid.Code != 400 {
+		t.Fatal("invalid audit page", invalid.Code)
+	}
 	maintenance := call("GET", "/api/v1/ops/maintenance", nil, cookie, "")
 	if maintenance.Code != 200 || !strings.Contains(maintenance.Body.String(), `"enabled":false`) {
 		t.Fatal("local maintenance read", maintenance.Code)
@@ -226,6 +237,9 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = auth.Sessions.Revoke(context.Background(), ordinary) })
 	ordinaryCookie := &http.Cookie{Name: cookie.Name, Value: ordinary.Token}
+	if denied := call("GET", "/api/v1/ops/audit", nil, ordinaryCookie, ""); denied.Code != 403 {
+		t.Fatal("ordinary user audit read", denied.Code)
+	}
 	if denied := call("GET", "/api/v1/ops/maintenance", nil, ordinaryCookie, ""); denied.Code != 403 {
 		t.Fatal("ordinary user maintenance read", denied.Code)
 	}

@@ -113,6 +113,6 @@ func saveMaintenance(ctx context.Context, tx pgx.Tx, user int64, environment str
 		value.Message = ""
 		value.Scopes = []string{}
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO ops.audit_log(actor_user_id,action,target,before_state,after_state) VALUES($1,'MAINTENANCE_SAVE',$2,$3,$4)`, user, environment, before, value)
+	_, err = tx.Exec(ctx, `INSERT INTO ops.audit_log(actor_user_id,action,target_type,target,before_state,after_state) VALUES($1,'MAINTENANCE_SAVE','MAINTENANCE',$2,$3,$4)`, user, environment, before, value)
 	return value, err
 }

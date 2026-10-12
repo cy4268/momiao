@@ -30,6 +30,7 @@ type config struct {
 	PokerPeerKeyringFile      string
 	ops                       http.Handler
 	opsMaintenance            http.Handler
+	opsAudit                  http.Handler
 	maintenanceNotices        http.Handler
 	OpsEnvironment            string
 	readiness                 map[string]readinessCheck

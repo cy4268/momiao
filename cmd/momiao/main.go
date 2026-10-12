@@ -129,6 +129,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		if cfg.OpsEnvironment != "" {
 		cfg.maintenanceNotices=newMaintenanceNoticesHandler(store,cfg.OpsEnvironment)
 		cfg.opsMaintenance=newOpsMaintenanceHandler(store,cfg.OpsEnvironment)
+		cfg.opsAudit=newOpsAuditHandler(store)
 
 		}
 		if cfg.NativeQuotaKeyFile != "" {

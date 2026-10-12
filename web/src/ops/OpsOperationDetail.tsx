@@ -1,10 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import './ops-system.css';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Alert, Loading, useResource } from '../ui';
 import { canAcknowledgeOpsReview, checkOperationView, opsError, opsID, type OpsOperationView } from './ops-api';
 import { useOps } from './OpsShell';
-import { OpsOperationList } from './OpsOperationList';
 import { clearOpsPending, opsPendingKey } from './ops-pending';
 
 export const opsState:Record<string,string>={CONFIRMED:'已确认',REFUNDED:'已退回',RECOVERING:'恢复中',PREPARED:'待确认',AUTHORIZED:'已授权',EXECUTING:'执行中',SUCCEEDED:'已完成',FAILED:'失败',FAILED_NO_EFFECT:'失败且未生效',NEEDS_REVIEW:'需要核对',PENDING:'处理中',RECONCILING:'正在对账',CANCELLED:'已取消',ACTIVE:'生效中',SCHEDULED:'已预约',COMPLETED:'已结束',DISABLED:'已停用',NOT_CREATED:'尚未创建',ACTIVATION_FAILED:'启用失败',ENDING_FAILED:'结束失败',SUPER_ADMIN:'最高管理员',OPERATOR:'运营人员',AUDITOR:'审计员',DEVELOPMENT:'开发环境',STAGING:'预发布环境',PRODUCTION:'生产环境'};
@@ -37,10 +36,3 @@ export function OpsOperationDetail(){
  }catch(error){setCancelError(opsError(error))}finally{setCancelling(false)}}
  return <><header className="page-heading ops-system-heading"><div><p className="eyebrow">OPERATIONS / RECEIPT</p><h1>操作详情</h1><Link to="/ops/operations">返回操作查询</Link></div><button onClick={resource.reload} disabled={resource.loading}>查询原操作</button></header>{resource.loading?<Loading/>:resource.error?<Alert>{resource.error}</Alert>:resource.data&&<><OpsReceipt view={resource.data}/>{resource.data.operation.state==='PREPARED'&&resource.data.operation.actor_newapi_user_id===bootstrap.principal.newapi_user_id&&<section className="panel ops-system-recovery"><h2>取消未执行的操作</h2><p>离开编辑页面后，可在这里取消尚未执行的原操作。服务器会重新核对状态；已经执行的操作会保留实际回执。</p><button disabled={cancelling||cancelled} onClick={()=>{void cancel()}}>取消本次操作</button>{cancelled&&<p role="status">原操作已取消，可返回业务页面重新编辑；预览和时间线仍保留。</p>}{cancelError&&<Alert>{cancelError}</Alert>}</section>}{canAcknowledgeOpsReview(resource.data)&&resource.data.operation.actor_newapi_user_id===bootstrap.principal.newapi_user_id&&<section className="panel ops-system-recovery"><h2>继续人工核对</h2><p>远端回执与审计已确认，业务仍需恢复或人工处理。确认后保留本次待核对记录，并解除当前浏览器的操作等待。</p><button disabled={cancelling||acknowledged} onClick={()=>{void acknowledge()}}>保留待核对记录并关闭回执</button>{acknowledged&&<p role="status">待核对记录已保留，可进入业务页面继续处理。</p>}{cancelError&&<Alert>{cancelError}</Alert>}</section>}</>}</>;
 }
-export function OpsOperationLookup(){
- const [id,setID]=useState(''),[error,setError]=useState('');const navigate=useNavigate();
- function submit(event:FormEvent){event.preventDefault();if(!opsID(id.trim())){setError('请输入完整的操作编号。');return}navigate(`/ops/operations/${id.trim()}`);}
- return <><header className="page-heading ops-system-heading"><div><p className="eyebrow">OPERATIONS / RECORDS</p><h1>操作记录</h1><p>按原操作编号查询当前状态、时间线和审计回执。</p></div></header><section className="panel ops-system-lookup"><form onSubmit={submit} className="filters"><label>操作编号<input value={id} onChange={event=>setID(event.target.value)} maxLength={36} required autoComplete="off"/></label><button type="submit">查询操作</button></form>{error&&<Alert>{error}</Alert>}<p className="hint">请求结果不确定时，请先查询原操作，避免重复发起业务变更。</p></section><OpsOperationList/></>;
-}
-
-

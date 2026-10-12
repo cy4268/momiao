@@ -254,6 +254,9 @@ func serveOpsRoute(cfg config, w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/api/v1/ops/maintenance" && cfg.opsMaintenance != nil && cfg.OpsEnvironment != "" {
 		handler = domainHandler(cfg, cfg.opsMaintenance)
 	}
+	if (r.URL.Path == "/api/v1/ops/audit" || strings.HasPrefix(r.URL.Path, "/api/v1/ops/audit/")) && cfg.opsAudit != nil && cfg.OpsEnvironment != "" {
+		handler = domainHandler(cfg, cfg.opsAudit)
+	}
 	if handler == nil {
 		walletError(w, http.StatusServiceUnavailable, "OPS_UNAVAILABLE")
 		return

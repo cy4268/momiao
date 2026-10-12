@@ -14,12 +14,12 @@ const opsPages=[
  ['/ops/games','游戏'],['/ops/poker','Poker'],['/ops/economy','经济与账务'],['/ops/rewards','奖励'],
  ['/ops/rankings','排行榜'],['/ops/users','用户'],['/ops/records','记录查询'],['/ops/support-cases','支持工单'],['/ops/incidents','事件处理'],
  ['/ops/maintenance','维护'],['/ops/service-health','服务健康'],['/ops/jobs','后台任务'],['/ops/attention','待处理事项'],
- ['/ops/operations','操作记录'],['/ops/audit','审计'],['/ops/access-control','访问控制'],
+ ['/ops/audit','操作日志'],['/ops/access-control','访问控制'],
 ] as const;
 const opsGroups=[
  {title:'内容与用户',paths:['/ops/models','/ops/announcements','/ops/users','/ops/support-cases']},
  {title:'业务管理',paths:['/ops/games','/ops/poker','/ops/economy','/ops/rewards','/ops/rankings','/ops/records']},
- {title:'系统与审计',paths:['/ops/incidents','/ops/maintenance','/ops/service-health','/ops/jobs','/ops/attention','/ops/operations','/ops/audit','/ops/access-control']},
+ {title:'系统与审计',paths:['/ops/incidents','/ops/maintenance','/ops/service-health','/ops/jobs','/ops/attention','/ops/audit','/ops/access-control']},
 ];
 function visibleGroups(){
  return opsGroups.map(group=>({...group,pages:group.paths.flatMap(path=>opsPages.filter(page=>page[0]===path))})).filter(group=>group.pages.length);

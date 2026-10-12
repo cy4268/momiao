@@ -11,8 +11,12 @@ it('saves maintenance directly with a local admin and shows all operations witho
  const fetcher=vi.fn(async(path:string,init?:RequestInit)=>{
   if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'AUTHENTICATED',csrf_token:'local-csrf'});
   if(path==='/api/user/self')return ok({id:1,username:'operator',role:10});
-  if(path.startsWith('/platform/v1/access-gate?'))return ok({stage:'READY',user_id:'1',route:'/ops/maintenance'});
+  if(path.startsWith('/platform/v1/access-gate?'))return ok({stage:'READY',user_id:'1',route:new URLSearchParams(path.split('?')[1]).get('route')});
   if(path==='/api/v1/maintenance/notices')return ok({items:state.enabled?[{id:'maintenance',message:state.message,scopes:state.scopes}]:[]});
+  if(path.startsWith('/api/v1/ops/audit?')){
+   const query=new URLSearchParams(path.split('?')[1]);const page=Number(query.get('page')||1);
+   return ok({items:[{audit_id:'10000000-0000-4000-8000-000000000001',actor_newapi_user_id:'1',actor_name:'operator',action:page===1?'MAINTENANCE_SAVE':'USER_UPDATE',target_type:'MAINTENANCE',target_id:'DEVELOPMENT',before_snapshot:{enabled:false},after_snapshot:{enabled:true},occurred_at:'2026-10-12T23:00:00Z'}],total:21,page,page_size:20});
+  }
   if(path==='/api/v1/ops/maintenance'){
    if(init?.method==='PUT'){state=JSON.parse(String(init.body));return ok(state)}
    return failRead?failed():ok(state);
@@ -44,5 +48,18 @@ it('saves maintenance directly with a local admin and shows all operations witho
  const nav=screen.getByRole('navigation',{name:'运营导航'});
  expect(within(nav).getByRole('link',{name:'用户'})).toBeVisible();
  expect(within(nav).getByRole('link',{name:'经济与账务'})).toBeVisible();
- expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/bootstrap')||path.includes('/ops/operations')||path.includes('/ops/fresh')||path.includes('/native-runtime'))).toBe(false);
+ fireEvent.click(within(nav).getByRole('link',{name:'操作日志'}));
+ expect(await screen.findByRole('heading',{name:'操作日志'})).toBeVisible();
+ expect(await screen.findByText('MAINTENANCE_SAVE')).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'查看详情'}));
+ const detail=await screen.findByRole('dialog',{name:'变更详情'});
+ expect(within(detail).getByText(/"enabled": true/)).toBeVisible();
+ fireEvent.click(within(detail).getByRole('button',{name:'关闭对话框'}));
+ fireEvent.click(screen.getByRole('button',{name:'下一页'}));
+ expect(await screen.findByText('USER_UPDATE')).toBeVisible();
+ fireEvent.change(screen.getByRole('textbox',{name:'操作人 ID'}),{target:{value:'1'}});
+ fireEvent.change(screen.getByRole('textbox',{name:'对象类型'}),{target:{value:'MAINTENANCE'}});
+ fireEvent.click(screen.getByRole('button',{name:'筛选'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('actor_user_id=1')&&path.includes('target_type=MAINTENANCE')&&path.includes('page=1'))).toBe(true));
+ expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/bootstrap')||path.includes('/ops/operations')||path.includes('/ops/fresh')||path.includes('/native-runtime')||path.includes('authz_epoch'))).toBe(false);
 });

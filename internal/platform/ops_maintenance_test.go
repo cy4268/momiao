@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLocalMaintenanceSave(t *testing.T) {
@@ -62,6 +63,30 @@ func TestLocalMaintenanceSave(t *testing.T) {
 	if err != nil || auditCount != 1 || !auditMatches {
 		t.Fatal("atomic audit missing", err)
 	}
+	filter := OpsAuditFilter{ActorUserID: user, TargetType: "MAINTENANCE", Action: "MAINTENANCE_SAVE", From: time.Now().Add(-time.Minute), To: time.Now().Add(time.Minute), Page: 1, PageSize: 1}
+	logs, err := readOpsAudit(ctx, tx, filter)
+	if err != nil || logs.Total != 1 || len(logs.Items) != 1 || logs.Items[0].TargetID != "DEVELOPMENT" || !strings.Contains(string(logs.Items[0].AfterSnapshot), value.Message) {
+		t.Fatal("local audit projection", err)
+	}
+	filter.AuditID = logs.Items[0].AuditID
+	detail, err := readOpsAudit(ctx, tx, filter)
+	if err != nil || detail.Total != 1 {
+		t.Fatal("audit detail", err)
+	}
+	filter.AuditID = ""
+	filter.Page = 2
+	empty, err := readOpsAudit(ctx, tx, filter)
+	if err != nil || empty.Total != 1 || len(empty.Items) != 0 {
+		t.Fatal("audit page boundary", err)
+	}
+	var legacyID string
+	if err = tx.QueryRow(ctx, `SELECT audit_id::text FROM audit.audit_events ORDER BY occurred_at DESC LIMIT 1`).Scan(&legacyID); err != nil {
+		t.Fatal("existing dev audit history", err)
+	}
+	history, err := readOpsAudit(ctx, tx, OpsAuditFilter{AuditID: legacyID, Page: 1, PageSize: 20})
+	if err != nil || history.Total != 1 || history.Items[0].AuditID != legacyID {
+		t.Fatal("retained legacy audit", err)
+	}
 	// A narrower save replaces the current scopes, rather than adding another authority.
 	value.Scopes = []string{"REWARDS"}
 	value.Message = "仅奖励维护"
@@ -92,5 +117,5 @@ func TestLocalMaintenanceSave(t *testing.T) {
 	if err = s.pool.QueryRow(ctx, `SELECT count(*) FROM ops.audit_log`).Scan(&auditCount); err != nil || auditCount != auditBefore {
 		t.Fatal("audit escaped transaction", err)
 	}
-	t.Log("on/edit/off + admission guards + one audit per save; transaction rollback restored settings/audit")
+	t.Log("on/edit/off + admission guards + one audit per save; transaction rollback restored settings/audit; global audit filters/paging/history passed")
 }

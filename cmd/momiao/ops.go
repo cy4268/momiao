@@ -74,14 +74,14 @@ func newOpsHandler(sessions *session.Service, service *platform.OpsService, fres
 
 func coreOpsRoute(path string) bool {
 	if path == opsAPIPath+"/bootstrap" || path == opsAPIPath+"/operations" ||
-		path == opsAPIPath+"/admin-principals" || path == opsAPIPath+"/audit" ||
+		path == opsAPIPath+"/admin-principals" ||
 		path == opsAPIPath+"/fresh/password" || path == opsAPIPath+"/fresh/2fa" ||
 		path == opsAPIPath+"/fresh/discord/start" || path == opsAPIPath+"/fresh/discord/callback" ||
 		path == opsAPIPath+"/fresh/discord/2fa" ||
 		path == opsAPIPath+"/fresh/exchange" || path == opsAPIPath+"/fresh/cancel" {
 		return true
 	}
-	if strings.HasPrefix(path, opsAPIPath+"/operations/") || strings.HasPrefix(path, opsAPIPath+"/audit/") {
+	if strings.HasPrefix(path, opsAPIPath+"/operations/") {
 		return true
 	}
 	return false
@@ -130,8 +130,6 @@ func (h *opsHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case opsAPIPath + "/admin-principals":
 		h.adminPrincipals(w, r, userID)
-	case opsAPIPath + "/audit":
-		h.auditList(w, r, userID)
 	case opsAPIPath + "/fresh/password":
 		h.freshPassword(w, r, verified)
 	case opsAPIPath + "/fresh/2fa":
@@ -150,8 +148,6 @@ func (h *opsHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, opsAPIPath+"/operations/"):
 			h.operation(w, r, verified, userID)
-		case strings.HasPrefix(r.URL.Path, opsAPIPath+"/audit/"):
-			h.auditOne(w, r, userID)
 		default:
 			walletError(w, http.StatusNotFound, "NOT_FOUND")
 		}
@@ -552,64 +548,6 @@ func (h *opsHTTP) adminPrincipals(w http.ResponseWriter, r *http.Request, userID
 		return
 	}
 	sessionEnvelope(w, http.StatusOK, map[string]any{"items": principals})
-}
-
-func (h *opsHTTP) auditOne(w http.ResponseWriter, r *http.Request, userID int64) {
-	id := strings.TrimPrefix(r.URL.Path, opsAPIPath+"/audit/")
-	if !opsUUIDPatternHTTP(id) {
-		walletError(w, http.StatusNotFound, "NOT_FOUND")
-		return
-	}
-	if !requireOpsRead(w, r, "authz_epoch") {
-		return
-	}
-	epoch, ok := opsEpoch(r.URL.Query().Get("authz_epoch"))
-	if !ok {
-		walletError(w, http.StatusBadRequest, "OPS_INPUT_INVALID")
-		return
-	}
-	event, err := h.service.AuditEvent(r.Context(), userID, epoch, id)
-	if err != nil {
-		writeOpsError(w, err)
-		return
-	}
-	sessionEnvelope(w, http.StatusOK, event)
-}
-
-func (h *opsHTTP) auditList(w http.ResponseWriter, r *http.Request, userID int64) {
-	if !requireOpsRead(w, r, "authz_epoch", "operation_id", "actor_newapi_user_id", "action", "target_type", "target_id", "before", "limit") {
-		return
-	}
-	epoch, ok := opsEpoch(r.URL.Query().Get("authz_epoch"))
-	if !ok {
-		walletError(w, http.StatusBadRequest, "OPS_INPUT_INVALID")
-		return
-	}
-	query := platform.OpsAuditQuery{OperationID: r.URL.Query().Get("operation_id"), Action: r.URL.Query().Get("action"),
-		TargetType: r.URL.Query().Get("target_type"), TargetID: r.URL.Query().Get("target_id"), Limit: 50}
-	if value := r.URL.Query().Get("actor_newapi_user_id"); value != "" {
-		query.ActorUserID, ok = opsEpoch(value)
-		if !ok {
-			walletError(w, http.StatusBadRequest, "OPS_INPUT_INVALID")
-			return
-		}
-	}
-	if value := r.URL.Query().Get("limit"); value != "" {
-		query.Limit, _ = strconv.Atoi(value)
-	}
-	if value := r.URL.Query().Get("before"); value != "" {
-		query.Before, _ = time.Parse(time.RFC3339Nano, value)
-		if query.Before.IsZero() {
-			walletError(w, http.StatusBadRequest, "OPS_INPUT_INVALID")
-			return
-		}
-	}
-	events, err := h.service.AuditEvents(r.Context(), userID, epoch, query)
-	if err != nil {
-		writeOpsError(w, err)
-		return
-	}
-	sessionEnvelope(w, http.StatusOK, map[string]any{"items": events})
 }
 
 func validFreshFactorResult(result opsFreshFactorResult) bool {

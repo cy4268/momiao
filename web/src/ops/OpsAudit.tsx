@@ -1,20 +1,25 @@
-import { useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { Alert, Empty, Loading, useResource } from '../ui';
-import { opsError, opsID, opsVersion } from './ops-api';
-import { OpsFacts, opsState, opsTime } from './OpsOperationDetail';
-import { useOps } from './OpsShell';
+import { useEffect, useState, type FormEvent } from 'react';
+import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
+import { ApiClient } from '../api';
+import { Alert, Empty, Loading, Modal, Pager, useResource } from '../ui';
 
-type Audit={audit_id:string;actor_newapi_user_id:string;actor_role:string;action:string;target_type:string;target_id:string;before_snapshot:Record<string,unknown>;after_snapshot:Record<string,unknown>;reason:string;operation_id:string;result:Record<string,unknown>;environment:string;occurred_at:string};
-function checkAudit(value:Audit){if(!value||!opsID(value.audit_id)||!opsID(value.operation_id)||!opsVersion(value.actor_newapi_user_id)||typeof value.action!=='string'||typeof value.target_id!=='string'||!Number.isFinite(Date.parse(value.occurred_at))||!['DEVELOPMENT','STAGING','PRODUCTION'].includes(value.environment))throw new Error('审计响应格式异常。');return value;}
+type Audit={audit_id:string;actor_newapi_user_id:string;actor_name:string;action:string;target_type:string;target_id:string;before_snapshot:unknown;after_snapshot:unknown;occurred_at:string};
+type AuditPage={items:Audit[];total:number;page:number;page_size:number};
 export function OpsAudit(){
- const {client,bootstrap}=useOps();const [operation,setOperation]=useState(''),[actor,setActor]=useState(''),[target,setTarget]=useState(''),[query,setQuery]=useState(''),[error,setError]=useState('');
- const resource=useResource(async()=>{try{const value=await client.request<{items:Audit[]}>(`/api/v1/ops/audit?authz_epoch=${bootstrap.principal.authz_epoch}&limit=50${query}`);if(!value||!Array.isArray(value.items))throw new Error('审计列表格式异常。');return value.items.map(checkAudit);}catch(error){throw new Error(opsError(error));}},[client,bootstrap.principal.authz_epoch,query]);
- function filter(event:FormEvent){event.preventDefault();if(operation&&!opsID(operation.trim())||actor&&!opsVersion(actor.trim())){setError('请核对操作编号和账户编号。');return}setError('');const next=new URLSearchParams();if(operation.trim())next.set('operation_id',operation.trim());if(actor.trim())next.set('actor_newapi_user_id',actor.trim());if(target.trim())next.set('target_id',target.trim());setQuery(next.size?'&'+next.toString():'');}
- return <><header className="page-heading ops-system-heading"><div><p className="eyebrow">OPERATIONS / AUDIT</p><h1>审计记录</h1><p>核对管理操作的执行者、目标、变更前后状态和处理结果。</p></div><button onClick={resource.reload} disabled={resource.loading}>刷新记录</button></header><section className="panel ops-system-list"><form className="filters" onSubmit={filter}><label>操作编号<input value={operation} onChange={event=>setOperation(event.target.value)} maxLength={36}/></label><label>执行账户<input value={actor} onChange={event=>setActor(event.target.value)} inputMode="numeric" maxLength={19}/></label><label>目标编号<input value={target} onChange={event=>setTarget(event.target.value)} maxLength={128}/></label><button type="submit">筛选</button></form>{error&&<Alert>{error}</Alert>}{resource.loading?<Loading/>:resource.error?<Alert>{resource.error}</Alert>:resource.data?.length?<><div className="table-wrap" role="region" aria-label="审计记录" tabIndex={0}><table><thead><tr><th>时间</th><th>操作</th><th>执行账户</th><th>目标</th><th>详情</th></tr></thead><tbody>{resource.data.map(item=><tr key={item.audit_id}><td>{opsTime(item.occurred_at)}</td><td>{item.action}</td><td>{item.actor_newapi_user_id}</td><td>{item.target_id}</td><td><Link to={`/ops/audit/${item.audit_id}`}>查看审计</Link></td></tr>)}</tbody></table></div><p className="hint">显示符合筛选条件的最新 50 条记录。可按原操作编号缩小范围。</p></>:<Empty title="没有匹配的审计记录">调整筛选条件后重试。</Empty>}</section></>;
-}
-export function OpsAuditDetail(){
- const {auditID=''}=useParams();const {client,bootstrap}=useOps();const resource=useResource(async()=>{if(!opsID(auditID))throw new Error('审计编号无效。');try{return checkAudit(await client.request<Audit>(`/api/v1/ops/audit/${auditID}?authz_epoch=${bootstrap.principal.authz_epoch}`));}catch(error){throw new Error(opsError(error));}},[client,bootstrap.principal.authz_epoch,auditID]);
- const item=resource.data;
- return <><header className="page-heading ops-system-heading"><div><p className="eyebrow">OPERATIONS / AUDIT DETAIL</p><h1>审计详情</h1><Link to="/ops/audit">返回审计记录</Link></div><button onClick={resource.reload} disabled={resource.loading}>重新读取</button></header>{resource.loading?<Loading/>:resource.error?<Alert>{resource.error}</Alert>:item&&<><section className="panel ops-system-audit-summary"><dl className="ops-impact"><div><dt>执行账户</dt><dd>{item.actor_newapi_user_id} · {opsState[item.actor_role]||item.actor_role}</dd></div><div><dt>操作</dt><dd>{item.action}</dd></div><div><dt>目标</dt><dd>{item.target_id}</dd></div><div><dt>环境与时间</dt><dd>{opsState[item.environment]} · {opsTime(item.occurred_at)}</dd></div></dl><p>原因：{item.reason}</p><Link to={`/ops/operations/${item.operation_id}`}>查看原操作及时间线 →</Link></section><section className="panel ops-system-audit-evidence"><h2>变更快照与处理结果</h2><div className="ops-system-snapshot-grid"><div><h3>变更前</h3><OpsFacts value={item.before_snapshot}/></div><div><h3>变更后</h3><OpsFacts value={item.after_snapshot}/></div><div><h3>处理结果</h3><OpsFacts value={item.result}/></div></div></section></>}</>;
+ const {client}=useOutletContext<{client:ApiClient}>(),{auditID}=useParams(),navigate=useNavigate();
+ const [page,setPage]=useState(1),[query,setQuery]=useState(''),[selected,setSelected]=useState<Audit>();
+ const resource=useResource(()=>client.request<AuditPage>(`/api/v1/ops/audit?page=${page}&page_size=20${query}${auditID?'&audit_id='+encodeURIComponent(auditID):''}`),[client,page,query,auditID]);
+ useEffect(()=>{if(auditID&&resource.data)setSelected(resource.data.items[0])},[auditID,resource.data]);
+ function filter(event:FormEvent<HTMLFormElement>){
+  event.preventDefault();const data=new FormData(event.currentTarget),params=new URLSearchParams();
+  for(const [name,value] of data){const text=String(value).trim();if(text)params.set(name,name==='from'||name==='to'?new Date(text).toISOString():text)}
+  setPage(1);setQuery(params.size?'&'+params.toString():'');if(auditID)navigate('/ops/audit');
+ }
+ function close(){setSelected(undefined);if(auditID)navigate('/ops/audit')}
+ return <><header className="page-heading ops-system-heading"><div><p className="eyebrow">OPERATIONS / AUDIT</p><h1>操作日志</h1><p>查看全部管理变更，包括迁移前保留的审计记录。</p></div><button onClick={resource.reload} disabled={resource.loading}>刷新记录</button></header>
+ <section className="panel ops-system-list"><form className="filters" onSubmit={filter}>
+ <label>操作人 ID<input name="actor_user_id" inputMode="numeric"/></label><label>对象类型<input name="target_type" placeholder="例如 MAINTENANCE"/></label><label>对象 ID<input name="target_id"/></label><label>操作<input name="action"/></label>
+ <label>开始时间<input name="from" type="datetime-local"/></label><label>结束时间（不含）<input name="to" type="datetime-local"/></label><button type="submit">筛选</button></form>
+ {resource.loading?<Loading/>:resource.error?<Alert>{resource.error}</Alert>:resource.data&&<>{resource.data.items.length?<div className="table-wrap" role="region" aria-label="操作日志" tabIndex={0}><table><thead><tr><th>时间</th><th>操作人</th><th>操作</th><th>对象</th><th>详情</th></tr></thead><tbody>{resource.data.items.map(item=><tr key={item.audit_id}><td>{new Date(item.occurred_at).toLocaleString('zh-CN')}</td><td>{item.actor_name} · {item.actor_newapi_user_id}</td><td>{item.action}</td><td>{item.target_type} · {item.target_id}</td><td><button onClick={()=>setSelected(item)}>查看详情</button></td></tr>)}</tbody></table></div>:<Empty title="没有匹配的操作日志">调整筛选条件后重试。</Empty>}<Pager page={page} size={20} total={resource.data.total} onChange={setPage}/></>}
+ </section>{selected&&<Modal title="变更详情" onClose={close}><p>{selected.action} · {selected.target_type} · {selected.target_id}</p><p>操作人：{selected.actor_name} · {selected.actor_newapi_user_id}</p><div className="ops-system-snapshot-grid"><section><h3>变更前</h3><pre>{JSON.stringify(selected.before_snapshot,null,2)}</pre></section><section><h3>变更后</h3><pre>{JSON.stringify(selected.after_snapshot,null,2)}</pre></section></div></Modal>}</>;
 }
