@@ -11,8 +11,29 @@ const bundle={access_token:'synthetic',access_expires_at:4102444800,session:{sid
 const profile={user_id:'12',short_account_id:'CA-00000000000C',status:'INCOMPLETE',display_name:'',avatar_id:'system-default',profile_version:'0',nickname_changed_at:null,next_rename_at:null,suggested_name:'Master-CA-00000000000C',avatars:[{id:'system-default',label:'系统默认头像',source:'SYSTEM'}]};
 const status={user_id:'12',source:'UNVERIFIED',grant_status:'PENDING_SOURCE',amount_units:'0',transaction_id:null,source_available:false};
 const ok=(data:unknown)=>new Response(JSON.stringify({success:true,data}));
+it('sets up, enables and disables local two-factor authentication',async()=>{
+ let enabled=false;let generation=1;
+ const f=vi.fn(async(path:string)=>{
+  if(path==='/api/v1/account/2fa/enable'){enabled=true;generation++;return ok({});}
+  if(path==='/api/v1/account/2fa/disable'){enabled=false;generation++;return ok({});}
+  if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'AUTHENTICATED',csrf_token:`local-${generation}`});
+  if(path==='/api/user/self')return ok(user);
+  if(path==='/api/v1/account')return ok({id:12,username:user.username,has_password:true,discord_linked:true,two_fa_enabled:enabled});
+  if(path==='/api/v1/account/2fa/setup')return ok({secret:'TEST-SECRET',qr_code_data:'otpauth://totp/momiao:test',backup_codes:['AAAA-BBBB','CCCC-DDDD','EEEE-FFFF','GGGG-HHHH']});
+  return ok(path.includes('master-profile')?profile:status);
+ });
+ const c=new ApiClient(f);await c.bootstrap();render(<MemoryRouter><Account client={c}/></MemoryRouter>);
+ fireEvent.click(await screen.findByRole('button',{name:'设置二次验证'}));
+ expect(await screen.findByText('TEST-SECRET')).toBeVisible();expect(screen.getByText('AAAA-BBBB')).toBeVisible();
+ fireEvent.change(screen.getByLabelText('验证器验证码'),{target:{value:'123456'}});
+ fireEvent.click(screen.getByRole('button',{name:'启用二次验证'}));
+ const disable=await screen.findByRole('button',{name:'关闭二次验证'});
+ fireEvent.change(screen.getByLabelText('验证码或备用码'),{target:{value:'AAAA-BBBB'}});fireEvent.click(disable);
+ expect(await screen.findByRole('button',{name:'设置二次验证'})).toBeEnabled();
+ expect(f.mock.calls.filter(([p])=>p.startsWith('/api/v1/account/2fa/')).map(([p])=>p)).toEqual(['/api/v1/account/2fa/setup','/api/v1/account/2fa/enable','/api/v1/account/2fa/disable']);
+});
 it('shows actual read-only login identifier and first set requires a fresh proof',async()=>{
- const f=vi.fn(async(path:string)=>ok(path==='/api/user/login'?bundle:path==='/api/momiao/account'?{id:12,username:'native-readonly',has_password:false,discord_connected:true,two_fa_enabled:true}:path.includes('master-profile')?profile:status));const c=new ApiClient(withReadyAccessGate(f));await c.login('a','b');
+ const f=vi.fn(async(path:string)=>ok(path==='/api/v1/session/bootstrap'?{authentication_state:'AUTHENTICATED',csrf_token:'local-csrf'}:path==='/api/user/self'?user:path==='/api/v1/account'?{id:12,username:'native-readonly',has_password:false,discord_linked:true,two_fa_enabled:true}:path.includes('master-profile')?profile:status));const c=new ApiClient(withReadyAccessGate(f));await c.bootstrap();
  render(<MemoryRouter><Account client={c}/></MemoryRouter>);
  expect(await screen.findByText('native-readonly')).toBeVisible();expect(screen.queryByLabelText('用户名')).not.toBeInTheDocument();
  // The account page is the one place that keeps the login name and account number, labelled plainly.
@@ -27,7 +48,7 @@ it('shows actual read-only login identifier and first set requires a fresh proof
  expect(f.mock.calls.some(([path])=>path.includes('/password/'))).toBe(false);
 });
 it('uses a supplied in-memory proof for first set then clears it without replay',async()=>{
- const f=vi.fn(async(path:string)=>ok(path==='/api/user/login'?bundle:path==='/api/momiao/account'?{id:12,username:'native-readonly',has_password:false,discord_connected:true,two_fa_enabled:false}:path.includes('master-profile')?profile:path.includes('/password/set')?{...bundle,user:undefined,has_password:true}:status));const c=new ApiClient(withReadyAccessGate(f));await c.login('a','b');const clear=vi.fn();
+ const f=vi.fn(async(path:string)=>ok(path==='/api/v1/session/bootstrap'?{authentication_state:'AUTHENTICATED',csrf_token:'local-csrf'}:path==='/api/user/self'?user:path==='/api/v1/account'?{id:12,username:'native-readonly',has_password:false,discord_linked:true,two_fa_enabled:false}:path.includes('master-profile')?profile:path.includes('/password/set')?{...bundle,user:undefined,has_password:true}:status));const c=new ApiClient(withReadyAccessGate(f));await c.bootstrap();const clear=vi.fn();
  render(<MemoryRouter><Account client={c} proof={{proof:'synthetic-proof',expires_at:4102444800}} clearProof={clear}/></MemoryRouter>);
  fireEvent.change(await screen.findByLabelText('新密码'),{target:{value:'synthetic-pass'}});fireEvent.change(screen.getByLabelText('确认新密码'),{target:{value:'synthetic-pass'}});fireEvent.click(screen.getByRole('button',{name:'设置密码'}));
  await waitFor(()=>expect(clear).toHaveBeenCalled());expect(f.mock.calls.filter(([p])=>p.includes('/password/set'))).toHaveLength(1);

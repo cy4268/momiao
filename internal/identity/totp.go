@@ -5,14 +5,17 @@
 package identity
 
 import (
+	"crypto/rand"
 	"fmt"
 	"strings"
 
+	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 )
 
 const (
 	BackupCodeLength = 8
+	BackupCodeCount  = 4
 	MaxFailAttempts  = 5
 	LockoutDuration  = 300
 )
@@ -58,4 +61,49 @@ func NormalizeBackupCode(code string) string {
 func HashBackupCode(code string) (string, error) {
 	normalizedCode := NormalizeBackupCode(code)
 	return Password2Hash(normalizedCode)
+}
+
+// GenerateTOTPSecret 生成TOTP密钥和配置
+func GenerateTOTPSecret(accountName string) (*otp.Key, error) {
+	issuer := "momiao"
+	return totp.Generate(totp.GenerateOpts{
+		Issuer:      issuer,
+		AccountName: accountName,
+		Period:      30,
+		Digits:      otp.DigitsSix,
+		Algorithm:   otp.AlgorithmSHA1,
+	})
+}
+
+// GenerateBackupCodes 生成备用恢复码
+func GenerateBackupCodes() ([]string, error) {
+	codes := make([]string, BackupCodeCount)
+
+	for i := 0; i < BackupCodeCount; i++ {
+		code, err := generateRandomBackupCode()
+		if err != nil {
+			return nil, err
+		}
+		codes[i] = code
+	}
+
+	return codes, nil
+}
+
+// generateRandomBackupCode 生成单个备用码
+func generateRandomBackupCode() (string, error) {
+	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	code := make([]byte, BackupCodeLength)
+
+	for i := range code {
+		randomBytes := make([]byte, 1)
+		_, err := rand.Read(randomBytes)
+		if err != nil {
+			return "", err
+		}
+		code[i] = charset[int(randomBytes[0])%len(charset)]
+	}
+
+	// 格式化为 XXXX-XXXX 格式
+	return fmt.Sprintf("%s-%s", string(code[:4]), string(code[4:])), nil
 }

@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,10 +11,12 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pquerna/otp/totp"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -95,6 +99,7 @@ func TestLocalPasswordHTTP(t *testing.T) {
 		t.Fatal("anonymous bootstrap", bootstrap.Code)
 	}
 	anonymous := bootstrap.Result().Cookies()[0]
+	anonymousCSRF := response.Data.CSRF
 	start := call("POST", "/api/v1/auth/discord/login/start", map[string]string{}, anonymous, response.Data.CSRF)
 	var oauth struct {
 		Data struct {
@@ -217,11 +222,104 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	if denied := call("GET", "/api/v1/account", nil, anonymous, ""); denied.Code != 401 {
 		t.Fatal("anonymous account status", denied.Code)
 	}
+	// Exercise account mutations on the existing dev owner, restoring the exact
+	// original hash and removing only this run's factor enrollment on exit.
+	var factors int
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM identity.two_fas WHERE user_id=$1`, user.ID).Scan(&factors); err != nil || factors != 0 {
+		t.Fatal("account flow requires the existing dev owner without a factor")
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Error("restore account", err)
+			return
+		}
+		defer tx.Rollback(ctx)
+		for _, query := range []string{`DELETE FROM identity.two_fa_backup_codes WHERE user_id=$1`, `DELETE FROM identity.two_fas WHERE user_id=$1`} {
+			if _, err := tx.Exec(ctx, query, user.ID); err != nil {
+				t.Error("restore account", err)
+				return
+			}
+		}
+		if _, err := tx.Exec(ctx, `UPDATE identity.users SET password_hash=$2 WHERE id=$1`, user.ID, user.PasswordHash); err != nil {
+			t.Error("restore account", err)
+			return
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Error("restore account", err)
+			return
+		}
+		var restored bool
+		if err := pool.QueryRow(ctx, `SELECT password_hash=$2 AND NOT EXISTS(SELECT 1 FROM identity.two_fas WHERE user_id=$1) FROM identity.users WHERE id=$1`, user.ID, user.PasswordHash).Scan(&restored); err != nil || !restored {
+			t.Error("original account credentials not restored")
+		}
+	})
+	newPassword := rand.Text()[:18]
+	oldCookie := cookie
+	changed := call("POST", "/api/v1/account/password/change", map[string]string{"old_password": body["password"], "password": newPassword}, cookie, csrf)
+	if changed.Code != 200 || json.Unmarshal(changed.Body.Bytes(), &response) != nil {
+		t.Fatal("password change", changed.Code)
+	}
+	cookie, csrf = changed.Result().Cookies()[0], response.Data.CSRF
+	if denied := call("GET", "/api/v1/account", nil, oldCookie, ""); denied.Code != 401 {
+		t.Fatal("password change left old session active", denied.Code)
+	}
+	setup := call("POST", "/api/v1/account/2fa/setup", nil, cookie, csrf)
+	var enrollment struct {
+		Data struct {
+			Secret      string   `json:"secret"`
+			URI         string   `json:"qr_code_data"`
+			BackupCodes []string `json:"backup_codes"`
+		} `json:"data"`
+	}
+	if setup.Code != 200 || json.Unmarshal(setup.Body.Bytes(), &enrollment) != nil || len(enrollment.Data.BackupCodes) != 4 || !strings.HasPrefix(enrollment.Data.URI, "otpauth://totp/") {
+		t.Fatal("2FA setup", setup.Code)
+	}
+	code, err := totp.GenerateCode(enrollment.Data.Secret, time.Now())
+	if err != nil {
+		t.Fatal("generate enrollment code")
+	}
+	enabled := call("POST", "/api/v1/account/2fa/enable", map[string]string{"code": code}, cookie, csrf)
+	if enabled.Code != 200 || json.Unmarshal(enabled.Body.Bytes(), &response) != nil {
+		t.Fatal("2FA enable", enabled.Code)
+	}
+	cookie, csrf = enabled.Result().Cookies()[0], response.Data.CSRF
+	account = call("GET", "/api/v1/account", nil, cookie, "")
+	if account.Code != 200 || !strings.Contains(account.Body.String(), `"two_fa_enabled":true`) {
+		t.Fatal("2FA account flag")
+	}
+	login = call("POST", "/api/v1/auth/password/login", map[string]string{"identifier": username, "password": newPassword}, anonymous, anonymousCSRF)
+	var challenge struct {
+		Data struct {
+			State     string `json:"authentication_state"`
+			Challenge struct {
+				ID string `json:"challenge_id"`
+			} `json:"challenge"`
+		} `json:"data"`
+	}
+	if login.Code != 200 || json.Unmarshal(login.Body.Bytes(), &challenge) != nil || challenge.Data.State != "TWO_FA" {
+		t.Fatal("password login requires factor", login.Code)
+	}
+	code, err = totp.GenerateCode(enrollment.Data.Secret, time.Now())
+	if err != nil {
+		t.Fatal("generate login code")
+	}
+	verified := call("POST", "/api/v1/auth/password/2fa", map[string]string{"challenge_id": challenge.Data.Challenge.ID, "code": code}, anonymous, anonymousCSRF)
+	if verified.Code != 200 || json.Unmarshal(verified.Body.Bytes(), &response) != nil || response.Data.State != "AUTHENTICATED" {
+		t.Fatal("TOTP login", verified.Code)
+	}
+	cookie, csrf = verified.Result().Cookies()[0], response.Data.CSRF
+	disabled := call("POST", "/api/v1/account/2fa/disable", map[string]string{"code": enrollment.Data.BackupCodes[0]}, cookie, csrf)
+	if disabled.Code != 200 || json.Unmarshal(disabled.Body.Bytes(), &response) != nil {
+		t.Fatal("backup code disables 2FA", disabled.Code)
+	}
+	cookie, csrf = disabled.Result().Cookies()[0], response.Data.CSRF
 	logout := call("POST", "/api/v1/session/logout", nil, cookie, csrf)
 	if logout.Code != 200 {
 		t.Fatal("logout", logout.Code)
 	}
-	if _, err := auth.Request(r, false); err == nil {
+	if denied := call("GET", "/api/v1/account", nil, cookie, ""); denied.Code != 401 {
 		t.Fatal("logout left authenticated request active")
 	}
 }
