@@ -25,8 +25,8 @@ export function Account({client,proof,clearProof=()=>{}}: {client:ApiClient;proo
     const [password,setPassword]=useState('');const [confirm,setConfirm]=useState('');const [old,setOld]=useState('');const [show,setShow]=useState(false);const [showConfirm,setShowConfirm]=useState(false);const [showOld,setShowOld]=useState(false);const active=useRef(true);const lock=useRef(false);
     const validProof=proof&&proof.expires_at>Date.now()/1000?proof:undefined;
     const mode=validProof?(validProof.purpose==='PASSWORD_SET'?'set':'reset'):'change';
-    async function reload(){setLoading(true);setError('');try{const d=await readAccount(client);if(active.current)setAccount(d);const p=await readProfile(client,String(d.id));if(active.current)setShortID(p.short_account_id);}catch(e){if(active.current)setError(admissionError(e));}finally{if(active.current)setLoading(false);}}
-    useEffect(()=>{active.current=true;void reload();return()=>{active.current=false;};},[client,generation]);
+    async function reload(){const scope=client.getSessionGeneration();const current=()=>active.current&&scope===client.getSessionGeneration();setLoading(true);setError('');try{const d=await readAccount(client);if(!current())return;setAccount(d);const p=await readProfile(client,String(d.id));if(current())setShortID(p.short_account_id);}catch(e){if(current())setError(admissionError(e));}finally{if(current())setLoading(false);}}
+    useEffect(()=>{active.current=true;setPassword('');setConfirm('');setOld('');setShow(false);setShowOld(false);setShowConfirm(false);void reload();return()=>{active.current=false;};},[client,generation]);
     async function authorize(reset:boolean){if(lock.current)return;lock.current=true;setBusy(true);setError('');clearProof();try{const url=await client.discordStart(reset?'password-reset':'password-set');if(active.current)window.location.assign(url);}catch(e){if(active.current)setError(admissionError(e));}finally{if(active.current){lock.current=false;setBusy(false);}}}
     async function submit(e:FormEvent){e.preventDefault();if(lock.current||!account)return;if(password!==confirm){setError('两次输入的新密码不一致。');return;}if([...password].length<8||[...password].length>20||new TextEncoder().encode(password).length>72){setError('新密码需为 8–20 个字符，且不超过 72 字节。');return;}
         lock.current=true;setBusy(true);setError('');setNotice('');try{await client.updatePassword(mode,mode==='change'?{password,old_password:old}:{password,proof:validProof?.proof});clearProof();if(active.current){setNotice('密码已更新，当前登录已重新核对。');await reload();}}catch(e){clearProof();if(active.current){setError(admissionError(e));}}finally{setPassword('');setConfirm('');setOld('');setShow(false);setShowOld(false);setShowConfirm(false);if(active.current){lock.current=false;setBusy(false);}}}
@@ -47,7 +47,7 @@ export function Account({client,proof,clearProof=()=>{}}: {client:ApiClient;proo
                 </form>}
                 {account.has_password&&!validProof&&<div className="auth-switch"><p className="hint">忘记当前密码？使用同一已绑定的 Discord 重新验证。</p><button disabled={busy||!account.discord_linked} onClick={()=>void authorize(true)}>通过 Discord 重置密码</button></div>}
             </section>
-            <TwoFactorSettings client={client} enabled={account.two_fa_enabled}/>
+            <TwoFactorSettings key={generation} client={client} enabled={account.two_fa_enabled}/>
         </div>}
         <GrantStatus key={generation} client={client}/>
         <div className="account-tools"><AccountExplanation/>{account&&<button className="account-signout" disabled={session.loggingOut||busy} onClick={()=>{clearProof();void client.logout().catch(()=>{});}}>退出当前登录</button>}</div>

@@ -73,6 +73,8 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
     const loading = <div className="session-loading"><Crest /><Loading /></div>;
     const announcementSession = (session.user?.id || 'guest') + ':' + client.getSessionGeneration() + ':' + session.ready;
     const routedSession=announcementSession+':'+location.pathname+location.search;
+    // Credential rotation must not discard the account form's completed result.
+    const privateRouteSession=['/account','/account/security'].includes(location.pathname)?session.user?.id+':'+location.pathname:routedSession;
     return <>{location.pathname !== '/' && <CriticalNotice client={client}/>}{location.pathname !== '/' && session.ready && !session.user && <AnnouncementEntry client={client} />}{pokerNotice&&held&&<p role="status">{held.path==='/poker'?'入桌结果正在自动同步，已保留当前页面。':'当前牌桌会话仍在进行，安全离座后即可切换页面。'}</p>}<Routes location={effectiveLocation}>
         <Route path="/" element={<Home key={announcementSession} signedIn={!!session.user} client={client} />} />
         <Route path="/entertainment" element={<GamesCatalog key={announcementSession} client={client}/>} />
@@ -111,9 +113,9 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
         <Route path="/oauth/discord" element={isOpsDiscordPopup()?<OpsDiscordPopup captured={capturedCallback}/>:!session.ready?loading:<DiscordCallback client={client} captured={capturedCallback} onComplete={value=>{if(value){setProof({value,generation:client.getSessionGeneration()});navigate('/account/security',{replace:true});}else navigate('/welcome',{replace:true});}}/>}/>
         <Route path="/welcome" element={!session.ready?loading:session.user?<PostAuthGate key={session.user.id+':'+client.getSessionGeneration()} client={client} user={session.user}/>:<Navigate to="/login" replace/>}/>
         <Route path="/poker/*" element={!session.ready?loading:session.user?<AccessGate key={announcementSession} client={client} user={session.user} route="/poker" pokerRecovery><PokerRoute key={announcementSession} client={client} path={effectivePath} onHold={holdPoker} frame={children=><Shell client={client} user={session.user!}>{children}</Shell>}/></AccessGate>:<LoginRequired/>}/>
-        <Route element={!session.ready ? loading : session.user ? <AccessGate key={routedSession} client={client} user={session.user} route={location.pathname+(['/keys','/logs'].includes(location.pathname)?location.search:'')}><Shell client={client} user={session.user} /></AccessGate> : <LoginRequired />}>
-            <Route path="/account" element={<Account key={session.user?.id+':'+client.getSessionGeneration()} client={client} proof={proof?.generation===client.getSessionGeneration()?proof.value:undefined} clearProof={()=>setProof(undefined)}/>}/>
-            <Route path="/account/security" element={<Account key={session.user?.id+':'+client.getSessionGeneration()} client={client} proof={proof?.generation===client.getSessionGeneration()?proof.value:undefined} clearProof={()=>setProof(undefined)}/>}/>
+        <Route element={!session.ready ? loading : session.user ? <AccessGate key={privateRouteSession} client={client} user={session.user} route={location.pathname+(['/keys','/logs'].includes(location.pathname)?location.search:'')}><Shell client={client} user={session.user} /></AccessGate> : <LoginRequired />}>
+            <Route path="/account" element={<Account key={session.user?.id} client={client} proof={proof?.generation===client.getSessionGeneration()?proof.value:undefined} clearProof={()=>setProof(undefined)}/>}/>
+            <Route path="/account/security" element={<Account key={session.user?.id} client={client} proof={proof?.generation===client.getSessionGeneration()?proof.value:undefined} clearProof={()=>setProof(undefined)}/>}/>
             <Route path="/dashboard" element={<Dashboard client={client} user={session.user!} />} />
             <Route path="/me" element={<PersonalHub client={client} user={session.user!} />} />
             <Route path="/rewards" element={<Rewards client={client} user={session.user!} />} />
