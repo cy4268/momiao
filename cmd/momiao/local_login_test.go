@@ -85,7 +85,7 @@ func TestLocalPasswordHTTP(t *testing.T) {
 		t.Fatal("open existing dev History reader")
 	}
 	t.Cleanup(historyPool.Close)
-	cfg := config{PublicOrigin: auth.Origin, Session: sessionConfig{Enabled: true}, sessionAuth: auth, localIdentity: auth, wallet: wallets, history: &historyHTTP{list: history.NewReader(historyPool)},
+	cfg := config{OpsEnvironment: "DEVELOPMENT", PublicOrigin: auth.Origin, Session: sessionConfig{Enabled: true}, sessionAuth: auth, localIdentity: auth, wallet: wallets, history: &historyHTTP{list: history.NewReader(historyPool)},
 		PokerRemoteSocket: os.Getenv("MOMIAO_POKER_REMOTE_SOCKET"), PokerServiceKeyringFile: os.Getenv("MOMIAO_POKER_SERVICE_KEYRING_FILE"), PokerPeerKeyringFile: os.Getenv("MOMIAO_POKER_PEER_KEYRING_FILE"),
 		Poker: pokerConfig{Enabled: true, TicketKeyringFile: os.Getenv("MOMIAO_POKER_TICKET_KEYRING_FILE")}}
 	remote, err := openPokerRemote(t.Context(), cfg)
@@ -94,6 +94,7 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	}
 	t.Cleanup(remote.Close)
 	cfg.poker = remote.handler
+	cfg.opsMaintenance = newOpsMaintenanceHandler(wallets, "DEVELOPMENT")
 	handler := newPortalHandler(cfg, nil)
 	call := func(method, path string, body any, cookie *http.Cookie, csrf string) *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(body)
@@ -201,6 +202,32 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	}
 	if prepared.Header.Get("Authorization") != "" || prepared.Header.Get("New-Api-User") != "" {
 		t.Fatal("native credential projection remains")
+	}
+	maintenance := call("GET", "/api/v1/ops/maintenance", nil, cookie, "")
+	if maintenance.Code != 200 || !strings.Contains(maintenance.Body.String(), `"enabled":false`) {
+		t.Fatal("local maintenance read", maintenance.Code)
+	}
+	if denied := call("GET", "/api/v1/ops/maintenance", nil, nil, ""); denied.Code != 401 {
+		t.Fatal("anonymous maintenance read", denied.Code)
+	}
+	if denied := call("PUT", "/api/v1/ops/maintenance", map[string]any{"enabled": false}, cookie, ""); denied.Code != 403 {
+		t.Fatal("maintenance write accepted missing CSRF", denied.Code)
+	}
+	if invalid := call("PUT", "/api/v1/ops/maintenance", map[string]any{"enabled": true, "scopes": []string{"UNKNOWN"}}, cookie, csrf); invalid.Code != 400 {
+		t.Fatal("maintenance accepted invalid scope", invalid.Code)
+	}
+	var ordinaryID int64
+	if err := pool.QueryRow(t.Context(), `SELECT id FROM identity.users WHERE role=1 AND status=1 AND deleted_at IS NULL ORDER BY id LIMIT 1`).Scan(&ordinaryID); err != nil {
+		t.Fatal(err)
+	}
+	ordinary, err := auth.Sessions.Create(t.Context(), ordinaryID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = auth.Sessions.Revoke(context.Background(), ordinary) })
+	ordinaryCookie := &http.Cookie{Name: cookie.Name, Value: ordinary.Token}
+	if denied := call("GET", "/api/v1/ops/maintenance", nil, ordinaryCookie, ""); denied.Code != 403 {
+		t.Fatal("ordinary user maintenance read", denied.Code)
 	}
 	principal, err := pokerHTTPAuth(prepared)
 	if err != nil || principal.UserID != user.ID || len(principal.SessionIDHash) != 64 {

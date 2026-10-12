@@ -872,8 +872,6 @@ func writeOpsError(w http.ResponseWriter, err error) {
 		status, code = http.StatusForbidden, err.Error()
 	case errors.Is(err, platform.ErrOpsNotFound):
 		status, code = http.StatusNotFound, err.Error()
-	case errors.Is(err, platform.ErrMaintenanceOverlap):
-		status, code = http.StatusConflict, "MAINTENANCE_SCOPE_OVERLAP"
 	case errors.Is(err, platform.ErrOpsFreshRequired):
 		status, code = http.StatusConflict, err.Error()
 	case errors.Is(err, platform.ErrOpsConflict), errors.Is(err, platform.ErrOpsPreviewStale),

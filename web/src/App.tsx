@@ -6,7 +6,7 @@ import { RPUsage } from './RPUsage';
 import { ApiWorkbench, UsageNavigation } from './ApiWorkbench';
 import { Catalog, CatalogDetailPage, APIAccess } from './Catalog';
 import { OpsCatalog } from './OpsCatalog';
-import { OpsShell, OpsHome } from './ops/OpsShell';
+import { OpsShell, OpsHome, OpsLegacyBoundary } from './ops/OpsShell';
 import { OpsAttention, OpsJobs, OpsServiceHealth } from './ops/OpsRuntime';
 import { OpsOperationDetail, OpsOperationLookup } from './ops/OpsOperationDetail';
 import { OpsAudit, OpsAuditDetail } from './ops/OpsAudit';
@@ -85,7 +85,8 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
         <Route path="/models" element={<Catalog key={routedSession} client={client} />} />
         <Route path="/models/*" element={<CatalogDetailPage key={routedSession} client={client} onLoginRequired={onCatalogLoginRequired} />} />
         <Route path="/api/access" element={<APIAccess key={routedSession} client={client} onLoginRequired={onCatalogLoginRequired} />} />
-        <Route path="/ops" element={!session.ready?loading:session.user?<AccessGate key={routedSession} client={client} user={session.user} route={location.pathname}><OpsShell client={client}/></AccessGate>:<LoginRequired/>}>
+        <Route path="/ops" element={!session.ready?loading:session.user?<AccessGate key={routedSession} client={client} user={session.user} route={location.pathname}><OpsShell client={client} user={session.user}/></AccessGate>:<LoginRequired/>}>
+            <Route element={<OpsLegacyBoundary/>}>
             <Route path="models" element={<OpsCatalog client={client} embedded/>}/>
             <Route path="announcements" element={<OpsAnnouncements client={client} embedded/>}/>
             <Route path="jobs" element={<OpsJobs/>}/>
@@ -94,7 +95,6 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="operations/:operationID" element={<OpsOperationDetail/>}/>
             <Route path="audit" element={<OpsAudit/>}/>
             <Route path="audit/:auditID" element={<OpsAuditDetail/>}/>
-            <Route path="maintenance" element={<OpsMaintenance/>}/>
             <Route path="access-control" element={<OpsAccessControl/>}/>
             <Route path="economy" element={<OpsEconomy/>}/>
             <Route path="rewards" element={<OpsRewards/>}/>
@@ -106,6 +106,8 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="poker" element={<OpsPoker/>}/>
             <Route path="rankings" element={<OpsRankings/>}/>
             <Route path="service-health" element={<OpsServiceHealth/>}/>
+            </Route>
+            <Route path="maintenance" element={<OpsMaintenance/>}/>
             <Route index element={<OpsHome/>}/>
         </Route>
         <Route path="/login" element={!session.ready?loading:session.user?<Navigate to="/welcome" replace/>:<Authentication client={client} mode="login"/>} />

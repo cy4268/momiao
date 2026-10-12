@@ -1,50 +1,48 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
-import { expect, it } from 'vitest';
-import { OpsHome, OpsShell } from './ops/OpsShell';
-import { fixtureClient, ok, failed } from './m1-test-fixtures';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { expect, it, vi } from 'vitest';
+import { ApiClient } from './api';
+import { App } from './App';
+import { ok, failed } from './m1-test-fixtures';
 
-it('groups only permitted operations after a bootstrap retry and clears the directory when permissions are revoked', async () => {
-    const principal = { principal_id: '01990000-1111-7777-aaaa-000000000010', newapi_user_id: '1', base_role: 'OPERATOR', status: 'ACTIVE', authz_epoch: '2', version: '1', scopes: [], permissions: ['models.read', 'users.read'] };
-    let unavailable = true;
-    const { client } = fixtureClient(path => path === '/api/v1/ops/bootstrap'
-        ? unavailable ? failed() : ok({ principal, registry_version: '1', operations: [] }) : undefined);
-    await client.login('ops', 'fixture');
-    const page = (value: typeof client) => <MemoryRouter initialEntries={['/ops']}><Routes><Route path='/ops' element={<OpsShell client={value} />}><Route index element={<OpsHome />} /><Route path='models' element={<><h1>模型管理内容</h1><Link to='/ops'>返回运营目录</Link></>} /></Route></Routes></MemoryRouter>;
-    const view = render(page(client));
-    expect(await screen.findByRole('alert')).toBeVisible();
-    unavailable = false;
-    fireEvent.click(screen.getByRole('button', { name: '重新核对权限' }));
-    await screen.findByRole('heading', { name: '运营工作台' });
-    const group = screen.getByRole('region', { name: '内容与用户' });
-    expect(within(group).getAllByRole('link')).toHaveLength(2);
-    expect(within(group).getByRole('link', { name: /模型目录/ })).toHaveAttribute('href', '/ops/models');
-    expect(within(group).getByRole('link', { name: /用户/ })).toHaveAttribute('href', '/ops/users');
-    expect(screen.queryByRole('region', { name: '业务管理' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: '系统与审计' })).not.toBeInTheDocument();
-    const nav = screen.getByRole('navigation', { name: '运营导航' });
-    expect(within(nav).getAllByRole('link')).toHaveLength(2);
-    expect(within(nav).queryByRole('link', { name: '访问控制' })).not.toBeInTheDocument();
-    expect(screen.getByRole('main')).toHaveFocus();
-    expect(view.container.querySelector('.ops-backdrop')).toHaveAttribute('alt', '');
-    fireEvent.error(view.container.querySelector('.ops-backdrop')!);
-    expect(view.container.querySelector('.ops-backdrop')).not.toBeInTheDocument();
-
-    fireEvent.click(within(nav).getByRole('link', { name: '模型目录' }));
-    await screen.findByRole('heading', { name: '模型管理内容' });
-    expect(view.container.querySelector('.ops-workspace')).toHaveClass('ops-workbench');
-    expect(view.container.querySelector('.ops-shell')).not.toHaveClass('is-overview');
-    expect(screen.getByRole('main')).toHaveFocus();
-
-    fireEvent.click(screen.getByRole('link', { name: '返回运营目录' }));
-    await screen.findByRole('heading', { name: '运营工作台' });
-    expect(view.container.querySelector('.ops-workspace')).not.toHaveClass('ops-workbench');
-
-    const revoked = fixtureClient(path => path === '/api/v1/ops/bootstrap'
-        ? ok({ principal: { ...principal, permissions: [] }, registry_version: '1', operations: [] }) : undefined).client;
-    await revoked.login('ops', 'fixture');
-    view.rerender(page(revoked));
-    expect(await screen.findByText('当前没有可访问的运营模块。')).toBeVisible();
-    expect(screen.queryByRole('region', { name: '内容与用户' })).not.toBeInTheDocument();
-    expect(within(screen.getByRole('navigation', { name: '运营导航' })).queryByRole('link')).not.toBeInTheDocument();
+it('saves maintenance directly with a local admin and shows all operations without legacy bootstrap', async () => {
+ let state={enabled:false,message:'',scopes:[] as string[]};
+ let failRead=true;
+ const fetcher=vi.fn(async(path:string,init?:RequestInit)=>{
+  if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'AUTHENTICATED',csrf_token:'local-csrf'});
+  if(path==='/api/user/self')return ok({id:1,username:'operator',role:10});
+  if(path.startsWith('/platform/v1/access-gate?'))return ok({stage:'READY',user_id:'1',route:'/ops/maintenance'});
+  if(path==='/api/v1/maintenance/notices')return ok({items:state.enabled?[{id:'maintenance',message:state.message,scopes:state.scopes}]:[]});
+  if(path==='/api/v1/ops/maintenance'){
+   if(init?.method==='PUT'){state=JSON.parse(String(init.body));return ok(state)}
+   return failRead?failed():ok(state);
+  }
+  throw new Error('Unexpected endpoint: '+path);
+ });
+ const client=new ApiClient(fetcher);await client.bootstrap();
+ render(<MemoryRouter initialEntries={['/ops/maintenance']}><App client={client}/></MemoryRouter>);
+ expect(await screen.findByRole('heading',{name:'维护设置'})).toBeVisible();
+ expect(await screen.findByRole('alert')).toBeVisible();
+ failRead=false;fireEvent.click(screen.getByRole('button',{name:'重新读取'}));
+ const form=await screen.findByRole('group',{name:'维护设置'});
+ expect(within(form).getByRole('checkbox',{name:'奖励领取'})).toBeChecked();
+ fireEvent.click(within(form).getByRole('checkbox',{name:'开启维护'}));
+ fireEvent.change(screen.getByRole('textbox',{name:'提示语（可选）'}),{target:{value:'预计十分钟后恢复'}});
+ fireEvent.click(screen.getByRole('button',{name:'保存'}));
+ expect(await screen.findByRole('status')).toHaveTextContent('维护设置已保存');
+ expect(state.enabled).toBe(true);expect(state.scopes).toHaveLength(7);
+ expect(state.message).toBe('预计十分钟后恢复');
+ const write=fetcher.mock.calls.find(([path,init])=>path==='/api/v1/ops/maintenance'&&init?.method==='PUT')!;
+ expect(new Headers(write[1]?.headers).get('X-CSRF-Token')).toBe('local-csrf');
+ expect(Object.keys(JSON.parse(String(write[1]?.body))).sort()).toEqual(['enabled','message','scopes']);
+ fireEvent(document,new Event('visibilitychange'));
+ expect(await screen.findByText('维护进行中')).toBeVisible();
+ expect(within(screen.getByRole('status',{name:'维护与服务影响'})).getByText('预计十分钟后恢复')).toBeVisible();
+ fireEvent.click(within(form).getByRole('checkbox',{name:'开启维护'}));
+ fireEvent.click(screen.getByRole('button',{name:'保存'}));
+ await waitFor(()=>expect(state.enabled).toBe(false));
+ const nav=screen.getByRole('navigation',{name:'运营导航'});
+ expect(within(nav).getByRole('link',{name:'用户'})).toBeVisible();
+ expect(within(nav).getByRole('link',{name:'经济与账务'})).toBeVisible();
+ expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/bootstrap')||path.includes('/ops/operations')||path.includes('/ops/fresh')||path.includes('/native-runtime'))).toBe(false);
 });

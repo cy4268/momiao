@@ -255,7 +255,7 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bindings := append(platform.MaintenanceOpsBindings(), campaign.OpsBindings()...)
+	bindings := campaign.OpsBindings()
 	ops, err := platform.NewOpsService(runtime, "STAGING", bindings...)
 	if err != nil {
 		t.Fatal(err)
@@ -284,8 +284,18 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 		}
 		return out
 	}
-	maint := idFor()
-	perform("MAINTENANCE_START_CRITICAL", "MAINTENANCE", maint, "0", "1", `{"scopes":["CHALDEA_USER_WRITES","WALLET_EXCHANGE","REWARDS","DIRECT_PLAY_NEW_ROUNDS","POKER_NEW_TABLES_NEW_HANDS","RANKINGS_PUBLISHING"]}`)
+	setMaintenance := func(enabled bool) string {
+		settings := platform.MaintenanceSettings{Enabled: enabled}
+		if err := platform.ValidateMaintenance(&settings); err != nil {
+			t.Fatal(err)
+		}
+		saved, err := owner.SaveMaintenance(ctx, 701, "STAGING", settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return saved.ID
+	}
+	maint := setMaintenance(true)
 	cid := platform.GamblerCampaignID
 	input := fmt.Sprintf(`{"maintenance_id":%q,"native_pause_evidence":"isolated-native-admission-drained","backup_reference":"isolated-local-before-reset"}`, maint)
 	if err = runtime.EnsureAccount(ctx, 704); !errors.Is(err, platform.ErrMaintenanceActive) {
@@ -454,15 +464,8 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var mv string
-	if err = owner.WithTx(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT state_version::text FROM ops.maintenance_windows WHERE maintenance_id=$1`, maint).Scan(&mv)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	perform("MAINTENANCE_END_CRITICAL", "MAINTENANCE", maint, mv, "1", `{}`)
-	maint = idFor()
-	perform("MAINTENANCE_START_CRITICAL", "MAINTENANCE", maint, "0", "1", `{"scopes":["CHALDEA_USER_WRITES","WALLET_EXCHANGE","REWARDS","DIRECT_PLAY_NEW_ROUNDS","POKER_NEW_TABLES_NEW_HANDS","RANKINGS_PUBLISHING"]}`)
+	setMaintenance(false)
+	maint = setMaintenance(true)
 	input = fmt.Sprintf(`{"maintenance_id":%q,"native_pause_evidence":"isolated-native-admission-drained","backup_reference":"isolated-local-before-reset"}`, maint)
 	v, _ = campaign.Read(ctx, 701, cid)
 	perform("GAMBLER_REAUTHORIZE", "GAMBLER_CAMPAIGN", cid, v.Version, "gambler.v1", input)
@@ -515,7 +518,7 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	if changed, e := campaign.RefreshRankings(ctx, build); e != nil || changed || builds != 0 {
 		t.Fatal("publication ignored maintenance", changed, e)
 	}
-	perform("MAINTENANCE_END_CRITICAL", "MAINTENANCE", maint, "1", "1", `{}`)
+	setMaintenance(false)
 	if changed, e := campaign.RefreshRankings(ctx, build); e != nil || !changed || builds != 1 {
 		t.Fatal("campaign ranking publication", changed, builds, e)
 	}

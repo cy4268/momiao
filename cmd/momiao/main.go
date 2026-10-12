@@ -128,6 +128,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		defer func() { stopAnnouncements(); <-announcementsDone }()
 		if cfg.OpsEnvironment != "" {
 		cfg.maintenanceNotices=newMaintenanceNoticesHandler(store,cfg.OpsEnvironment)
+		cfg.opsMaintenance=newOpsMaintenanceHandler(store,cfg.OpsEnvironment)
 
 		}
 		if cfg.NativeQuotaKeyFile != "" {
@@ -284,15 +285,15 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			if err != nil { return errors.New("Ops economy startup failed") }
 			campaign,err=platform.NewGamblerCampaignService(store,unifiedAssets)
 			if err!=nil{return errors.New("campaign startup failed")}
-		maintenanceCtx, stopMaintenance := context.WithCancel(ctx)
-		maintenanceDone := make(chan struct{})
-		maintenanceHealth := &maintenanceWorkerHealth{}
-		cfg.readiness["maintenance_worker"] = maintenanceHealth.check
-		go func() { defer close(maintenanceDone); runMaintenanceWorker(maintenanceCtx, store, cfg.OpsEnvironment, maintenanceHealth,func(work context.Context)(bool,error){
+		backgroundCtx, stopBackground := context.WithCancel(ctx)
+		backgroundDone := make(chan struct{})
+		backgroundHealth := &opsBackgroundHealth{}
+		cfg.readiness["ops_background_worker"] = backgroundHealth.check
+		go func() { defer close(backgroundDone); runOpsBackgroundWorker(backgroundCtx, backgroundHealth,func(work context.Context)(bool,error){
                 more,e:=campaign.RunBatch(work,platform.GamblerCampaignID,1);if e!=nil||more{return more,e}
                 return campaign.RefreshRankings(work,func(c context.Context)(string,error){return cfg.rankings.Build(c,"ASSETS","CURRENT","")})
             }) }()
-		defer func() { stopMaintenance(); <-maintenanceDone }()
+		defer func() { stopBackground(); <-backgroundDone }()
 		}
 	}
 	if cfg.Poker.Enabled && cfg.PokerRemoteSocket != "" {
@@ -321,7 +322,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		}
 	}
 	if cfg.OpsEnvironment!=""&&runtimeStore!=nil {
-		bindings := append(platform.MaintenanceOpsBindings(), opsEconomy.OpsBindings()...)
+		bindings := opsEconomy.OpsBindings()
 		bindings=append(bindings,campaign.OpsBindings()...)
 		bindings = append(bindings, platform.OpsSupportBindings(runtimeStore)...)
 		bindings = append(bindings, platform.OpsIncidentBindings(runtimeStore)...)

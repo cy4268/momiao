@@ -80,8 +80,6 @@ type accessGateStore interface {
 	ReadProfile(context.Context, int64) (platform.Profile, error)
 	ReadMigrationNotice(context.Context, int64, bool) (platform.MigrationNotice, error)
 	AcknowledgeMigrationNotice(context.Context, int64, int64) (platform.MigrationNotice, error)
-	AnnouncementAuthority(context.Context, int64) (platform.AnnouncementPrincipal, error)
-	CatalogAuthority(context.Context, int64) (platform.AnnouncementPrincipal, error)
 }
 type accessGateView struct {
 	UserID int64                     `json:"user_id,string"`
@@ -268,40 +266,9 @@ func newAccessGateHandler(origin string, store accessGateStore, declaration *acc
 			send("MIGRATION_UNVERIFIED")
 			return
 		}
-		if permission:=opsBrowserPermission(route);permission!=""&&route!="/ops/announcements"&&route!="/ops/models" {
-			opsStore, ok := store.(interface { RequireOpsPermission(context.Context,int64,int64,string)(platform.OpsPrincipal,error) })
-			if !ok { send("ROLE_UNVERIFIED"); return }
-			_, err = opsStore.RequireOpsPermission(ctx,account.ID,0,permission)
-			if errors.Is(err,platform.ErrOpsForbidden) { send("ROLE_DENIED"); return }
-			if err!=nil { send("ROLE_UNVERIFIED"); return }
-		}
-		if route == "/ops/announcements" {
-			_, err = store.AnnouncementAuthority(ctx, account.ID)
-			if errors.Is(err, platform.ErrAnnouncementForbidden) {
-				send("ROLE_DENIED")
-				return
-			}
-			if err != nil {
-				send("ROLE_UNVERIFIED")
-				return
-			}
-		}
-		if route == "/ops/models" {
-			_, err = store.CatalogAuthority(ctx, account.ID)
-			if errors.Is(err, platform.ErrCatalogForbidden) {
-				send("ROLE_DENIED")
-				return
-			}
-			if err != nil {
-				send("ROLE_UNVERIFIED")
-				return
-			}
-		}
-		if route == "/admin/channels" {
-			if account.Role < 10 {
-				send("ROLE_DENIED")
-				return
-			}
+		if (opsBrowserPermission(route) != "" || route == "/admin/channels") && account.Role < 10 {
+			send("ROLE_DENIED")
+			return
 		}
 		if pokerBrowserRoute(route) && !pokerWired {
 			send("RESOURCE_UNAVAILABLE")

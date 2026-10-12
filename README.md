@@ -72,6 +72,8 @@ npm run build
 
 Discord 配置使用 `MOMIAO_DISCORD_CONFIG_FILE` 指向私有 JSON，包含 `client_id`、`client_secret`；开启 `MOMIAO_ADMISSION_ENABLED=true` 的注册还需要 `guild_id`、`role_id`、`policy_version`。回调地址固定为 `MOMIAO_PUBLIC_ORIGIN` + `/oauth/discord`。新用户验证服务器身份组后，在同一事务创建账号和本地注册回执，复用赠额 worker；已有绑定账号直接登录，不重复发赠额。0049 将回执读取迁入本地，不再读取 `MOMIAO_REGISTRATION_READER_KEY_FILE`。 Bot 也复用平台连接池查询 `identity.users`，不再读取 `MOMIAO_BOT_GAMES_NATIVE_DSN_FILE`；只保留 socket、token、quote key 三项私有监听配置。History 走同一本地 Cookie 鉴权，专用记录读写角色保持不变。Poker 复用现有连接票据，签发、接入和后续命令读取同一 Redis 本地会话与本地用户状态；删除 `MOMIAO_POKER_SESSION_READER_KEY_FILE`。独立 Poker 进程新增 `MOMIAO_POKER_SESSION_REDIS_CONFIG_FILE`，使用同一 Redis 的只读会话账号，配置与授权见部署说明。
 
+运营维护页已改为本地管理员（role ≥ 10）的开关、可选提示语和范围直接保存；每次保存与一行 `ops.audit_log` 同事务提交。发布前应用 0050 及 `deploy/sql/runtime-grants-0050-local-ops.psql`。维护不再使用预约、预览或 fresh，已有业务准入锁继续复用。其他运营页面仍在迁移，整套开发验收前不切生产。
+
 **只运行存活探针**：不设置额外环境变量，执行构建出的 `momiao`（Windows 为 `momiao.exe`），默认监听 `127.0.0.1:8080`。`GET/HEAD /healthz` 返回 `{"status":"ok"}`；该模式其他路径为 404。存活不代表上游或业务就绪。
 
 **完整界面**：需要一个运行中的兼容 NewAPI，以及指向它的私有 Unix HTTP Socket。Linux 示例：

@@ -96,7 +96,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				return
 			}
 			if opsAPIRoute(r.URL.Path) {
-				serveOpsRoute(cfg.ops, w, r)
+				serveOpsRoute(cfg, w, r)
 				return
 			}
 			if r.URL.Path == "/readyz" {
@@ -157,7 +157,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		isRelay := strings.HasPrefix(r.URL.Path, "/v1/")
 		switch {
 		case opsAPIRoute(r.URL.Path):
-			serveOpsRoute(cfg.ops, w, r)
+			serveOpsRoute(cfg, w, r)
 		case r.URL.Path == "/api/v1/maintenance/notices":
 			cfg.maintenanceNotices.ServeHTTP(w, r)
 		case r.URL.Path == "/readyz":
@@ -249,7 +249,11 @@ func serveSessionRoute(handler http.Handler, w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
-func serveOpsRoute(handler http.Handler, w http.ResponseWriter, r *http.Request) {
+func serveOpsRoute(cfg config, w http.ResponseWriter, r *http.Request) {
+	handler := cfg.ops
+	if r.URL.Path == "/api/v1/ops/maintenance" && cfg.opsMaintenance != nil && cfg.OpsEnvironment != "" {
+		handler = domainHandler(cfg, cfg.opsMaintenance)
+	}
 	if handler == nil {
 		walletError(w, http.StatusServiceUnavailable, "OPS_UNAVAILABLE")
 		return
