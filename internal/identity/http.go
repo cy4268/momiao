@@ -16,6 +16,7 @@ type HTTP struct {
 	Store    *Store
 	Sessions Sessions
 	Origin   string
+	Discord  Discord
 }
 
 type userContextKey struct{}
@@ -151,6 +152,24 @@ func (h *HTTP) serve(w http.ResponseWriter, r *http.Request) error {
 		writeSuccess(w, bootstrap(value))
 		return nil
 	}
+	if r.URL.Path == "/api/v1/account" {
+		if r.Method != http.MethodGet {
+			return Fault{405, "METHOD_NOT_ALLOWED"}
+		}
+		_, user, err := h.read(r)
+		if err != nil {
+			return err
+		}
+		if user.ID == 0 {
+			return ErrSessionExpired
+		}
+		status, err := h.Store.AccountStatus(r.Context(), user)
+		if err != nil {
+			return err
+		}
+		writeSuccess(w, status)
+		return nil
+	}
 	if r.Method != http.MethodPost {
 		return Fault{405, "METHOD_NOT_ALLOWED"}
 	}
@@ -162,6 +181,10 @@ func (h *HTTP) serve(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	switch r.URL.Path {
+	case "/api/v1/auth/discord/login/start":
+		return h.discordStart(w, r, value)
+	case "/api/v1/auth/discord/callback":
+		return h.discordCallback(w, r, value)
 	case "/api/v1/auth/password/login":
 		var body struct {
 			Identifier string `json:"identifier"`
@@ -177,12 +200,7 @@ func (h *HTTP) serve(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		if challenge != nil {
-			writeSuccess(w, map[string]any{"authentication_state": "TWO_FA", "csrf_token": value.CSRFToken, "challenge": challenge})
-			return nil
-		}
-		WriteSessionCookie(w, authenticated)
-		writeSuccess(w, bootstrap(authenticated))
+		writeLogin(w, value, authenticated, challenge)
 	case "/api/v1/auth/password/2fa":
 		var body struct {
 			ChallengeID string `json:"challenge_id"`
@@ -214,4 +232,13 @@ func (h *HTTP) serve(w http.ResponseWriter, r *http.Request) error {
 		return Fault{404, "AUTH_ROUTE_NOT_FOUND"}
 	}
 	return nil
+}
+
+func writeLogin(w http.ResponseWriter, browser, authenticated Session, challenge *Challenge) {
+	if challenge != nil {
+		writeSuccess(w, map[string]any{"authentication_state": "TWO_FA", "csrf_token": browser.CSRFToken, "challenge": challenge})
+		return
+	}
+	WriteSessionCookie(w, authenticated)
+	writeSuccess(w, bootstrap(authenticated))
 }

@@ -90,7 +90,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			return store.WithTx(ctx, func(tx pgx.Tx) error { var one int; return tx.QueryRow(ctx, "SELECT 1").Scan(&one) })
 		}
 		if sessionApp != nil {
-			cfg.localIdentity = &identity.HTTP{Store: &identity.Store{Pool: store.Pool()}, Sessions: identity.Sessions{Redis: sessionApp.redis}, Origin: cfg.PublicOrigin}
+			cfg.localIdentity = &identity.HTTP{Store: &identity.Store{Pool: store.Pool()}, Sessions: identity.Sessions{Redis: sessionApp.redis}, Origin: cfg.PublicOrigin, Discord: cfg.Discord}
 			cfg.sessionAuth = cfg.localIdentity
 		}
 		cfg.wallet = store

@@ -18,6 +18,7 @@ import (
 )
 
 type config struct {
+	Discord identity.Discord
 	BotGames botGamesConfig
  EconomyReadSocket string
  economicObserver platform.NativeQuotaObserver
@@ -229,6 +230,16 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 	}
 	if err := loadSessionConfig(&cfg, lookup); err != nil {
 		return config{}, err
+	}
+	if path, ok := lookup("MOMIAO_DISCORD_CONFIG_FILE"); ok {
+		if !cfg.Session.Enabled || cfg.ProcessRole == "poker" {
+			return config{}, errors.New("MOMIAO_DISCORD_CONFIG_FILE requires local platform sessions")
+		}
+		discord, err := readDiscordConfig(path, cfg.PublicOrigin)
+		if err != nil {
+			return config{}, err
+		}
+		cfg.Discord = discord
 	}
 	if cfg.PokerRemoteSocket != "" && !cfg.Session.Enabled { return config{}, errors.New("remote Poker requires platform opaque sessions") }
 	history, err := loadHistoryConfig(lookup)

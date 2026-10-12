@@ -32,25 +32,55 @@ func (s *Store) PasswordLogin(ctx context.Context, sessions Sessions, browser Se
 		return Session{}, nil, err
 	}
 	defer tx.Rollback(ctx)
-	user, twoFA, err := authenticatePassword(ctx, tx, username, password)
+	user, err := authenticatePassword(ctx, tx, username, password)
 	if err != nil {
+		return Session{}, nil, err
+	}
+	return finishLogin(ctx, tx, sessions, browser, user.ID)
+}
+
+// The official OAuth flow looks up the provider ID after code exchange. Login
+// never auto-registers here; momiao's admission path owns new accounts.
+func (s *Store) DiscordLogin(ctx context.Context, sessions Sessions, browser Session, discordID string) (Session, *Challenge, error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return Session{}, nil, err
+	}
+	defer tx.Rollback(ctx)
+	user, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+` FROM identity.users WHERE discord_id=$1 AND deleted_at IS NULL FOR UPDATE`, discordID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Session{}, nil, Fault{403, "MOMIAO_DISCORD_UNBOUND"}
+	}
+	if err != nil {
+		return Session{}, nil, err
+	}
+	if user.Status != 1 {
+		return Session{}, nil, ErrCredentials
+	}
+	// Keep the same existing per-user 2FA gate for both password and Discord.
+	return finishLogin(ctx, tx, sessions, browser, user.ID)
+}
+
+func finishLogin(ctx context.Context, tx pgx.Tx, sessions Sessions, browser Session, userID int64) (Session, *Challenge, error) {
+	var twoFA bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity.two_fas WHERE user_id=$1 AND is_enabled AND deleted_at IS NULL)`, userID).Scan(&twoFA); err != nil {
 		return Session{}, nil, err
 	}
 	if twoFA {
 		now := time.Now().UTC()
 		challenge := &Challenge{ID: sessionToken(), ExpiresAt: now.Add(5 * time.Minute)}
-		raw, err := json.Marshal(loginFlow{UserID: user.ID, BrowserKey: sessionKey(browser.Token)})
+		raw, err := json.Marshal(loginFlow{UserID: userID, BrowserKey: sessionKey(browser.Token)})
 		if err != nil {
 			return Session{}, nil, err
 		}
-		err = sessions.Redis.Eval(ctx, createSession, []string{loginFlowKey(challenge.ID), userSessionsKey(user.ID)},
+		err = sessions.Redis.Eval(ctx, createSession, []string{loginFlowKey(challenge.ID), userSessionsKey(userID)},
 			string(raw), (5 * time.Minute).Milliseconds(), challenge.ExpiresAt.UnixMilli(), now.UnixMilli(), sessionLifetime.Milliseconds()).Err()
 		if err != nil {
 			return Session{}, nil, err
 		}
 		return Session{}, challenge, tx.Commit(ctx)
 	}
-	value, err := issueLogin(ctx, tx, sessions, user.ID)
+	value, err := issueLogin(ctx, tx, sessions, userID)
 	return value, nil, err
 }
 

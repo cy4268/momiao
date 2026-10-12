@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -59,7 +60,11 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	if rows.Err() != nil || username == "" {
 		t.Fatal("existing dev owner credentials not found")
 	}
-	auth := &identity.HTTP{Store: &identity.Store{Pool: pool}, Sessions: identity.Sessions{Redis: client}, Origin: "https://dev.momiao.win"}
+	discord, err := readDiscordConfig(os.Getenv("MOMIAO_DISCORD_CONFIG_FILE"), "https://dev.momiao.win")
+	if err != nil {
+		t.Fatal("read dev Discord configuration")
+	}
+	auth := &identity.HTTP{Store: &identity.Store{Pool: pool}, Sessions: identity.Sessions{Redis: client}, Origin: "https://dev.momiao.win", Discord: discord}
 	wallets, err := platform.Open(t.Context(), strings.TrimSpace(string(dsn)))
 	if err != nil {
 		t.Fatal("open wallet reader")
@@ -90,6 +95,46 @@ func TestLocalPasswordHTTP(t *testing.T) {
 		t.Fatal("anonymous bootstrap", bootstrap.Code)
 	}
 	anonymous := bootstrap.Result().Cookies()[0]
+	start := call("POST", "/api/v1/auth/discord/login/start", map[string]string{}, anonymous, response.Data.CSRF)
+	var oauth struct {
+		Data struct {
+			URL string `json:"authorization_url"`
+		} `json:"data"`
+	}
+	if start.Code != 200 || json.Unmarshal(start.Body.Bytes(), &oauth) != nil {
+		t.Fatal("Discord start", start.Code)
+	}
+	destination, err := url.Parse(oauth.Data.URL)
+	if err != nil || destination.Host != "discord.com" || destination.Query().Get("redirect_uri") != "https://dev.momiao.win/oauth/discord" || destination.Query().Get("scope") != "identify" {
+		t.Fatal("Discord authorization destination")
+	}
+	state := destination.Query().Get("state")
+	if len(state) != 43 {
+		t.Fatal("Discord state missing")
+	}
+	// The second browser must not consume the original browser's state.
+	other := call("GET", "/api/v1/session/bootstrap", nil, nil, "")
+	var otherResponse struct {
+		Data struct {
+			CSRF string `json:"csrf_token"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(other.Body.Bytes(), &otherResponse) != nil {
+		t.Fatal("second browser bootstrap")
+	}
+	cancel := map[string]string{"state": state, "error": "access_denied"}
+	crossed := call("POST", "/api/v1/auth/discord/callback", cancel, other.Result().Cookies()[0], otherResponse.Data.CSRF)
+	if crossed.Code != 403 || !strings.Contains(crossed.Body.String(), "AUTH_STATE_INVALID") {
+		t.Fatal("cross-browser state", crossed.Code)
+	}
+	cancelled := call("POST", "/api/v1/auth/discord/callback", cancel, anonymous, response.Data.CSRF)
+	if cancelled.Code != 403 || !strings.Contains(cancelled.Body.String(), "DISCORD_DENIED") {
+		t.Fatal("OAuth cancellation", cancelled.Code)
+	}
+	replay := call("POST", "/api/v1/auth/discord/callback", cancel, anonymous, response.Data.CSRF)
+	if replay.Code != 403 || !strings.Contains(replay.Body.String(), "AUTH_STATE_INVALID") {
+		t.Fatal("OAuth state replay", replay.Code)
+	}
 	body := map[string]string{"identifier": username, "password": strings.TrimSpace(string(password))}
 	if denied := call("POST", "/api/v1/auth/password/login", body, anonymous, ""); denied.Code != 403 {
 		t.Fatal("login accepted missing CSRF", denied.Code)
@@ -157,6 +202,20 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	}
 	if denied := call("GET", "/api/user/self", nil, anonymous, ""); denied.Code != 401 {
 		t.Fatal("anonymous self", denied.Code)
+	}
+	account := call("GET", "/api/v1/account", nil, cookie, "")
+	var status struct {
+		Data struct {
+			ID            int64 `json:"id"`
+			HasPassword   bool  `json:"has_password"`
+			DiscordLinked bool  `json:"discord_linked"`
+		} `json:"data"`
+	}
+	if account.Code != 200 || json.Unmarshal(account.Body.Bytes(), &status) != nil || status.Data.ID != user.ID || !status.Data.HasPassword || status.Data.DiscordLinked != (user.DiscordID != "") {
+		t.Fatal("local account status", account.Code)
+	}
+	if denied := call("GET", "/api/v1/account", nil, anonymous, ""); denied.Code != 401 {
+		t.Fatal("anonymous account status", denied.Code)
 	}
 	logout := call("POST", "/api/v1/session/logout", nil, cookie, csrf)
 	if logout.Code != 200 {

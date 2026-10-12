@@ -15,9 +15,9 @@ import (
 )
 
 type Discord struct {
-	ClientID     string
-	ClientSecret string
-	RedirectURI  string
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	RedirectURI  string `json:"-"`
 }
 
 type DiscordUser struct {

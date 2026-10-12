@@ -53,24 +53,22 @@ func (s *Store) DiscordUser(ctx context.Context, discordID string) (User, error)
 // authenticatePassword follows official User.ValidateAndFill: trim the login
 // name, accept username/email, verify the existing bcrypt hash, reject bans.
 // The caller holds this transaction through challenge/session creation.
-func authenticatePassword(ctx context.Context, tx pgx.Tx, username, password string) (User, bool, error) {
+func authenticatePassword(ctx context.Context, tx pgx.Tx, username, password string) (User, error) {
 	username = strings.TrimSpace(username)
 	if username == "" || password == "" {
-		return User{}, false, ErrCredentials
+		return User{}, ErrCredentials
 	}
 	u, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+` FROM identity.users WHERE (username=$1 OR email=$1) AND deleted_at IS NULL ORDER BY id LIMIT 1 FOR UPDATE`, username))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return User{}, false, ErrCredentials
+		return User{}, ErrCredentials
 	}
 	if err != nil {
-		return User{}, false, err
+		return User{}, err
 	}
 	if u.PasswordHash == "" || !ValidatePasswordAndHash(password, u.PasswordHash) || u.Status != 1 {
-		return User{}, false, ErrCredentials
+		return User{}, ErrCredentials
 	}
-	var secondFactor bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity.two_fas WHERE user_id=$1 AND is_enabled AND deleted_at IS NULL)`, u.ID).Scan(&secondFactor)
-	return u, secondFactor, err
+	return u, nil
 }
 
 // authenticateSecondFactor retains official TOTP/backup-code normalization,
@@ -135,4 +133,11 @@ func authenticateSecondFactor(ctx context.Context, tx pgx.Tx, userID int64, code
 		return ErrCredentials
 	}
 	return nil
+}
+
+// AccountStatus exposes only account flags, not hashes, factor secrets or provider tokens.
+func (s *Store) AccountStatus(ctx context.Context, user User) (map[string]any, error) {
+	var twoFA bool
+	err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity.two_fas WHERE user_id=$1 AND is_enabled AND deleted_at IS NULL)`, user.ID).Scan(&twoFA)
+	return map[string]any{"id": user.ID, "username": user.Username, "has_password": user.PasswordHash != "", "discord_linked": user.DiscordID != "", "two_fa_enabled": twoFA}, err
 }
