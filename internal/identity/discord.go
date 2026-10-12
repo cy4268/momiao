@@ -10,14 +10,18 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
 
 type Discord struct {
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"`
-	RedirectURI  string `json:"-"`
+	ClientID      string `json:"client_id"`
+	ClientSecret  string `json:"client_secret"`
+	GuildID       string `json:"guild_id"`
+	RoleID        string `json:"role_id"`
+	PolicyVersion string `json:"policy_version"`
+	RedirectURI   string `json:"-"`
 }
 
 type DiscordUser struct {
@@ -26,12 +30,54 @@ type DiscordUser struct {
 	DisplayName string `json:"global_name"`
 }
 
-func (d Discord) AuthorizationURL(state string) string {
+func (d Discord) AuthorizationURL(state string, registration bool) string {
+	scope := "identify"
+	if registration {
+		scope += " guilds.members.read"
+	}
 	query := url.Values{
 		"client_id": {d.ClientID}, "redirect_uri": {d.RedirectURI},
-		"response_type": {"code"}, "scope": {"identify"}, "state": {state},
+		"response_type": {"code"}, "scope": {scope}, "state": {state},
 	}
 	return "https://discord.com/oauth2/authorize?" + query.Encode()
+}
+
+// Membership is momiao's registration policy, separate from official login.
+// https://docs.discord.com/developers/resources/user#get-current-user-guild-member
+func (d Discord) CheckMembership(ctx context.Context, token string) error {
+	if d.GuildID == "" || d.RoleID == "" || d.PolicyVersion == "" {
+		return Fault{503, "DISCORD_CONFIG_ERROR"}
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://discord.com/api/v10/users/@me/guilds/"+d.GuildID+"/member", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	client := http.Client{Timeout: 5 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		return Fault{502, "DISCORD_UNAVAILABLE"}
+	}
+	defer res.Body.Close()
+	switch res.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		return Fault{403, "DISCORD_NOT_MEMBER"}
+	case http.StatusTooManyRequests:
+		return Fault{429, "DISCORD_RATE_LIMITED"}
+	default:
+		return Fault{502, "DISCORD_UNAVAILABLE"}
+	}
+	var member struct {
+		Roles []string `json:"roles"`
+	}
+	if json.NewDecoder(res.Body).Decode(&member) != nil {
+		return Fault{502, "DISCORD_UNAVAILABLE"}
+	}
+	if !slices.Contains(member.Roles, d.RoleID) {
+		return Fault{403, "DISCORD_ROLE_REQUIRED"}
+	}
+	return nil
 }
 
 func (d Discord) ExchangeToken(ctx context.Context, code string) (string, error) {

@@ -32,15 +32,21 @@ return 1
 func (h *HTTP) discordStart(w http.ResponseWriter, r *http.Request, browser Session) error {
 	purpose := "LOGIN"
 	switch r.URL.Path {
+	case "/api/v1/auth/discord/registration/start":
+		purpose = "REGISTRATION"
+		if !h.RegistrationEnabled {
+			return Fault{403, "REGISTRATION_DISABLED"}
+		}
 	case "/api/v1/auth/discord/password-set/start":
 		purpose = "PASSWORD_SET"
 	case "/api/v1/auth/discord/password-reset/start":
 		purpose = "PASSWORD_RESET"
 	}
-	if purpose == "LOGIN" && browser.UserID != 0 {
+	anonymous := purpose == "LOGIN" || purpose == "REGISTRATION"
+	if anonymous && browser.UserID != 0 {
 		return Fault{409, "AUTH_CONFLICT"}
 	}
-	if purpose != "LOGIN" && browser.UserID == 0 {
+	if !anonymous && browser.UserID == 0 {
 		return ErrSessionExpired
 	}
 	if h.Discord.ClientID == "" || h.Discord.ClientSecret == "" {
@@ -54,7 +60,7 @@ func (h *HTTP) discordStart(w http.ResponseWriter, r *http.Request, browser Sess
 	if err := h.Sessions.Redis.Set(r.Context(), discordFlowKey(state), raw, discordFlowTTL).Err(); err != nil {
 		return err
 	}
-	writeSuccess(w, map[string]any{"authorization_url": h.Discord.AuthorizationURL(state)})
+	writeSuccess(w, map[string]any{"authorization_url": h.Discord.AuthorizationURL(state, purpose == "REGISTRATION")})
 	return nil
 }
 
@@ -82,7 +88,8 @@ func (h *HTTP) discordCallback(w http.ResponseWriter, r *http.Request, browser S
 	if err := json.Unmarshal([]byte(raw), &flow); err != nil {
 		return err
 	}
-	if flow.BrowserKey != sessionKey(browser.Token) || (flow.Purpose == "LOGIN") != (browser.UserID == 0) {
+	anonymous := flow.Purpose == "LOGIN" || flow.Purpose == "REGISTRATION"
+	if flow.BrowserKey != sessionKey(browser.Token) || anonymous != (browser.UserID == 0) {
 		return Fault{403, "AUTH_STATE_INVALID"}
 	}
 	consume := func() error {
@@ -115,7 +122,7 @@ func (h *HTTP) discordCallback(w http.ResponseWriter, r *http.Request, browser S
 	if err := consume(); err != nil {
 		return err
 	}
-	if flow.Purpose != "LOGIN" {
+	if flow.Purpose == "PASSWORD_SET" || flow.Purpose == "PASSWORD_RESET" {
 		proof, err := h.Store.DiscordPasswordProof(r.Context(), h.Sessions, browser, profile.ID, flow.Purpose)
 		if err != nil {
 			return err
@@ -124,6 +131,15 @@ func (h *HTTP) discordCallback(w http.ResponseWriter, r *http.Request, browser S
 		return nil
 	}
 	value, challenge, err := h.Store.DiscordLogin(r.Context(), h.Sessions, browser, profile.ID)
+	if flow.Purpose == "REGISTRATION" && errors.Is(err, Fault{403, "MOMIAO_DISCORD_UNBOUND"}) {
+		if !h.RegistrationEnabled {
+			return Fault{403, "REGISTRATION_DISABLED"}
+		}
+		if err := h.Discord.CheckMembership(r.Context(), token); err != nil {
+			return err
+		}
+		value, challenge, err = h.Store.RegisterDiscord(r.Context(), h.Sessions, browser, profile, h.Discord.PolicyVersion)
+	}
 	if err != nil {
 		return err
 	}

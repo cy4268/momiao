@@ -13,10 +13,11 @@ import (
 // HTTP adapts the official credential flow to momiao's existing route names.
 // It neither calls native nor creates or forwards native credentials.
 type HTTP struct {
-	Store    *Store
-	Sessions Sessions
-	Origin   string
-	Discord  Discord
+	Store               *Store
+	Sessions            Sessions
+	Origin              string
+	Discord             Discord
+	RegistrationEnabled bool
 }
 
 type userContextKey struct{}
@@ -183,7 +184,7 @@ func (h *HTTP) serve(w http.ResponseWriter, r *http.Request) error {
 	switch r.URL.Path {
 	case "/api/v1/account/password/change", "/api/v1/account/password/set", "/api/v1/account/password/reset", "/api/v1/account/2fa/setup", "/api/v1/account/2fa/enable", "/api/v1/account/2fa/disable":
 		return h.accountWrite(w, r, value)
-	case "/api/v1/auth/discord/login/start", "/api/v1/auth/discord/password-set/start", "/api/v1/auth/discord/password-reset/start":
+	case "/api/v1/auth/discord/login/start", "/api/v1/auth/discord/registration/start", "/api/v1/auth/discord/password-set/start", "/api/v1/auth/discord/password-reset/start":
 		return h.discordStart(w, r, value)
 	case "/api/v1/auth/discord/callback":
 		return h.discordCallback(w, r, value)

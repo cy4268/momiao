@@ -68,7 +68,7 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal("read dev Discord configuration")
 	}
-	auth := &identity.HTTP{Store: &identity.Store{Pool: pool}, Sessions: identity.Sessions{Redis: client}, Origin: "https://dev.momiao.win", Discord: discord}
+	auth := &identity.HTTP{Store: &identity.Store{Pool: pool}, Sessions: identity.Sessions{Redis: client}, Origin: "https://dev.momiao.win", Discord: discord, RegistrationEnabled: true}
 	wallets, err := platform.Open(t.Context(), strings.TrimSpace(string(dsn)))
 	if err != nil {
 		t.Fatal("open wallet reader")
@@ -100,6 +100,10 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	}
 	anonymous := bootstrap.Result().Cookies()[0]
 	anonymousCSRF := response.Data.CSRF
+	registration := call("POST", "/api/v1/auth/discord/registration/start", nil, anonymous, anonymousCSRF)
+	if registration.Code != 200 {
+		t.Fatal("Discord registration start", registration.Code)
+	}
 	start := call("POST", "/api/v1/auth/discord/login/start", map[string]string{}, anonymous, response.Data.CSRF)
 	var oauth struct {
 		Data struct {
@@ -343,6 +347,7 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	transport := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = transport })
 	profileID := user.DiscordID + "-other"
+	memberStatus, memberRequests := 404, 0
 	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Host != "discord.com" {
 			t.Fatal("unexpected OAuth destination")
@@ -360,6 +365,13 @@ func TestLocalPasswordHTTP(t *testing.T) {
 				t.Fatal("Discord profile authorization")
 			}
 			_ = json.NewEncoder(w).Encode(map[string]string{"id": profileID, "username": "proof-check"})
+		case "/api/v10/users/@me/guilds/" + discord.GuildID + "/member":
+			if r.Method != "GET" || r.Header.Get("Authorization") != "Bearer local-proof-token" {
+				t.Fatal("Discord member authorization")
+			}
+			memberRequests++
+			w.WriteHeader(memberStatus)
+			_ = json.NewEncoder(w).Encode(map[string]any{"roles": []string{}})
 		default:
 			t.Fatal("unexpected Discord endpoint")
 		}
@@ -389,6 +401,46 @@ func TestLocalPasswordHTTP(t *testing.T) {
 		t.Fatal("proof check requires the existing linked dev owner")
 	}
 	profileID = user.DiscordID
+	authorizeRegistration := func() *httptest.ResponseRecorder {
+		t.Helper()
+		start := call("POST", "/api/v1/auth/discord/registration/start", nil, anonymous, anonymousCSRF)
+		if start.Code != 200 || json.Unmarshal(start.Body.Bytes(), &oauth) != nil {
+			t.Fatal("registration OAuth start", start.Code)
+		}
+		destination, err := url.Parse(oauth.Data.URL)
+		if err != nil || destination.Query().Get("scope") != "identify guilds.members.read" {
+			t.Fatal("registration membership scope")
+		}
+		callback := map[string]string{"state": destination.Query().Get("state"), "code": "local-proof-code"}
+		result := call("POST", "/api/v1/auth/discord/callback", callback, anonymous, anonymousCSRF)
+		if replay := call("POST", "/api/v1/auth/discord/callback", callback, anonymous, anonymousCSRF); replay.Code != 403 {
+			t.Fatal("registration OAuth state replay", replay.Code)
+		}
+		return result
+	}
+	profileID = "900000000000000001"
+	if denied := authorizeRegistration(); denied.Code != 403 || !strings.Contains(denied.Body.String(), "DISCORD_NOT_MEMBER") {
+		t.Fatal("registration accepted non-member", denied.Code)
+	}
+	memberStatus = 200
+	if denied := authorizeRegistration(); denied.Code != 403 || !strings.Contains(denied.Body.String(), "DISCORD_ROLE_REQUIRED") {
+		t.Fatal("registration accepted missing role", denied.Code)
+	}
+	profileID = user.DiscordID
+	registered := authorizeRegistration()
+	if registered.Code != 200 || json.Unmarshal(registered.Body.Bytes(), &response) != nil || response.Data.State != "AUTHENTICATED" || memberRequests != 2 {
+		t.Fatal("existing registration did not use local login", registered.Code)
+	}
+	call("POST", "/api/v1/session/logout", nil, registered.Result().Cookies()[0], response.Data.CSRF)
+	var receiptCursor int64
+	if err := pool.QueryRow(t.Context(), `SELECT ordinal FROM momiao_admission.receipt_counter WHERE id=1`).Scan(&receiptCursor); err != nil || receiptCursor != cursor {
+		t.Fatal("denied/existing registration issued another receipt")
+	}
+	auth.RegistrationEnabled = false
+	if denied := call("POST", "/api/v1/auth/discord/registration/start", nil, anonymous, anonymousCSRF); denied.Code != 403 || !strings.Contains(denied.Body.String(), "REGISTRATION_DISABLED") {
+		t.Fatal("closed registration accepted start", denied.Code)
+	}
+	auth.RegistrationEnabled = true
 	if denied := call("POST", "/api/v1/auth/discord/password-reset/start", nil, anonymous, anonymousCSRF); denied.Code != 401 {
 		t.Fatal("anonymous password proof", denied.Code)
 	}
