@@ -51,7 +51,7 @@ export function TwoFactorEntry({onSubmit,onCancel,busy=false}: {onSubmit:(code:s
 
 export function DiscordCallback({client,captured,onComplete}: {client:ApiClient;captured:CapturedCallback;onComplete:(proof?:SensitiveProof)=>void}) {
     const [challenge,setChallenge]=useState<TwoFactor>();const [error,setError]=useState(captured.error||'');const started=useRef(false);const active=useRef(true);
-    function complete(result:AdmissionResult){if(!active.current)return;if(result&&'require_2fa'in result)setChallenge(result);else onComplete(result&&('proof'in result||'purpose'in result)?result:undefined);}
+    function complete(result:AdmissionResult){if(!active.current)return;if(result&&'require_2fa'in result)setChallenge(result);else onComplete(result||undefined);}
     useEffect(()=>{active.current=true;document.title='身份验证 · momiao';if(!started.current){started.current=true;if(captured.input){const input=captured.input;captured.input=undefined;void client.discordCallback(input).then(complete).catch(e=>{if(active.current)setError(admissionError(e));});}else if(!captured.error)setError('授权回调已失效，请重新开始。');}return()=>{active.current=false;};},[client,captured]);
     return <AuthFrame><h2>{challenge?'完成身份验证':'正在核对你的账户'}</h2>{error?<><Alert>{error}</Alert><div className="auth-actions"><Link className="button" to="/login">返回登录</Link><Link className="button" to="/register">查看注册资格</Link></div></>:challenge?<><p className="subtitle">启用了二次验证，请完成验证后继续。</p><TwoFactorEntry onSubmit={async code=>complete(await client.admission2fa(challenge.flow_token,code))} onCancel={()=>{setChallenge(undefined);setError('本次验证已暂停，请返回登录重新开始。');}}/></>:<><Loading/><p className="hint">请稍候，正在确认已提交的授权结果。</p></>}</AuthFrame>;
 }

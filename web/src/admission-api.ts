@@ -1,8 +1,8 @@
 import { ApiError, type ApiClient, type TwoFactor } from './api';
 
-export type DiscordPurpose = 'login' | 'registration' | 'fresh' | 'password-reset';
+export type DiscordPurpose = 'login' | 'registration' | 'password-set' | 'password-reset';
 export type DiscordCallbackInput = { code: string; state: string } | { error: 'access_denied'; error_description?: string; state: string };
-export interface SensitiveProof { proof?: string; purpose?: 'PASSWORD_SET' | 'PASSWORD_RESET'; expires_at: number }
+export interface SensitiveProof { proof: string; purpose: 'PASSWORD_SET' | 'PASSWORD_RESET'; expires_at: number }
 export type AdmissionResult = TwoFactor | SensitiveProof | void;
 export interface AccountStatus { id: number; username: string; has_password: boolean; discord_linked: boolean; two_fa_enabled: boolean }
 export interface AdmissionConfig { enabled: boolean; registration_enabled: boolean; eligibility: string }

@@ -181,9 +181,9 @@ func (h *HTTP) serve(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	switch r.URL.Path {
-	case "/api/v1/account/password/change", "/api/v1/account/2fa/setup", "/api/v1/account/2fa/enable", "/api/v1/account/2fa/disable":
+	case "/api/v1/account/password/change", "/api/v1/account/password/set", "/api/v1/account/password/reset", "/api/v1/account/2fa/setup", "/api/v1/account/2fa/enable", "/api/v1/account/2fa/disable":
 		return h.accountWrite(w, r, value)
-	case "/api/v1/auth/discord/login/start":
+	case "/api/v1/auth/discord/login/start", "/api/v1/auth/discord/password-set/start", "/api/v1/auth/discord/password-reset/start":
 		return h.discordStart(w, r, value)
 	case "/api/v1/auth/discord/callback":
 		return h.discordCallback(w, r, value)

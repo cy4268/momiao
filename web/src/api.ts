@@ -3,7 +3,7 @@
 // web/src/features/auth/api.ts and sign-in/components/user-auth-form.tsx.
 // momiao uses the existing HttpOnly Redis cookie, not a browser bearer token.
 import { serializeCatalogQuery, type CatalogQuery } from './game-catalog-query';
-import { validateDiscordAuthorization, type AdmissionConfig, type AdmissionResult, type DiscordCallbackInput, type DiscordPurpose } from './admission-api';
+import { validateDiscordAuthorization, type AdmissionConfig, type AdmissionResult, type DiscordCallbackInput, type DiscordPurpose, type SensitiveProof } from './admission-api';
 export interface User {
     id: number;
     username: string;
@@ -194,7 +194,11 @@ export class ApiClient {
         const data = await this.raw<{authorization_url: string}>(`/api/v1/auth/discord/${purpose}/start`, 'POST', {}, this.writeHeaders());
         return validateDiscordAuthorization(data.authorization_url, origin);
     }
-    discordCallback = (input: DiscordCallbackInput): Promise<AdmissionResult> => this.authenticate('/api/v1/auth/discord/callback', input);
+    // An authenticated callback returns an account-bound password proof, not
+    // a new login. Preserve the current cookie/CSRF and the in-memory user.
+    discordCallback = (input: DiscordCallbackInput): Promise<AdmissionResult> => this.snapshot.user
+        ? this.request<SensitiveProof>('/api/v1/auth/discord/callback', 'POST', input)
+        : this.authenticate('/api/v1/auth/discord/callback', input);
     admission2fa = (flow_token: string, code: string): Promise<AdmissionResult> => this.verify2fa(flow_token, code);
     async updatePassword(mode: 'set'|'change'|'reset', input: {password: string; old_password?: string; proof?: string}): Promise<void> {
         await this.request(`/api/v1/account/password/${mode}`, 'POST', input);

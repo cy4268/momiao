@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -52,14 +53,67 @@ func rotateAccountSession(ctx context.Context, tx pgx.Tx, sessions Sessions, use
 	return value, tx.Commit(ctx)
 }
 
-func (s *Store) ChangePassword(ctx context.Context, sessions Sessions, browser Session, oldPassword, password string) (Session, error) {
+type PasswordProof struct {
+	Token     string `json:"proof"`
+	Purpose   string `json:"purpose"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+func passwordPurpose(user User) string {
+	if user.PasswordHash == "" {
+		return "PASSWORD_SET"
+	}
+	return "PASSWORD_RESET"
+}
+
+func passwordProofKey(token string) string { return sessionKey(token) + ":password" }
+func passwordProofBinding(browser Session, discordID, purpose string) string {
+	return sessionKey(browser.Token) + ":" + discordID + ":" + purpose
+}
+
+// momiao's password recovery uses the official OAuth exchange, then requires
+// the already-bound Discord account. A proof cannot become a login cookie.
+func (s *Store) DiscordPasswordProof(ctx context.Context, sessions Sessions, browser Session, discordID, purpose string) (PasswordProof, error) {
+	tx, user, err := s.accountTx(ctx, sessions, browser)
+	if err != nil {
+		return PasswordProof{}, err
+	}
+	defer tx.Rollback(ctx)
+	if discordID == "" || user.DiscordID != discordID || purpose != passwordPurpose(user) {
+		return PasswordProof{}, Fault{403, "MOMIAO_AUTH_RESTART_REQUIRED"}
+	}
+	now := time.Now()
+	expires := now.Add(5 * time.Minute)
+	proof := PasswordProof{Token: sessionToken(), Purpose: purpose, ExpiresAt: expires.Unix()}
+	err = sessions.Redis.Eval(ctx, createSession, []string{passwordProofKey(proof.Token), userSessionsKey(user.ID)},
+		passwordProofBinding(browser, discordID, purpose), (5 * time.Minute).Milliseconds(), expires.UnixMilli(), now.UnixMilli(), sessionLifetime.Milliseconds()).Err()
+	if err != nil {
+		return PasswordProof{}, err
+	}
+	return proof, tx.Commit(ctx)
+}
+
+func (s *Store) UpdatePassword(ctx context.Context, sessions Sessions, browser Session, oldPassword, password, proof, purpose string) (Session, error) {
 	tx, user, err := s.accountTx(ctx, sessions, browser)
 	if err != nil {
 		return Session{}, err
 	}
 	defer tx.Rollback(ctx)
-	if user.PasswordHash == "" || !ValidatePasswordAndHash(oldPassword, user.PasswordHash) {
-		return Session{}, Fault{400, "MOMIAO_INVALID_REQUEST"}
+	if purpose == "" {
+		if user.PasswordHash == "" || !ValidatePasswordAndHash(oldPassword, user.PasswordHash) {
+			return Session{}, Fault{400, "MOMIAO_INVALID_REQUEST"}
+		}
+	} else {
+		if user.DiscordID == "" || purpose != passwordPurpose(user) {
+			return Session{}, Fault{409, "AUTH_CONFLICT"}
+		}
+		consumed, err := sessions.Redis.Eval(ctx, consumeBoundToken, []string{passwordProofKey(proof)}, passwordProofBinding(browser, user.DiscordID, purpose)).Int()
+		if err != nil {
+			return Session{}, err
+		}
+		if consumed != 1 {
+			return Session{}, Fault{403, "MOMIAO_AUTH_RESTART_REQUIRED"}
+		}
 	}
 	hash, err := Password2Hash(password)
 	if err != nil {
@@ -163,6 +217,7 @@ func (h *HTTP) accountWrite(w http.ResponseWriter, r *http.Request, browser Sess
 	var body struct {
 		Password    string `json:"password"`
 		OldPassword string `json:"old_password"`
+		Proof       string `json:"proof"`
 		Code        string `json:"code"`
 	}
 	if json.NewDecoder(r.Body).Decode(&body) != nil {
@@ -170,13 +225,20 @@ func (h *HTTP) accountWrite(w http.ResponseWriter, r *http.Request, browser Sess
 	}
 	var value Session
 	var err error
-	if r.URL.Path == "/api/v1/account/password/change" {
+	switch r.URL.Path {
+	case "/api/v1/account/password/change", "/api/v1/account/password/set", "/api/v1/account/password/reset":
 		length := utf8.RuneCountInString(body.Password)
 		if length < 8 || length > 20 || len(body.Password) > 72 {
 			return Fault{400, "MOMIAO_INVALID_REQUEST"}
 		}
-		value, err = h.Store.ChangePassword(r.Context(), h.Sessions, browser, body.OldPassword, body.Password)
-	} else {
+		purpose := ""
+		if r.URL.Path == "/api/v1/account/password/set" {
+			purpose = "PASSWORD_SET"
+		} else if r.URL.Path == "/api/v1/account/password/reset" {
+			purpose = "PASSWORD_RESET"
+		}
+		value, err = h.Store.UpdatePassword(r.Context(), h.Sessions, browser, body.OldPassword, body.Password, body.Proof, purpose)
+	default:
 		value, err = h.Store.SetTwoFA(r.Context(), h.Sessions, browser, body.Code, r.URL.Path == "/api/v1/account/2fa/enable")
 	}
 	if err != nil {

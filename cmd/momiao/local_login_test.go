@@ -315,6 +315,117 @@ func TestLocalPasswordHTTP(t *testing.T) {
 		t.Fatal("backup code disables 2FA", disabled.Code)
 	}
 	cookie, csrf = disabled.Result().Cookies()[0], response.Data.CSRF
+	// Reuse the existing HTTP transport adapter for Discord's external exchange;
+	// identity, account rows and single-use proofs still use the real dev PG/Redis.
+	transport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = transport })
+	profileID := user.DiscordID + "-other"
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "discord.com" {
+			t.Fatal("unexpected OAuth destination")
+		}
+		w := httptest.NewRecorder()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v10/oauth2/token":
+			if r.Method != "POST" || r.ParseForm() != nil || r.Form.Get("code") != "local-proof-code" || r.Form.Get("redirect_uri") != discord.RedirectURI {
+				t.Fatal("Discord exchange request")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "local-proof-token"})
+		case "/api/v10/users/@me":
+			if r.Header.Get("Authorization") != "Bearer local-proof-token" {
+				t.Fatal("Discord profile authorization")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": profileID, "username": "proof-check"})
+		default:
+			t.Fatal("unexpected Discord endpoint")
+		}
+		return w.Result(), nil
+	})
+	authorizePassword := func(mode string) *httptest.ResponseRecorder {
+		t.Helper()
+		start := call("POST", "/api/v1/auth/discord/password-"+mode+"/start", nil, cookie, csrf)
+		if start.Code != 200 || json.Unmarshal(start.Body.Bytes(), &oauth) != nil {
+			t.Fatal("Discord password "+mode+" start", start.Code)
+		}
+		destination, err := url.Parse(oauth.Data.URL)
+		if err != nil {
+			t.Fatal("password authorization URL")
+		}
+		callback := map[string]string{"state": destination.Query().Get("state"), "code": "local-proof-code"}
+		result := call("POST", "/api/v1/auth/discord/callback", callback, cookie, csrf)
+		if replay := call("POST", "/api/v1/auth/discord/callback", callback, cookie, csrf); replay.Code != 403 {
+			t.Fatal("password OAuth state replay", replay.Code)
+		}
+		return result
+	}
+	if wrong := authorizePassword("reset"); wrong.Code != 403 || !strings.Contains(wrong.Body.String(), "MOMIAO_AUTH_RESTART_REQUIRED") {
+		t.Fatal("password proof accepted a different Discord account", wrong.Code)
+	}
+	if user.DiscordID == "" {
+		t.Fatal("proof check requires the existing linked dev owner")
+	}
+	profileID = user.DiscordID
+	if denied := call("POST", "/api/v1/auth/discord/password-reset/start", nil, anonymous, anonymousCSRF); denied.Code != 401 {
+		t.Fatal("anonymous password proof", denied.Code)
+	}
+	var proof struct {
+		Data struct {
+			Token     string `json:"proof"`
+			Purpose   string `json:"purpose"`
+			ExpiresAt int64  `json:"expires_at"`
+		} `json:"data"`
+	}
+	approved := authorizePassword("reset")
+	if approved.Code != 200 || json.Unmarshal(approved.Body.Bytes(), &proof) != nil || len(proof.Data.Token) != 43 || proof.Data.Purpose != "PASSWORD_RESET" || proof.Data.ExpiresAt <= time.Now().Unix() || proof.Data.ExpiresAt > time.Now().Add(5*time.Minute).Unix() || len(approved.Result().Cookies()) != 0 {
+		t.Fatal("Discord password reset proof", approved.Code)
+	}
+	secondLogin := call("POST", "/api/v1/auth/password/login", map[string]string{"identifier": username, "password": newPassword}, anonymous, anonymousCSRF)
+	if secondLogin.Code != 200 || json.Unmarshal(secondLogin.Body.Bytes(), &response) != nil {
+		t.Fatal("second account browser", secondLogin.Code)
+	}
+	secondCookie := secondLogin.Result().Cookies()[0]
+	resetBody := map[string]string{"password": rand.Text()[:18], "proof": proof.Data.Token}
+	if crossed := call("POST", "/api/v1/account/password/reset", resetBody, secondCookie, response.Data.CSRF); crossed.Code != 403 {
+		t.Fatal("cross-browser password proof", crossed.Code)
+	}
+	oldCookie = cookie
+	reset := call("POST", "/api/v1/account/password/reset", resetBody, cookie, csrf)
+	if reset.Code != 200 || json.Unmarshal(reset.Body.Bytes(), &response) != nil {
+		t.Fatal("Discord password reset", reset.Code)
+	}
+	cookie, csrf = reset.Result().Cookies()[0], response.Data.CSRF
+	if replay := call("POST", "/api/v1/account/password/reset", resetBody, cookie, csrf); replay.Code != 403 {
+		t.Fatal("password proof replay", replay.Code)
+	}
+	for _, previous := range []*http.Cookie{oldCookie, secondCookie} {
+		if denied := call("GET", "/api/v1/account", nil, previous, ""); denied.Code != 401 {
+			t.Fatal("password reset left old session active", denied.Code)
+		}
+	}
+	updated, err := auth.Store.User(t.Context(), user.ID)
+	if err != nil || !identity.ValidatePasswordAndHash(resetBody["password"], updated.PasswordHash) {
+		t.Fatal("reset password was not persisted")
+	}
+	// The same imported account exercises first-set, with its original hash
+	// already protected by the cleanup above; no extra account is created.
+	if _, err := pool.Exec(t.Context(), `UPDATE identity.users SET password_hash='' WHERE id=$1`, user.ID); err != nil {
+		t.Fatal("prepare first password set")
+	}
+	approved = authorizePassword("set")
+	if approved.Code != 200 || json.Unmarshal(approved.Body.Bytes(), &proof) != nil || proof.Data.Purpose != "PASSWORD_SET" {
+		t.Fatal("Discord first-password proof", approved.Code)
+	}
+	setBody := map[string]string{"password": newPassword, "proof": proof.Data.Token}
+	set := call("POST", "/api/v1/account/password/set", setBody, cookie, csrf)
+	if set.Code != 200 || json.Unmarshal(set.Body.Bytes(), &response) != nil {
+		t.Fatal("first password set", set.Code)
+	}
+	cookie, csrf = set.Result().Cookies()[0], response.Data.CSRF
+	updated, err = auth.Store.User(t.Context(), user.ID)
+	if err != nil || !identity.ValidatePasswordAndHash(newPassword, updated.PasswordHash) {
+		t.Fatal("first password was not persisted")
+	}
 	logout := call("POST", "/api/v1/session/logout", nil, cookie, csrf)
 	if logout.Code != 200 {
 		t.Fatal("logout", logout.Code)
