@@ -42,10 +42,12 @@ func sessionToken() string {
 	return base64.RawURLEncoding.EncodeToString(raw[:])
 }
 
-func sessionKey(token string) string {
+func sessionID(token string) string {
 	hash := sha256.Sum256([]byte(token))
-	return sessionPrefix + hex.EncodeToString(hash[:])
+	return hex.EncodeToString(hash[:])
 }
+
+func sessionKey(token string) string { return sessionPrefix + sessionID(token) }
 
 func userSessionsKey(userID int64) string {
 	return sessionPrefix + "user:" + strconv.FormatInt(userID, 10)
@@ -129,6 +131,39 @@ func (s Sessions) Read(ctx context.Context, token string) (Session, error) {
 		return Session{}, err
 	}
 	return value, nil
+}
+
+// ExpiresAt checks a signed Poker session reference without receiving the cookie
+// or renewing its idle lifetime. Deleting the shared Redis key revokes it.
+func (s Sessions) ExpiresAt(ctx context.Context, id string, userID int64) (time.Time, error) {
+	key := sessionPrefix + id
+	raw, err := s.Redis.Get(ctx, key).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return time.Time{}, ErrSessionExpired
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	var value Session
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return time.Time{}, err
+	}
+	now := time.Now()
+	ttl, err := s.Redis.PTTL(ctx, key).Result()
+	if err != nil {
+		return time.Time{}, err
+	}
+	if value.UserID != userID || ttl <= 0 {
+		return time.Time{}, ErrSessionExpired
+	}
+	deadline := now.Add(ttl)
+	if absolute := value.CreatedAt.Add(sessionLifetime); absolute.Before(deadline) {
+		deadline = absolute
+	}
+	if !deadline.After(time.Now()) {
+		return time.Time{}, ErrSessionExpired
+	}
+	return deadline, nil
 }
 
 const revokeSession = `

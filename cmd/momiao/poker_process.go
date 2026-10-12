@@ -15,11 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cy4268/momiao/internal/poker/authbridge"
 	"github.com/cy4268/momiao/internal/poker/connectticket"
 	pt "github.com/cy4268/momiao/internal/poker/transport"
 	"github.com/cy4268/momiao/internal/session"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const pokerInternalPrefix = "/internal/v1/poker/"
@@ -68,7 +66,7 @@ func runPokerProcess(ctx context.Context, cfg config, logger *log.Logger) error 
 		"poker_database": app.pokerPool.Ping,
 		"poker_auth_database": app.authPool.Ping,
 		"poker_cache": func(ctx context.Context) error { return app.tickets.Ping(ctx).Err() },
-		"native": nativeReadiness(app.native),
+		"session_cache": func(ctx context.Context) error { return app.sessionRedis.Ping(ctx).Err() },
 	}
 	listener, err := openListener(cfg)
 	if err != nil { return err }
@@ -136,8 +134,6 @@ type pokerRevokeInput struct {
 }
 type pokerRemote struct {
 	transport *http.Transport
-	native *http.Transport
-	authPool *pgxpool.Pool
 	signing pokerTicketKeys
 	auth func(*http.Request)(pt.Principal,error)
 	mint *pt.Handler
@@ -149,12 +145,9 @@ func openPokerRemote(ctx context.Context,cfg config) (*pokerRemote,error) {
 	peer,err:=readPokerPublicKeys(cfg.PokerPeerKeyringFile);if err!=nil||!distinctPokerPublicKeys(signing.public,peer){return nil,errPokerStartup}
 	ticket,err:=readPokerTicketKeys(cfg.Poker.TicketKeyringFile);if err!=nil{return nil,errPokerStartup}
 	if !distinctPokerPublicKeys(signing.public,ticket.public)||!distinctPokerPublicKeys(peer,ticket.public){return nil,errPokerStartup}
-	readerKey,err:=readPokerReaderKey(cfg.Poker.ReaderKeyFile);if err!=nil{return nil,errPokerStartup}
-	out:=&pokerRemote{transport:newNativeTransport(cfg.PokerRemoteSocket),native:newNativeTransport(cfg.NewAPISocket),signing:signing}
-	out.authPool,err=openPokerPool(ctx,cfg.WalletDSNFile);if err!=nil{out.Close();return nil,errPokerStartup}
-	reader,err:=authbridge.NewNativeReader(out.native,readerKey);if err!=nil{out.Close();return nil,errPokerStartup}
-	authority,err:=authbridge.New(out.authPool,reader.Check);if err!=nil{out.Close();return nil,errPokerStartup}
-	out.auth=newPokerHTTPAuth(out.native,authority.Bind)
+	out:=&pokerRemote{transport:newNativeTransport(cfg.PokerRemoteSocket),signing:signing}
+	authority:=pokerSessionAuthority{sessions:cfg.localIdentity.Sessions,pool:cfg.localIdentity.Store.Pool}
+	out.auth=pokerHTTPAuth
 	issuer,err:=connectticket.NewIssuer(connectticket.IssuerOptions{KeyID:ticket.active,PrivateKey:ticket.private,CheckSession:authority.Check});if err!=nil{out.Close();return nil,errPokerStartup}
 	// Only /connect-tickets is dispatched to this transport instance. It owns
 	// the existing mint/parser/live-auth path, with no table or WS capabilities.
@@ -185,7 +178,7 @@ func openPokerRemote(ctx context.Context,cfg config) (*pokerRemote,error) {
 	})
 	return out,nil
 }
-func(p *pokerRemote)Close(){if p==nil{return};if p.mint!=nil{p.mint.Close()};if p.authPool!=nil{p.authPool.Close()};if p.native!=nil{p.native.CloseIdleConnections()};if p.transport!=nil{p.transport.CloseIdleConnections()}}
+func(p *pokerRemote)Close(){if p==nil{return};if p.mint!=nil{p.mint.Close()};if p.transport!=nil{p.transport.CloseIdleConnections()}}
 func(p *pokerRemote)call(ctx context.Context,method,path string,input,output any)error{
 	if p==nil||p.transport==nil{return errPokerStartup}
 	var raw []byte

@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,6 +19,8 @@ import (
 	"github.com/cy4268/momiao/internal/history"
 	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
+	"github.com/cy4268/momiao/internal/poker/connectticket"
+	pt "github.com/cy4268/momiao/internal/poker/transport"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pquerna/otp/totp"
 	"github.com/redis/go-redis/v9"
@@ -80,7 +85,16 @@ func TestLocalPasswordHTTP(t *testing.T) {
 		t.Fatal("open existing dev History reader")
 	}
 	t.Cleanup(historyPool.Close)
-	handler := newPortalHandler(config{Session: sessionConfig{Enabled: true}, sessionAuth: auth, localIdentity: auth, wallet: wallets, history: &historyHTTP{list: history.NewReader(historyPool)}}, nil)
+	cfg := config{PublicOrigin: auth.Origin, Session: sessionConfig{Enabled: true}, sessionAuth: auth, localIdentity: auth, wallet: wallets, history: &historyHTTP{list: history.NewReader(historyPool)},
+		PokerRemoteSocket: os.Getenv("MOMIAO_POKER_REMOTE_SOCKET"), PokerServiceKeyringFile: os.Getenv("MOMIAO_POKER_SERVICE_KEYRING_FILE"), PokerPeerKeyringFile: os.Getenv("MOMIAO_POKER_PEER_KEYRING_FILE"),
+		Poker: pokerConfig{Enabled: true, TicketKeyringFile: os.Getenv("MOMIAO_POKER_TICKET_KEYRING_FILE")}}
+	remote, err := openPokerRemote(t.Context(), cfg)
+	if err != nil {
+		t.Fatal("local Poker composition", err)
+	}
+	t.Cleanup(remote.Close)
+	cfg.poker = remote.handler
+	handler := newPortalHandler(cfg, nil)
 	call := func(method, path string, body any, cookie *http.Cookie, csrf string) *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(body)
 		r := httptest.NewRequest(method, "https://dev.momiao.win"+path, bytes.NewReader(raw))
@@ -187,6 +201,53 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	}
 	if prepared.Header.Get("Authorization") != "" || prepared.Header.Get("New-Api-User") != "" {
 		t.Fatal("native credential projection remains")
+	}
+	principal, err := pokerHTTPAuth(prepared)
+	if err != nil || principal.UserID != user.ID || len(principal.SessionIDHash) != 64 {
+		t.Fatal("local Poker authentication", err)
+	}
+	hash := sha256.Sum256([]byte(cookie.Value))
+	if principal.SessionIDHash != hex.EncodeToString(hash[:]) {
+		t.Fatal("Poker cookie digest differs from local session")
+	}
+	pokerAuthority := pokerSessionAuthority{sessions: auth.Sessions, pool: pool}
+	deadline, err := pokerAuthority.CheckUntil(t.Context(), pokerSession(principal))
+	if err != nil || !deadline.After(time.Now()) {
+		t.Fatal("local Poker session deadline", err)
+	}
+	signing, err := readPokerTicketKeys(os.Getenv("MOMIAO_POKER_TICKET_KEYRING_FILE"))
+	if err != nil {
+		t.Fatal("existing dev Poker signing keys")
+	}
+	_, ticketOptions, err := readPokerRedisConfig(os.Getenv("MOMIAO_POKER_REDIS_CONFIG_FILE"))
+	if err != nil {
+		t.Fatal("existing dev Poker Redis configuration")
+	}
+	ticketRedis := redis.NewClient(ticketOptions)
+	t.Cleanup(func() { _ = ticketRedis.Close() })
+	consume, err := connectticket.RedisConsumer(ticketRedis)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := connectticket.NewVerifier(connectticket.VerifierOptions{PublicKeys: signing.public, StartedAt: time.Now().Add(-time.Minute), CheckSession: pokerAuthority.Check, Consume: consume})
+	if err != nil {
+		t.Fatal(err)
+	}
+	minted := call("POST", "/api/v1/poker/connect-tickets", map[string]any{"target_table_id": nil, "control_intent": connectticket.ReadOnly}, cookie, csrf)
+	var ticket struct {
+		Data struct {
+			Value string `json:"poker_connect_ticket"`
+		} `json:"data"`
+	}
+	if minted.Code != 200 || json.Unmarshal(minted.Body.Bytes(), &ticket) != nil {
+		t.Fatal("local Poker ticket route", minted.Code)
+	}
+	connected, err := pokerTicketAuthentication(verifier)(t.Context(), pt.ConnectRequest{PokerConnectTicket: ticket.Data.Value})
+	if err != nil || connected != principal {
+		t.Fatal("local Poker ticket authentication", err)
+	}
+	if _, err := pokerTicketAuthentication(verifier)(t.Context(), pt.ConnectRequest{PokerConnectTicket: ticket.Data.Value}); err == nil {
+		t.Fatal("Poker ticket replay accepted")
 	}
 	historyResponse := call("GET", "/api/v1/history?limit=1", nil, cookie, "")
 	if historyResponse.Code != 200 {
@@ -319,6 +380,9 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	cookie, csrf = changed.Result().Cookies()[0], response.Data.CSRF
 	if denied := call("GET", "/api/v1/account", nil, oldCookie, ""); denied.Code != 401 {
 		t.Fatal("password change left old session active", denied.Code)
+	}
+	if err := pokerAuthority.Check(t.Context(), pokerSession(principal)); !errors.Is(err, connectticket.ErrRevoked) {
+		t.Fatal("password change left Poker session active", err)
 	}
 	setup := call("POST", "/api/v1/account/2fa/setup", nil, cookie, csrf)
 	var enrollment struct {

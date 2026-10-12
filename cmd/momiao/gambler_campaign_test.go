@@ -135,7 +135,7 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 		t.Fatal("local connection")
 	}
 	if err = owner.WithTx(ctx, func(tx pgx.Tx) error {
-		_, e := tx.Exec(ctx, "GRANT SELECT(session_id_hash,newapi_user_id,session_version,native_auth_version,security_epoch_snapshot,native_created_at) ON identity.native_session_bindings TO "+pgx.Identifier{connection.RuntimeRole}.Sanitize()+"; GRANT SELECT(newapi_user_id,security_epoch,security_epoch_changed_at) ON identity.account_refs TO "+pgx.Identifier{connection.RuntimeRole}.Sanitize(), pgx.QueryExecModeSimpleProtocol)
+		_, e := tx.Exec(ctx, "GRANT SELECT ON identity.users TO "+pgx.Identifier{connection.RuntimeRole}.Sanitize(), pgx.QueryExecModeSimpleProtocol)
 		return e
 	}); err != nil {
 		t.Fatal(err)

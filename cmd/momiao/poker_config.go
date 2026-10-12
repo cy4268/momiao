@@ -27,9 +27,9 @@ import (
 var errPokerConfig = errors.New("poker requires complete, distinct, private authority configuration")
 
 type pokerConfig struct {
-	Enabled                                                                      bool
-	DSNFile, ReaderKeyFile, StateKeyringFile, TicketKeyringFile, RedisConfigFile string
-	Password                                                                     *pokerPasswordConfig
+	Enabled                                                                               bool
+	DSNFile, StateKeyringFile, TicketKeyringFile, RedisConfigFile, SessionRedisConfigFile string
+	Password                                                                              *pokerPasswordConfig
 }
 
 func loadPokerConfig(cfg *config, lookup func(string) (string, bool)) error {
@@ -39,18 +39,30 @@ func loadPokerConfig(cfg *config, lookup func(string) (string, bool)) error {
 	}
 	p := pokerConfig{Enabled: enabled == "true"}
 	if cfg.PokerRemoteSocket != "" {
-		if !p.Enabled || cfg.ProcessRole != "platform" || cfg.WalletDSNFile == "" || cfg.NewAPISocket == "" { return errPokerConfig }
+		if !p.Enabled || cfg.ProcessRole != "platform" || cfg.WalletDSNFile == "" {
+			return errPokerConfig
+		}
 		for _, name := range []string{"MOMIAO_POKER_DSN_FILE", "MOMIAO_POKER_STATE_KEYRING_FILE", "MOMIAO_POKER_REDIS_CONFIG_FILE"} {
-			if _, present := lookup(name); present { return errPokerConfig }
+			if _, present := lookup(name); present {
+				return errPokerConfig
+			}
 		}
 		password, err := readPokerPasswordConfig(lookup)
-		if err != nil || password != nil { return errPokerConfig }
-		reader, _ := lookup("MOMIAO_POKER_SESSION_READER_KEY_FILE")
+		if err != nil || password != nil {
+			return errPokerConfig
+		}
 		ticket, _ := lookup("MOMIAO_POKER_TICKET_KEYRING_FILE")
-		if !filepath.IsAbs(reader) || !filepath.IsAbs(ticket) { return errPokerConfig }
-		seen:=map[string]bool{}
-		for _,path:=range []string{cfg.WalletDSNFile,cfg.PokerServiceKeyringFile,cfg.PokerPeerKeyringFile,reader,ticket}{if path==""||seen[pokerPathKey(path)]{return errPokerConfig};seen[pokerPathKey(path)]=true}
-		p.ReaderKeyFile=filepath.Clean(reader);p.TicketKeyringFile=filepath.Clean(ticket)
+		if !filepath.IsAbs(ticket) {
+			return errPokerConfig
+		}
+		seen := map[string]bool{}
+		for _, path := range []string{cfg.WalletDSNFile, cfg.PokerServiceKeyringFile, cfg.PokerPeerKeyringFile, ticket} {
+			if path == "" || seen[pokerPathKey(path)] {
+				return errPokerConfig
+			}
+			seen[pokerPathKey(path)] = true
+		}
+		p.TicketKeyringFile = filepath.Clean(ticket)
 		cfg.Poker = p
 		return nil
 	}
@@ -64,10 +76,15 @@ func loadPokerConfig(cfg *config, lookup func(string) (string, bool)) error {
 		target *string
 	}{
 		{"MOMIAO_POKER_DSN_FILE", &p.DSNFile},
-		{"MOMIAO_POKER_SESSION_READER_KEY_FILE", &p.ReaderKeyFile},
 		{"MOMIAO_POKER_STATE_KEYRING_FILE", &p.StateKeyringFile},
 		{"MOMIAO_POKER_TICKET_KEYRING_FILE", &p.TicketKeyringFile},
 		{"MOMIAO_POKER_REDIS_CONFIG_FILE", &p.RedisConfigFile},
+	}
+	if cfg.ProcessRole == "poker" {
+		paths = append(paths, struct {
+			name   string
+			target *string
+		}{"MOMIAO_POKER_SESSION_REDIS_CONFIG_FILE", &p.SessionRedisConfigFile})
 	}
 	seen := map[string]bool{}
 	for _, value := range []string{cfg.WalletDSNFile, cfg.GameFairnessKeyringFile, cfg.CatalogReaderKeyFile, cfg.PokerServiceKeyringFile, cfg.PokerPeerKeyringFile} {
@@ -89,7 +106,7 @@ func loadPokerConfig(cfg *config, lookup func(string) (string, bool)) error {
 		seen[pokerPathKey(value)] = true
 		*field.target = filepath.Clean(value)
 	}
-	if p.Enabled && (cfg.WebDir == "" && cfg.ProcessRole != "poker" || cfg.NewAPISocket == "" || cfg.PublicOrigin == "" || cfg.WalletDSNFile == "") {
+	if p.Enabled && (cfg.WebDir == "" && cfg.ProcessRole != "poker" || cfg.PublicOrigin == "" || cfg.WalletDSNFile == "") {
 		return errPokerConfig
 	}
 	cfg.Poker = p

@@ -31,7 +31,8 @@ func UserFromContext(ctx context.Context) (User, bool) {
 	return value.User, ok
 }
 
-// SessionIDFromContext binds game CSRF to this browser without exposing its cookie.
+// SessionIDFromContext is the cookie SHA-256 digest, shared by games and Poker.
+// It is not a bearer credential and contains no Redis key prefix.
 func SessionIDFromContext(ctx context.Context) string {
 	value, _ := ctx.Value(userContextKey{}).(requestIdentity)
 	return value.SessionID
@@ -112,7 +113,7 @@ func (h *HTTP) Request(r *http.Request, optional bool) (*http.Request, error) {
 	}
 	ctx := r.Context()
 	if user.ID != 0 {
-		ctx = context.WithValue(ctx, userContextKey{}, requestIdentity{User: user, SessionID: sessionKey(value.Token)})
+		ctx = context.WithValue(ctx, userContextKey{}, requestIdentity{User: user, SessionID: sessionID(value.Token)})
 	}
 	r = r.Clone(ctx)
 	r.Header.Del("Authorization")

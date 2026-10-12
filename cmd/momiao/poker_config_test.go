@@ -15,14 +15,13 @@ import (
 
 func TestPokerApplicationConfigRequiresCompleteExplicitAuthority(t *testing.T) {
 	dir := t.TempDir()
-	base := config{WebDir: dir, NewAPISocket: filepath.Join(dir, "native.sock"), PublicOrigin: "https://poker.example", WalletDSNFile: filepath.Join(dir, "platform.dsn"), GameFairnessKeyringFile: filepath.Join(dir, "games.json")}
+	base := config{WebDir: dir, PublicOrigin: "https://poker.example", WalletDSNFile: filepath.Join(dir, "platform.dsn"), GameFairnessKeyringFile: filepath.Join(dir, "games.json")}
 	values := map[string]string{
-		"MOMIAO_POKER_ENABLED":                 "true",
-		"MOMIAO_POKER_DSN_FILE":                filepath.Join(dir, "poker.dsn"),
-		"MOMIAO_POKER_SESSION_READER_KEY_FILE": filepath.Join(dir, "reader.key"),
-		"MOMIAO_POKER_STATE_KEYRING_FILE":      filepath.Join(dir, "state.json"),
-		"MOMIAO_POKER_TICKET_KEYRING_FILE":     filepath.Join(dir, "tickets.json"),
-		"MOMIAO_POKER_REDIS_CONFIG_FILE":       filepath.Join(dir, "redis.json"),
+		"MOMIAO_POKER_ENABLED":             "true",
+		"MOMIAO_POKER_DSN_FILE":            filepath.Join(dir, "poker.dsn"),
+		"MOMIAO_POKER_STATE_KEYRING_FILE":  filepath.Join(dir, "state.json"),
+		"MOMIAO_POKER_TICKET_KEYRING_FILE": filepath.Join(dir, "tickets.json"),
+		"MOMIAO_POKER_REDIS_CONFIG_FILE":   filepath.Join(dir, "redis.json"),
 	}
 	lookup := func(m map[string]string) func(string) (string, bool) {
 		return func(key string) (string, bool) { v, ok := m[key]; return v, ok }
@@ -49,6 +48,16 @@ func TestPokerApplicationConfigRequiresCompleteExplicitAuthority(t *testing.T) {
 	if cfg.GameFairnessKeyringFile != base.GameFairnessKeyringFile {
 		t.Fatal("Direct Play fairness configuration changed")
 	}
+	standalone := base
+	standalone.ProcessRole, standalone.WebDir = "poker", ""
+	if loadPokerConfig(&standalone, lookup(values)) == nil {
+		t.Fatal("standalone Poker omitted local session Redis")
+	}
+	values["MOMIAO_POKER_SESSION_REDIS_CONFIG_FILE"] = filepath.Join(dir, "sessions.json")
+	if err := loadPokerConfig(&standalone, lookup(values)); err != nil || standalone.Poker.SessionRedisConfigFile != values["MOMIAO_POKER_SESSION_REDIS_CONFIG_FILE"] {
+		t.Fatal("standalone local session configuration", err)
+	}
+	delete(values, "MOMIAO_POKER_SESSION_REDIS_CONFIG_FILE")
 	for _, change := range []func(map[string]string){
 		func(v map[string]string) { v["MOMIAO_POKER_ENABLED"] = "TRUE" },
 		func(v map[string]string) { v["MOMIAO_POKER_ENABLED"] = "false" },
@@ -56,7 +65,7 @@ func TestPokerApplicationConfigRequiresCompleteExplicitAuthority(t *testing.T) {
 		func(v map[string]string) { v["MOMIAO_POKER_DSN_FILE"] = base.WalletDSNFile },
 		func(v map[string]string) { v["MOMIAO_POKER_STATE_KEYRING_FILE"] = base.GameFairnessKeyringFile },
 		func(v map[string]string) {
-			v["MOMIAO_POKER_SESSION_READER_KEY_FILE"] = v["MOMIAO_POKER_TICKET_KEYRING_FILE"]
+			v["MOMIAO_POKER_STATE_KEYRING_FILE"] = v["MOMIAO_POKER_TICKET_KEYRING_FILE"]
 		},
 	} {
 		copy := make(map[string]string, len(values))
