@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,18 +22,16 @@ import (
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type botGamesPGFixture struct {
 	owner, runtime *platform.Store
-	native         *pgxpool.Pool
 	engine         *games.Service
 	service        *botgames.Service
 	declaration    *accessDeclaration
 	now            time.Time
 	next           int64
-	connection     struct{ OwnerURL, NativeURL, NativeRole, RuntimeRole string }
+	connection     struct{ OwnerURL, RuntimeRole string }
 }
 
 func botGamesPGCheck(t *testing.T, err error, stage string) {
@@ -60,27 +57,18 @@ func newBotGamesPGFixture(t *testing.T) *botGamesPGFixture {
 	if e != nil || json.Unmarshal(raw, &f.connection) != nil {
 		t.Fatal("isolated fixture connection unreadable")
 	}
-	c, e := pgx.ParseConfig(f.connection.NativeURL)
-	if e != nil || c.Host != "127.0.0.1" || c.Port != 55432 || !strings.HasPrefix(c.Database, "momiao_test_g1_original_") {
-		t.Fatal("refusing non-G1 Native fixture")
-	}
+	// Legacy quota observation still uses public.users until the Reserve migration.
 	f.exec(t, `CREATE TABLE public.users(id bigint PRIMARY KEY,discord_id text NOT NULL DEFAULT '',status int NOT NULL DEFAULT 1,deleted_at timestamptz,quota bigint NOT NULL DEFAULT 0)`)
-	f.exec(t, `GRANT SELECT(id,discord_id,status,deleted_at) ON public.users TO `+pgx.Identifier{f.connection.NativeRole}.Sanitize())
+	f.exec(t, `GRANT SELECT ON identity.users TO `+pgx.Identifier{f.connection.RuntimeRole}.Sanitize())
 	// The reused browser fixture predates the current games row lock / maintenance guard.
 	f.exec(t, `GRANT EXECUTE ON FUNCTION ops.lock_write_scopes(text[]),ops.is_maintenance_scope_active(text) TO `+pgx.Identifier{f.connection.RuntimeRole}.Sanitize())
 	f.exec(t, `GRANT UPDATE(status) ON games.game_config_versions TO `+pgx.Identifier{f.connection.RuntimeRole}.Sanitize())
-	poolConfig, e := pgxpool.ParseConfig(f.connection.NativeURL)
-	botGamesPGCheck(t, e, "Native pool config")
-	poolConfig.MaxConns = 4
-	f.native, e = pgxpool.NewWithConfig(context.Background(), poolConfig)
-	botGamesPGCheck(t, e, "Native pool")
-	t.Cleanup(f.native.Close)
 	observer, e := platform.OpenNativeQuota(context.Background(), f.connection.OwnerURL)
 	botGamesPGCheck(t, e, "synthetic quota observer")
 	t.Cleanup(observer.Close)
 	f.engine, e = games.NewServiceWithEconomy(runtime, games.Keyring{Active: "bot-fixture-v1", Keys: map[string][32]byte{"bot-fixture-v1": {9}}}, observer)
 	botGamesPGCheck(t, e, "engine")
-	f.service, e = botgames.NewService(f.engine, botGamesResolver{native: f.native, platform: runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
+	f.service, e = botgames.NewService(f.engine, botGamesResolver{platform: runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
 	botGamesPGCheck(t, e, "bot service")
 	return f
 }
@@ -90,6 +78,7 @@ func (f *botGamesPGFixture) player(t *testing.T, ready bool, balance int64) (int
 	u := f.next
 	s := strconv.FormatInt(u, 10)
 	f.exec(t, `INSERT INTO public.users(id,discord_id) VALUES($1,$2)`, u, s)
+	f.exec(t, `INSERT INTO identity.users(id,username,discord_id) VALUES($1,'bot-'||$2,$2)`, u, s)
 	if ready {
 		botGamesPGCheck(t, f.owner.EnsureAccount(context.Background(), u), "account fixture")
 		_, e := f.owner.InitializeProfile(context.Background(), u, 0, "Bot"+s, "system-default")
@@ -134,25 +123,8 @@ func (f *botGamesPGFixture) balance(t *testing.T, u int64) int64 {
 func TestBotGamesPostgres(t *testing.T) {
 	f := newBotGamesPGFixture(t)
 	ctx := context.Background()
-	t.Run("native_read_only", func(t *testing.T) {
-		_, e := f.native.Exec(ctx, `UPDATE public.users SET status=2`)
-		if e == nil {
-			t.Fatal("Native reader updated users")
-		}
-		var pg *pgconn.PgError
-		if !errors.As(e, &pg) || (pg.Code != "25006" && pg.Code != "42501") {
-			t.Fatal("UPDATE did not fail on read-only/ACL")
-		}
-		tx, e := f.native.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadWrite})
-		botGamesPGCheck(t, e, "explicit read-write probe")
-		defer tx.Rollback(ctx)
-		_, e = tx.Exec(ctx, `UPDATE public.users SET status=2`)
-		if !errors.As(e, &pg) || pg.Code != "42501" {
-			t.Fatal("Native column-only ACL did not reject UPDATE")
-		}
-	})
 	t.Run("admission_zero_effects", func(t *testing.T) {
-		for _, kind := range []string{"unlinked", "disabled", "deleted", "duplicate_disabled", "missing_ref", "incomplete_profile", "migration_required", "migration_unverified", "experience_maintenance", "experience_unavailable"} {
+		for _, kind := range []string{"unlinked", "disabled", "deleted", "missing_ref", "incomplete_profile", "migration_required", "migration_unverified", "experience_maintenance", "experience_unavailable"} {
 			t.Run(kind, func(t *testing.T) {
 				u, s := f.player(t, kind != "missing_ref" && kind != "incomplete_profile", 50000000)
 				want := "ACCOUNT_NOT_READY"
@@ -161,13 +133,10 @@ func TestBotGamesPostgres(t *testing.T) {
 					s = "18446744073709551615"
 					want = "NOT_LINKED"
 				case "disabled":
-					f.exec(t, `UPDATE public.users SET status=2 WHERE id=$1`, u)
+					f.exec(t, `UPDATE identity.users SET status=2 WHERE id=$1`, u)
 					want = "ACCOUNT_RESTRICTED"
 				case "deleted":
-					f.exec(t, `UPDATE public.users SET deleted_at=now() WHERE id=$1`, u)
-					want = "ACCOUNT_RESTRICTED"
-				case "duplicate_disabled":
-					f.exec(t, `INSERT INTO public.users(id,discord_id,status) VALUES($1,$2,2)`, u+900000000, s)
+					f.exec(t, `UPDATE identity.users SET deleted_at=now() WHERE id=$1`, u)
 					want = "ACCOUNT_RESTRICTED"
 				case "incomplete_profile":
 					botGamesPGCheck(t, f.owner.EnsureAccount(ctx, u), "incomplete account fixture")
@@ -220,8 +189,8 @@ func TestBotGamesPostgres(t *testing.T) {
 		u, s := f.player(t, true, 50000000)
 		other, _ := f.player(t, true, 50000000)
 		p := f.prepare(t, s)
-		f.exec(t, `UPDATE public.users SET discord_id='' WHERE id=$1`, u)
-		f.exec(t, `UPDATE public.users SET discord_id=$2 WHERE id=$1`, other, s)
+		f.exec(t, `UPDATE identity.users SET discord_id=NULL WHERE id=$1`, u)
+		f.exec(t, `UPDATE identity.users SET discord_id=$2 WHERE id=$1`, other, s)
 		_, e := f.service.Play(ctx, s, p.Quote)
 		botGamesWantFault(t, e, "BINDING_CHANGED")
 		_, e = f.service.Lookup(ctx, s, p.Quote)
@@ -283,7 +252,7 @@ func TestBotGamesPostgres(t *testing.T) {
 			t.Fatal("expired recovery changed result")
 		}
 		f.effects(t, u, 1)
-		f.exec(t, `UPDATE public.users SET status=2 WHERE id=$1`, u)
+		f.exec(t, `UPDATE identity.users SET status=2 WHERE id=$1`, u)
 		_, e = f.service.Lookup(ctx, s, p.Quote)
 		botGamesWantFault(t, e, "ACCOUNT_RESTRICTED")
 		_, e = f.service.Play(ctx, s, p.Quote)
@@ -352,10 +321,10 @@ func TestBotGamesPostgres(t *testing.T) {
 		dir, e := os.MkdirTemp("", "bg-")
 		botGamesPGCheck(t, e, "socket directory")
 		t.Cleanup(func() { _ = os.RemoveAll(dir) })
-		cfg := config{ProcessRole: "platform", WalletDSNFile: filepath.Join(dir, "wallet"), GameFairnessKeyringFile: filepath.Join(dir, "fairness"), accessDeclaration: f.declaration, BotGames: botGamesConfig{Socket: filepath.Join(dir, "b.sock"), TokenFile: filepath.Join(dir, "token"), QuoteKeyFile: filepath.Join(dir, "quote"), NativeDSNFile: filepath.Join(dir, "native")}}
+		cfg := config{ProcessRole: "platform", WalletDSNFile: filepath.Join(dir, "wallet"), GameFairnessKeyringFile: filepath.Join(dir, "fairness"), accessDeclaration: f.declaration, BotGames: botGamesConfig{Socket: filepath.Join(dir, "b.sock"), TokenFile: filepath.Join(dir, "token"), QuoteKeyFile: filepath.Join(dir, "quote")}}
 		fairnessKey := [32]byte{9}
 		quoteKey := [32]byte{2}
-		for p, v := range map[string]string{cfg.BotGames.TokenFile: botGamesTestToken, cfg.BotGames.QuoteKeyFile: hex.EncodeToString(quoteKey[:]), cfg.BotGames.NativeDSNFile: f.connection.NativeURL, cfg.GameFairnessKeyringFile: `{"active":"bot-fixture-v1","keys":{"bot-fixture-v1":"` + hex.EncodeToString(fairnessKey[:]) + `"}}`} {
+		for p, v := range map[string]string{cfg.BotGames.TokenFile: botGamesTestToken, cfg.BotGames.QuoteKeyFile: hex.EncodeToString(quoteKey[:]), cfg.GameFairnessKeyringFile: `{"active":"bot-fixture-v1","keys":{"bot-fixture-v1":"` + hex.EncodeToString(fairnessKey[:]) + `"}}`} {
 			botGamesPGCheck(t, os.WriteFile(p, []byte(v), 0600), "private fixture file")
 		}
 		t.Run("reject_empty_socket", func(t *testing.T) {
@@ -380,9 +349,6 @@ func TestBotGamesPostgres(t *testing.T) {
 		a, e := openBotGamesApplication(ctx, cfg, f.runtime, f.engine)
 		botGamesPGCheck(t, e, "application open")
 		defer a.Close()
-		if a.native.Config().MaxConns != 4 {
-			t.Fatal("unbounded Native pool")
-		}
 		info, e := os.Stat(cfg.BotGames.Socket)
 		botGamesPGCheck(t, e, "socket stat")
 		if info.Mode().Perm() != 0600 {

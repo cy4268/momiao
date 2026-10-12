@@ -68,9 +68,9 @@ npm run build
 
 ### 去 NewAPI：本地身份迁移（开发中，尚未部署）
 
-`internal/identity` 复用官方 `QuantumNous/new-api@f1164142` 的 bcrypt、TOTP/备用码和 Discord OAuth 逻辑，仅适配 pgx 与显式配置，不使用 VPS 的定制认证补丁。密码登录、五分钟 2FA 挑战、CSRF、退出与本地请求身份已接入源码中的主入口；复用平台 PG 连接池和现有 Redis，不再为这些请求签发 native 凭据。已用独立开发库的真实账号验证密码主流程。新增迁移 0048 和 `go build ./cmd/momiao-import-native`；当前命令只导入用户与 2FA，保留 ID/密码哈希/备用码状态，不处理额度、Key、渠道或会话。使用方式见 [部署说明](docs/deployment.md#local-identity-migration-in-progress)。源码已接好本地 Discord 登录/注册、账号密码/2FA、前端与 self/Reserve 读取；网站镜像仍未切换，History/Ops/Poker 的旧身份调用继续迁移后再做开发站整体验收。
+`internal/identity` 复用官方 `QuantumNous/new-api@f1164142` 的 bcrypt、TOTP/备用码和 Discord OAuth 逻辑，仅适配 pgx 与显式配置，不使用 VPS 的定制认证补丁。密码登录、五分钟 2FA 挑战、CSRF、退出与本地请求身份已接入源码中的主入口；复用平台 PG 连接池和现有 Redis，不再为这些请求签发 native 凭据。已用独立开发库的真实账号验证密码主流程。新增迁移 0048 和 `go build ./cmd/momiao-import-native`；当前命令只导入用户与 2FA，保留 ID/密码哈希/备用码状态，不处理额度、Key、渠道或会话。使用方式见 [部署说明](docs/deployment.md#local-identity-migration-in-progress)。源码已接好本地 Discord 登录/注册、账号密码/2FA、前端与 self/Reserve 读取；网站镜像仍未切换，History 与 Bot 已改为本地身份，Ops/Poker 的旧身份调用继续迁移后再做开发站整体验收。
 
-Discord 配置使用 `MOMIAO_DISCORD_CONFIG_FILE` 指向私有 JSON，包含 `client_id`、`client_secret`；开启 `MOMIAO_ADMISSION_ENABLED=true` 的注册还需要 `guild_id`、`role_id`、`policy_version`。回调地址固定为 `MOMIAO_PUBLIC_ORIGIN` + `/oauth/discord`。新用户验证服务器身份组后，在同一事务创建账号和本地注册回执，复用赠额 worker；已有绑定账号直接登录，不重复发赠额。0049 将回执读取迁入本地，不再读取 `MOMIAO_REGISTRATION_READER_KEY_FILE`。
+Discord 配置使用 `MOMIAO_DISCORD_CONFIG_FILE` 指向私有 JSON，包含 `client_id`、`client_secret`；开启 `MOMIAO_ADMISSION_ENABLED=true` 的注册还需要 `guild_id`、`role_id`、`policy_version`。回调地址固定为 `MOMIAO_PUBLIC_ORIGIN` + `/oauth/discord`。新用户验证服务器身份组后，在同一事务创建账号和本地注册回执，复用赠额 worker；已有绑定账号直接登录，不重复发赠额。0049 将回执读取迁入本地，不再读取 `MOMIAO_REGISTRATION_READER_KEY_FILE`。 Bot 也复用平台连接池查询 `identity.users`，不再读取 `MOMIAO_BOT_GAMES_NATIVE_DSN_FILE`；只保留 socket、token、quote key 三项私有监听配置。History 走同一本地 Cookie 鉴权，专用记录读写角色保持不变。
 
 **只运行存活探针**：不设置额外环境变量，执行构建出的 `momiao`（Windows 为 `momiao.exe`），默认监听 `127.0.0.1:8080`。`GET/HEAD /healthz` 返回 `{"status":"ok"}`；该模式其他路径为 404。存活不代表上游或业务就绪。
 

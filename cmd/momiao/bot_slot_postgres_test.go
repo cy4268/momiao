@@ -136,7 +136,7 @@ func TestBotSlotPostgres(t *testing.T) {
 		defer func() { f.now = f.now.Add(-121 * time.Second) }()
 		engine, e := games.NewService(f.runtime, games.Keyring{Active: "bot-fixture-v1", Keys: map[string][32]byte{"bot-fixture-v1": {9}}})
 		botGamesPGCheck(t, e, "restarted game engine")
-		service, e := botgames.NewService(engine, botGamesResolver{native: f.native, platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
+		service, e := botgames.NewService(engine, botGamesResolver{platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
 		botGamesPGCheck(t, e, "restarted slot service")
 		recovered, e := service.LookupSlot(ctx, subject, p.Quote)
 		botGamesPGCheck(t, e, "expired restarted lookup")
@@ -146,7 +146,7 @@ func TestBotSlotPostgres(t *testing.T) {
 			t.Fatal("restart recovery changed result")
 		}
 		f.effects(t, u, 1)
-		f.exec(t, `UPDATE public.users SET status=2 WHERE id=$1`, u)
+		f.exec(t, `UPDATE identity.users SET status=2 WHERE id=$1`, u)
 		_, e = service.LookupSlot(ctx, subject, p.Quote)
 		botGamesWantFault(t, e, "ACCOUNT_RESTRICTED")
 	})
@@ -175,7 +175,7 @@ func TestBotSlotPostgres(t *testing.T) {
 		f.effects(t, u, 2)
 	})
 	t.Run("identity_and_admission_have_zero_effects", func(t *testing.T) {
-		for _, kind := range []string{"unlinked", "disabled", "deleted", "duplicate", "missing_ref", "incomplete_profile"} {
+		for _, kind := range []string{"unlinked", "disabled", "deleted", "missing_ref", "incomplete_profile"} {
 			t.Run(kind, func(t *testing.T) {
 				u, subject := f.player(t, kind != "missing_ref" && kind != "incomplete_profile", 50000000)
 				want := "ACCOUNT_RESTRICTED"
@@ -184,11 +184,9 @@ func TestBotSlotPostgres(t *testing.T) {
 					subject = "18446744073709551615"
 					want = "NOT_LINKED"
 				case "disabled":
-					f.exec(t, `UPDATE public.users SET status=2 WHERE id=$1`, u)
+					f.exec(t, `UPDATE identity.users SET status=2 WHERE id=$1`, u)
 				case "deleted":
-					f.exec(t, `UPDATE public.users SET deleted_at=now() WHERE id=$1`, u)
-				case "duplicate":
-					f.exec(t, `INSERT INTO public.users(id,discord_id,status) VALUES($1,$2,2)`, u+900000000, subject)
+					f.exec(t, `UPDATE identity.users SET deleted_at=now() WHERE id=$1`, u)
 				case "missing_ref":
 					want = "ACCOUNT_NOT_READY"
 				case "incomplete_profile":
@@ -205,8 +203,8 @@ func TestBotSlotPostgres(t *testing.T) {
 		u, subject := f.player(t, true, 50000000)
 		other, _ := f.player(t, true, 50000000)
 		p := f.prepareSlot(t, subject, "11")
-		f.exec(t, `UPDATE public.users SET discord_id='' WHERE id=$1`, u)
-		f.exec(t, `UPDATE public.users SET discord_id=$2 WHERE id=$1`, other, subject)
+		f.exec(t, `UPDATE identity.users SET discord_id=NULL WHERE id=$1`, u)
+		f.exec(t, `UPDATE identity.users SET discord_id=$2 WHERE id=$1`, other, subject)
 		_, e := f.service.PlaySlot(ctx, subject, p.Quote)
 		botGamesWantFault(t, e, "BINDING_CHANGED")
 		_, e = f.service.LookupSlot(ctx, subject, p.Quote)

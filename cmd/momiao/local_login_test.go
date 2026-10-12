@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cy4268/momiao/internal/history"
 	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -74,7 +75,12 @@ func TestLocalPasswordHTTP(t *testing.T) {
 		t.Fatal("open wallet reader")
 	}
 	t.Cleanup(wallets.Close)
-	handler := newPortalHandler(config{Session: sessionConfig{Enabled: true}, sessionAuth: auth, localIdentity: auth, wallet: wallets}, nil)
+	historyPool, err := openPokerPool(t.Context(), os.Getenv("MOMIAO_HISTORY_READER_DSN_FILE"))
+	if err != nil {
+		t.Fatal("open existing dev History reader")
+	}
+	t.Cleanup(historyPool.Close)
+	handler := newPortalHandler(config{Session: sessionConfig{Enabled: true}, sessionAuth: auth, localIdentity: auth, wallet: wallets, history: &historyHTTP{list: history.NewReader(historyPool)}}, nil)
 	call := func(method, path string, body any, cookie *http.Cookie, csrf string) *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(body)
 		r := httptest.NewRequest(method, "https://dev.momiao.win"+path, bytes.NewReader(raw))
@@ -181,6 +187,28 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	}
 	if prepared.Header.Get("Authorization") != "" || prepared.Header.Get("New-Api-User") != "" {
 		t.Fatal("native credential projection remains")
+	}
+	historyResponse := call("GET", "/api/v1/history?limit=1", nil, cookie, "")
+	if historyResponse.Code != 200 {
+		t.Error("local History request", historyResponse.Code)
+	}
+	if denied := call("GET", "/api/v1/history?limit=1", nil, anonymous, ""); denied.Code != 401 {
+		t.Error("anonymous History request", denied.Code)
+	}
+	var botUser int64
+	var botSubject string
+	if err := pool.QueryRow(t.Context(), `SELECT u.id,u.discord_id FROM identity.users u
+ JOIN identity.master_profiles p ON p.newapi_user_id=u.id
+ WHERE u.discord_id IS NOT NULL AND u.status=1 AND u.deleted_at IS NULL AND p.normalized_name IS NOT NULL
+ ORDER BY u.id LIMIT 1`).Scan(&botUser, &botSubject); err != nil {
+		t.Fatal("existing dev Bot-ready account")
+	}
+	resolver := botGamesResolver{platform: wallets, declaration: &accessDeclaration{MigrationApplicability: "NO_MIGRATION_APPLICABLE", Resources: map[string]string{"EXPERIENCE": "AVAILABLE"}}}
+	if got, err := resolver.Resolve(t.Context(), botSubject); err != nil || got != botUser {
+		t.Error("local Bot identity", got, err)
+	}
+	if t.Failed() {
+		t.FailNow()
 	}
 	prepared.URL, _ = url.Parse("https://dev.momiao.win/platform/v1/access-gate?route=/account")
 	gate := httptest.NewRecorder()

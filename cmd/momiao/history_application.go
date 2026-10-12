@@ -11,8 +11,7 @@ import (
 	"github.com/cy4268/momiao/internal/history"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/poker"
- "github.com/cy4268/momiao/internal/roulette"
-	"github.com/cy4268/momiao/internal/session"
+	"github.com/cy4268/momiao/internal/roulette"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -50,11 +49,11 @@ func (a *historyApplication) Close() {
 
 // Dependencies are already authenticated/domain services. This composition never
 // starts actors, repairs games, creates accounts, provisions roles or migrates.
-func openHistoryApplication(ctx context.Context, cfg historyConfig, authorityPool *pgxpool.Pool, sessions *session.Service, rounds *games.Service, wallet *platform.Store, rouletteService ...*roulette.Service) (app *historyApplication, err error) {
+func openHistoryApplication(ctx context.Context, cfg historyConfig, authorityPool *pgxpool.Pool, rounds *games.Service, wallet *platform.Store, rouletteService ...*roulette.Service) (app *historyApplication, err error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
-	if len(rouletteService)>1 || ctx == nil || authorityPool == nil || sessions == nil || rounds == nil || wallet == nil {
+	if len(rouletteService) > 1 || ctx == nil || authorityPool == nil || rounds == nil || wallet == nil {
 		return nil, errHistoryStartup
 	}
 	a := &historyApplication{}
@@ -86,7 +85,7 @@ func openHistoryApplication(ctx context.Context, cfg historyConfig, authorityPoo
 	if err != nil {
 		return nil, err
 	}
-	if err = validatePokerPools(startup, authorityPool, a.pokerPool); err != nil {
+	if err = wallet.CheckSameDatabase(startup, a.pokerPool); err != nil {
 		return nil, err
 	}
 	keys, err := readPokerStateKeys(cfg.PokerKeyringFile)
@@ -97,8 +96,10 @@ func openHistoryApplication(ctx context.Context, cfg historyConfig, authorityPoo
 	if err != nil {
 		return nil, err
 	}
-	a.handler = &historyHTTP{sessions: sessions, list: history.NewReader(a.readerPool), rounds: rounds, poker: hands, wallet: wallet}
-	if len(rouletteService)==1 { a.handler.roulette=rouletteService[0] }
+	a.handler = &historyHTTP{list: history.NewReader(a.readerPool), rounds: rounds, poker: hands, wallet: wallet}
+	if len(rouletteService) == 1 {
+		a.handler.roulette = rouletteService[0]
+	}
 	workerCtx, stop := context.WithCancel(ctx)
 	a.cancel, a.done = stop, make(chan struct{})
 	go func() {

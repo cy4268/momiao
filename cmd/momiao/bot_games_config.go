@@ -8,8 +8,8 @@ import (
 var errBotGamesConfig = errors.New("bot games configuration invalid")
 
 type botGamesConfig struct {
-	Socket, TokenFile, QuoteKeyFile, NativeDSNFile string
-	RouletteEnabled                                bool
+	Socket, TokenFile, QuoteKeyFile string
+	RouletteEnabled                 bool
 }
 
 func loadBotGamesConfig(cfg *config, lookup func(string) (string, bool)) error {
@@ -30,7 +30,6 @@ func loadBotGamesConfig(cfg *config, lookup func(string) (string, bool)) error {
 		{"MOMIAO_BOT_GAMES_SOCKET", &b.Socket},
 		{"MOMIAO_BOT_GAMES_TOKEN_FILE", &b.TokenFile},
 		{"MOMIAO_BOT_GAMES_QUOTE_KEY_FILE", &b.QuoteKeyFile},
-		{"MOMIAO_BOT_GAMES_NATIVE_DSN_FILE", &b.NativeDSNFile},
 	}
 	count := 0
 	for _, f := range fields {
@@ -57,7 +56,7 @@ func loadBotGamesConfig(cfg *config, lookup func(string) (string, bool)) error {
 			seen[pokerPathKey(p)] = true
 		}
 	}
-	for _, p := range []string{b.Socket, b.TokenFile, b.QuoteKeyFile, b.NativeDSNFile} {
+	for _, p := range []string{b.Socket, b.TokenFile, b.QuoteKeyFile} {
 		k := pokerPathKey(p)
 		if seen[k] {
 			return errBotGamesConfig

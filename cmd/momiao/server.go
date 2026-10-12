@@ -108,7 +108,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				return
 			}
 			if historyAPIRoute(r.URL.Path) {
-				cfg.history.ServeHTTP(w, r)
+				domainHandler(cfg, cfg.history).ServeHTTP(w, r)
 				return
 			}
 			if r.URL.Path == "/api/user/self" {
@@ -171,7 +171,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		case r.URL.Path == "/platform/v1/key-purposes" || strings.HasPrefix(r.URL.Path, "/platform/v1/key-purposes/"):
 			domainHandler(cfg, newKeyPurposeHandler(cfg.PublicOrigin, cfg.keyPurposes, cfg.nativePurposes, transport)).ServeHTTP(w, r)
 		case historyAPIRoute(r.URL.Path):
-			cfg.history.ServeHTTP(w, r)
+			domainHandler(cfg, cfg.history).ServeHTTP(w, r)
 		case sessionAPIRoute(r.URL.Path):
 			serveSessionRoute(cfg.sessionAuth, w, r)
 		case cfg.Session.Enabled && legacyNativeBrowserAuthRoute(r.URL.Path):

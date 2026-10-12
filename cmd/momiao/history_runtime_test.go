@@ -32,11 +32,11 @@ func TestHistoryRuntimeConfiguration(t *testing.T) {
 }
 
 func TestHistoryRuntimeMissingDependencies(t *testing.T) {
-	app, err := openHistoryApplication(context.Background(), historyConfig{}, nil, nil, nil, nil)
+	app, err := openHistoryApplication(context.Background(), historyConfig{}, nil, nil, nil)
 	if err != nil || app != nil {
 		t.Fatal("disabled feature opened dependencies")
 	}
-	if _, err = openHistoryApplication(context.Background(), historyConfig{Enabled: true}, nil, nil, nil, nil); err == nil {
+	if _, err = openHistoryApplication(context.Background(), historyConfig{Enabled: true}, nil, nil, nil); err == nil {
 		t.Fatal("incomplete identity/domain services accepted")
 	}
 	if validateHistoryPools(context.Background(), nil, nil, nil) == nil {

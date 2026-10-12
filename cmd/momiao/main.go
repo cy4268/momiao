@@ -220,10 +220,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			go func(){ defer close(rouletteDone); cfg.roulette.RunWorker(rouletteCtx) }()
 			defer func(){ stopRoulette(); <-rouletteDone }()
 			if cfg.History.Enabled {
-				if sessionApp == nil {
-					return errHistoryStartup
-				}
-				application, err := openHistoryApplication(ctx, cfg.History, sessionApp.pool, cfg.sessions, cfg.games, store, cfg.roulette)
+				application, err := openHistoryApplication(ctx, cfg.History, store.Pool(), cfg.games, store, cfg.roulette)
 				if err != nil {
 					return errHistoryStartup
 				}

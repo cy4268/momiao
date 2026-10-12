@@ -353,7 +353,7 @@ func TestBotBlackjackPostgres(t *testing.T) {
 		botGamesWantFault(t, e, "IDEMPOTENCY_CONFLICT")
 		engine, e := games.NewService(f.runtime, games.Keyring{Active: "bot-fixture-v1", Keys: map[string][32]byte{"bot-fixture-v1": {9}}})
 		botGamesPGCheck(t, e, "restart engine")
-		service, e := botgames.NewService(engine, botGamesResolver{native: f.native, platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
+		service, e := botgames.NewService(engine, botGamesResolver{platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
 		botGamesPGCheck(t, e, "restart bridge")
 		f.now = f.now.Add(121 * time.Second)
 		defer func() { f.now = f.now.Add(-121 * time.Second) }()
@@ -500,8 +500,8 @@ func TestBotBlackjackPostgres(t *testing.T) {
 		botGamesWantFault(t, e, "INVALID_REQUEST")
 		_, e = f.service.Play(ctx, subject, p.Quote)
 		botGamesWantFault(t, e, "UNAUTHORIZED")
-		f.exec(t, `UPDATE public.users SET discord_id='' WHERE id=$1`, user)
-		f.exec(t, `UPDATE public.users SET discord_id=$2 WHERE id=$1`, other, subject)
+		f.exec(t, `UPDATE identity.users SET discord_id=NULL WHERE id=$1`, user)
+		f.exec(t, `UPDATE identity.users SET discord_id=$2 WHERE id=$1`, other, subject)
 		_, e = f.service.PlayBlackjack(ctx, subject, p.Quote)
 		botGamesWantFault(t, e, "BINDING_CHANGED")
 		f.blackjackEffects(t, user, "", 0, 0, 0)
@@ -616,7 +616,7 @@ func TestBotBlackjackPostgres(t *testing.T) {
 		f.blackjackPrecommit(t, user, blackjackPair)
 		r := f.blackjackRound(t, subject, f.prepareBlackjack(t, subject, "10"))
 		g := &blackjackReadLossEngine{Service: f.engine}
-		service, e := botgames.NewService(g, botGamesResolver{native: f.native, platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
+		service, e := botgames.NewService(g, botGamesResolver{platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
 		botGamesPGCheck(t, e, "loss bridge")
 		in := botgames.BlackjackActionRequest{Quote: r.Quote, RequestID: subject, ActionType: "SPLIT"}
 		_, e = service.ActBlackjack(ctx, subject, in)
@@ -645,7 +645,7 @@ func TestBotBlackjackPostgres(t *testing.T) {
 						botGamesPGCheck(t, e, "existing original action")
 					}
 					g := &blackjackReadLossEngine{Service: f.engine, lose: !write, readErr: failure}
-					service, e := botgames.NewService(g, botGamesResolver{native: f.native, platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
+					service, e := botgames.NewService(g, botGamesResolver{platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
 					botGamesPGCheck(t, e, "postcommit failure bridge")
 					h, e := newBotGamesHandler(service, botGamesTestToken)
 					botGamesPGCheck(t, e, "postcommit failure handler")
@@ -687,7 +687,7 @@ func TestBotBlackjackPostgres(t *testing.T) {
 						defer func() { f.now = f.now.Add(-121 * time.Second) }()
 					}
 					g := &blackjackReadLossEngine{Service: f.engine, lose: operation != "create", readErr: failure}
-					service, e := botgames.NewService(g, botGamesResolver{native: f.native, platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
+					service, e := botgames.NewService(g, botGamesResolver{platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
 					botGamesPGCheck(t, e, "accepted deal failure bridge")
 					h, e := newBotGamesHandler(service, botGamesTestToken)
 					botGamesPGCheck(t, e, "accepted deal failure handler")
