@@ -50,7 +50,7 @@ export function useOpsMutation(){
   if(!live.current)return;
   if(result.require_2fa===true&&secret(result.flow_token)&&!result.proof){setFlow(result.flow_token);setFactorKind(kind);return}
   if(!secret(result.proof)||result.require_2fa||result.flow_token)throw new Error('身份验证响应异常，请刷新本次身份验证。');
-  await client.exchangeOpsFresh({operation_id:current.id,authz_epoch:current.epoch,challenge_id:challenge.challenge_id,proof:result.proof});
+  await client.request('/api/v1/ops/fresh/exchange','POST',{operation_id:current.id,authz_epoch:current.epoch,challenge_id:challenge.challenge_id,proof:result.proof});
   if(live.current){setVerified(true);setFlow('')}
  }
  function discord(){if(!pending||!prepared?.fresh_challenge||running.current||popup.current)return;const opened=window.open('',opsPopupPrefix+crypto.randomUUID(),'popup,width=520,height=760');if(!opened){setError('验证窗口被浏览器拦截，请允许弹出窗口后重试。');return}const attempt={window:opened,pending,challenge:prepared.fresh_challenge};popup.current=attempt;setDiscordWaiting(true);void run(async()=>{try{const result=await client.request<{authorization_url:string}>('/api/v1/ops/fresh/discord/start','POST',{operation_id:pending.id,authz_epoch:pending.epoch,challenge_id:attempt.challenge.challenge_id,challenge_token:attempt.challenge.challenge_token});if(popup.current===attempt)opened.location.href=validateOpsDiscordURL(result?.authorization_url)}catch(error){opened.close();popup.current=undefined;setDiscordWaiting(false);throw error}})}

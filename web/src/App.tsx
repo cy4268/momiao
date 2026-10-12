@@ -40,7 +40,7 @@ import { PersonalHub, MasterSummary, CommandChamber, type MasterResource } from 
 import { Rewards } from './Rewards';
 import { readProfile, profileError } from './profile-api';
 import { Alert, Crest, Empty, Loading, Pager, date, number, useResource } from './ui';
-import { DiscordCallback, type CapturedCallback } from './Authentication';
+import { Authentication, DiscordCallback, type CapturedCallback } from './Authentication';
 import { Account } from './Account';
 import { AccessGate, LoginRequired, PostAuthGate } from './PostAuthGate';
 import type { SensitiveProof } from './admission-api';
@@ -106,12 +106,11 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="service-health" element={<OpsServiceHealth/>}/>
             <Route index element={<OpsHome/>}/>
         </Route>
-        <Route path="/login" element={<NativeAuthEntry registration={false} />} />
-        <Route path="/register" element={<NativeAuthEntry registration />} />
+        <Route path="/login" element={!session.ready?loading:session.user?<Navigate to="/welcome" replace/>:<Authentication client={client} mode="login"/>} />
+        <Route path="/register" element={!session.ready?loading:session.user?<Navigate to="/welcome" replace/>:<Authentication client={client} mode="registration"/>} />
         <Route path="/oauth/discord" element={isOpsDiscordPopup()?<OpsDiscordPopup captured={capturedCallback}/>:!session.ready?loading:<DiscordCallback client={client} captured={capturedCallback} onComplete={value=>{if(value){setProof({value,generation:client.getSessionGeneration()});navigate('/account/security',{replace:true});}else navigate('/welcome',{replace:true});}}/>}/>
         <Route path="/welcome" element={!session.ready?loading:session.user?<PostAuthGate key={session.user.id+':'+client.getSessionGeneration()} client={client} user={session.user}/>:<Navigate to="/login" replace/>}/>
-        {['/sign-in','/sign-up','/otp'].map(path => <Route key={path} path={path} element={<NativeAuthUnavailable />} />)}
-        <Route path="/poker/*" element={!session.ready?loading:session.user?client.sessionFeatureUnavailable('POKER_LOGOUT_S2')?<OpaquePokerHold/>:<AccessGate key={announcementSession} client={client} user={session.user} route="/poker" pokerRecovery><PokerRoute key={announcementSession} client={client} path={effectivePath} onHold={holdPoker} frame={children=><Shell client={client} user={session.user!}>{children}</Shell>}/></AccessGate>:<LoginRequired/>}/>
+        <Route path="/poker/*" element={!session.ready?loading:session.user?<AccessGate key={announcementSession} client={client} user={session.user} route="/poker" pokerRecovery><PokerRoute key={announcementSession} client={client} path={effectivePath} onHold={holdPoker} frame={children=><Shell client={client} user={session.user!}>{children}</Shell>}/></AccessGate>:<LoginRequired/>}/>
         <Route element={!session.ready ? loading : session.user ? <AccessGate key={routedSession} client={client} user={session.user} route={location.pathname+(['/keys','/logs'].includes(location.pathname)?location.search:'')}><Shell client={client} user={session.user} /></AccessGate> : <LoginRequired />}>
             <Route path="/account" element={<Account key={session.user?.id+':'+client.getSessionGeneration()} client={client} proof={proof?.generation===client.getSessionGeneration()?proof.value:undefined} clearProof={()=>setProof(undefined)}/>}/>
             <Route path="/account/security" element={<Account key={session.user?.id+':'+client.getSessionGeneration()} client={client} proof={proof?.generation===client.getSessionGeneration()?proof.value:undefined} clearProof={()=>setProof(undefined)}/>}/>
@@ -138,24 +137,9 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
         <Route path="*" element={!session.ready ? loading : <Navigate to={session.user ? '/dashboard' : '/login'} replace />} />
     </Routes></>;
 }
-function NativeAuthEntry({ registration }: { registration: boolean }) {
-    const destination = registration ? '/sign-up' : '/sign-in';
-    useEffect(() => {
-        document.title = (registration ? '注册' : '登录') + ' · momiao';
-        window.location.replace(destination);
-    }, [destination, registration]);
-    return <main className="welcome-page"><h1>正在前往 New API {registration ? '注册' : '登录'}</h1><p role="status">请稍候，正在打开账户页面。</p><a className="button" href={destination}>前往 New API {registration ? '注册' : '登录'}</a></main>;
-}
-function NativeAuthUnavailable() {
-    useEffect(() => { document.title = '登录入口尚未就绪 · momiao'; }, []);
-    return <main className="welcome-page"><h1>登录入口尚未就绪</h1><p>请稍后重试。</p><Link className="button" to="/">返回首页</Link></main>;
-}
 function LegacyRoundRedirect() {
     const {id}=useParams();
     return <Navigate to={id&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)?`/history/rounds/${id}`:'/history'} replace/>;
-}
-function OpaquePokerHold() {
-    return <main className="welcome-page"><Alert>Poker 安全退出控制尚未接入不透明会话模式（POKER_LOGOUT_S2）；当前不会进入牌桌或发起后台请求。</Alert><div className="auth-actions"><Link to="/entertainment">返回娱乐目录</Link><Link to="/account/security">账户与安全</Link></div></main>;
 }
 function ProfileRoute({ client, user }: { client: ApiClient; user: User }) {
     const master = useOutletContext<MasterResource>();
@@ -194,7 +178,7 @@ function Dashboard({ client, user }: { client: ApiClient; user: User }) {
     const current = r.data?.self || user;
     return <CommandChamber page="dashboard"><header className="page-heading"><div><p className="eyebrow">COMMAND CENTER</p><h1>指挥台</h1><p>欢迎回来，御主。</p></div><Link className="button primary" to="/models">选择模型并接入</Link></header>
         <MasterSummary master={master} />
-        <div className="chamber-ledger"><section className="account-ledger" aria-label="账户使用概览"><div><p>可用 API 额度</p><strong>{number(current.quota)}</strong></div><div><p>已用 API 额度</p><strong>{number(current.used_quota)}</strong></div><div><p>累计请求</p><strong>{number(current.request_count)}</strong><span>次调用</span></div><div><p>API 密钥</p><strong>{r.loading ? '…' : r.error ? '—' : number(r.data?.keys.total)}</strong><Link to="/keys">管理密钥</Link></div></section><p className="ledger-note"><Link className="text-link" to="/wallet">查看 Reserve 与筹码</Link></p></div>
+        <div className="chamber-ledger"><section className="account-ledger" aria-label="账户使用概览"><div><p>Reserve 余额</p><strong>{current.reserve_amount ?? '—'}</strong></div><div><p>已用 API 额度</p><strong>{number(current.used_quota ?? undefined)}</strong></div><div><p>累计请求</p><strong>{number(current.request_count ?? undefined)}</strong><span>次调用</span></div><div><p>API 密钥</p><strong>{r.loading ? '…' : r.error ? '—' : number(r.data?.keys.total)}</strong><Link to="/keys">管理密钥</Link></div></section><p className="ledger-note"><Link className="text-link" to="/wallet">查看 Reserve 与筹码</Link></p></div>
         <div className="dashboard-paths"><Link to="/me">个人中心</Link><Link to="/rewards">领取每日奖励</Link><Link to="/wallet/activate">激活 API 额度</Link></div>
         <section className="panel recent"><div className="section-heading"><h2>最近调用与活动</h2><Link className="text-link" to="/logs">查看全部</Link></div><div className="chamber-activity" role="region" aria-label="最近调用内容" tabIndex={0}>{r.loading ? <Loading /> : r.error ? <><Alert>{r.error}</Alert><button onClick={r.reload}>重新加载</button></> : r.data && <>{r.data.keys.total === 0 && <div className="first-key"><div><strong>建立你的第一个连接</strong><p>创建一枚独立密钥，再将它添加到你信任的应用。</p></div><Link className="button" to="/keys">创建第一枚密钥</Link></div>}<LogTable items={r.data.logs.items} /></>}</div></section>
     </CommandChamber>;

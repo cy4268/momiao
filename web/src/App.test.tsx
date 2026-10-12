@@ -38,12 +38,15 @@ it.each(['/dashboard', '/games', '/models', '/rankings', '/announcements'])('one
     expect(document.querySelectorAll('.portal-header, .public-header, .ranking-header')).toHaveLength(0);
     view.unmount();
 });
-it('signed-out visitors reaching a game page get the sign-in entry', async () => {
-    const { client } = fixtureClient(() => new Response(JSON.stringify({ success: false }), { status: 401 }));
+it('signed-out visitors reaching a game page get the local login form', async () => {
+    const fetcher=vi.fn(async(path:string)=>ok(path==='/api/v1/session/bootstrap'?{authentication_state:'ANONYMOUS',csrf_token:'anonymous-csrf'}:path==='/platform/v1/admission/config'?{enabled:false,registration_enabled:false,eligibility:''}:{items:[]}));
+    const client=new ApiClient(fetcher);
     render(<MemoryRouter initialEntries={['/games/dice']}><App client={client} /></MemoryRouter>);
-    // LoginRequired keeps sending signed-out visitors to the sign-in page.
-    expect(await screen.findByRole('link', { name: '前往 New API 登录' }, { timeout: 4000 })).toHaveAttribute('href', '/sign-in');
+    expect(await screen.findByRole('button', { name: '登录控制台' })).toBeEnabled();
+    expect(screen.getByLabelText('用户名')).toBeVisible();
+    expect(screen.queryByRole('link', {name:'前往 New API 登录'})).not.toBeInTheDocument();
 });
+
 it('R1 separates desktop global routes, asset shortcut and account destinations', async () => {
     const { client } = fixtureClient();
     render(<MemoryRouter initialEntries={['/keys']}><App client={client} /></MemoryRouter>);

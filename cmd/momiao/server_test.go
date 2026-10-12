@@ -151,7 +151,7 @@ func TestPortalServesOnlyApprovedSPAAndCompiledFiles(t *testing.T) {
 	if csp := cdnResponse.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "img-src 'self' data: https://assets.example.test;") || !strings.Contains(csp, "connect-src 'self'") || strings.Count(csp, "assets.example.test") != 1 {
 		t.Fatalf("CDN must be allowed for images only: %q", csp)
 	}
-	for _, route := range []string{"/", "/login", "/sign-in", "/dashboard", "/keys", "/logs", "/games/dice", "/wallet/activate", "/history/rounds/11111111-1111-4111-8111-111111111111", "/history/sessions/11111111-1111-4111-8111-111111111111", "/history/hands/11111111-1111-4111-8111-111111111111", "/wallet/transactions/11111111-1111-4111-8111-111111111111"} {
+	for _, route := range []string{"/", "/login", "/register", "/dashboard", "/keys", "/logs", "/games/dice", "/wallet/activate", "/history/rounds/11111111-1111-4111-8111-111111111111", "/history/sessions/11111111-1111-4111-8111-111111111111", "/history/hands/11111111-1111-4111-8111-111111111111", "/wallet/transactions/11111111-1111-4111-8111-111111111111"} {
 		t.Run("shell "+route, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))
@@ -213,47 +213,19 @@ func TestPortalServesOnlyApprovedSPAAndCompiledFiles(t *testing.T) {
 		t.Fatalf("fingerprinted asset cache policy=%q", got)
 	}
 
-	nativeAuthDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(nativeAuthDir, "static", "js"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(nativeAuthDir, "index.html"), []byte(`<!doctype html><head><link href="/logo.png"></head><body>native auth</body>`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(nativeAuthDir, "static", "js", "auth-12345678.js"), []byte("export default 'auth'"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(nativeAuthDir, ".env"), []byte("SECRET=leak"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	nativeHandler := newPortalHandler(config{WebDir: webDir, NativeAuthWebDir: nativeAuthDir, NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, nil)
-	for _, route := range []string{"/sign-in", "/sign-up", "/otp"} {
+	for _, route := range []string{"/sign-in", "/sign-up", "/otp", "/native-auth/static/js/auth-12345678.js"} {
 		response := httptest.NewRecorder()
-		nativeHandler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))
-		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "native auth") || !strings.Contains(response.Body.String(), `<meta name="chaldea-auth-ui" content="opaque-v1">`) || !strings.Contains(response.Body.String(), `href="/native-auth/logo.png"`) {
-			t.Fatalf("Native auth shell %s: status=%d body=%q", route, response.Code, response.Body.String())
-		}
-	}
-	for _, tc := range []struct {
-		path string
-		want int
-	}{
-		{"/native-auth/static/js/auth-12345678.js", http.StatusOK},
-		{"/native-auth/.env", http.StatusNotFound},
-		{"/native-auth/index.html", http.StatusNotFound},
-		{"/native-auth/pay-card.png", http.StatusNotFound},
-	} {
-		response := httptest.NewRecorder()
-		nativeHandler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.path, nil))
-		if response.Code != tc.want {
-			t.Fatalf("Native auth asset %s: status=%d, want %d", tc.path, response.Code, tc.want)
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("removed native route %s: %d", route, response.Code)
 		}
 	}
 	callback := httptest.NewRecorder()
-	nativeHandler.ServeHTTP(callback, httptest.NewRequest(http.MethodGet, "/oauth/discord?code=fixture&state="+strings.Repeat("s", 43), nil))
-	if callback.Code != http.StatusOK || !strings.Contains(callback.Body.String(), "portal") || strings.Contains(callback.Body.String(), "chaldea-auth-ui") {
-		t.Fatalf("unowned Discord callback did not retain Platform shell: status=%d body=%q", callback.Code, callback.Body.String())
+	handler.ServeHTTP(callback, httptest.NewRequest(http.MethodGet, "/oauth/discord?code=fixture&state=fixture", nil))
+	if callback.Code != 200 || !strings.Contains(callback.Body.String(), "portal") {
+		t.Fatal("Discord callback must use local portal")
 	}
+
 }
 
 func TestPortalCanonicalizesWebRootAlias(t *testing.T) {

@@ -21,26 +21,15 @@ export function GrantStatus({client}: {client:ApiClient}) {
 
 export function Account({client,proof,clearProof=()=>{}}: {client:ApiClient;proof?:SensitiveProof;clearProof?:()=>void}) {
     const session=useSyncExternalStore(client.subscribe,client.getSnapshot);const generation=client.getSessionGeneration();
-    const opaqueBlocked=client.sessionFeatureUnavailable('GENERAL_BFF_S2');
     const [account,setAccount]=useState<NativeAccount>();const [shortID,setShortID]=useState('');const [error,setError]=useState('');const [notice,setNotice]=useState('');const [loading,setLoading]=useState(true);const [busy,setBusy]=useState(false);const [uncertain,setUncertain]=useState(false);
     const [password,setPassword]=useState('');const [confirm,setConfirm]=useState('');const [old,setOld]=useState('');const [show,setShow]=useState(false);const [showConfirm,setShowConfirm]=useState(false);const [showOld,setShowOld]=useState(false);const active=useRef(true);const lock=useRef(false);
     const validProof=proof&&proof.expires_at>Date.now()/1000?proof:undefined;
     const mode=validProof?.purpose?(validProof.purpose==='PASSWORD_SET'?'set':'reset'):validProof?(account?.has_password?'reset':'set'):'change';
-    async function reload(){setLoading(true);setError('');if(opaqueBlocked){try{await client.refresh();}catch(e){if(active.current)setError(admissionError(e));}finally{if(active.current)setLoading(false);}return;}try{const d=await readNativeAccount(client);if(active.current)setAccount(d);const p=await readProfile(client,String(d.id));if(active.current)setShortID(p.short_account_id);}catch(e){if(active.current)setError(admissionError(e));}finally{if(active.current)setLoading(false);}}
-    useEffect(()=>{active.current=true;if(opaqueBlocked){setLoading(false);setError('');}else void reload();return()=>{active.current=false;};},[client,generation,opaqueBlocked]);
+    async function reload(){setLoading(true);setError('');try{const d=await readNativeAccount(client);if(active.current)setAccount(d);const p=await readProfile(client,String(d.id));if(active.current)setShortID(p.short_account_id);}catch(e){if(active.current)setError(admissionError(e));}finally{if(active.current)setLoading(false);}}
+    useEffect(()=>{active.current=true;void reload();return()=>{active.current=false;};},[client,generation]);
     async function authorize(reset:boolean){if(lock.current)return;lock.current=true;setBusy(true);setError('');clearProof();try{const url=await client.discordStart(reset?'password-reset':'fresh');if(active.current)window.location.assign(url);}catch(e){if(active.current)setError(admissionError(e));}finally{if(active.current){lock.current=false;setBusy(false);}}}
     async function submit(e:FormEvent){e.preventDefault();if(lock.current||uncertain||!account)return;if(password!==confirm){setError('两次输入的新密码不一致。');return;}if([...password].length<8||[...password].length>20||new TextEncoder().encode(password).length>72){setError('新密码需为 8–20 个字符，且不超过 72 字节。');return;}
         lock.current=true;setBusy(true);setError('');setNotice('');try{await client.updatePassword(mode,mode==='change'?{password,old_password:old}:{password,proof:validProof?.proof});clearProof();if(active.current){setNotice('密码已更新，当前登录已重新核对。');await reload();}}catch(e){clearProof();if(active.current){setError(admissionError(e));if(!(e instanceof ApiError)||e.uncertain)setUncertain(true);}}finally{setPassword('');setConfirm('');setOld('');setShow(false);setShowOld(false);setShowConfirm(false);if(active.current){lock.current=false;setBusy(false);}}}
-    if(opaqueBlocked)return <IdentityChamber page="security">
-        <header className="page-heading"><div><p className="eyebrow">ACCOUNT &amp; SECURITY</p><h1>账户与安全</h1><p>当前仅显示已核对的不透明会话身份。</p></div><button disabled={loading||session.loggingOut} onClick={()=>void reload()}>重新核对会话</button></header>
-        {error&&<Alert>{error}</Alert>}
-        <Alert>密码与 Discord 连接设置暂时不可用，登录不受影响。</Alert>
-        <section className="panel account-identity account-verified"><h2>已核对身份</h2><IdentityEmblem/>
-            <dl className="account-details"><div><dt>登录名</dt><dd>{session.user?.username||'会话待核对'}</dd></div><div><dt>用户 ID</dt><dd>{session.user?.id||'—'}</dd></div></dl>
-            <p className="hint">密码与 Discord 连接设置开放后会显示在这里。</p>
-        </section>
-        <div className="account-tools"><AccountExplanation/><button className="account-signout" disabled={session.loggingOut} onClick={()=>{clearProof();void client.logout().catch(()=>{});}}>{session.loggingOut?'正在退出…':'退出当前登录'}</button></div>
-    </IdentityChamber>;
     return <IdentityChamber page="security">
         <header className="page-heading"><div><p className="eyebrow">ACCOUNT &amp; SECURITY</p><h1>账户与安全</h1><p>核对登录身份、连接状态与密码。</p></div><button disabled={loading||busy} onClick={()=>void reload()}>刷新账户状态</button></header>
         {error&&<Alert>{error}</Alert>}{notice&&<p className="profile-notice" role="status">{notice}</p>}{loading&&!account&&<Loading/>}

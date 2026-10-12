@@ -46,9 +46,8 @@ export function validateDiscordAuthorization(value: unknown, origin: string): st
 }
 
 export async function readNativeAccount(client: ApiClient): Promise<NativeAccount> {
-    const opaque = client.getSessionMode() === 'opaque';
-    const data = await client.request<NativeAccount & { discord_linked?: boolean }>(opaque ? '/api/v1/account' : '/api/momiao/account');
-    const connected = opaque ? data?.discord_linked : data?.discord_connected;
+    const data = await client.request<NativeAccount & { discord_linked?: boolean }>('/api/v1/account');
+    const connected = data?.discord_linked;
     if (!data || !Number.isSafeInteger(data.id) || data.id !== client.getSnapshot().user?.id || typeof data.username !== 'string' || typeof data.has_password !== 'boolean' || typeof connected !== 'boolean' || data.two_fa_enabled !== undefined && typeof data.two_fa_enabled !== 'boolean') throw new ApiError('账户状态暂时无法核对，请重新加载。');
     return { id: data.id, username: data.username, has_password: data.has_password, discord_connected: connected, two_fa_enabled: data.two_fa_enabled };
 }

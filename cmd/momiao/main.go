@@ -41,9 +41,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 	if cfg.WebDir != "" {
 		cfg.readiness["web"] = webReadiness(cfg.WebDir)
 	}
-	if cfg.NativeAuthWebDir != "" {
-		cfg.readiness["native_auth_web"] = webReadiness(cfg.NativeAuthWebDir)
-	}
 	if cfg.NewAPISocket != "" {
 		transport := newNativeTransport(cfg.NewAPISocket)
 		defer transport.CloseIdleConnections()

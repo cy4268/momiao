@@ -2,14 +2,10 @@ package identity
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -124,27 +120,11 @@ func (h *HTTP) Request(r *http.Request, optional bool) (*http.Request, error) {
 }
 
 func bootstrap(value Session) map[string]any {
-	data := map[string]any{
-		"authentication_state": "ANONYMOUS", "csrf_token": value.CSRFToken,
-		"password":    map[string]any{"state": "AVAILABLE", "turnstile_required": false},
-		"unavailable": []string{},
+	state := "ANONYMOUS"
+	if value.UserID != 0 {
+		state = "AUTHENTICATED"
 	}
-	if value.UserID == 0 {
-		data["anonymous_expires_at"] = value.CreatedAt.Add(anonymousLifetime)
-		return data
-	}
-	// Retain the browser's display DTO, not the former authority/version model.
-	chain := sha256.Sum256([]byte(value.Token))
-	data["authentication_state"] = "AUTHENTICATED"
-	data["identity"] = map[string]string{"newapi_user_id": strconv.FormatInt(value.UserID, 10)}
-	data["session"] = map[string]any{
-		"auth_chain_id":         base64.RawURLEncoding.EncodeToString(chain[:]),
-		"auth_chain_started_at": value.CreatedAt,
-		"absolute_expires_at":   value.CreatedAt.Add(sessionLifetime),
-		"idle_expires_at":       time.Now().Add(min(time.Until(value.CreatedAt.Add(sessionLifetime)), sessionIdle)),
-		"fresh_auth_at":         nil, "fresh_auth_method": "",
-	}
-	return data
+	return map[string]any{"authentication_state": state, "csrf_token": value.CSRFToken}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -224,8 +204,12 @@ func (h *HTTP) serve(w http.ResponseWriter, r *http.Request) error {
 		if err := h.Sessions.Revoke(r.Context(), value); err != nil {
 			return err
 		}
-		http.SetCookie(w, &http.Cookie{Name: SessionCookieName, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
-		writeSuccess(w, map[string]string{"authentication_state": "ANONYMOUS"})
+		anonymous, err := h.Sessions.CreateAnonymous(r.Context())
+		if err != nil {
+			return err
+		}
+		WriteSessionCookie(w, anonymous)
+		writeSuccess(w, bootstrap(anonymous))
 	default:
 		return Fault{404, "AUTH_ROUTE_NOT_FOUND"}
 	}

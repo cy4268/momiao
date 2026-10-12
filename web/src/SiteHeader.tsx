@@ -65,7 +65,7 @@ function AccountMenu({ client, master: shared }: { client: ApiClient; master?: M
     // Shell pages share their profile resource so a saved rename shows here at once; public pages read their own.
     const own = useResource(() => shared ? Promise.resolve(undefined) : readProfile(client, String(user.id)), [client, user.id, !!shared]);
     const master = shared ?? own;
-    const opsEntry = useResource(async () => { if (!menu || client.getSessionMode() !== 'opaque') return false; try { return (await readOpsBootstrap(client)).principal.permissions.length > 0; } catch { return false; } }, [client, user.id, menu]);
+    const opsEntry = useResource(async () => { if (!menu) return false; try { return (await readOpsBootstrap(client)).principal.permissions.length > 0; } catch { return false; } }, [client, user.id, menu]);
     const names = masterNames.get(client) ?? new Map<number, string>();
     masterNames.set(client, names);
     const storageKey = 'momiao.header-name.' + user.id;

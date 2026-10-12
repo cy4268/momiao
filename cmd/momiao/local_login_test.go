@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/cy4268/momiao/internal/identity"
+	"github.com/cy4268/momiao/internal/platform"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -59,7 +60,12 @@ func TestLocalPasswordHTTP(t *testing.T) {
 		t.Fatal("existing dev owner credentials not found")
 	}
 	auth := &identity.HTTP{Store: &identity.Store{Pool: pool}, Sessions: identity.Sessions{Redis: client}, Origin: "https://dev.momiao.win"}
-	handler := newPortalHandler(config{sessionAuth: auth}, nil)
+	wallets, err := platform.Open(t.Context(), strings.TrimSpace(string(dsn)))
+	if err != nil {
+		t.Fatal("open wallet reader")
+	}
+	t.Cleanup(wallets.Close)
+	handler := newPortalHandler(config{Session: sessionConfig{Enabled: true}, sessionAuth: auth, localIdentity: auth, wallet: wallets}, nil)
 	call := func(method, path string, body any, cookie *http.Cookie, csrf string) *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(body)
 		r := httptest.NewRequest(method, "https://dev.momiao.win"+path, bytes.NewReader(raw))
@@ -121,6 +127,36 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	}
 	if prepared.Header.Get("Authorization") != "" || prepared.Header.Get("New-Api-User") != "" {
 		t.Fatal("native credential projection remains")
+	}
+	self := call("GET", "/api/user/self", nil, cookie, "")
+	var local struct {
+		Data struct {
+			ID            int64  `json:"id"`
+			Quota         int64  `json:"quota"`
+			ReserveAmount string `json:"reserve_amount"`
+		} `json:"data"`
+	}
+	if self.Code != 200 || json.Unmarshal(self.Body.Bytes(), &local) != nil || local.Data.ID != user.ID {
+		t.Fatal("local self", self.Code)
+	}
+	balances, err := wallets.ReadWallets(t.Context(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reserve int64
+	for _, balance := range balances {
+		if balance.Asset == platform.ReserveAPICredit {
+			reserve = balance.BalanceUnits
+		}
+	}
+	if local.Data.Quota != reserve || local.Data.ReserveAmount != platform.FormatAmount(reserve) {
+		t.Fatal("self does not expose Reserve")
+	}
+	if strings.Contains(self.Body.String(), "password") {
+		t.Fatal("self exposes credentials")
+	}
+	if denied := call("GET", "/api/user/self", nil, anonymous, ""); denied.Code != 401 {
+		t.Fatal("anonymous self", denied.Code)
 	}
 	logout := call("POST", "/api/v1/session/logout", nil, cookie, csrf)
 	if logout.Code != 200 {

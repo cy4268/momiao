@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -33,9 +32,6 @@ var browserRoutes = map[string]bool{
 	"/account":          true,
 	"/account/security": true,
 	"/welcome":          true,
-	"/sign-in":          true,
-	"/sign-up":          true,
-	"/otp":              true,
 	"/dashboard":        true,
 	"/me":               true,
 	"/rewards":          true,
@@ -115,6 +111,10 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				cfg.history.ServeHTTP(w, r)
 				return
 			}
+			if r.URL.Path == "/api/user/self" {
+				domainHandler(cfg, newLocalSelfHandler(cfg.wallet)).ServeHTTP(w, r)
+				return
+			}
 			if sessionAPIRoute(r.URL.Path) {
 				serveSessionRoute(cfg.sessionAuth, w, r)
 				return
@@ -144,9 +144,6 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	}
 	if root, err := filepath.EvalSymlinks(cfg.WebDir); err == nil {
 		cfg.WebDir = root
-	}
-	if root, err := filepath.EvalSymlinks(cfg.NativeAuthWebDir); cfg.NativeAuthWebDir != "" && err == nil {
-		cfg.NativeAuthWebDir = root
 	}
 	if transport == nil {
 		transport = newNativeTransport(cfg.NewAPISocket)
@@ -187,8 +184,8 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 			domainHandler(cfg, newNativeTokenListProjectionHandler(transport)).ServeHTTP(w, r)
 		case cfg.Session.Enabled && (r.URL.Path == nativeWorkspaceGroupsPath || r.URL.Path == nativeWorkspaceModelsPath):
 			domainHandler(cfg, newNativeWorkspaceProjectionHandler(transport)).ServeHTTP(w, r)
-		case cfg.Session.Enabled && r.URL.Path == "/api/user/self":
-			domainHandler(cfg, newNativeSelfProjectionHandler(transport)).ServeHTTP(w, r)
+		case r.URL.Path == "/api/user/self":
+			domainHandler(cfg, newLocalSelfHandler(cfg.wallet)).ServeHTTP(w, r)
 		case pokerAPIRoute(r.URL.Path):
 			servePokerRoute(domainHandler(cfg, cfg.poker), w, r)
 		case r.URL.Path == "/api/v1/games" || strings.HasPrefix(r.URL.Path, "/api/v1/games/") || r.URL.Path == "/api/v1/game-rounds" || strings.HasPrefix(r.URL.Path, "/api/v1/game-rounds/"):
@@ -217,10 +214,6 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 			domainHandler(cfg, newWalletHandler(cfg.PublicOrigin, cfg.wallet, transport)).ServeHTTP(w, r)
 		case r.URL.Path == "/healthz":
 			healthHandler().ServeHTTP(w, r)
-		case nativeAuthBrowserRoute(cfg, r):
-			serveNativeAuthIndex(cfg.NativeAuthWebDir, w, r)
-		case cfg.NativeAuthWebDir != "" && strings.HasPrefix(r.URL.Path, "/native-auth/"):
-			serveNativeAuthAsset(cfg.NativeAuthWebDir, w, r)
 		case r.URL.Path == "/api/access":
 			serveWebFile(cfg.WebDir, cfg.AssetCDNOrigin, w, r)
 		case r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/"):
@@ -246,88 +239,6 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 			serveWebFile(cfg.WebDir, cfg.AssetCDNOrigin, w, r)
 		}
 	})
-}
-
-func nativeAuthBrowserRoute(cfg config, r *http.Request) bool {
-	if cfg.NativeAuthWebDir == "" || r == nil {
-		return false
-	}
-	switch r.URL.Path {
-	case "/sign-in", "/sign-up", "/otp":
-		return true
-	case "/oauth/discord":
-		return cfg.sessionBridge != nil && cfg.sessionBridge.OwnsNativeUICallback(r)
-	}
-	return false
-}
-
-func serveNativeAuthIndex(root string, w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	file, err := os.Open(filepath.Join(root, "index.html"))
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 1<<20 {
-		http.NotFound(w, r)
-		return
-	}
-	raw, err := io.ReadAll(io.LimitReader(file, 1<<20+1))
-	if err != nil || len(raw) > 1<<20 || bytes.Count(raw, []byte("</head>")) != 1 {
-		http.NotFound(w, r)
-		return
-	}
-	marker := []byte("<meta name=\"chaldea-auth-ui\" content=\"opaque-v1\">\n</head>")
-	raw = bytes.Replace(raw, []byte("</head>"), marker, 1)
-	raw = bytes.Replace(raw, []byte("href=\"/logo.png\""), []byte("href=\"/native-auth/logo.png\""), 1)
-	setIndexHeaders(w, "")
-	http.ServeContent(w, r, "index.html", info.ModTime(), bytes.NewReader(raw))
-}
-
-func serveNativeAuthAsset(root string, w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	relative := strings.TrimPrefix(r.URL.Path, "/native-auth/")
-	if relative != "logo.png" && relative != "favicon.ico" && !strings.HasPrefix(relative, "static/") || !safeAssetPath("/"+relative) {
-		http.NotFound(w, r)
-		return
-	}
-	name := filepath.Join(root, filepath.FromSlash(relative))
-	resolved, err := filepath.EvalSymlinks(name)
-	if err != nil || !pathWithin(root, resolved) {
-		http.NotFound(w, r)
-		return
-	}
-	file, err := os.Open(resolved)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if contentType := mime.TypeByExtension(filepath.Ext(resolved)); contentType != "" {
-		w.Header().Set("Content-Type", contentType)
-	}
-	if fingerprinted(filepath.Base(resolved)) {
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	} else {
-		w.Header().Set("Cache-Control", "public, max-age=3600")
-	}
-	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
 }
 
 func serveSessionRoute(handler http.Handler, w http.ResponseWriter, r *http.Request) {

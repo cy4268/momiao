@@ -81,7 +81,6 @@ type config struct {
 	ListenSocket              string
 	AssetCDNOrigin            string
 	WebDir                    string
-	NativeAuthWebDir          string
 	NewAPISocket              string
 	ShutdownTimeout           time.Duration
 }
@@ -231,38 +230,13 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 	if err := loadSessionConfig(&cfg, lookup); err != nil {
 		return config{}, err
 	}
-	if value, ok := lookup("MOMIAO_NATIVE_AUTH_WEB_DIR"); ok {
-		if value == "" || !filepath.IsAbs(value) {
-			return config{}, errors.New("MOMIAO_NATIVE_AUTH_WEB_DIR must be an absolute existing build directory")
-		}
-		resolved, err := filepath.EvalSymlinks(value)
-		if err != nil {
-			return config{}, errors.New("MOMIAO_NATIVE_AUTH_WEB_DIR must be an absolute existing build directory")
-		}
-		info, err := os.Stat(resolved)
-		if err != nil || !info.IsDir() {
-			return config{}, errors.New("MOMIAO_NATIVE_AUTH_WEB_DIR must be an absolute existing build directory")
-		}
-		index, err := os.Stat(filepath.Join(resolved, "index.html"))
-		if err != nil || !index.Mode().IsRegular() {
-			return config{}, errors.New("MOMIAO_NATIVE_AUTH_WEB_DIR must contain a regular index.html")
-		}
-		sameBuild := resolved == cfg.WebDir
-		if portalInfo, statErr := os.Stat(cfg.WebDir); statErr == nil && os.SameFile(info, portalInfo) {
-			sameBuild = true
-		}
-		if !cfg.Session.Enabled || cfg.WebDir == "" || sameBuild {
-			return config{}, errors.New("MOMIAO_NATIVE_AUTH_WEB_DIR requires opaque sessions and a distinct portal build")
-		}
-		cfg.NativeAuthWebDir = resolved
-	}
 	if cfg.PokerRemoteSocket != "" && !cfg.Session.Enabled { return config{}, errors.New("remote Poker requires platform opaque sessions") }
 	history, err := loadHistoryConfig(lookup)
 	if err != nil || history.Enabled && (!cfg.Session.Enabled || cfg.WalletDSNFile == "" || cfg.GameFairnessKeyringFile == "") {
 		return config{}, errHistoryConfig
 	}
 	cfg.History = history
-	if cfg.ProcessRole == "poker" && (cfg.Session.Enabled || cfg.History.Enabled || cfg.WebDir != "" || cfg.NativeAuthWebDir != "" || cfg.AssetCDNOrigin != "" || cfg.GameFairnessKeyringFile != "" || cfg.AdmissionEnabled || cfg.NativeQuotaKeyFile != "" || cfg.NativeQuotaDSNFile != "" || cfg.CatalogReaderKeyFile != "" || !cfg.Poker.Enabled) {
+	if cfg.ProcessRole == "poker" && (cfg.Session.Enabled || cfg.History.Enabled || cfg.WebDir != "" || cfg.AssetCDNOrigin != "" || cfg.GameFairnessKeyringFile != "" || cfg.AdmissionEnabled || cfg.NativeQuotaKeyFile != "" || cfg.NativeQuotaDSNFile != "" || cfg.CatalogReaderKeyFile != "" || !cfg.Poker.Enabled) {
 		return config{}, errors.New("Poker process must own only its Poker runtime")
 	}
 	if value, ok := lookup("MOMIAO_OPS_ENVIRONMENT"); ok {
