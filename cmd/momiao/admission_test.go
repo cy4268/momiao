@@ -58,7 +58,7 @@ func TestAdmissionHTTPAuthorityAndExplicitEnsure(t *testing.T) {
 func TestAdmissionPrivatePathNeverProxied(t *testing.T) {
 	cfg := config{WebDir: t.TempDir()}
 	called := false
-	h := newPortalHandler(cfg, admissionTransport(func(*http.Request) (*http.Response, error) { called = true; return readerResponse(200, `{}`), nil }))
+	h := newPortalHandler(cfg, roundTripFunc(func(*http.Request) (*http.Response, error) { called = true; return httptest.NewRecorder().Result(), nil }))
 	for _, path := range []string{"/internal/momiao/registrations", "/internal", "/internal/else", "/api/../internal/momiao/registrations", "/api/%2e%2e/internal/momiao/registrations", "/%69nternal/momiao/registrations"} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("GET", path, nil)

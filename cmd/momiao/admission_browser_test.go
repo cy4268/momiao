@@ -350,7 +350,7 @@ func TestAdmissionBrowserHarness(t *testing.T) {
 	native := httptest.NewServer(http.HandlerFunc(fixture.native))
 	defer native.Close()
 	nativeURL, _ := url.Parse(native.URL)
-	transport := admissionTransport(func(r *http.Request) (*http.Response, error) {
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		copy := r.Clone(r.Context())
 		u := *r.URL
 		u.Scheme = nativeURL.Scheme
@@ -444,7 +444,7 @@ func TestAdmissionBrowserHarness(t *testing.T) {
 	workerDone := make(chan struct{})
 	go func() {
 		defer close(workerDone)
-		runAdmissionWorker(ctx, browserRecoveryStore{store, fixture}, transport, strings.Repeat("k", 32))
+		runAdmissionWorker(ctx, browserRecoveryStore{store, fixture})
 	}()
 	defer func() { cancel(); <-workerDone }()
 	t.Logf("BROWSER_FIXTURE_PORTAL=%s", fixture.origin)

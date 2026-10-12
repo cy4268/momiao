@@ -178,6 +178,29 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	if prepared.Header.Get("Authorization") != "" || prepared.Header.Get("New-Api-User") != "" {
 		t.Fatal("native credential projection remains")
 	}
+	prepared.URL, _ = url.Parse("https://dev.momiao.win/platform/v1/access-gate?route=/account")
+	gate := httptest.NewRecorder()
+	newAccessGateHandler(auth.Origin, wallets, &accessDeclaration{MigrationApplicability: "NO_MIGRATION_APPLICABLE", Resources: map[string]string{"ACCOUNT": "AVAILABLE"}}, nil, false).ServeHTTP(gate, prepared)
+	if gate.Code != 200 || !(strings.Contains(gate.Body.String(), `"stage":"READY"`) || strings.Contains(gate.Body.String(), `"stage":"MASTER_REQUIRED"`)) {
+		t.Fatal("local access gate", gate.Code)
+	}
+	cursor, err := wallets.RegistrationCursor(t.Context())
+	if err != nil {
+		t.Fatal("local registration cursor")
+	}
+	page, err := wallets.ReadRegistrationPage(t.Context(), max(cursor-1, 0), 1)
+	if err != nil || platform.ValidateRegistrationPage(page, max(cursor-1, 0), 1) != nil || page.NextCursor != cursor {
+		t.Fatal("local registration receipt read")
+	}
+	registrationWorkerCycle(t.Context(), wallets)
+	current, err := wallets.RegistrationCursor(t.Context())
+	if err != nil || current != cursor {
+		t.Fatal("local worker changed the existing receipt cursor")
+	}
+	admission, err := wallets.ReadAdmission(t.Context(), user.ID)
+	if err != nil || !admission.SourceAvailable {
+		t.Fatal("local registration source unavailable")
+	}
 	self := call("GET", "/api/user/self", nil, cookie, "")
 	var local struct {
 		Data struct {

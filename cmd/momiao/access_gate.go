@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cy4268/momiao/internal/nativeself"
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -174,29 +174,25 @@ func newAccessGateHandler(origin string, store accessGateStore, declaration *acc
 			walletError(w, 400, "INVALID_REQUEST")
 			return
 		}
-		if !nativeself.SessionCredential(r) {
+		account, authenticated := identity.UserFromContext(r.Context())
+		if !authenticated {
 			walletError(w, 401, "AUTH_UNAUTHORIZED")
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
-		account, status := readNativeSelf(r, transport)
-		if status != 0 {
-			walletError(w, status, "AUTH_UNAVAILABLE")
-			return
-		}
 		view := accessGateView{UserID: account.ID, Route: route}
 		send := func(stage string) { view.Stage = stage; walletSuccess(w, view) }
 		if account.Username == "" {
 			walletError(w, 503, "ACCOUNT_STATUS_UNVERIFIED")
 			return
 		}
-		if *account.Status != 1 && *account.Status != 2 {
+		if account.Status != 1 && account.Status != 2 {
 			walletError(w, 503, "ACCOUNT_STATUS_UNVERIFIED")
 			return
 		}
-		if *account.Status != 1 {
+		if account.Status != 1 {
 			if gate {
 				send("ACCOUNT_RESTRICTED")
 			} else {
@@ -302,11 +298,7 @@ func newAccessGateHandler(origin string, store accessGateStore, declaration *acc
 			}
 		}
 		if route == "/admin/channels" {
-			if account.Role == nil {
-				send("ROLE_UNVERIFIED")
-				return
-			}
-			if *account.Role < 10 {
+			if account.Role < 10 {
 				send("ROLE_DENIED")
 				return
 			}

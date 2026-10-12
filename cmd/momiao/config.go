@@ -65,7 +65,6 @@ type config struct {
 	announcements             announcementStore
 	AdmissionEnabled          bool
 	admission                 admissionStore
-	RegistrationReaderKeyFile string
 	NativeQuotaDSNFile        string
 	NativeQuotaKeyFile        string
 	RefillSocket             string

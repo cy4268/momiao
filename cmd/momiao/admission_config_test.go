@@ -3,7 +3,6 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -20,22 +19,16 @@ func TestAdmissionConfigDefaultsAndBounds(t *testing.T) {
 			t.Fatal("invalid enable value accepted")
 		}
 	}
-	cfg = config{WebDir: "web", NewAPISocket: "native", PublicOrigin: "https://portal.example", WalletDSNFile: "wallet"}
-	keyPath := filepath.Join(t.TempDir(), "reader.key")
+	cfg = config{WebDir: "web", PublicOrigin: "https://portal.example", WalletDSNFile: "wallet"}
 	err := admissionConfig(&cfg, func(k string) (string, bool) {
 		switch k {
 		case "MOMIAO_ADMISSION_ENABLED":
 			return "true", true
-		case "MOMIAO_REGISTRATION_READER_KEY_FILE":
-			return keyPath, true
 		}
 		return "", false
 	})
-	if err != nil || !cfg.AdmissionEnabled || cfg.RegistrationReaderKeyFile != keyPath {
-		t.Fatal("valid file reference rejected")
-	}
-	if _, err := readRegistrationReaderKey(filepath.Join(t.TempDir(), "missing")); err == nil {
-		t.Fatal("missing reader file accepted")
+	if err != nil || !cfg.AdmissionEnabled {
+		t.Fatal("local admission still requires native socket or reader key")
 	}
 }
 func TestAdmissionPublicConfigNoAuthority(t *testing.T) {

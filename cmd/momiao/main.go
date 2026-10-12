@@ -254,16 +254,10 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			}
 		}
 		if cfg.AdmissionEnabled {
-			key, err := readRegistrationReaderKey(cfg.RegistrationReaderKeyFile)
-			if err != nil {
-				return errors.New("admission startup failed")
-			}
 			cfg.admission = store
-			transport := newNativeTransport(cfg.NewAPISocket)
-			defer transport.CloseIdleConnections()
 			workerCtx, cancel := context.WithCancel(ctx)
 			done := make(chan struct{})
-			go func() { defer close(done); runAdmissionWorker(workerCtx, store, transport, key) }()
+			go func() { defer close(done); runAdmissionWorker(workerCtx, store) }()
 			defer func() { cancel(); <-done }()
 		}
 

@@ -70,7 +70,7 @@ func loadPokerConfig(cfg *config, lookup func(string) (string, bool)) error {
 		{"MOMIAO_POKER_REDIS_CONFIG_FILE", &p.RedisConfigFile},
 	}
 	seen := map[string]bool{}
-	for _, value := range []string{cfg.WalletDSNFile, cfg.GameFairnessKeyringFile, cfg.RegistrationReaderKeyFile, cfg.CatalogReaderKeyFile, cfg.PokerServiceKeyringFile, cfg.PokerPeerKeyringFile} {
+	for _, value := range []string{cfg.WalletDSNFile, cfg.GameFairnessKeyringFile, cfg.CatalogReaderKeyFile, cfg.PokerServiceKeyringFile, cfg.PokerPeerKeyringFile} {
 		if value != "" {
 			seen[pokerPathKey(value)] = true
 		}
