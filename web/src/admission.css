@@ -7,17 +7,17 @@
 .auth-panorama{position:absolute;inset:auto 0 0;height:62%;display:flex;align-items:center;justify-content:center;z-index:-1;opacity:.65;mask-image:linear-gradient(to bottom,transparent,#000 26%)}
 .auth-panorama picture,.auth-panorama img{width:100%;display:block;height:100%;object-fit:cover;object-position:center bottom}
 .auth-character{position:absolute;z-index:1;right:12px;bottom:62px;width:52%;height:calc(100% - 132px);max-height:720px;object-fit:contain;object-position:center bottom;pointer-events:none}
-.auth-caption{position:relative;z-index:2;margin-top:auto;display:flex;justify-content:space-between;gap:12px;color:var(--muted);font-size:9px;letter-spacing:.15em}
+.auth-caption{position:relative;z-index:2;margin-top:auto;display:flex;justify-content:space-between;gap:12px;color:var(--muted);font-size:12px;letter-spacing:.15em}
 .auth-entry{min-width:0;padding:70px clamp(28px,4vw,76px) 28px;background:#fbfaf7;display:flex;flex-direction:column;justify-content:center}
 .auth-card{width:100%;max-width:400px;margin:auto}
 .auth-card h2{font:400 32px/1.5 var(--display);margin:14px 0}
 .auth-card .subtitle{font-size:14px;line-height:1.9;color:var(--muted);margin-bottom:28px}
 .auth-card form>input{margin:8px 0 20px}.auth-card label{font-size:13px}.auth-card .alert{margin-block:18px}
-.auth-discord>button,.auth-submit{width:100%;justify-content:space-between;min-height:50px}.auth-discord .hint{margin-top:14px}
-.auth-divider{display:flex;align-items:center;gap:14px;margin:26px 0;font-size:11px;color:var(--muted)}.auth-divider:before,.auth-divider:after{content:'';height:1px;flex:1;background:var(--line)}
+.auth-submit { width:100%; justify-content:space-between; min-height:50px } .auth-discord>button { width:100%; justify-content:space-between }.auth-discord .hint{margin-top:14px}
+.auth-divider{display:flex;align-items:center;gap:14px;margin:26px 0;font-size:12px;color:var(--muted)}.auth-divider:before,.auth-divider:after{content:'';height:1px;flex:1;background:var(--line)}
 .password-field{margin:0 0 24px}.password-field>div{display:flex;position:relative;margin-top:8px}.password-field input{width:100%;padding-right:68px}.password-visibility{position:absolute;right:2px;top:2px;bottom:2px;min-height:40px;border:0;padding-inline:14px;font-size:12px}.password-visibility:hover{background:transparent}
 .auth-switch{border-top:1px solid var(--line);padding-top:24px;margin-top:28px;font-size:13px}.auth-switch a{display:inline-flex;min-height:44px;align-items:center}
-.auth-note{font-size:11px;color:var(--muted);line-height:1.8;margin-top:18px}.auth-entry>footer{font-size:10px;color:var(--muted);margin:44px auto 0}.auth-entry>footer span{margin-inline:10px}
+.auth-note{font-size:12px;color:var(--muted);line-height:1.8;margin-top:18px}.auth-entry>footer{font-size:12px;color:var(--muted);margin:44px auto 0}.auth-entry>footer span{margin-inline:10px}
 .auth-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}
 .account-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px}.account-grid .panel{padding:28px}.account-grid h2{font:24px/1.5 var(--display);margin:8px 0 20px}.account-details{margin:0}.account-details>div{padding:14px 0;border-bottom:1px solid var(--line)}.account-details dt{font-size:12px;color:var(--muted);margin-bottom:6px}.account-details dd{margin:0;font-size:14px;overflow-wrap:anywhere}.account-proof{padding:18px;border-left:3px solid var(--azure);background:var(--ivory);font-size:13px;margin-bottom:24px}.account-grant{margin-top:24px}.account-grant h2{font:24px var(--display)}
 .welcome-page{width:min(1000px,calc(100% - 40px));margin:40px auto}.welcome-steps{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:32px 0}.welcome-steps strong{color:var(--azure)}.welcome-page>.panel{padding:28px}.welcome-page .profile-scope{display:none}

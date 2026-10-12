@@ -25,12 +25,16 @@ it('shares the Alter chamber while preserving live dashboard data, retry and per
     const src = background.getAttribute('src');
     expect(within(screen.getByRole('region', { name: '账户使用概览' })).getByText('7,654,321')).toBeVisible();
     expect(screen.getByText('account-key')).toBeVisible();
+    // Internal identity (login name, short account number, "native" wording) stays off the dashboard.
+    expect(main).not.toHaveTextContent('fixture-account');
+    expect(main).not.toHaveTextContent(/原生|短 ID|CA-/);
     fireEvent.click(within(main).getByRole('link', { name: /^个人中心/ }));
     expect(await screen.findByRole('heading', { name: '个人中心', level: 1 })).toBeVisible();
     const personalMain = screen.getByRole('main');
     expect(personalMain.querySelector('.chamber-background')).toHaveAttribute('src', src);
-    const account = screen.getByRole('region', { name: '原生登录账户' });
-    expect(account).toHaveTextContent('Native Fixture · fixture-account');
+    expect(personalMain).not.toHaveTextContent('fixture-account');
+    expect(personalMain).not.toHaveTextContent(/原生|短 ID|CA-/);
+    const account = screen.getByRole('region', { name: '账户' });
     expect(within(account).getByRole('link', { name: '账户与安全' })).toHaveAttribute('href', '/account');
     expect(within(account).getByRole('button', { name: '退出登录' })).toBeEnabled();
     expect(within(personalMain).getByRole('link', { name: '渠道管理' })).toHaveAttribute('href', '/admin/channels');
@@ -48,7 +52,7 @@ it('shows verified Master identity separately from the native account and links 
     render(<MemoryRouter initialEntries={['/me']}><App client={client} /></MemoryRouter>);
     const hub = await screen.findByRole('region', { name: 'Master 身份' });
     expect(await within(hub).findByText(profile.display_name)).toBeVisible();
-    expect(screen.getByText('Native Fixture · fixture-account')).toBeVisible();
+    expect(screen.queryByText(/fixture-account/)).not.toBeInTheDocument();
     const main = screen.getByRole('main');
     for (const path of ['/master-profile', '/rewards', '/wallet', '/wallet/activate', '/keys', '/logs']) {
         expect(main.querySelector('a[href="' + path + '"]')).not.toBeNull();

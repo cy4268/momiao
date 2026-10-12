@@ -110,6 +110,30 @@ it('Blackjack resumes an active hand during maintenance and locks an uncertain a
     expect(request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(1);
 
 });
+it('keeps the dice receipt mounted and concealed while the next roll settles',async()=>{
+    const previous={...result,id:commitment,common_result:'LOSS',net_change_units:'-5000000',total_payout_units:'0',dice:{...result.dice!,dice:[6,6,5],total:17,side:'BIG',reward:{cost_multiplier:'1',payout_multiplier:'0',outcome:'LOSS'}}} as GameRound;
+    vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,latest_round:previous});
+    let resolve!:(value:GameRound)=>void;
+    vi.spyOn(gameAPI,'createGame').mockReturnValue(new Promise(r=>resolve=r));
+    show();
+    const receipt=await screen.findByLabelText('本局结果');
+    expect(receipt).toHaveTextContent('净输');
+    fireEvent.click(screen.getByRole('radio',{name:/小/}));
+    fireEvent.click(screen.getByRole('button',{name:'掷骰'}));
+    // The same node stays in place: no unmount/remount flash, no layout jump.
+    expect(screen.getByLabelText('本局结果揭晓中')).toBe(receipt);
+    expect(receipt).toHaveAttribute('aria-busy','true');
+    vi.mocked(gameAPI.readGameBootstrap).mockResolvedValue({...bootstrap,latest_round:result,available_units:result.balance_after_units});
+    resolve(result);
+    await waitFor(()=>expect(screen.getByRole('button',{name:'落定中…'})).toBeDisabled());
+    // The new result must not be revealed before the dice land, not even by the border colour.
+    expect(screen.getByLabelText('本局结果揭晓中')).toBe(receipt);
+    expect(receipt).not.toHaveClass('result-WIN');
+    expect(screen.queryByLabelText('本局结果')).not.toBeInTheDocument();
+    await waitFor(()=>expect(screen.getByLabelText('本局结果')).toHaveTextContent('净赢'),{timeout:2500});
+    expect(screen.getByLabelText('本局结果')).toBe(receipt);
+    expect(receipt).not.toHaveAttribute('aria-busy');
+});
 it('publishes commitment before manual wager, locks double click, then displays durable result',async()=>{
     let resolve!:(value:GameRound)=>void;
     const create=vi.spyOn(gameAPI,'createGame').mockReturnValue(new Promise(r=>resolve=r));
@@ -349,4 +373,18 @@ it('restores last durable wager on first entry without overwriting a live edit',
     fireEvent.click(screen.getByRole('button',{name:'刷新恢复'}));
     await waitFor(()=>expect(gameAPI.readGameBootstrap).toHaveBeenCalledTimes(2));
     expect(screen.getByLabelText('基础下注（筹码）')).toHaveValue('50');
+});
+it('hides the economy cap row when nothing was capped', () => {
+    const settlement = { policy_version: 'economy-cap-v1', policy_hash: hash, gross_payout_units: '10000000', credited_payout_units: '10000000', withheld_units: '0', actual_net_units: '5000000' };
+    const view = render(<MemoryRouter><RoundReceipt round={{ ...result, economic_policy_version: 'economy-cap-v1', economy_settlement: settlement }} compact /></MemoryRouter>);
+    expect(screen.queryByRole('group', { name: '经济结算回执' })).not.toBeInTheDocument();
+    view.unmount();
+    render(<MemoryRouter><RoundReceipt round={{ ...result, economic_policy_version: 'economy-cap-v1', economy_settlement: { ...settlement, credited_payout_units: '7500000', withheld_units: '2500000', actual_net_units: '2500000' } }} compact /></MemoryRouter>);
+    expect(screen.getByRole('group', { name: '经济结算回执' })).toHaveTextContent('封顶未入账');
+});
+it('shows balances as whole chips without overstating them', () => {
+    expect(gameAPI.wholeChips('3135185395')).toBe('6,270');
+    expect(gameAPI.wholeChips('499999')).toBe('0');
+    expect(gameAPI.wholeDecimal('6270.37079')).toBe('6,270');
+    expect(gameAPI.wholeDecimal('0.99999')).toBe('0');
 });

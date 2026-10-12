@@ -14,13 +14,13 @@ function setup(action:(path:string,method?:string,body?:unknown)=>unknown){
 it('preserves an uncertain original request across remount and never auto-posts',async()=>{
  let lost=true;const action=(path:string)=>{if(path.includes('by-key'))return null;if(lost){lost=false;throw new ApiError('lost',0,'',true)}return receipt};
  const a=setup(action);await screen.findByText('6000');
- fireEvent.change(screen.getByLabelText('转入数量'),{target:{value:'4294.967294'}});expect(screen.getByRole('button',{name:'确认转入原生额度'})).toBeEnabled();
- fireEvent.change(screen.getByLabelText('转入数量'),{target:{value:'5501'}});expect(screen.getByRole('button',{name:'确认转入原生额度'})).toBeDisabled();
+ fireEvent.change(screen.getByLabelText('转入数量'),{target:{value:'4294.967294'}});expect(screen.getByRole('button',{name:'确认转入 API 额度'})).toBeEnabled();
+ fireEvent.change(screen.getByLabelText('转入数量'),{target:{value:'5501'}});expect(screen.getByRole('button',{name:'确认转入 API 额度'})).toBeDisabled();
  expect(a.request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(0);
- fireEvent.change(screen.getByLabelText('转入数量'),{target:{value:'1'}});fireEvent.click(screen.getByRole('button',{name:'确认转入原生额度'}));
+ fireEvent.change(screen.getByLabelText('转入数量'),{target:{value:'1'}});fireEvent.click(screen.getByRole('button',{name:'确认转入 API 额度'}));
  await screen.findByRole('button',{name:'核对划转结果'});const p=JSON.parse(sessionStorage.getItem('momiao.quota.pending.1')!);a.unmount();
- const b=setup(action);await screen.findByRole('button',{name:'核对划转结果'});expect(b.request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(0);expect(screen.getByRole('button',{name:'确认转入原生额度'})).toBeDisabled();
+ const b=setup(action);await screen.findByRole('button',{name:'核对划转结果'});expect(b.request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(0);expect(screen.getByRole('button',{name:'确认转入 API 额度'})).toBeDisabled();
  fireEvent.click(screen.getByRole('button',{name:'核对划转结果'}));fireEvent.click(await screen.findByRole('button',{name:'按原请求重试'}));
  await waitFor(()=>expect(sessionStorage.getItem('momiao.quota.pending.1')).toBeNull());expect(b.request.mock.calls.find(c=>c[1]==='POST')![2]).toEqual({idempotency_key:p.key,amount:'1'});
- expect(screen.getByRole('button',{name:'确认转入原生额度'})).toBeDisabled();
+ expect(screen.getByRole('button',{name:'确认转入 API 额度'})).toBeDisabled();
 });

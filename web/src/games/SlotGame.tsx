@@ -2,6 +2,7 @@ import { CapReceipt, capResult, type CapSettlement } from '../economy-cap';
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { amountUnits } from '../economy-api';
 import { integer } from '../wallet-api';
+import { wholeChips } from '../games-api';
 import { assetSrcSet, assetUrl, type ImageAsset } from '../game-hall-assets';
 import art from './slot-art.json';
 import './direct-extra-games.css';
@@ -139,7 +140,7 @@ export function SlotGame(props: SlotGameProps) {
     }
     const line = selected === null ? undefined : result?.lines.find(item => item.line_number === selected);
     return <section className={`extra-game extra-slot${props.salon ? ' slot-salon' : ''}`} aria-labelledby={title} aria-busy={props.busy || command.pending || !!motion}>
-        <header className="extra-heading"><div><p className="extra-eyebrow">KING’S TREASURY / SLOT GALLERY</p><h2 id={title}>王之宝库 · Slot</h2><p>五轴三行，一眼看清整局结果。</p></div><div className="extra-balance"><span>可用筹码</span><strong>{formatChipUnits(props.availableUnits)}</strong></div></header>
+        <header className="extra-heading"><div><h2 id={title}>王之宝库 · Slot</h2><p>五轴三行，一眼看清整局结果。</p></div><div className="extra-balance"><span>可用筹码</span><strong title={formatChipUnits(props.availableUnits)}>{props.availableUnits?wholeChips(props.availableUnits):'—'}</strong></div></header>
         <div className="extra-layout">
             <div className={`extra-slot-stage${replay ? ' is-replaying' : ''}`}>
                 <div className="extra-stage-label"><span>{motion ? '转轮滚动中 · 王之宝库' : props.salon ? (result ? '服务端已确认 · 王之宝库' : '盘面示意 · 尚未开局') : 'ROYAL TREASURY SIGILS'}</span><span>5 × 3 / 10 LINES</span></div>
@@ -162,12 +163,12 @@ export function SlotGame(props: SlotGameProps) {
                 {result && <p className="extra-stage-note">仅回看相同盘面与中奖线，不会创建新局或重复结算。</p>}
             </div>
             <aside className="extra-console">
-                {props.salon && <div className="slot-balance"><span>可用筹码</span><strong>{formatChipUnits(props.availableUnits)}</strong></div>}
+                {props.salon && <div className="slot-balance"><span>可用筹码</span><strong title={formatChipUnits(props.availableUnits)}>{props.availableUnits?wholeChips(props.availableUnits):'—'}</strong></div>}
                 <ExtraWager controls={props} blocked={blocked} label="总下注 · 筹码" verb="Spin" lineStake onSubmit={spin} />
                 <ExtraNotice controls={props} failure={command.failure} message={motion === 'stopping' ? '转轮正在从左到右依次落定…' : motion ? '宝库转轮滚动中…' : props.recovering ? '正在恢复同一局，保留已确认盘面。' : props.busy || command.pending ? '正在提交或核对结果，请稍候。' : result ? '本局结果已确认。下一局仍需主动 Spin。' : '选择总下注，点击 Spin 即提交本局。'} />
             </aside>
         </div>
         {result && <div className={`extra-result is-${result.result_class.toLowerCase()}`} role="status" aria-label="本局结算" aria-hidden={!!motion}><strong>{props.economySettlement?({WIN:'净盈利',BREAK_EVEN:'回本',LOSS:'净亏损'}[capResult(props.economySettlement,result.result_class)]):resultNames[result.result_detail]}</strong><dl><div><dt>本局总下注</dt><dd>{formatChipUnits(result.total_wager_units)}</dd></div><div><dt>总派彩（含返还）</dt><dd>{formatChipUnits(props.economySettlement?.credited_payout_units??result.total_payout_units)}</dd></div><div><dt>净变化 · 筹码</dt><dd>{formatChipUnits(props.economySettlement?.actual_net_units??result.net_change_units, true)}</dd></div></dl><CapReceipt receipt={props.economySettlement}/></div>}
-        <div className="extra-utilities">{props.salon ? <div className="slot-tool-dock"><button type="button" aria-haspopup="dialog" onClick={props.onRules}>奖表与固定规则<span aria-hidden="true">＋</span></button><button type="button" aria-haspopup="dialog" onClick={props.onFairness}>公平验证<span aria-hidden="true">＋</span></button>{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录 ↗</button>}</div> : <><details><summary>奖表与固定规则</summary><SlotRules rulesetVersion={props.rulesetVersion} /></details><div className="extra-links">{props.onFairness && <button type="button" onClick={props.onFairness}>公平详情</button>}{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div>{props.roundID && <p className="extra-round-id">Round · {props.roundID}</p>}</>}</div>
+        <div className="extra-utilities">{props.salon ? <div className="slot-tool-dock"><button type="button" aria-haspopup="dialog" onClick={props.onRules}>奖表与固定规则<span aria-hidden="true">＋</span></button><button type="button" aria-haspopup="dialog" onClick={props.onFairness}>公平验证<span aria-hidden="true">＋</span></button>{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div> : <><details><summary>奖表与固定规则</summary><SlotRules rulesetVersion={props.rulesetVersion} /></details><div className="extra-links">{props.onFairness && <button type="button" onClick={props.onFairness}>公平详情</button>}{props.onHistory && <button type="button" onClick={props.onHistory}>本局记录</button>}</div></>}</div>
     </section>;
 }

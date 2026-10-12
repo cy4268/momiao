@@ -97,7 +97,7 @@ it.each([['/games','PLAY'],['/games','MAINTENANCE'],['/entertainment','PLAY'],['
         const requests:string[]=[];
         const client=new ApiClient(async p=>{requests.push(p);return new Response(JSON.stringify({success:true,data:{items:[{slug:'texas-holdem',title:'德州扑克',effective_runtime:state,implementation_key:'poker.texas-holdem.v1'}]}}));});
         const view=show(client,path);const card=(await screen.findByRole('heading',{name:'德州扑克'})).closest('article')!;
-        expect(within(card).getByRole('link',{name:state==='PLAY'?'进入 Poker 大厅 →':'查看大厅与恢复牌局 →'})).toHaveAttribute('href','/poker');
+        expect(within(card).getByRole('link',{name:state==='PLAY'?'进入 Poker 大厅':'查看大厅与恢复牌局'})).toHaveAttribute('href','/poker');
         expect(within(card).queryByText('新的沙龙正在准备，敬请期待。')).not.toBeInTheDocument();
         expect(requests).toEqual(['/api/v1/games']);view.unmount();
 });

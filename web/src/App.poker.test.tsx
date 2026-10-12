@@ -71,7 +71,7 @@ it.each(['READY','MAINTENANCE','CONFIG_INCOMPLETE','RESOURCE_UNAVAILABLE'])('pas
   r.f.respond=path=>path==='/api/v1/games'?Promise.resolve(ok(publicPoker(state==='MAINTENANCE'?'MAINTENANCE':'PLAY'))):undefined;
   render(<MemoryRouter initialEntries={['/games']}><Navigation/><App client={r.client}/></MemoryRouter>);
   await screen.findByRole('heading',{name:'目录中的 Poker'});expect(pokerCalls(r)).toHaveLength(0);
-  fireEvent.click(screen.getByRole('link',{name:state==='MAINTENANCE'?'查看大厅与恢复牌局 →':'进入 Poker 大厅 →'}));
+  fireEvent.click(screen.getByRole('link',{name:state==='MAINTENANCE'?'查看大厅与恢复牌局':'进入 Poker 大厅'}));
   await waitFor(()=>expect(r.fetcher.mock.calls.some(([p])=>p==='/platform/v1/access-gate?route=%2Fpoker')).toBe(true));
   if(state==='RESOURCE_UNAVAILABLE'){await screen.findByText(/目标功能当前未开放/);expect(pokerCalls(r)).toHaveLength(0);}
   else {await screen.findByRole('region',{name:'Poker 大厅'});expect(pokerCalls(r).map(([p])=>p)).toEqual(['/api/v1/poker']);expect(screen.getByRole('button',{name:'创建牌桌'}).hasAttribute('disabled')).toBe(state!=='READY');}
@@ -94,7 +94,7 @@ it('saves only the guest catalog destination and returns through the original po
   });
   vi.stubGlobal('WebSocket',Socket);
   render(<MemoryRouter initialEntries={['/entertainment']}><Navigation/><App client={client}/></MemoryRouter>);
-  await screen.findByRole('heading',{name:'目录中的 Poker'});fireEvent.click(screen.getByRole('link',{name:'进入 Poker 大厅 →'}));
+  await screen.findByRole('heading',{name:'目录中的 Poker'});fireEvent.click(screen.getByRole('link',{name:'进入 Poker 大厅'}));
   await waitFor(()=>expect(screen.getByTestId('path').textContent).toBe('/login'));
   expect(screen.getByRole('link',{name:'前往 New API 登录'})).toHaveAttribute('href','/sign-in');expect(peekRouteIntent()).toBe('/poker');expect(signedIn).toBe(false);expect(paths.some(p=>p.startsWith('/api/v1/poker'))).toBe(false);
   await act(async()=>{await client.login('synthetic','synthetic');});

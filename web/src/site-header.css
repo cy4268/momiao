@@ -1,0 +1,38 @@
+/* The header and page sub-navigation share one wrapper so grid page layouts keep a single top row. */
+.site-chrome.site-chrome { position: relative; z-index: 30; }
+/* One header for every page except the lit home page; nothing here may vary per page.
+   Every selector starts with a doubled class so page stylesheets loaded later
+   (".announcement-site .royal-beacon", ".catalog-shell a", ...) cannot win the cascade. */
+.site-header.site-header { position: relative; z-index: 30; box-sizing: border-box; height: 68px; margin: 0; padding: 0; background: #081321; border: 0; border-bottom: 1px solid #ffffff14; color: #e8dcc2; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+/* Positioned against the viewport, not the body, so pages with and without a scrollbar place the bar identically. */
+.site-header.site-header .site-header-inner, .site-subnav.site-subnav .site-header-inner { box-sizing: border-box; width: min(1200px, calc(100vw - 48px)); height: 100%; margin: 0 0 0 max(24px, calc((100vw - 1200px) / 2)); padding: 0; display: flex; align-items: center; gap: 28px; }
+.site-header.site-header .site-brand { flex: none; display: flex; align-items: center; gap: 12px; margin: 0; padding: 0; color: #e8dcc2; text-decoration: none; white-space: nowrap; }
+.site-header.site-header .site-brand .royal-beacon { flex: none; width: 40px; height: 40px; color: #d9bf86; }
+.site-header.site-header .site-brand .brand-wordmark { display: flex; flex-direction: column; font: 21px/1.15 Marcellus, Georgia, serif; letter-spacing: .055em; color: #f0dcae; }
+.site-header.site-header .site-brand .brand-wordmark small { display: block; margin-top: 3px; font: 600 10px/1.4 "Segoe UI", sans-serif; letter-spacing: .28em; color: #c0d0e4; }
+.site-header.site-header .site-nav { display: flex; align-items: stretch; gap: 8px; height: 100%; margin: 0 auto 0 0; padding: 0; }
+.site-header.site-header .site-nav a, .site-header.site-header .site-assets, .site-subnav.site-subnav a { display: inline-flex; align-items: center; margin: 0; padding: 0 10px; font: 400 14px/1 "Segoe UI", "Microsoft YaHei", sans-serif; letter-spacing: normal; color: #c0d0e4; background: none; text-decoration: none; white-space: nowrap; border: 0; border-bottom: 2px solid transparent; border-radius: 0; }
+.site-header.site-header .site-nav a:hover, .site-header.site-header .site-assets:hover, .site-subnav.site-subnav a:hover { color: #f0dcae; }
+.site-header.site-header .site-nav a[aria-current], .site-header.site-header .site-assets[aria-current], .site-subnav.site-subnav a.active { color: #f0dcae; border-bottom-color: #d9bf86; }
+.site-header.site-header .site-account { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 12px; height: 100%; min-width: 180px; }
+.site-header.site-header .site-assets { height: 100%; }
+.site-header.site-header .site-account-placeholder { display: block; width: 180px; height: 40px; }
+.site-header.site-header .site-sign-in { display: inline-flex; align-items: center; height: 40px; padding: 0 18px; font: 400 14px/1 "Segoe UI", "Microsoft YaHei", sans-serif; color: #e8dcc2; text-decoration: none; background: none; border: 1px solid #d9bf8666; border-radius: 4px; }
+.site-header.site-header .account-button { min-height: 44px; max-width: 260px; padding: 4px 8px; font: 400 14px/1.3 "Segoe UI", "Microsoft YaHei", sans-serif; color: #e8dcc2; background: transparent; border: 0; }
+.site-header.site-header .account-button small { display: block; font-size: 12px; color: #c0d0e4; }
+.site-header.site-header .avatar { width: 34px; height: 34px; }
+.site-header.site-header .avatar .crest { width: 22px; height: 25px; }
+.site-header.site-header .account-menu { top: 60px; }
+.site-header.site-header .account-menu a { min-height: 44px; display: flex; align-items: center; }
+.site-subnav.site-subnav { box-sizing: border-box; height: 48px; margin: 0; padding: 0; background: #0b1a2b; border: 0; border-bottom: 1px solid #ffffff14; overflow-x: auto; }
+.site-subnav.site-subnav .site-header-inner { gap: 8px; }
+.site-subnav.site-subnav a { height: 100%; font-size: 13px; }
+@media (max-width: 720px) {
+  .site-header.site-header .site-header-inner, .site-subnav.site-subnav .site-header-inner { width: calc(100vw - 28px); margin-left: 14px; gap: 12px; }
+  .site-header.site-header .site-nav, .site-header.site-header .site-assets { display: none; }
+  .site-header.site-header .site-account { min-width: 0; margin-left: auto; }
+  .site-header.site-header .site-account-placeholder { width: 120px; }
+  .site-header.site-header .site-brand .royal-beacon { width: 32px; height: 32px; }
+  .site-header.site-header .site-brand .brand-wordmark { font-size: 17px; }
+  .site-header.site-header .account-button { max-width: 160px; }
+}

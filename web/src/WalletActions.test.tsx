@@ -52,3 +52,12 @@ it('checks a claim made elsewhere when the tab regains focus without POST',async
  expect(await screen.findByRole('button',{name:'今日已领取'})).toBeDisabled();
  expect(view.request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(0);
 });
+it('lists transactions without exposing their internal ids',async()=>{
+ const request=vi.fn(async(path:string)=>path.endsWith('/daily')?daily:path.includes('native-quota')?{user_id:'1',raw_quota:'0',amount:'0',enabled:true}:path.startsWith('/platform/v1/transactions')?{items:[receipt],has_more:false,next_after_id:null}:{items:[],has_more:false,next_after_seq:null});
+ const c={request,getSessionGeneration:()=>1,getSnapshot:()=>({user:{id:1},loggingOut:false})} as unknown as ApiClient;
+ render(<WalletActions client={c} userID="1" wallet={wallet} onChange={vi.fn()}/>);
+ const table=await screen.findByRole('region',{name:'资产交易记录'});
+ await waitFor(()=>expect(table).toHaveTextContent('每日签到'));
+ expect(table).not.toHaveTextContent(receipt.id);
+ expect(table).not.toHaveTextContent('交易编号');
+});

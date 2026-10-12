@@ -1,10 +1,8 @@
 /* Scoped to the scratch page, not the scratch card in the game directory. */
 .portal-shell:has(.direct-game.game-scratch) { --ink:#f4ecd7; --muted:#b9cadd; --line:#7185a34d; color-scheme:dark; color:var(--ink); background:#081628; }
 .portal-shell:has(.direct-game.game-scratch) .main-content { width:100%; max-width:none; padding:0; margin:0; }
-.portal-shell:has(.direct-game.game-scratch) .portal-header { max-width:none; width:100%; padding-inline:clamp(16px,2.5vw,48px); background:#091626; border-color:#bba57a70; }
-.portal-shell:has(.direct-game.game-scratch) .portal-header a,.portal-shell:has(.direct-game.game-scratch) .account-button { color:#e1e8f4; }
+.portal-shell:has(.direct-game.game-scratch) .account-button { color:#e1e8f4; }
 .portal-shell:has(.direct-game.game-scratch) .brand { color:#eddbb3; }
-.portal-shell:has(.direct-game.game-scratch) .portal-context { display:none; }
 .portal-shell:has(.direct-game.game-scratch) .workspace-foot { max-width:none; padding-inline:clamp(16px,2.5vw,48px); color:#a9b8ce; background:#081628; border-color:#63758d50; }
 .portal-shell:has(.direct-game.game-scratch) .mobile-nav,.portal-shell:has(.direct-game.game-scratch) .account-menu { background:#10223a; color:#e1e8f4; border-color:#7087a8; }
 .portal-shell:has(.direct-game.game-scratch) .mobile-nav a { color:#afc5e3; }
@@ -12,10 +10,10 @@
 .direct-game.game-scratch { min-height:calc(100svh - 150px); width:100%; max-width:none; padding:20px clamp(16px,2.5vw,48px) 40px; background:radial-gradient(ellipse at 25% 0,#173d6280,transparent 65%),#081628; color:#f4ecd7; }
 .game-scratch .game-page-heading { margin-bottom:20px; align-items:center; }
 .game-scratch .game-page-heading h1 { margin:6px 0 10px; font:500 clamp(30px,3.5vw,52px) "Noto Serif SC","Songti SC",SimSun,serif; letter-spacing:.1em; color:#f7e4b8; }
-.game-scratch .eyebrow { color:#d4b574; font-size:10px; letter-spacing:.18em; }
+.game-scratch .eyebrow { color:#d4b574; font-size:12px; letter-spacing:.18em; }
 .game-scratch .game-page-heading p:last-child { color:#bccfe5; }
 .game-scratch .game-heading-links a { min-height:44px; display:inline-flex; align-items:center; color:#d7e3f5; }
-.game-scratch button { min-height:44px; border-color:#6982a1; background:#142a46; color:#e6eefb; }
+
 .game-scratch :focus-visible { outline:3px solid #a8d2ff; outline-offset:4px; }
 .game-scratch .scratch-play-layout { display:grid; grid-template-columns:minmax(0,1fr) clamp(320px,27vw,440px); gap:24px; align-items:stretch; }
 .game-scratch .game-stage { min-width:0; min-height:0; border:1px solid #a28c606e; border-radius:5px; background:#102039; }
@@ -40,7 +38,7 @@
 .voucher-motto { position:absolute; z-index:3; left:15%; right:15%; bottom:9.8%; margin:0; text-align:center; font:clamp(9px,1.6cqw,14px) "Noto Serif SC",SimSun,serif; letter-spacing:.12em; color:#21344b; }
 .voucher-controls { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:62px; width:min(94%,840px); margin-top:8px; padding:9px 16px; background:#061425ed; border:1px solid #c1a46d; border-radius:4px; }
 .voucher-controls p { margin:0; font-size:14px; line-height:1.6; color:#e7dfca; }
-.game-scratch .voucher-controls button { flex:none; min-width:136px; background:linear-gradient(#f0d598,#c3a166); border-color:#f8dfac; color:#172940; font-weight:600; font-size:16px; }
+.game-scratch .voucher-controls button { flex:none; min-width:136px }
 .game-scratch .game-console { display:flex; flex-direction:column; gap:22px; margin:0; padding:26px; border:1px solid #c4aa7c; outline:1px solid #576b82; outline-offset:-5px; border-radius:5px; background:linear-gradient(135deg,#11253bf2,#081628); box-shadow:0 12px 30px #0003; }
 .game-scratch .game-balance { display:block; margin:0; border:0; border-bottom:1px solid #ad997450; padding:0 0 20px; }
 .game-scratch .game-balance>p { margin-bottom:8px; color:#bccddd; }
@@ -57,7 +55,7 @@
 .game-scratch .wager-cost { display:grid; gap:14px; border-color:#ad997450; color:#bdcce1; padding-block:18px 10px; }
 .game-scratch .wager-cost>span { display:flex; justify-content:space-between; gap:8px; }
 .game-scratch .wager-cost strong { color:#f3ecd8; font-size:16px; }
-.game-scratch .game-play { min-height:60px!important; margin-top:12px; border:1px solid #f3d39b!important; outline:1px solid #927b56; outline-offset:3px; background:linear-gradient(#f0d598,#c3a166)!important; color:#152944!important; font:600 22px "Noto Serif SC",SimSun,serif; letter-spacing:.08em; box-shadow:inset 0 0 12px #fff1c970,0 4px 15px #0004; }
+.game-scratch .game-play { margin-top:12px; letter-spacing:.08em }
 .game-scratch .game-play:disabled { opacity:.55; }
 .direct-game.game-scratch .round-receipt { margin:24px 0 0; background:#0e2339; border-color:#ad997480; border-left-color:#d6be8c; }
 .direct-game.game-scratch .round-receipt h2,.direct-game.game-scratch .round-receipt dd { color:#f0dcae; }
@@ -85,7 +83,7 @@
     .voucher-motto { font-size:clamp(9px,2cqw,14px); }
     .voucher-controls { width:calc(100% - 20px); min-height:54px; margin-top:6px; padding:6px 10px; }
     .voucher-controls p { font-size:12px; }
-    .game-scratch .voucher-controls button { min-width:104px; font-size:14px; padding-inline:12px; }
+    .game-scratch .voucher-controls button { min-width:104px; padding-inline:12px }
     .game-scratch .game-console { padding:22px; gap:20px; }
     .game-scratch .game-balance { position:relative; padding-bottom:12px; }
     .game-scratch .game-balance>strong { font-size:30px; }

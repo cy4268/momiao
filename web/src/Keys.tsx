@@ -49,19 +49,19 @@ export function Keys({ client }: {
         reload();
     } }
     return <ApiWorkbench page="keys">
-        <header className="page-heading"><div><p className="eyebrow">DA VINCI'S WORKSHOP / API KEYS</p><h1>密钥管理</h1><p>为不同应用分别配置密钥、额度与到期时间。</p></div><div className="workbench-heading-actions"><button disabled={resource.loading || busy} onClick={reload}>刷新列表</button><button className="primary" onClick={() => { setNotice(''); setDialog({ kind: 'create' }); }}>创建 API 密钥</button></div></header>
-        {modelID && <section className="api-model-selection"><p>已选择模型：<code>{modelID}</code></p><p className="hint">创建密钥需要你主动确认；模型选择不会替你创建或修改密钥。</p><Link className="text-link" to={catalogSelectionPath(modelID, false)}>继续查看 API 接入设置 →</Link></section>}
+        <header className="page-heading"><div><p className="eyebrow">API KEYS</p><h1>密钥管理</h1><p>为不同应用分别配置密钥、额度与到期时间。</p></div><div className="workbench-heading-actions"><button disabled={resource.loading || busy} onClick={reload}>刷新列表</button><button className="primary" onClick={() => { setNotice(''); setDialog({ kind: 'create' }); }}>创建 API 密钥</button></div></header>
+        {modelID && <section className="api-model-selection"><p>已选择模型：<code>{modelID}</code></p><p className="hint">创建密钥需要你主动确认；模型选择不会替你创建或修改密钥。</p><Link className="text-link" to={catalogSelectionPath(modelID, false)}>继续查看 API 接入设置</Link></section>}
         {notice && <p className="notice" role="status">{notice}</p>}{error && <Alert>{error}</Alert>}
-        <section className="api-ledger" aria-label="我的密钥"><p className="hint">额度按原生单位显示，不代表平台 Reserve 或 API Credit。密钥默认隐藏。</p>
+        <section className="api-ledger" aria-label="我的密钥"><p className="hint">额度按 API 额度显示，不代表平台 Reserve 或 API Credit。密钥默认隐藏。</p>
             {resource.loading ? <Loading /> : resource.error ? <><Alert>{resource.error}</Alert><button onClick={reload}>重新加载</button></> : resource.data && <>
-                {resource.data.items.length === 0 ? <Empty title="还没有 API 密钥">点击“创建 API 密钥”，为你的第一个应用开启连接。</Empty> : <div className="table-wrap" tabIndex={0} role="region" aria-label="API 密钥列表"><table className="key-table"><thead><tr><th>名称 / 密钥</th><th>用途</th><th>状态</th><th>额度（原生单位）</th><th>创建 / 到期</th><th>操作</th></tr></thead><tbody>
+                {resource.data.items.length === 0 ? <Empty title="还没有 API 密钥">点击“创建 API 密钥”，为你的第一个应用开启连接。</Empty> : <div className="table-wrap" tabIndex={0} role="region" aria-label="API 密钥列表"><table className="key-table"><thead><tr><th>名称 / 密钥</th><th>用途</th><th>状态</th><th>额度</th><th>创建 / 到期</th><th>操作</th></tr></thead><tbody>
                     {resource.data.items.map(key => {
                         const purpose = purposes.data?.find(row => row.token_id === String(key.id));
                         return <tr key={key.id}>
                             <td data-label="名称 / 密钥"><strong>{key.name || '未命名密钥'}</strong><code className="masked">{key.key || '••••••••••••'}</code></td>
                             <td data-label="用途">{purposes.loading ? '读取中…' : purposes.error ? '用途暂不可用' : <>{keyPurposeLabel(purpose?.purpose || 'UNCLASSIFIED')}{purpose?.sync_state === 'PENDING' && <small>用途同步中</small>}</>}</td>
                             <td data-label="状态"><span className={`badge ${key.status === 1 ? 'active' : ''}`}>{status(key)}</span></td>
-                            <td data-label="额度（原生单位）"><span>剩余 {key.unlimited_quota ? '不限额' : number(key.remain_quota)}</span><small>已用 {number(key.used_quota)}</small></td>
+                            <td data-label="额度"><span>剩余 {key.unlimited_quota ? '不限额' : number(key.remain_quota)}</span><small>已用 {number(key.used_quota)}</small></td>
                             <td data-label="创建 / 到期"><time>{date(key.created_time)}</time><small>{date(key.expired_time)}</small></td>
                             <td data-label="操作"><div className="key-actions"><button disabled={busy} onClick={() => setDialog({ kind: 'reveal', key })}>查看密钥</button><button disabled={busy} onClick={() => setDialog({ kind: 'edit', key })}>编辑基础设置</button><details className="key-more"><summary>更多</summary><div><button disabled={busy || purposes.loading || !!purposes.error} onClick={() => setPurposeKey(key)}>修改用途</button><button disabled={busy} onClick={() => void toggle(key)}>{key.status === 1 ? '停用' : '启用'}</button><button className="quiet" disabled={busy} onClick={() => setDialog({ kind: 'delete', key })}>删除</button></div></details></div></td>
                         </tr>;
@@ -100,7 +100,7 @@ function CreateKey({ client, onClose, onDone, onAmbiguous }: {
         setError('请输入 1–50 字节的名称（中文通常占 3 字节）。');
         return;
     } if (!unlimited && (!quota || !Number.isSafeInteger(value) || value < 1 || value > 1000000000000)) {
-        setError('请输入 1 至 1,000,000,000,000 的整数原生额度。');
+        setError('请输入 1 至 1,000,000,000,000 的整数额度。');
         return;
     } lock.current = true; setBusy(true); setError(''); try {
         if (createdID) return;
@@ -122,7 +122,7 @@ function CreateKey({ client, onClose, onDone, onAmbiguous }: {
         lock.current = false;
         setBusy(false);
     } }
-    return <Modal title="创建 API 密钥" onClose={onClose} busy={busy}><form onSubmit={submit}><p className="hint">密钥可访问账户允许的模型。使用有限额度和有效期，方便独立管理每个应用。</p><label>用途<select value={purpose} onChange={e=>setPurpose(e.target.value as typeof purpose)} required disabled={!!createdID}><option value="">请选择用途</option><option value="GENERAL">General · 通用</option><option value="ROLEPLAY">RP · 角色扮演</option></select></label><p className="hint">用途变更仅影响后续请求；旧请求不会重新计入 RP 排行。</p><label>密钥名称<input autoFocus value={name} onChange={e => setName(e.target.value)} required maxLength={50} placeholder="例如：我的应用"/></label><small>最长 50 字节；中文名称建议不超过 16 个字。</small><label>额度上限（原生单位）<input type="number" value={quota} disabled={unlimited} onChange={e => setQuota(e.target.value)} min="1" max="1000000000000" step="1" required={!unlimited} placeholder="输入整数额度"/></label><label className="checkbox"><input type="checkbox" checked={unlimited} onChange={e => setUnlimited(e.target.checked)}/>我明确选择不限额（仍受账户可用额度约束）</label><label>有效期<select value={days} onChange={e => setDays(e.target.value)}><option value="7">7 天</option><option value="30">30 天</option><option value="90">90 天</option><option value="never">永不过期</option></select></label>{error && <Alert>{error}</Alert>}{createdID?<p role="status">密钥 {createdID} 已创建。用途尚需核对，请关闭窗口刷新列表，再通过“修改用途”继续；无需重新创建密钥。</p>:uncertain&&<p>请关闭此窗口并核对列表后，再决定是否创建。</p>}<div className="dialog-actions"><button type="button" disabled={busy} onClick={onClose}>取消</button><button className="primary" type="submit" disabled={busy || uncertain}>{busy ? '正在创建…' : '确认创建'}</button></div></form></Modal>;
+    return <Modal title="创建 API 密钥" onClose={onClose} busy={busy}><form onSubmit={submit}><p className="hint">密钥可访问账户允许的模型。使用有限额度和有效期，方便独立管理每个应用。</p><label>用途<select value={purpose} onChange={e=>setPurpose(e.target.value as typeof purpose)} required disabled={!!createdID}><option value="">请选择用途</option><option value="GENERAL">General · 通用</option><option value="ROLEPLAY">RP · 角色扮演</option></select></label><p className="hint">用途变更仅影响后续请求；旧请求不会重新计入 RP 排行。</p><label>密钥名称<input autoFocus value={name} onChange={e => setName(e.target.value)} required maxLength={50} placeholder="例如：我的应用"/></label><small>最长 50 字节；中文名称建议不超过 16 个字。</small><label>额度上限<input type="number" value={quota} disabled={unlimited} onChange={e => setQuota(e.target.value)} min="1" max="1000000000000" step="1" required={!unlimited} placeholder="输入整数额度"/></label><label className="checkbox"><input type="checkbox" checked={unlimited} onChange={e => setUnlimited(e.target.checked)}/>我明确选择不限额（仍受账户可用额度约束）</label><label>有效期<select value={days} onChange={e => setDays(e.target.value)}><option value="7">7 天</option><option value="30">30 天</option><option value="90">90 天</option><option value="never">永不过期</option></select></label>{error && <Alert>{error}</Alert>}{createdID?<p role="status">密钥 {createdID} 已创建。用途尚需核对，请关闭窗口刷新列表，再通过“修改用途”继续；无需重新创建密钥。</p>:uncertain&&<p>请关闭此窗口并核对列表后，再决定是否创建。</p>}<div className="dialog-actions"><button type="button" disabled={busy} onClick={onClose}>取消</button><button className="primary" type="submit" disabled={busy || uncertain}>{busy ? '正在创建…' : '确认创建'}</button></div></form></Modal>;
 }
 function EditKey({ client, token, onClose, onDone, onAmbiguous }: {
     client: ApiClient;
@@ -149,7 +149,7 @@ function EditKey({ client, token, onClose, onDone, onAmbiguous }: {
             return;
         }
         if (!unlimited && (!quota || !Number.isSafeInteger(quotaValue) || quotaValue < 1 || quotaValue > 2147483647)) {
-            setError('请输入 1 至 2,147,483,647 的整数原生额度。');
+            setError('请输入 1 至 2,147,483,647 的整数额度。');
             return;
         }
         if (!(expiredTime === -1 || Number.isSafeInteger(expiredTime) && expiredTime >= 0)) {
@@ -173,7 +173,7 @@ function EditKey({ client, token, onClose, onDone, onAmbiguous }: {
             setBusy(false);
         }
     }
-    return <Modal title={`编辑基础设置 · ${token.name}`} onClose={onClose} busy={busy}><form noValidate onSubmit={event => void submit(event)}><p className="hint">只修改名称、额度与有效期；状态、用途和高级访问范围保持不变。</p><label>密钥名称<input autoFocus value={name} onChange={event => setName(event.target.value)} disabled={busy || uncertain} maxLength={50}/></label><small>最长 50 字节；中文名称建议不超过 16 个字。</small><label>额度上限（原生单位）<input type="number" value={quota} disabled={busy || uncertain || unlimited} onChange={event => setQuota(event.target.value)} min="1" max="2147483647" step="1"/></label><label className="checkbox"><input type="checkbox" checked={unlimited} disabled={busy || uncertain} onChange={event => setUnlimited(event.target.checked)}/>我明确选择不限额（仍受账户可用额度约束）</label><label>有效期<select value={expiry} disabled={busy || uncertain} onChange={event => setExpiry(event.target.value as typeof expiry)}>{token.expired_time !== -1 && <option value="current">保持当前设置（{date(token.expired_time)}）</option>}<option value="7">从现在起 7 天</option><option value="30">从现在起 30 天</option><option value="90">从现在起 90 天</option><option value="never">永不过期</option></select></label>{error && <Alert>{error}</Alert>}{uncertain && <p>结果尚未确认。请关闭窗口并核对刷新后的列表，勿重复提交。</p>}<div className="dialog-actions"><button type="button" disabled={busy} onClick={onClose}>关闭</button><button className="primary" type="submit" disabled={busy || uncertain}>{busy ? '正在保存…' : '保存基础设置'}</button></div></form></Modal>;
+    return <Modal title={`编辑基础设置 · ${token.name}`} onClose={onClose} busy={busy}><form noValidate onSubmit={event => void submit(event)}><p className="hint">只修改名称、额度与有效期；状态、用途和高级访问范围保持不变。</p><label>密钥名称<input autoFocus value={name} onChange={event => setName(event.target.value)} disabled={busy || uncertain} maxLength={50}/></label><small>最长 50 字节；中文名称建议不超过 16 个字。</small><label>额度上限<input type="number" value={quota} disabled={busy || uncertain || unlimited} onChange={event => setQuota(event.target.value)} min="1" max="2147483647" step="1"/></label><label className="checkbox"><input type="checkbox" checked={unlimited} disabled={busy || uncertain} onChange={event => setUnlimited(event.target.checked)}/>我明确选择不限额（仍受账户可用额度约束）</label><label>有效期<select value={expiry} disabled={busy || uncertain} onChange={event => setExpiry(event.target.value as typeof expiry)}>{token.expired_time !== -1 && <option value="current">保持当前设置（{date(token.expired_time)}）</option>}<option value="7">从现在起 7 天</option><option value="30">从现在起 30 天</option><option value="90">从现在起 90 天</option><option value="never">永不过期</option></select></label>{error && <Alert>{error}</Alert>}{uncertain && <p>结果尚未确认。请关闭窗口并核对刷新后的列表，勿重复提交。</p>}<div className="dialog-actions"><button type="button" disabled={busy} onClick={onClose}>关闭</button><button className="primary" type="submit" disabled={busy || uncertain}>{busy ? '正在保存…' : '保存基础设置'}</button></div></form></Modal>;
 }
 function PurposeDialog({client,token,current,onClose,onDone}:{client:ApiClient;token:Key;current?:KeyPurposeItem;onClose:()=>void;onDone:()=>void}) {
     const [purpose,setPurpose]=useState<'GENERAL'|'ROLEPLAY'>(current?.purpose==='ROLEPLAY'?'ROLEPLAY':'GENERAL');

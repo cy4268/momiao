@@ -77,13 +77,13 @@ function ProfileView({ client, userID, generation, onSaved, embedded }: { client
     const disabled = loading || busy || uncertain || !!readError;
     const displayedName = preview ?? profile?.display_name ?? '';
     const content = <>
-        <header className="page-heading"><div><p className="eyebrow">IDENTITY / MASTER PROFILE</p><h1>Master 资料</h1><p>为你的公开身份设定昵称，登录账户保持不变。</p></div><button onClick={() => void reload()} disabled={loading || busy}>刷新资料</button></header>
+        <header className="page-heading"><div><p className="eyebrow">MASTER PROFILE</p><h1>Master 资料</h1><p>为你的公开身份设定昵称，登录账户保持不变。</p></div><button onClick={() => void reload()} disabled={loading || busy}>刷新资料</button></header>
         {notice && <Alert>{notice}</Alert>}{readError && <Alert>{readError} 请使用“刷新资料”重试读取。</Alert>}
         {saved && <p className="profile-notice" role="status">资料已保存，并已核对最新状态。</p>}
         {loading && <Loading />}
         {profile && <div className="profile-grid">
             <section className="panel profile-editor" aria-labelledby="profile-edit-title">
-                <div className="section-heading"><div><p className="eyebrow">YOUR MASTER IDENTITY</p><h2 id="profile-edit-title">{profile.status === 'INCOMPLETE' ? '建立你的 Master 资料' : '编辑展示资料'}</h2></div><span className="profile-state">{profile.status === 'INCOMPLETE' ? '尚未初始化' : '已初始化'}</span></div>
+                <div className="section-heading"><div><h2 id="profile-edit-title">{profile.status === 'INCOMPLETE' ? '建立你的 Master 资料' : '编辑展示资料'}</h2></div><span className="profile-state">{profile.status === 'INCOMPLETE' ? '尚未初始化' : '已初始化'}</span></div>
                 <form onSubmit={e => void save(e)}>
                     <label htmlFor="master-name">Master 昵称</label><input id="master-name" value={name} onChange={e => { setName(e.target.value); setPreview(null); setSaved(false); }} disabled={disabled} autoComplete="off" required aria-describedby="master-name-help" placeholder="输入你想使用的昵称" />
                     <p className="hint" id="master-name-help">1–24 个字符，可使用文字、数字、空格及 _ - ·。不含表情或隐藏字符；规范化、重名与保留名由服务端校验。</p>
@@ -95,7 +95,7 @@ function ProfileView({ client, userID, generation, onSaved, embedded }: { client
                 </form>
             </section>
             <section className="panel profile-preview" aria-label="公开身份预览">
-                <p className="eyebrow">MASTER / IDENTITY PREVIEW</p><h2>公开身份预览</h2>
+                <h2>公开身份预览</h2>
                 <div className="profile-preview-emblem" role="img" aria-label="系统默认头像"><IdentityEmblem /></div>
                 <h3 className="profile-display-name">{displayedName || '等待你的昵称'}</h3>
                 <p className="profile-preview-label">{preview !== null ? '未保存的预览' : profile.status === 'COMPLETE' ? '当前已保存资料' : '预览占位 · 尚未建立公开身份'}</p>
@@ -103,12 +103,12 @@ function ProfileView({ client, userID, generation, onSaved, embedded }: { client
             </section>
         </div>}
         {profile && <IdentityDisclosure title="仅本人可见的账户信息"><section className="profile-private" aria-label="仅本人可见的账户信息">
-                <p className="hint">账户短 ID、版本与改名时间仅本人可见，不随昵称与头像公开展示。</p>
-                <dl className="profile-details"><div><dt>账户短 ID</dt><dd>{profile.short_account_id}</dd></div><div><dt>资料版本</dt><dd>{profile.profile_version}</dd></div><div><dt>上次实际改名</dt><dd>{profile.nickname_changed_at ? <ProfileTime value={profile.nickname_changed_at} /> : '尚无改名记录'}</dd></div><div><dt>下次可改名</dt><dd>{profile.next_rename_at ? <ProfileTime value={profile.next_rename_at} /> : profile.status === 'COMPLETE' ? '可立即改名' : '初始化后可改名'}</dd></div></dl>
+                <p className="hint">账户编号与改名时间仅本人可见，不随昵称与头像公开展示。</p>
+                <dl className="profile-details"><div><dt>账户编号</dt><dd>{profile.short_account_id}</dd></div><div><dt>资料版本</dt><dd>{profile.profile_version}</dd></div><div><dt>上次实际改名</dt><dd>{profile.nickname_changed_at ? <ProfileTime value={profile.nickname_changed_at} /> : '尚无改名记录'}</dd></div><div><dt>下次可改名</dt><dd>{profile.next_rename_at ? <ProfileTime value={profile.next_rename_at} /> : profile.status === 'COMPLETE' ? '可立即改名' : '初始化后可改名'}</dd></div></dl>
                 <p className="hint">时间按设备所在时区显示。</p>
             </section></IdentityDisclosure>}
         <IdentityDisclosure title="改名规则与资料说明">
-            <p>这是独立的 Master 展示资料，不修改原生用户名、密码或钱包。填写前，你仍可使用现有门户功能。</p>
+            <p>这是独立的 Master 展示资料，不修改登录名、密码或钱包。填写前，你仍可使用现有门户功能。</p>
             <h3>昵称与改名间隔</h3><p>1–24 个字符，可使用文字、数字、空格及 _ - ·。不含表情或隐藏字符；规范化、重名与保留名由服务端校验。</p>
             <p>初始化后首次改名可立即进行；每次实际改名后需间隔 7 天。可改名时间以服务端为准。</p>
             <h3>公开身份与本人预览</h3><p>昵称与头像会用于后续开放的游戏、排行等公开区域。本轮仅保存资料和本人预览，不创建他人可访问的公开主页。</p>

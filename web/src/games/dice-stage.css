@@ -1,11 +1,9 @@
 /* The dice room owns the viewport, without widening any other game. */
 .portal-shell:has(.game-dice) { --ink:#ecf0f7; --muted:#b3c3d9; --line:#7185a34d; color-scheme:dark; color:var(--ink); background:#081323; }
 .portal-shell:has(.game-dice) .main-content { width:100%; max-width:none; padding:0; margin:0; }
-.portal-shell:has(.game-dice) .portal-header { max-width:none; width:100%; padding-inline:clamp(16px,2.5vw,48px); background:#091626; border-color:#bba57a70; }
-.portal-shell:has(.game-dice) .portal-header a,
+
 .portal-shell:has(.game-dice) .account-button { color:#e1e8f4; }
 .portal-shell:has(.game-dice) .brand { color:#eddbb3; }
-.portal-shell:has(.game-dice) .portal-context { display:none; }
 .portal-shell:has(.game-dice) .workspace-foot { max-width:none; padding-inline:clamp(16px,2.5vw,48px); color:#a9b8ce; background:#081323; border-color:#63758d50; }
 .portal-shell:has(.game-dice) .mobile-nav,
 .portal-shell:has(.game-dice) .account-menu { background:#10223a; color:#e1e8f4; border-color:#7087a8; }
@@ -14,10 +12,10 @@
 .direct-game.game-dice { --dice-gold:#d9bf8d; --dice-muted:#b8c7dc; min-height:calc(100svh - 150px); width:100%; max-width:none; padding:20px clamp(16px,2.5vw,48px) 40px; background:radial-gradient(ellipse at 30% 10%,#18335380,transparent 65%),#081323; color:#f0f2f8; }
 .game-dice .game-page-heading { margin-bottom:20px; align-items:center; }
 .game-dice .game-page-heading h1 { margin:6px 0 10px; font-family:"Noto Serif SC","Songti SC",SimSun,serif; color:#f3dfb4; font-size:clamp(32px,3.5vw,56px); font-weight:500; letter-spacing:.12em; }
-.game-dice .eyebrow { color:var(--dice-gold); font-size:10px; letter-spacing:.18em; }
+.game-dice .eyebrow { color:var(--dice-gold); font-size:12px; letter-spacing:.18em; }
 .game-dice .game-page-heading p:last-child { color:var(--dice-muted); }
 .game-dice .game-heading-links a { min-height:44px; display:inline-flex; align-items:center; color:#d7e3f5; }
-.game-dice button { min-height:44px; border-color:#607a9b; background:#142a46; color:#e6eefb; }
+
 .game-dice :focus-visible { outline:3px solid #a9d8ff; outline-offset:4px; }
 .game-dice .dice-play-layout { display:grid; grid-template-columns:minmax(0,1fr) clamp(330px,27vw,460px); gap:24px; align-items:stretch; }
 .game-dice .game-stage { min-width:0; min-height:580px; border:1px solid #baa07390; border-radius:6px; background:#102039; }
@@ -74,7 +72,7 @@
 .game-dice .wager-cost { display:grid; gap:12px; border-color:#ad997450; color:#bdcce1; padding-block:16px 8px; }
 .game-dice .wager-cost>span { display:flex; justify-content:space-between; gap:8px; }
 .game-dice .wager-cost strong { color:#f3ecd8; font-size:16px; }
-.game-dice .game-play { min-height:60px!important; margin-top:auto; border:1px solid #e0bd76!important; outline:1px solid #627daa; outline-offset:3px; border-radius:7px; background:radial-gradient(ellipse at 50% 10%,#297fca,#164b87 50%,#0c2b59)!important; box-shadow:inset 0 0 14px #77bdffc0,0 4px 15px #0005; color:#fff0d3!important; font:24px "Noto Serif SC",SimSun,serif; letter-spacing:.15em; }
+.game-dice .game-play { margin-top:auto; letter-spacing:.15em }
 .game-dice .game-play:disabled { opacity:.6; }
 .game-dice .round-receipt { margin:24px 0 0; background:#0e2339; border-color:#ad997480; border-left-color:#d6be8c; }
 .game-dice .round-receipt h2,.game-dice .round-receipt dd { color:#f0dcae; }

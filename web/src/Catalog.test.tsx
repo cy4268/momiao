@@ -18,7 +18,7 @@ it('keeps public model detail anonymous and saves its choice through the single 
 });
 it('does not mount model operations before the central Gate resolves its scope',async()=>{
  const calls:string[]=[];const c=new ApiClient(async path=>{calls.push(path);if(path.includes('/auth/refresh'))return ok(bundle);if(path.startsWith('/platform/v1/access-gate?'))return ok({user_id:'1',route:'/ops/models',stage:'ROLE_DENIED'});return new Response('{}',{status:503})});
- browser('/ops/models',<App client={c}/>);expect(await screen.findByRole('alert')).toHaveTextContent('当前账户未具备此页面所需权限');expect(calls.some(path=>path.startsWith('/platform/v1/ops/models'))).toBe(false);
+ browser('/ops/models',<App client={c}/>);expect(await screen.findByRole('alert')).toHaveTextContent('当前账户没有访问此页面的权限');expect(calls.some(path=>path.startsWith('/platform/v1/ops/models'))).toBe(false);
 });
 it('binds the key-page Gate to the exact selected model query',async()=>{
  const routes:string[]=[];const c=new ApiClient(async path=>{if(path.includes('/auth/refresh'))return ok(bundle);if(path.startsWith('/platform/v1/access-gate?')){const route=new URLSearchParams(path.split('?')[1]).get('route')!;routes.push(route);return ok({user_id:'1',route,stage:'MIGRATION_UNVERIFIED'})}return new Response('{}',{status:503})});
@@ -40,16 +40,16 @@ it('selects exact channel model IDs inside one family without retaining stale de
  const c=new ApiClient(async path=>{paths.push(path);if(path==='/api/user/login')return ok(bundle);if(path.startsWith('/platform/v1/access-gate?'))return pendingGate;if(path.includes('/personal-price?'))return ok({model_id:new URLSearchParams(path.split('?')[1]).get('model_id'),quotes:[],basis:'current_user_group_reference_not_token_selection',observed_at:model.last_seen_at});if(path.includes('/detail?'))return path.includes(encodeURIComponent(second.model_id))?pending:ok({item:first,vocabulary:page.vocabulary,api_base_url:'https://api.example/v1'});return ok({...page,items:[first,second],total:2})});
  await c.login('one','x');paths.length=0;
  browser('/models?view=family&family=gemini&recommended=true&q=old-search',<Catalog client={c}/>);
- expect(await screen.findByRole('link',{name:'查看接入示例 →'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(model.model_id));
+ expect(await screen.findByRole('link',{name:'查看接入示例'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(model.model_id));
  const familyImage=screen.getByAltText('共享家族封面');expect(familyImage).toHaveAttribute('src',cover.image.src);
- expect(paths.find(p=>!p.includes('/detail?'))).toBe('/platform/v1/models?family=gemini');
+ expect(paths.find(p=>!p.includes('/detail?')&&p!=='/platform/v1/master-profile')).toBe('/platform/v1/models?family=gemini');
  fireEvent.click(screen.getByRole('button',{name:'使用此模型'}));
  fireEvent.click(screen.getByRole('button',{name:new RegExp(second.metadata.display_name)}));
- expect(screen.queryByRole('link',{name:'查看接入示例 →'})).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'使用此模型'})).not.toBeInTheDocument();
+ expect(screen.queryByRole('link',{name:'查看接入示例'})).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'使用此模型'})).not.toBeInTheDocument();
  resolve(ok({item:second,vocabulary:page.vocabulary,api_base_url:'https://api.example/v1'}));
- expect(await screen.findByRole('link',{name:'查看接入示例 →'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(second.model_id));
+ expect(await screen.findByRole('link',{name:'查看接入示例'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(second.model_id));
  await act(async()=>finishGate(ok({user_id:'1',route:'/api/access?model_id='+encodeURIComponent(model.model_id)+'&intent=use',stage:'MIGRATION_UNVERIFIED'})));
- expect(screen.getByRole('link',{name:'查看接入示例 →'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(second.model_id));
+ expect(screen.getByRole('link',{name:'查看接入示例'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(second.model_id));
  expect(screen.getByAltText('共享家族封面').getAttribute('src')).toBe(familyImage.getAttribute('src'));
  expect(paths.some(p=>p.includes('/api/token/'))).toBe(false);
 });

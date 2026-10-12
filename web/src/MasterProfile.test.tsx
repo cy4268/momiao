@@ -32,10 +32,10 @@ it('opens an optional profile route without initializing or copying native ident
     expect(await screen.findByLabelText('Master 昵称')).toHaveValue('');
     expect(screen.getByRole('button', { name: '保存并初始化' })).toBeDisabled();
     expect(screen.getByText('尚未初始化')).toBeVisible(); expect(writes(f)).toHaveLength(0);
-    expect(screen.getByRole('button', { name: '账户菜单' })).toHaveTextContent('Master 资料未完成');
+    expect(screen.getByRole('button', { name: '账户菜单' })).toHaveTextContent('Native User');
     fireEvent.click(screen.getByRole('button', { name: '账户菜单' }));
     expect(within(document.getElementById('account-menu')!).getByText('Native User')).toBeVisible();
-    expect(within(document.getElementById('account-menu')!).getByText('原生登录身份 · native-user')).toBeVisible();
+    expect(document.getElementById('account-menu')).not.toHaveTextContent('原生登录身份');
     expect(within(document.getElementById('account-menu')!).getByRole('link', { name: 'Master 资料' })).toHaveAttribute('href', '/master-profile');
 });
 it('previews without writing, explicitly initializes once and round-trips the identity', async () => {
@@ -170,7 +170,7 @@ it('separates future public name/avatar usage from private account identifiers a
     privateInfo.focus();
     fireEvent.click(privateInfo);
     expect(within(screen.getByRole('region', { name: '仅本人可见的账户信息' })).getByText('CA-123456789ABC')).toBeVisible();
-    expect(screen.getByText(/账户短 ID、版本与改名时间仅本人可见/)).toBeVisible();
+    expect(screen.getByText(/账户编号与改名时间仅本人可见/)).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '关闭对话框' }));
     expect(privateInfo).toHaveFocus();
     expect(screen.queryByText('CA-123456789ABC')).not.toBeInTheDocument();

@@ -26,7 +26,7 @@ describe('controlled Poker Lobby', () => {
   });
   it('pending blocks external navigation but permits whole-page refresh and pagination',()=>{
     const p=fixture();p.entry_pending=true;p.snapshot.page.next_cursor='eyJ2IjoxfQ';render(<PokerLobby {...p}/>);
-    expect(screen.getByRole('button',{name:'查看钱包 ↗'})).toBeDisabled();expect(screen.getByRole('button',{name:'牌局历史 ↗'})).toBeDisabled();
+    expect(screen.getByRole('button',{name:'查看钱包'})).toBeDisabled();expect(screen.getByRole('button',{name:'牌局历史'})).toBeDisabled();
     expect(screen.getByRole('button',{name:'观战'})).toBeDisabled();expect(screen.getByRole('button',{name:'刷新列表'})).toBeEnabled();
     fireEvent.click(screen.getByRole('button',{name:'刷新列表'}));expect(p.onIntent).toHaveBeenCalledWith({type:'refresh'},p.authority.scope);
     fireEvent.click(screen.getByRole('button',{name:'下一页'}));expect(p.onFiltersChange).toHaveBeenCalledWith({...p.filters,cursor:'eyJ2IjoxfQ'});

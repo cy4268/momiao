@@ -1,6 +1,6 @@
 /* Finish the three early live game rooms; history and other games keep their layouts. */
 .direct-salon .direct-tool-dock { display:flex; gap:8px; margin-top:12px; }
-.direct-salon .direct-tool-dock button { flex:1; display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:44px; padding:8px 16px; border:1px solid #b79a627a; border-radius:2px; background:#081a2d; font-size:13px; }
+.direct-salon .direct-tool-dock button { flex:1; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:8px 16px }
 .direct-salon .direct-tool-dock button:last-child { flex:0 0 auto; }
 .direct-tool-dock span { color:#e3c98f; font-size:18px; }
 .direct-game.direct-salon .compact-receipt { grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:16px; padding:10px 18px; margin:12px 0 0; }
@@ -8,8 +8,20 @@
 .direct-salon .compact-receipt h2 strong { font-size:24px; }
 .direct-salon .compact-receipt p { margin:4px 0 0; font-size:12px; }
 .direct-salon .compact-receipt dl { display:flex; gap:24px; margin:0; }
-.direct-salon .compact-receipt dt { font-size:11px; }
+.direct-salon .compact-receipt dt { font-size:12px; }
 .direct-salon .compact-receipt dd { font-size:22px; margin:4px 0 0; }
+/* Outrank the light base theme for every outcome, so a loss is never a pale card on the night table. */
+.direct-game.direct-salon .round-receipt:is(.result-WIN,.result-LOSS,.result-BREAK_EVEN,.result-PENDING) { position:relative; background:#0e2339; border-color:#ad997480; border-left-color:#d6be8c; }
+.direct-game.direct-salon .round-receipt.result-LOSS { border-left-color:#8a96a8; }
+.direct-game.direct-salon .round-receipt.result-BREAK_EVEN { border-left-color:#9fb3c8; }
+.direct-game.direct-salon .round-receipt.result-PENDING { border-left-color:#ad997480; }
+.direct-game.direct-salon .round-receipt:is(.result-WIN,.result-LOSS,.result-BREAK_EVEN,.result-PENDING) :is(h2,dd) { color:#f0dcae; }
+.direct-game.direct-salon .round-receipt:is(.result-WIN,.result-LOSS,.result-BREAK_EVEN,.result-PENDING) :is(p:not(.eyebrow),dt) { color:#c0d0e4; }
+/* While dice land the receipt keeps its box and only its content fades, so nothing flashes or jumps. */
+.direct-salon .round-receipt .receipt-body>* { transition:opacity .28s ease; }
+.direct-salon .round-receipt.is-concealed .receipt-body>* { opacity:0; }
+.direct-salon .round-receipt.is-concealed::after { content:'落定中…'; position:absolute; inset:0; display:grid; place-items:center; color:#c0d0e4; font-size:13px; letter-spacing:.12em; }
+@media (prefers-reduced-motion: reduce) { .direct-salon .round-receipt .receipt-body>* { transition:none; } }
 .direct-salon .modal { width:min(780px,calc(100vw - 28px)); max-height:calc(100dvh - 32px); padding:22px; overflow:hidden; background:#0b1a2e; color:#e5e9f1; border:1px solid #c2a365; border-radius:3px; }
 .direct-salon .modal[open] { display:flex; flex-direction:column; }
 .direct-salon .modal::backdrop { background:#020914bd; backdrop-filter:blur(5px); }
@@ -19,9 +31,8 @@
 .direct-salon .summon-roster { margin-top:20px; }
 @media (min-width:1000px) {
  .portal-shell:has(.direct-salon) { height:100dvh; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; }
- .portal-shell:has(.direct-salon) .portal-header { min-height:64px; padding:6px clamp(16px,2vw,38px); }
  .portal-shell:has(.direct-salon) .main-content { min-height:0; }
- .portal-shell:has(.direct-salon) .workspace-foot { padding:6px 24px; margin:0; font-size:10px; }
+ .portal-shell:has(.direct-salon) .workspace-foot { padding:6px 24px; margin:0; font-size:12px; }
  .direct-game.direct-salon { display:flex; flex-direction:column; gap:8px; height:100%; min-height:0; padding:12px clamp(16px,2vw,38px); }
  .direct-salon .game-page-heading { flex:none; margin:0; gap:20px; }
  .direct-salon .game-page-heading .eyebrow { margin:0 0 4px; }
@@ -46,7 +57,7 @@
  .direct-salon .game-balance a { min-height:28px; }
  .direct-salon .wager-form { gap:8px; }
  .direct-salon .wager-cost { gap:8px; padding:10px 0 4px; }
- .direct-salon .game-play { min-height:52px!important; margin-top:auto; font-size:20px; }
+ .direct-salon .game-play { margin-top:auto }
  .direct-salon .game-choice label { min-height:76px; }
  .direct-salon .summon-mode label { margin:0; }
  .direct-salon .compact-receipt,.direct-salon .direct-tool-dock { flex:none; margin:0; }
@@ -55,7 +66,7 @@
 @media (min-width:1000px) and (max-height:900px) {
  .direct-game.direct-salon { gap:6px; padding-block:8px; }
  .direct-salon .game-page-heading h1 { font-size:28px; }
- .direct-salon .game-page-heading p:last-child { font-size:11px; }
+ .direct-salon .game-page-heading p:last-child { font-size:12px; }
  .direct-salon .game-console { padding:12px 16px; gap:8px; }
  .direct-salon .game-balance { padding-bottom:6px; }
  .direct-salon .game-balance>strong { font-size:28px; }
@@ -70,11 +81,11 @@
  .direct-salon .game-choice strong { font-size:26px; }
  .direct-salon .game-choice span { margin-top:0; font-size:12px; }
  .direct-salon .wager-cost { gap:4px; padding:6px 0 2px; }
- .direct-salon .game-play { min-height:48px!important; }
+ 
  .direct-game.direct-salon .compact-receipt { padding-block:6px; }
  .direct-salon .compact-receipt h2 strong,.direct-salon .compact-receipt dd { font-size:20px; }
- .direct-salon .compact-receipt p { font-size:11px; margin-top:2px; }
- .direct-salon .direct-tool-dock button { min-height:40px; padding-block:6px; }
+ .direct-salon .compact-receipt p { font-size:12px; margin-top:2px; }
+ .direct-salon .direct-tool-dock button { padding-block:6px }
  .direct-salon .summon-play-layout { padding:10px 12px; }
  .direct-salon.game-summon .wager-form { gap:4px; }
  .direct-salon .summon-mode label { min-height:44px; padding-block:6px; }

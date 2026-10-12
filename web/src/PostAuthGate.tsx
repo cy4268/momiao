@@ -26,12 +26,15 @@ export function AccessGate({client,user,route,children,pokerRecovery=false}:{cli
 const messages:Record<string,string>={
  ACCOUNT_RESTRICTED:'账户当前受到访问限制。请退出登录，或通过既有支持入口核对账户状态。',
  MIGRATION_UNVERIFIED:'迁移适用状态尚未核实。本站不会把缺少迁移记录解释为迁移已经完成。',
- ROLE_DENIED:'当前账户未具备此页面所需权限。原生管理员与平台运营权限保持独立。',
+ ROLE_DENIED:'当前账户没有访问此页面的权限。',
  ROLE_UNVERIFIED:'当前权限状态尚未核实，请重新读取。',
  RESOURCE_UNAVAILABLE:'目标功能当前未开放，请选择已开放入口。',
  RESOURCE_UNVERIFIED:'目标功能的开放状态尚未核实，请重新读取。',
  MAINTENANCE:'目标功能正在维护，恢复开放后再继续。',
 };
+// Admission already confirmed in this session (per client, user and session generation). A route change
+// re-checks in the background instead of blanking the whole page; a non-READY answer still takes over.
+const admittedSessions = new WeakMap<ApiClient, { userID: number; generation: number }>();
 function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,children}:{client:ApiClient;user:User;route:string;postAuth?:boolean;pokerRecovery?:boolean;children?:ReactNode}){
  const [loaded,setLoaded]=useState<{value:AccessGateView;scope:GateScope}>();const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [destination,setDestination]=useState<GateScope>();
  const [admitted,setAdmitted]=useState<GateScope>();const revision=useRef(0);const generation=client.getSessionGeneration();const scope=useRef<GateScope>({client,userID:user.id,generation,route});
@@ -56,6 +59,7 @@ function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,child
     setDestination(start);return;
    }
    setLoaded({value:next,scope:start});
+   if(next.stage==='READY')admittedSessions.set(client,{userID:start.userID,generation:start.generation});else admittedSessions.delete(client);
   }catch{if(valid())setError('访问状态尚未核实。请重新读取；当前不会自动放行或重放先前操作。');}
   finally{if(valid()){loadLock.current=false;setLoading(false);}}
  }
@@ -64,7 +68,7 @@ function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,child
   catch{if(active.current&&matches(start)){setReconcile(true);setError('确认结果尚未核实。请先重新核对访问状态；既有确认记录将保留原时间。');}}
   finally{if(active.current&&matches(start)){writeLock.current=false;setSaving(false);}}
  }
- useEffect(()=>{active.current=true;setSaving(false);setReconcile(false);document.title='访问状态核对 · momiao';void load();return()=>{active.current=false;revision.current++;loadLock.current=false;writeLock.current=false;};},[client,user.id,route,generation]);
+ useEffect(()=>{active.current=true;setSaving(false);setReconcile(false);const admittedBefore=admittedSessions.get(client);if(postAuth||poker||roulette||admittedBefore?.userID!==user.id||admittedBefore.generation!==generation)document.title='访问状态核对 · momiao';void load();return()=>{active.current=false;revision.current++;loadLock.current=false;writeLock.current=false;};},[client,user.id,route,generation]);
  if(destination&&matches(destination))return <Navigate to={destination.route} replace/>;
  // Page policy only tightens the UI; domain/controller guards still decide every operation.
  if(roulette&&matches(admitted))return <>{view?.stage==='MAINTENANCE'&&<aside aria-label="轮盘访问状态"><Alert>维护中：已开始对局继续，保留退款与回执核对；新开局暂时关闭。</Alert></aside>}{children}</>;
@@ -72,6 +76,8 @@ function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,child
   <aside aria-label="Poker 访问状态">{loading&&<Loading/>}{error&&<Alert>{error}</Alert>}{view?.stage==='MAINTENANCE'&&<Alert>仅保留既有对局、回执核对与安全退出入口；新开局等入口暂时关闭。</Alert>}<button disabled={loading||saving} onClick={()=>void load()}>重新核对访问状态</button></aside>
   {children}
  </PokerGateContext.Provider>;
+ const admittedBefore=admittedSessions.get(client);
+ if(!postAuth&&!poker&&!roulette&&loading&&!error&&admittedBefore?.userID===user.id&&admittedBefore.generation===generation)return <>{children}</>;
  if(!loading&&view?.stage==='READY')return <>{children}</>;
  const notice=view?.migration_notice;
  return <main className="welcome-page"><Link to="/" className="brand"><Brand/></Link>

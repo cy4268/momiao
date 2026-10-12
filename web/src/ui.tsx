@@ -35,7 +35,7 @@ export function Pager({ page, total, size, onChange, disabled = false }: {
     size: number;
     onChange: (p: number) => void;
     disabled?: boolean;
-}) { const pages = Math.max(1, Math.ceil(total / size)); return <nav className="pager" aria-label="分页"><span>共 {number(total)} 条 · 第 {page} / {pages} 页</span><div><button disabled={disabled || page <= 1} onClick={() => onChange(page - 1)} aria-label="上一页">← 上一页</button><button disabled={disabled || page >= pages} onClick={() => onChange(page + 1)} aria-label="下一页">下一页 →</button></div></nav>; }
+}) { const pages = Math.max(1, Math.ceil(total / size)); return <nav className="pager" aria-label="分页"><span>共 {number(total)} 条 · 第 {page} / {pages} 页</span><div><button disabled={disabled || page <= 1} onClick={() => onChange(page - 1)} aria-label="上一页">上一页</button><button disabled={disabled || page >= pages} onClick={() => onChange(page + 1)} aria-label="下一页">下一页</button></div></nav>; }
 export function Modal({ title, children, onClose, busy = false }: {
     title: string;
     children: ReactNode;
