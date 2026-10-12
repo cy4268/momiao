@@ -1,5 +1,13 @@
 # Portal deployment
 
+## Local identity migration (in progress)
+
+Migration 0048 adds `identity.users`, `identity.two_fas`, and `identity.two_fa_backup_codes`. Authentication code is adapted from **unpatched official QuantumNous/new-api, revision f116414284162ad15d8925f7bca494c109b83e93**, not the VPS's momiao login patches. It retains bcrypt hashes, TOTP/backup-code formats and the existing five-attempt factor lockout.
+
+Build `go build ./cmd/momiao-migrate` and `go build ./cmd/momiao-import-native`. Apply schema with the existing migration tool and `MOMIAO_MIGRATION_DSN_FILE`, then run the importer with that target DSN file and `MOMIAO_IMPORT_NATIVE_DSN_FILE` pointing to the native source. Use the isolated dev databases first. The importer reads a consistent read-only source snapshot and writes the three empty target tables in one transaction; it preserves IDs, deleted/disabled users, factor state and consumed backup codes, then advances each identity sequence. User IDs also retain the source sequence high-water mark and existing account references, so deleted users' historical IDs are not reused. The importer locks and checks all three target tables first: any existing row causes the import to fail rather than append or overwrite passwords. Command failures print a fixed message, not connection strings.
+
+The command currently reports `stage: identity` and counts for these three tables only. It does **not** import relay data, merge Reserve, migrate sessions, or switch the running web login. Do not use this partial importer for production cutover. When the local authentication runtime is connected, apply `deploy/sql/runtime-grants-0048-local-identity.psql` as the owner with `platform_runtime_role`; it grants table-level CRUD without changing existing business-table grants.
+
 ## Optional wallet database
 
 Wallet reads and explicit zero initialization use a separate PostgreSQL database. Set `MOMIAO_WALLET_DSN_FILE` (absolute regular file, at most 8192 bytes) and `MOMIAO_PUBLIC_ORIGIN` (exact HTTPS origin) together with the existing complete portal configuration. Protect the DSN file with a restricted group and do not print it, put it in command arguments, or commit it. No credentials are bundled.

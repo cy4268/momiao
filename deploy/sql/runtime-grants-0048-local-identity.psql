@@ -1,0 +1,7 @@
+-- Apply after migration 0048, as the table owner.
+\set ON_ERROR_STOP on
+BEGIN;
+GRANT USAGE ON SCHEMA identity TO :"platform_runtime_role";
+GRANT SELECT,INSERT,UPDATE,DELETE ON identity.users,identity.two_fas,identity.two_fa_backup_codes TO :"platform_runtime_role";
+GRANT USAGE,SELECT ON SEQUENCE identity.users_id_seq,identity.two_fas_id_seq,identity.two_fa_backup_codes_id_seq TO :"platform_runtime_role";
+COMMIT;
