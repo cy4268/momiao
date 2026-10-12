@@ -68,7 +68,7 @@ npm run build
 
 ### 去 NewAPI：身份迁移工具（尚未切换登录入口）
 
-`internal/identity` 复用官方 `QuantumNous/new-api@f1164142` 的 bcrypt、TOTP/备用码和 Discord OAuth 逻辑，仅适配 pgx 与显式配置，不使用 VPS 的定制认证补丁。新增迁移 0048 和 `go build ./cmd/momiao-import-native`；当前命令只导入用户与 2FA，保留 ID/密码哈希/备用码状态，不处理额度、Key、渠道或会话。使用方式见 [部署说明](docs/deployment.md#local-identity-migration-in-progress)。现有网站登录入口暂未切换。
+`internal/identity` 复用官方 `QuantumNous/new-api@f1164142` 的 bcrypt、TOTP/备用码和 Discord OAuth 逻辑，仅适配 pgx 与显式配置，不使用 VPS 的定制认证补丁。本地 Redis 会话存储已支持创建、读取、单会话退出与整用户撤销，沿用现有 Cookie 和有效期，不再保存 native 凭据。新增迁移 0048 和 `go build ./cmd/momiao-import-native`；当前命令只导入用户与 2FA，保留 ID/密码哈希/备用码状态，不处理额度、Key、渠道或会话。使用方式见 [部署说明](docs/deployment.md#local-identity-migration-in-progress)。现有网站登录入口暂未切换。
 
 **只运行存活探针**：不设置额外环境变量，执行构建出的 `momiao`（Windows 为 `momiao.exe`），默认监听 `127.0.0.1:8080`。`GET/HEAD /healthz` 返回 `{"status":"ok"}`；该模式其他路径为 404。存活不代表上游或业务就绪。
 
