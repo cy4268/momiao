@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/cy4268/momiao/internal/bffauth"
 	"github.com/cy4268/momiao/internal/games"
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/rankings"
 	"github.com/cy4268/momiao/internal/roulette"
@@ -40,6 +41,7 @@ type config struct {
 	history                   *historyHTTP
 	Session                   sessionConfig
 	sessionAuth               http.Handler
+	localIdentity             *identity.HTTP
 	sessionBridge             *bffauth.Service
 	sessions                  *session.Service
 	Poker                     pokerConfig

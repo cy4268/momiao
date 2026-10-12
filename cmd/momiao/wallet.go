@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 	"io"
 	"mime"
@@ -72,55 +73,14 @@ type nativeSelfData struct {
 	Role     *int   `json:"role"`
 }
 
-func readNativeSelf(r *http.Request, transport http.RoundTripper) (nativeSelfData, int) {
-	auth, ok := authHeader(r, "Authorization", 8192, true)
-	parts := strings.Split(auth, " ")
-	if !ok || len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
-		return nativeSelfData{}, 401
-	}
-	claimed, ok := authHeader(r, "New-Api-User", 19, true)
-	id, err := decimalInt(claimed)
-	if !ok || err != nil || id <= 0 {
-		return nativeSelfData{}, 401
-	}
-	session, ok := authHeader(r, "X-Auth-Session", 512, false)
+// The historical helper name remains while its callers are migrated; authority
+// comes exclusively from the local session middleware, never from native.
+func readNativeSelf(r *http.Request, _ http.RoundTripper) (nativeSelfData, int) {
+	user, ok := identity.UserFromContext(r.Context())
 	if !ok {
-		return nativeSelfData{}, 401
+		return nativeSelfData{}, http.StatusUnauthorized
 	}
-	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://unix/api/user/self", nil)
-	req.Host = "localhost"
-	req.Header.Set("Authorization", auth)
-	req.Header.Set("New-Api-User", claimed)
-	if session != "" {
-		req.Header.Set("X-Auth-Session", session)
-	}
-	// RoundTrip never follows redirects and has no cookie jar. Only fixed native Unix transport is wired in production.
-	resp, err := transport.RoundTrip(req)
-	if err != nil {
-		return nativeSelfData{}, 502
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		return nativeSelfData{}, resp.StatusCode
-	}
-	if resp.StatusCode != 200 {
-		return nativeSelfData{}, 502
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 65537))
-	if err != nil || len(body) > 65536 {
-		return nativeSelfData{}, 502
-	}
-	var result struct {
-		Success bool           `json:"success"`
-		Data    nativeSelfData `json:"data"`
-	}
-	if json.Unmarshal(body, &result) != nil || !result.Success || result.Data.ID <= 0 || result.Data.Status == nil {
-		return nativeSelfData{}, 502
-	}
-	if result.Data.ID != id {
-		return nativeSelfData{}, 401
-	}
-	return result.Data, 0
+	return nativeSelfData{ID: user.ID, Status: &user.Status, Username: user.Username, Role: &user.Role}, 0
 }
 
 func verifyWalletUser(r *http.Request, transport http.RoundTripper) (int64, int) {

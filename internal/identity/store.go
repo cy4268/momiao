@@ -50,15 +50,15 @@ func (s *Store) DiscordUser(ctx context.Context, discordID string) (User, error)
 	return scanUser(s.Pool.QueryRow(ctx, `SELECT `+userColumns+` FROM identity.users WHERE discord_id=$1 AND deleted_at IS NULL`, discordID))
 }
 
-// AuthenticatePassword follows official User.ValidateAndFill: trim the login
+// authenticatePassword follows official User.ValidateAndFill: trim the login
 // name, accept username/email, verify the existing bcrypt hash, reject bans.
-// Callers must complete the second factor before issuing a session.
-func (s *Store) AuthenticatePassword(ctx context.Context, username, password string) (User, bool, error) {
+// The caller holds this transaction through challenge/session creation.
+func authenticatePassword(ctx context.Context, tx pgx.Tx, username, password string) (User, bool, error) {
 	username = strings.TrimSpace(username)
 	if username == "" || password == "" {
 		return User{}, false, ErrCredentials
 	}
-	u, err := scanUser(s.Pool.QueryRow(ctx, `SELECT `+userColumns+` FROM identity.users WHERE (username=$1 OR email=$1) AND deleted_at IS NULL ORDER BY id LIMIT 1`, username))
+	u, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+` FROM identity.users WHERE (username=$1 OR email=$1) AND deleted_at IS NULL ORDER BY id LIMIT 1 FOR UPDATE`, username))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, false, ErrCredentials
 	}
@@ -69,43 +69,31 @@ func (s *Store) AuthenticatePassword(ctx context.Context, username, password str
 		return User{}, false, ErrCredentials
 	}
 	var secondFactor bool
-	err = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity.two_fas WHERE user_id=$1 AND is_enabled AND deleted_at IS NULL)`, u.ID).Scan(&secondFactor)
+	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity.two_fas WHERE user_id=$1 AND is_enabled AND deleted_at IS NULL)`, u.ID).Scan(&secondFactor)
 	return u, secondFactor, err
 }
 
-// AuthenticateSecondFactor retains official TOTP/backup-code normalization,
+// authenticateSecondFactor retains official TOTP/backup-code normalization,
 // bcrypt backup hashes, one-use backup codes and the five-attempt lockout.
-func (s *Store) AuthenticateSecondFactor(ctx context.Context, userID int64, code string) (User, error) {
-	tx, err := s.Pool.Begin(ctx)
-	if err != nil {
-		return User{}, err
-	}
-	defer tx.Rollback(ctx)
-	u, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+` FROM identity.users WHERE id=$1 AND status=1 AND deleted_at IS NULL FOR UPDATE`, userID))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return User{}, ErrCredentials
-	}
-	if err != nil {
-		return User{}, err
-	}
+func authenticateSecondFactor(ctx context.Context, tx pgx.Tx, userID int64, code string) error {
 	var secret string
 	var failed int
 	var lockedUntil *time.Time
-	err = tx.QueryRow(ctx, `SELECT secret,failed_attempts,locked_until FROM identity.two_fas WHERE user_id=$1 AND is_enabled AND deleted_at IS NULL FOR UPDATE`, userID).Scan(&secret, &failed, &lockedUntil)
+	err := tx.QueryRow(ctx, `SELECT secret,failed_attempts,locked_until FROM identity.two_fas WHERE user_id=$1 AND is_enabled AND deleted_at IS NULL FOR UPDATE`, userID).Scan(&secret, &failed, &lockedUntil)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return User{}, ErrCredentials
+		return ErrCredentials
 	}
 	if err != nil {
-		return User{}, err
+		return err
 	}
 	if lockedUntil != nil && time.Now().Before(*lockedUntil) {
-		return User{}, ErrTwoFALocked
+		return ErrTwoFALocked
 	}
 	valid := ValidateTOTPCode(secret, code)
 	if !valid && ValidateBackupCode(code) {
 		rows, err := tx.Query(ctx, `SELECT id,code_hash FROM identity.two_fa_backup_codes WHERE user_id=$1 AND NOT is_used AND deleted_at IS NULL`, userID)
 		if err != nil {
-			return User{}, err
+			return err
 		}
 		type backup struct {
 			id   int64
@@ -117,13 +105,13 @@ func (s *Store) AuthenticateSecondFactor(ctx context.Context, userID int64, code
 			return b, err
 		})
 		if err != nil {
-			return User{}, err
+			return err
 		}
 		for _, b := range codes {
 			if ValidatePasswordAndHash(NormalizeBackupCode(code), b.hash) {
 				_, err = tx.Exec(ctx, `UPDATE identity.two_fa_backup_codes SET is_used=true,used_at=now() WHERE id=$1`, b.id)
 				if err != nil {
-					return User{}, err
+					return err
 				}
 				valid = true
 				break
@@ -141,13 +129,10 @@ func (s *Store) AuthenticateSecondFactor(ctx context.Context, userID int64, code
 		_, err = tx.Exec(ctx, `UPDATE identity.two_fas SET failed_attempts=0,locked_until=NULL,last_used_at=now(),updated_at=now() WHERE user_id=$1`, userID)
 	}
 	if err != nil {
-		return User{}, err
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return User{}, err
+		return err
 	}
 	if !valid {
-		return User{}, ErrCredentials
+		return ErrCredentials
 	}
-	return u, nil
+	return nil
 }

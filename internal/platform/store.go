@@ -67,6 +67,9 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 }
 func (s *Store) Close() { s.pool.Close() }
 
+// Pool lets local identity and wallet operations share the runtime connection pool.
+func (s *Store) Pool() *pgxpool.Pool { return s.pool }
+
 type Wallet struct {
 	UserID       int64 `json:"user_id,string"`
 	Asset        Asset `json:"asset"`

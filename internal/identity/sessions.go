@@ -20,6 +20,7 @@ const (
 	sessionPrefix     = "chaldea:session:local:"
 	sessionIdle       = 7 * 24 * time.Hour
 	sessionLifetime   = 30 * 24 * time.Hour
+	anonymousLifetime = 15 * time.Minute
 )
 
 var ErrSessionExpired = errors.New("登录已失效，请重新登录")
@@ -80,6 +81,17 @@ func (s Sessions) Create(ctx context.Context, userID int64) (Session, error) {
 	return value, nil
 }
 
+// Anonymous sessions only bind login CSRF to a browser. They have no user index.
+func (s Sessions) CreateAnonymous(ctx context.Context) (Session, error) {
+	value := Session{CreatedAt: time.Now().UTC(), CSRFToken: sessionToken(), Token: sessionToken()}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return Session{}, err
+	}
+	err = s.Redis.Set(ctx, sessionKey(value.Token), raw, anonymousLifetime).Err()
+	return value, err
+}
+
 // Read renews only an existing key. SET XX cannot resurrect a session that a
 // concurrent logout has deleted, and the renewal never exceeds 30 days.
 // HTTP callers still verify CSRF and the live local user's enabled status.
@@ -100,7 +112,11 @@ func (s Sessions) Read(ctx context.Context, token string) (Session, error) {
 		return Session{}, err
 	}
 	value.Token = token
-	remaining := time.Until(value.CreatedAt.Add(sessionLifetime))
+	lifetime := sessionLifetime
+	if value.UserID == 0 {
+		lifetime = anonymousLifetime
+	}
+	remaining := time.Until(value.CreatedAt.Add(lifetime))
 	if remaining <= 0 {
 		_ = s.Revoke(ctx, value)
 		return Session{}, ErrSessionExpired
@@ -138,8 +154,12 @@ func (s Sessions) RevokeUser(ctx context.Context, userID int64) error {
 
 func WriteSessionCookie(w http.ResponseWriter, value Session) {
 	w.Header().Set("Cache-Control", "no-store")
+	lifetime := sessionLifetime
+	if value.UserID == 0 {
+		lifetime = anonymousLifetime
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name: SessionCookieName, Value: value.Token, Path: "/", Secure: true,
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Expires: value.CreatedAt.Add(sessionLifetime),
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Expires: value.CreatedAt.Add(lifetime),
 	})
 }

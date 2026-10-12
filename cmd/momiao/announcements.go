@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/cy4268/momiao/internal/nativeself"
+	"github.com/cy4268/momiao/internal/identity"
 	"io"
 	"mime"
 	"net/http"
@@ -223,7 +223,7 @@ func newAnnouncementHandler(origin string, store announcementStore, transport ht
 	})
 }
 
-func announcementSessionCredential(r *http.Request) bool { return nativeself.SessionCredential(r) }
+func announcementSessionCredential(r *http.Request) bool { _, ok := identity.UserFromContext(r.Context()); return ok }
 func writeAnnouncementError(w http.ResponseWriter, err error) {
 	status, code := 503, "ANNOUNCEMENTS_UNAVAILABLE"
 	switch {

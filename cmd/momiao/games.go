@@ -14,6 +14,7 @@ import (
 
 	"github.com/cy4268/momiao/internal/games"
 	bj "github.com/cy4268/momiao/internal/games/blackjack"
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -143,11 +144,7 @@ func newGameHandler(origin string, service *games.Service, transport http.RoundT
 			walletError(w, status, code)
 			return
 		}
-		session, ok := authHeader(r, "X-Auth-Session", 512, true)
-		if !ok {
-			walletError(w, 401, "AUTH_UNAUTHORIZED")
-			return
-		}
+		session := identity.SessionIDFromContext(r.Context())
 		if r.Method == "POST" || r.Method == "PUT" {
 			if origins := r.Header.Values("Origin"); len(origins) != 1 || origins[0] != origin {
 				walletError(w, 403, "ORIGIN_REJECTED")

@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cy4268/momiao/internal/games"
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/nativeself"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/roulette"
@@ -90,11 +91,7 @@ func newRouletteHandler(origin string, service *roulette.Service, csrf *games.Se
 			walletError(w, status, code)
 			return
 		}
-		session, ok := authHeader(r, "X-Auth-Session", 512, true)
-		if !ok {
-			walletError(w, 401, "AUTH_UNAUTHORIZED")
-			return
-		}
+		session := identity.SessionIDFromContext(r.Context())
 		q, e := url.ParseQuery(r.URL.RawQuery)
 		if e != nil {
 			rouletteError(w, roulette.ErrInvalidInput)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/cy4268/momiao/internal/bffauth"
 	"github.com/cy4268/momiao/internal/games"
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/roulette"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/rankings"
@@ -71,7 +72,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		cfg.readiness["session_database"] = application.pool.Ping
 		cfg.readiness["session_cache"] = func(ctx context.Context) error { return application.redis.Ping(ctx).Err() }
 		cfg.sessions = application.sessions
-		cfg.sessionAuth = newSessionHandler(application.auth, application.sessions)
 		cfg.sessionBridge = application.auth
 	}
 	if cfg.WalletDSNFile != "" {
@@ -93,9 +93,8 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			return store.WithTx(ctx, func(tx pgx.Tx) error { var one int; return tx.QueryRow(ctx, "SELECT 1").Scan(&one) })
 		}
 		if sessionApp != nil {
-			if err := sessionApp.auth.SetAccountRefReader(store); err != nil {
-				return errSessionStartup
-			}
+			cfg.localIdentity = &identity.HTTP{Store: &identity.Store{Pool: store.Pool()}, Sessions: identity.Sessions{Redis: sessionApp.redis}, Origin: cfg.PublicOrigin}
+			cfg.sessionAuth = cfg.localIdentity
 		}
 		cfg.wallet = store
 		cfg.profile = store
