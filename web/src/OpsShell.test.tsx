@@ -320,11 +320,16 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  fireEvent.click(await screen.findByRole('link',{name:'member · #2'}));
  fireEvent.change(await screen.findByLabelText('用户分组'),{target:{value:'工作'}});
  fireEvent.change(screen.getByLabelText('用户角色'),{target:{value:'10'}});
+ fireEvent.change(screen.getByLabelText('账号状态'),{target:{value:'2'}});
+ vi.mocked(window.confirm).mockReturnValueOnce(false);
+ fireEvent.click(screen.getByRole('button',{name:'保存资料'}));
+ expect(window.confirm).toHaveBeenLastCalledWith('确认封禁此用户并撤销全部会话？');
+ expect(writes).toHaveLength(0);
  fireEvent.click(screen.getByRole('button',{name:'保存资料'}));
  expect(await screen.findByText('操作已保存，详情读取失败，请刷新核对。')).toBeVisible();
  readsFail=false;fireEvent.click(screen.getByRole('button',{name:'刷新详情'}));
  expect(await screen.findByLabelText('用户分组')).toHaveValue('工作');
- expect(writes[0]).toEqual({path:'/api/v1/ops/users/2',body:{group:'工作',status:1,role:10}});
+ expect(writes[0]).toEqual({path:'/api/v1/ops/users/2',body:{group:'工作',status:2,role:10}});
  fireEvent.click(screen.getByRole('button',{name:'重置 2FA'}));
  expect(await screen.findByText('2FA：未启用')).toBeVisible();
  fireEvent.click(screen.getByRole('button',{name:'强制下线'}));
