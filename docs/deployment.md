@@ -182,3 +182,14 @@ The portal's runtime CSP must separately allow the same CDN origin used at build
 `/ops/channels` 与 `/ops/groups` 使用本地管理员会话和 CSRF，直接写 `relay.channels/groups`；已有 0053 运行授权即可，无新迁移。旧 `/admin/channels` 跳转，旧 `/api/channel/` 返回 404。密钥只写不读，留空保留；导入的多 Key、参数与 Vertex 配置保持原值。分组改名同步用户/渠道，仍被引用的分组拒绝删除；注册默认组 `default` 名称固定。
 
 手动渠道测试复用中转协议适配，对首个模型发一条输出上限为 1 token 的请求，不重试、不扣用户 Reserve，仍消耗真实上游额度。模型拉取使用已保存配置，结果只填表，保存后才生效。Vertex 没有兼容发现地址时手动填写模型列表。模型矩阵仅表示启用渠道的模型/组匹配，不代表上游健康或价格可用。渠道保存后的下一次请求直接读数据库，无缓存刷新步骤。
+
+
+### 本地用户运营与调用日志
+
+`/ops/users`、`/ops/users/:id`、`/ops/logs` 使用本地 Redis 会话、CSRF 和 role >= 10，不读取旧 Ops bootstrap/epoch，不走 prepare/execute。用户写入事务重新核对操作者状态/角色；沿用官方 f1164142 的「root 或严格高于目标角色」规则，仅 root 修改角色，至少保留一位启用的 root。分组先锁 relay.groups，再锁用户行，与组改名保持同一顺序。角色/状态变更、重置 2FA 和强制下线复用现有用户会话撤销；组变更由后续请求实时读取。
+
+Reserve 调账接受有符号 Credit 十进制字符串和备注，复用 ParseAmount / applyInTx，最小单位 0.000002，不透支、不四舍五入。浏览器在当前表单保留 request_id，失败后同一输入重试；业务号、账务幂等键同源。一次成功写入 OPS_ADJUST 流水和一条审计，重复请求不新增审计；备注由同事务审计关联到流水。不自动为尚未初始化的用户新建钱包。Key 只列掩码，停用/删除保留调用历史。
+
+全局日志只列 kind 2/5 的消费/错误尝试。用户、Key、模型、渠道、日志分组和起止时间筛选后，用 request_id 合并逻辑请求；历史无 request_id 的每条日志独立计算。筛选内所有尝试均失败才计为错误请求，因此筛选单渠道或「仅错误」会改变该口径。Token 为 input + output（不重复叠加已包含的缓存输入），费用用 PostgreSQL numeric / 500000 转十进制字符串。Top 20 按当前维度请求数排序，现场 SQL GROUP BY，不建预聚合表或缓存。沿用 schema 57 和现有授权，无新迁移。
+
+用户详情的游戏记录链接继续指向全局 records 的用户筛选；该全局页面与其余旧运营模块在后续切片迁移，联合验收前不发布这批局部源码。

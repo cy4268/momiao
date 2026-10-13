@@ -63,3 +63,76 @@ it('saves maintenance directly with a local admin and shows all operations witho
  await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('actor_user_id=1')&&path.includes('target_type=MAINTENANCE')&&path.includes('page=1'))).toBe(true));
  expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/bootstrap')||path.includes('/ops/operations')||path.includes('/ops/fresh')||path.includes('/native-runtime')||path.includes('authz_epoch'))).toBe(false);
 });
+
+
+it('manages local users and filtered relay logs without legacy operations', async()=>{
+ let u={id:2,username:'member',display_name:'测试用户',discord_id:'123456789',group:'default',role:1,status:1,two_fa_enabled:true,reserve:'2',wallet_initialized:true,created_at:'2026-10-12T10:00:00Z',last_login_at:null};
+ let keys=[{id:7,name:'user key',key:'abcd**********wxyz',status:1,purpose:'GENERAL'}];
+ const writes:{path:string;body:Record<string,unknown>}[]=[],ledger:unknown[]=[];
+ let adjustment='';let readsFail=false;
+ vi.spyOn(window,'confirm').mockReturnValue(true);
+ const fetcher=vi.fn(async(path:string,init?:RequestInit)=>{
+  if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'AUTHENTICATED',csrf_token:'local-csrf'});
+  if(path==='/api/user/self')return ok({id:1,username:'operator',role:100});
+  if(path.startsWith('/platform/v1/access-gate?'))return ok({stage:'READY',user_id:'1',route:new URLSearchParams(path.split('?')[1]).get('route')});
+  if(path==='/api/v1/maintenance/notices')return ok({items:[]});
+  if(path==='/api/v1/ops/groups')return ok([{name:'default'},{name:'工作'}]);
+  if(path.startsWith('/api/v1/ops/users?'))return ok({items:[u],page:1,page_size:20,total:1});
+  if(path.startsWith('/api/v1/ops/users/2/ledger?'))return ok({items:ledger,total:ledger.length,page:1,page_size:20});
+  if(path.startsWith('/api/v1/ops/users/2/keys?'))return ok({items:keys,total:keys.length,page:1,page_size:20});
+  if(path==='/api/v1/ops/users/2'&&init?.method==='GET')return readsFail?failed():ok(u);
+  if(path.startsWith('/api/v1/ops/users/2')&&init?.method!=='GET'){
+   const body=JSON.parse(String(init?.body));writes.push({path,body});
+   if(path==='/api/v1/ops/users/2'){u={...u,...body};readsFail=true}
+   if(path.endsWith('/reset-2fa'))u.two_fa_enabled=false;
+   if(path.endsWith('/reserve')){
+    if(!adjustment){adjustment=body.request_id;u.reserve='2.000002';ledger.push({id:'entry',created_at:u.created_at,biz_type:'OPS_ADJUST',delta_amount:'0.000002',balance_after_amount:u.reserve,note:body.note});return failed()}
+    expect(body.request_id).toBe(adjustment);
+   }
+   if(path.endsWith('/disable-key'))keys[0].status=2;
+   if(path.endsWith('/delete-key'))keys=[];
+   return ok(null);
+  }
+  if(path.startsWith('/api/v1/ops/logs?'))return ok({items:[{id:1,user_id:2,username:'member',key_id:7,key_name:'user key',model:'gpt-test',channel_id:20,channel_name:'dev channel',group:'工作',created_at:u.created_at,tokens:'15',cost:'0.000002',duration_ms:120,status_code:200,error:'',kind:2,request_id:'req',attempt:2}],total:1,page:1,page_size:20,summary:{requests:1,attempts:2,errors:0,tokens:'15',cost:'0.000002',error_rate:0},top:[{name:'gpt-test',requests:1,attempts:2,errors:0,tokens:'15',cost:'0.000002',error_rate:0}]});
+  throw new Error('Unexpected endpoint: '+path);
+ });
+ const client=new ApiClient(fetcher);await client.bootstrap();
+ render(<MemoryRouter initialEntries={['/ops/users']}><App client={client}/></MemoryRouter>);
+ fireEvent.change(await screen.findByLabelText('用户名、显示名、Discord ID 或 ID'),{target:{value:'member'}});
+ fireEvent.click(await screen.findByRole('link',{name:'member · #2'}));
+ fireEvent.change(await screen.findByLabelText('用户分组'),{target:{value:'工作'}});
+ fireEvent.change(screen.getByLabelText('用户角色'),{target:{value:'10'}});
+ fireEvent.click(screen.getByRole('button',{name:'保存资料'}));
+ expect(await screen.findByText('操作已保存，详情读取失败，请刷新核对。')).toBeVisible();
+ readsFail=false;fireEvent.click(screen.getByRole('button',{name:'刷新详情'}));
+ expect(await screen.findByLabelText('用户分组')).toHaveValue('工作');
+ expect(writes[0]).toEqual({path:'/api/v1/ops/users/2',body:{group:'工作',status:1,role:10}});
+ fireEvent.click(screen.getByRole('button',{name:'重置 2FA'}));
+ expect(await screen.findByText('2FA：未启用')).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'强制下线'}));
+ await waitFor(()=>expect(writes.some(w=>w.path.endsWith('/logout'))).toBe(true));
+ await screen.findByLabelText('用户分组');
+ fireEvent.click(screen.getByRole('button',{name:'余额与流水'}));
+ fireEvent.change(await screen.findByLabelText('调整金额（负数扣减）'),{target:{value:'0.000002'}});
+ fireEvent.change(screen.getByLabelText('调账备注'),{target:{value:'核对最小单位'}});
+ fireEvent.click(screen.getByRole('button',{name:'保存调账'}));
+ await screen.findByRole('alert');
+ fireEvent.click(screen.getByRole('button',{name:'保存调账'}));
+ expect(await screen.findByText('OPS_ADJUST')).toBeVisible();
+ expect(screen.getByText('核对最小单位')).toBeVisible();
+ expect(writes.filter(w=>w.path.endsWith('/reserve'))).toHaveLength(2);
+ fireEvent.click(screen.getByRole('button',{name:'API Key'}));
+ fireEvent.click(await screen.findByRole('button',{name:'停用 Key'}));
+ await screen.findByText('停用 / GENERAL');
+ fireEvent.click(screen.getByRole('button',{name:'删除 Key'}));
+ await waitFor(()=>expect(screen.queryByText('user key')).not.toBeInTheDocument());
+ fireEvent.click(screen.getAllByRole('link',{name:'调用日志'})[1]);
+ expect(await screen.findByRole('heading',{name:'全局调用日志'})).toBeVisible();
+ expect(screen.getByLabelText('用户 ID')).toHaveValue('2');
+ await screen.findByText(/请求 1 · 尝试 2/);
+ fireEvent.change(screen.getByLabelText('汇总维度'),{target:{value:'user'}});
+ fireEvent.click(screen.getByLabelText('仅错误'));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/logs?')&&path.includes('user=2')&&path.includes('dimension=user')&&path.includes('errors_only=true'))).toBe(true));
+ expect(fetcher.mock.calls.some(([path])=>path.includes('bootstrap')&&path.includes('/ops/'))).toBe(false);
+ expect(writes.some(w=>JSON.stringify(w.body).includes('authz_epoch'))).toBe(false);
+});

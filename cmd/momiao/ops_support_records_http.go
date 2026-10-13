@@ -35,7 +35,7 @@ func newOpsSupportRecordsHandler(sessions *session.Service, store *platform.Stor
 }
 
 func opsSupportRecordsRoute(path string) bool {
-	for _, prefix := range []string{opsUsersPath, opsRecordsPath, opsSupportCasesPath, opsIncidentsPath} {
+	for _, prefix := range []string{opsRecordsPath, opsSupportCasesPath, opsIncidentsPath} {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
 			return true
 		}
@@ -83,10 +83,6 @@ func (h *opsSupportRecordsHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 	switch {
-	case r.URL.Path == opsUsersPath:
-		h.users(w, r, actor)
-	case strings.HasPrefix(r.URL.Path, opsUsersPath+"/"):
-		h.user(w, r, actor)
 	case r.URL.Path == opsSupportCasesPath:
 		h.supportCases(w, r, actor)
 	case strings.HasPrefix(r.URL.Path, opsSupportCasesPath+"/"):
@@ -117,43 +113,6 @@ func opsOptionalSubject(value string) (int64, bool) {
 		return 0, true
 	}
 	return opsEpoch(value)
-}
-
-func (h *opsSupportRecordsHTTP) users(w http.ResponseWriter, r *http.Request, actor int64) {
-	if !requireOpsQuery(w, r, "authz_epoch", "q", "limit") {
-		return
-	}
-	epoch, validEpoch := opsEpoch(r.URL.Query().Get("authz_epoch"))
-	limit, validLimit := opsReadLimit(r.URL.Query().Get("limit"))
-	if !validEpoch || !validLimit {
-		walletError(w, http.StatusBadRequest, "OPS_INPUT_INVALID")
-		return
-	}
-	items, err := h.store.OpsUsers(r.Context(), actor, epoch, r.URL.Query().Get("q"), limit)
-	if err != nil {
-		writeOpsError(w, err)
-		return
-	}
-	sessionEnvelope(w, http.StatusOK, map[string]any{"items": items})
-}
-
-func (h *opsSupportRecordsHTTP) user(w http.ResponseWriter, r *http.Request, actor int64) {
-	if !requireOpsQuery(w, r, "authz_epoch") {
-		return
-	}
-	raw := strings.TrimPrefix(r.URL.Path, opsUsersPath+"/")
-	subject, validSubject := opsEpoch(raw)
-	epoch, validEpoch := opsEpoch(r.URL.Query().Get("authz_epoch"))
-	if !validSubject || !validEpoch || strings.Contains(raw, "/") {
-		walletError(w, http.StatusNotFound, "NOT_FOUND")
-		return
-	}
-	item, err := h.store.OpsUser(r.Context(), actor, epoch, subject)
-	if err != nil {
-		writeOpsError(w, err)
-		return
-	}
-	sessionEnvelope(w, http.StatusOK, item)
 }
 
 func (h *opsSupportRecordsHTTP) supportCases(w http.ResponseWriter, r *http.Request, actor int64) {

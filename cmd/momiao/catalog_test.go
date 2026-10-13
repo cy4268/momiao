@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -214,94 +215,122 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 			h.ServeHTTP(w, r)
 			return w
 		}
-		for _, path := range []string{"/api/v1/ops/channels", "/api/v1/ops/groups", "/api/v1/ops/groups/availability"} {
-			w := request(admin, "GET", path, "", false)
+		t.Run("users", func(t *testing.T) {
+			for _, path := range []string{"/api/v1/ops/users", "/api/v1/ops/users/" + strconv.FormatInt(regular, 10), "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/ledger", "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/keys", "/api/v1/ops/logs"} {
+				if w := request(admin, "GET", path, "", false); w.Code != 200 {
+					t.Fatal("local users Ops", path, w.Code, w.Body.String())
+				}
+				if w := request(regular, "GET", path, "", false); w.Code != 403 {
+					t.Fatal("regular role", w.Code)
+				}
+				if w := request(0, "GET", path, "", false); w.Code != 401 {
+					t.Fatal("anonymous role", w.Code)
+				}
+			}
+			path := "/api/v1/ops/users/" + strconv.FormatInt(regular, 10)
+			if w := request(admin, "PUT", path, `{}`, false); w.Code != 403 {
+				t.Fatal("user CSRF", w.Code)
+			}
+			if w := request(admin, "PUT", path, `{}`, true); w.Code != 400 {
+				t.Fatal("invalid user input", w.Code, w.Body.String())
+			}
+			if w := request(admin, "GET", "/api/v1/ops/logs?dimension=arbitrary", "", false); w.Code != 400 {
+				t.Fatal("invalid log dimension", w.Code)
+			}
+			if gateRouteDomain("/ops/users/2") != "OPERATIONS" || gateRouteDomain("/ops/logs") != "OPERATIONS" {
+				t.Fatal("local users/logs navigation gate")
+			}
+			t.Log("users/logs both routers: local admin200 regular403 anonymous401 CSRF403 invalid400; no native")
+		})
+		t.Run("catalog-and-relay", func(t *testing.T) {
+			for _, path := range []string{"/api/v1/ops/channels", "/api/v1/ops/groups", "/api/v1/ops/groups/availability"} {
+				w := request(admin, "GET", path, "", false)
+				if w.Code != 200 {
+					t.Fatal("local relay Ops", path, w.Code, w.Body.String())
+				}
+				if strings.Contains(w.Body.String(), `"key":`) || strings.Contains(w.Body.String(), `"channel_info":`) {
+					t.Fatal("channel secret returned")
+				}
+				if w = request(regular, "GET", path, "", false); w.Code != 403 {
+					t.Fatal("regular role", path, w.Code)
+				}
+				if w = request(0, "GET", path, "", false); w.Code != 401 {
+					t.Fatal("anonymous role", path, w.Code)
+				}
+			}
+			if w := request(admin, "PUT", "/api/v1/ops/channels", `{}`, false); w.Code != 403 {
+				t.Fatal("channel CSRF", w.Code)
+			}
+			if w := request(admin, "PUT", "/api/v1/ops/channels", `{}`, true); w.Code != 400 {
+				t.Fatal("channel input", w.Code)
+			}
+			if w := request(admin, "GET", "/api/channel/", "", false); w.Code != 404 {
+				t.Fatal("old channel proxy remains", w.Code)
+			}
+			if gateRouteDomain("/ops/channels/20") != "OPERATIONS" || gateRouteDomain("/ops/groups") != "OPERATIONS" {
+				t.Fatal("local Ops navigation gate")
+			}
+			w := request(admin, "GET", "/platform/v1/ops/models", "", false)
 			if w.Code != 200 {
-				t.Fatal("local relay Ops", path, w.Code, w.Body.String())
+				t.Fatal("local Ops catalog", w.Code, w.Body.String())
 			}
-			if strings.Contains(w.Body.String(), `"key":`) || strings.Contains(w.Body.String(), `"channel_info":`) {
-				t.Fatal("channel secret returned")
+			if strings.Contains(w.Body.String(), `"principal"`) || strings.Contains(w.Body.String(), `"sync"`) {
+				t.Fatal("legacy catalog authority or sync in response")
 			}
-			if w = request(regular, "GET", path, "", false); w.Code != 403 {
-				t.Fatal("regular role", path, w.Code)
+			w = request(admin, "GET", "/platform/v1/ops/models/detail?"+url.Values{"model_id": []string{model}}.Encode(), "", false)
+			if w.Code != 200 || !strings.Contains(w.Body.String(), `"price_settings"`) {
+				t.Fatal("editable local catalog price", w.Code, w.Body.String())
 			}
-			if w = request(0, "GET", path, "", false); w.Code != 401 {
-				t.Fatal("anonymous role", path, w.Code)
+			if w = request(admin, "GET", catalogCoversPath, "", false); w.Code != 200 {
+				t.Fatal("local family covers", w.Code, w.Body.String())
 			}
-		}
-		if w := request(admin, "PUT", "/api/v1/ops/channels", `{}`, false); w.Code != 403 {
-			t.Fatal("channel CSRF", w.Code)
-		}
-		if w := request(admin, "PUT", "/api/v1/ops/channels", `{}`, true); w.Code != 400 {
-			t.Fatal("channel input", w.Code)
-		}
-		if w := request(admin, "GET", "/api/channel/", "", false); w.Code != 404 {
-			t.Fatal("old channel proxy remains", w.Code)
-		}
-		if gateRouteDomain("/ops/channels/20") != "OPERATIONS" || gateRouteDomain("/ops/groups") != "OPERATIONS" {
-			t.Fatal("local Ops navigation gate")
-		}
-		w := request(admin, "GET", "/platform/v1/ops/models", "", false)
-		if w.Code != 200 {
-			t.Fatal("local Ops catalog", w.Code, w.Body.String())
-		}
-		if strings.Contains(w.Body.String(), `"principal"`) || strings.Contains(w.Body.String(), `"sync"`) {
-			t.Fatal("legacy catalog authority or sync in response")
-		}
-		w = request(admin, "GET", "/platform/v1/ops/models/detail?"+url.Values{"model_id": []string{model}}.Encode(), "", false)
-		if w.Code != 200 || !strings.Contains(w.Body.String(), `"price_settings"`) {
-			t.Fatal("editable local catalog price", w.Code, w.Body.String())
-		}
-		if w = request(admin, "GET", catalogCoversPath, "", false); w.Code != 200 {
-			t.Fatal("local family covers", w.Code, w.Body.String())
-		}
-		for _, user := range []int64{0, regular} {
-			want := 403
-			if user == 0 {
-				want = 401
+			for _, user := range []int64{0, regular} {
+				want := 403
+				if user == 0 {
+					want = 401
+				}
+				if w = request(user, "GET", "/platform/v1/ops/models", "", false); w.Code != want {
+					t.Fatal("local Ops role", user, w.Code)
+				}
 			}
-			if w = request(user, "GET", "/platform/v1/ops/models", "", false); w.Code != want {
-				t.Fatal("local Ops role", user, w.Code)
+			if w = request(admin, "PUT", "/platform/v1/ops/models", `{}`, false); w.Code != 403 {
+				t.Fatal("missing CSRF accepted", w.Code)
 			}
-		}
-		if w = request(admin, "PUT", "/platform/v1/ops/models", `{}`, false); w.Code != 403 {
-			t.Fatal("missing CSRF accepted", w.Code)
-		}
-		if w = request(admin, "PUT", "/platform/v1/ops/models", `{}`, true); w.Code != 400 {
-			t.Fatal("invalid save accepted", w.Code, w.Body.String())
-		}
-		if w = request(admin, "POST", "/platform/v1/ops/models/prepare", `{}`, true); w.Code != 404 {
-			t.Fatal("legacy prepare remains", w.Code)
-		}
-		if webDir == "" {
-			var probeID string
-			if err = store.Pool().QueryRow(t.Context(), `SELECT id::text FROM relay.channels WHERE enabled AND type=1 AND models[1]='gpt-5.6-sol' ORDER BY id LIMIT 1`).Scan(&probeID); err != nil {
-				t.Fatal("existing small dev channel", err)
+			if w = request(admin, "PUT", "/platform/v1/ops/models", `{}`, true); w.Code != 400 {
+				t.Fatal("invalid save accepted", w.Code, w.Body.String())
 			}
-			w = request(admin, "POST", "/api/v1/ops/channels/"+probeID+"/models", `{}`, true)
-			var models struct {
-				Data []string `json:"data"`
+			if w = request(admin, "POST", "/platform/v1/ops/models/prepare", `{}`, true); w.Code != 404 {
+				t.Fatal("legacy prepare remains", w.Code)
 			}
-			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &models) != nil || len(models.Data) == 0 {
-				t.Fatal("upstream model discovery", w.Code, w.Body.String())
+			if webDir == "" {
+				var probeID string
+				if err = store.Pool().QueryRow(t.Context(), `SELECT id::text FROM relay.channels WHERE enabled AND type=1 AND models[1]='gpt-5.6-sol' ORDER BY id LIMIT 1`).Scan(&probeID); err != nil {
+					t.Fatal("existing small dev channel", err)
+				}
+				w = request(admin, "POST", "/api/v1/ops/channels/"+probeID+"/models", `{}`, true)
+				var models struct {
+					Data []string `json:"data"`
+				}
+				if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &models) != nil || len(models.Data) == 0 {
+					t.Fatal("upstream model discovery", w.Code, w.Body.String())
+				}
+				w = request(admin, "POST", "/api/v1/ops/channels/"+probeID+"/test", `{}`, true)
+				var probe struct {
+					Data struct {
+						OK       bool   `json:"ok"`
+						Status   int    `json:"status_code"`
+						Duration int64  `json:"duration_ms"`
+						Model    string `json:"model"`
+						Message  string `json:"message"`
+					} `json:"data"`
+				}
+				if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &probe) != nil || !probe.Data.OK || probe.Data.Status != 200 || probe.Data.Model != "gpt-5.6-sol" {
+					t.Fatal("manual first-model probe", w.Code, w.Body.String())
+				}
+				t.Logf("saved channel %s: discovery=%d models; first-model %s max_tokens=1 HTTP%d %dms; no Reserve debit", probeID, len(models.Data), probe.Data.Model, probe.Data.Status, probe.Data.Duration)
 			}
-			w = request(admin, "POST", "/api/v1/ops/channels/"+probeID+"/test", `{}`, true)
-			var probe struct {
-				Data struct {
-					OK       bool   `json:"ok"`
-					Status   int    `json:"status_code"`
-					Duration int64  `json:"duration_ms"`
-					Model    string `json:"model"`
-					Message  string `json:"message"`
-				} `json:"data"`
-			}
-			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &probe) != nil || !probe.Data.OK || probe.Data.Status != 200 || probe.Data.Model != "gpt-5.6-sol" {
-				t.Fatal("manual first-model probe", w.Code, w.Body.String())
-			}
-			t.Logf("saved channel %s: discovery=%d models; first-model %s max_tokens=1 HTTP%d %dms; no Reserve debit", probeID, len(models.Data), probe.Data.Model, probe.Data.Status, probe.Data.Duration)
-		}
+		})
 	}
-	t.Log("local admin read and editable prices; regular403/anonymous401/CSRF403/invalid400/legacy404; both routers; no native transport")
 }
 func TestCatalogHTTPPersonalPriceBoundaryAndWithdrawal(t *testing.T) {
 	path := os.Getenv("MOMIAO_SESSION_DSN_FILE")
