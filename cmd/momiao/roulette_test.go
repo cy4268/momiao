@@ -185,7 +185,7 @@ func TestRouletteEscrowReplayLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	overview, err := admin.ReadOpsGame(ctx, "devil-roulette")
+	overview, err := admin.ReadOpsGame(ctx, "devil-roulette", games.OpsConfigFilter{})
 	if err != nil || overview.Roulette == nil || overview.Roulette.ConservationDelta != "0" {
 		t.Fatalf("same-domain Ops conservation: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestRouletteEscrowReplayLifecycle(t *testing.T) {
 		if e != nil || !proof.Valid {
 			t.Fatalf("capped proof %+v %v", proof, e)
 		}
-		report, e := admin.ReadOpsGame(ctx, game)
+		report, e := admin.ReadOpsGame(ctx, game, games.OpsConfigFilter{})
 		if e != nil || report.Roulette.ConservationDelta != "0" {
 			t.Fatal("withheld not accounted", e)
 		}

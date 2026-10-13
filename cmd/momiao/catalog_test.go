@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cy4268/momiao/internal/games"
 	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/rankings"
@@ -198,6 +199,10 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 		cfg.localIdentity = auth
 		cfg.relay = store
 		cfg.rankings = rankings.NewService(store, rankings.Options{ActivationTime: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)})
+		cfg.games, err = games.NewService(store, games.Keyring{Active: "ops-read-only", Keys: map[string][32]byte{"ops-read-only": {}}})
+		if err != nil {
+			t.Fatal(err)
+		}
 		h := newPortalHandler(cfg, catalogRoundTrip(func(*http.Request) (*http.Response, error) {
 			t.Error("Ops catalog reached native")
 			return nil, errors.New("unexpected native call")
@@ -218,6 +223,56 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 			h.ServeHTTP(w, r)
 			return w
 		}
+
+		t.Run("games", func(t *testing.T) {
+			for _, path := range []string{"/api/v1/ops/games", "/api/v1/ops/games/scratch", "/api/v1/ops/games/devil-roulette"} {
+				w := request(admin, "GET", path, "", false)
+				if w.Code != 200 {
+					t.Fatal("local games", w.Code, w.Body.String())
+				}
+				for _, user := range []int64{regular, 0} {
+					want := 403
+					if user == 0 {
+						want = 401
+					}
+					if w := request(user, "GET", path, "", false); w.Code != want {
+						t.Fatal("game read role", w.Code, w.Body.String())
+					}
+				}
+			}
+			if w := request(admin, "GET", "/api/v1/ops/games/scratch?page=2&status=ACTIVE&from=2026-09-01T00:00:00Z&to=2026-10-14T00:00:00Z", "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"page":2`) || !strings.Contains(w.Body.String(), `"config_versions":[]`) {
+				t.Fatal("config history paging", w.Code, w.Body.String())
+			}
+			if w := request(admin, "GET", "/api/v1/ops/games/scratch?from=bad", "", false); w.Code != 400 {
+				t.Fatal("config time filter", w.Code, w.Body.String())
+			}
+			for _, p := range []struct{ path, method string }{
+				{"/api/v1/ops/games/scratch", "PUT"},
+				{"/api/v1/ops/games/scratch/configs/00000000-0000-7000-8000-000000000001/activate", "POST"},
+				{"/api/v1/ops/games/devil-roulette/rounds/00000000-0000-7000-8000-000000000001/void", "POST"},
+			} {
+				if w := request(admin, p.method, p.path, `{}`, false); w.Code != 403 {
+					t.Fatal("games CSRF", w.Code, w.Body.String())
+				}
+				if w := request(regular, p.method, p.path, `{}`, true); w.Code != 403 {
+					t.Fatal("games write role", w.Code, w.Body.String())
+				}
+				want := 404
+				if p.method == "PUT" {
+					want = 400
+				}
+				if w := request(admin, p.method, p.path, `{}`, true); w.Code != want {
+					t.Fatal("games invalid or missing", w.Code, w.Body.String())
+				}
+			}
+			if w := request(admin, "GET", "/api/v1/ops/games/invalid", "", false); w.Code != 404 {
+				t.Fatal(w.Code)
+			}
+			if w := request(admin, "POST", "/api/v1/ops/games/scratch/configs/invalid/validate", `{}`, true); w.Code != 404 {
+				t.Fatal(w.Code)
+			}
+			t.Log("games both routers: local admin200 regular403 anonymous401 CSRF403 invalid400 missing404; no native")
+		})
 
 		t.Run("rankings", func(t *testing.T) {
 			w := request(admin, "GET", "/api/v1/ops/rankings", "", false)

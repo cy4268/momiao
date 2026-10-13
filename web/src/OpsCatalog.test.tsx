@@ -67,7 +67,7 @@ it('saves local model prices, publication and family covers directly without leg
  view.unmount();
 });
 
-it('shows existing game probability details only for matching verified artifacts',()=>{
+it('shows existing game probability details and directly saves local game configuration',async()=>{
   const config={config_version_id:'01993200-0000-7000-8000-000000000003',version_number:'2',status:'ACTIVE' as const,config_schema_version:'summon-config-v1',ruleset_version:'summon-rules-v1',algorithm_version:'summon-map-v1',config_hash:'a'.repeat(64),created_at:'2026-09-20T00:00:00Z',validated_at:'2026-09-20T00:00:00Z',previewed_at:'2026-09-20T00:00:00Z',activated_at:'2026-09-20T00:00:00Z',editable_config:{type:'SUMMON_V1' as const,prize_table_version:'summon-prize-v3',prizes:[{tier:'T0',multiplier:'0',weight:'1'},{tier:'T5',multiplier:'100',weight:'1'}]}};
   const artifact={validation_artifact_id:'01993200-0000-7000-8000-000000000203',config_version_id:config.config_version_id,artifact_type:'EXACT_MATH',implementation_key:'direct.summon.v1',ruleset_version:config.ruleset_version,algorithm_version:config.algorithm_version,config_hash:config.config_hash,validator_version:'direct-validate-v1',validation_build:'direct-games-v1',result_summary:{rtp:'50',win:'1/2',loss:'1/2',break_even:'0',top:'1/2'},artifact_sha256:'b'.repeat(64),status:'VERIFIED',generated_at:'2026-09-20T00:00:00Z',verified_at:'2026-09-20T00:00:00Z'};
   const probability=render(<OpsProbabilityDetails gameSlug="summon" config={config} artifacts={[{...artifact,config_hash:'c'.repeat(64)}]}/>);
@@ -83,4 +83,62 @@ it('shows existing game probability details only for matching verified artifacts
   const blackjackResult={complete:true,method:'REFERENCE_STRATEGY_BASE_PLUS_EXACT_EXPECTED_FAIR_RETURN',rounds:10000000,initial_wager_denominator:{rtp:{point:{fraction:'1/1'},normal_approximation_ci95:[0.99,1.01]}},base_sample:{rtp:{fraction:'9962921/10000000'}},fair_return:{fraction:'37079/10000000'},reference_strategy:{version:'blackjack-basic-s17-das-total-v1',scope:'six-deck reference'}};
   const blackjackArtifact={...artifact,artifact_type:'BLACKJACK_RTP',implementation_key:'direct.blackjack.v1',ruleset_version:blackjackConfig.ruleset_version,algorithm_version:blackjackConfig.algorithm_version,result_summary:{config_version:blackjackConfig.config_version_id,config_hash:blackjackConfig.config_hash,ruleset_version:blackjackConfig.ruleset_version,algorithm_version:blackjackConfig.algorithm_version,artifact_type:'BLACKJACK_RTP',implementation_key:'direct.blackjack.v1',result_json:JSON.stringify(blackjackResult)}};
   probability.rerender(<OpsProbabilityDetails gameSlug="blackjack" config={blackjackConfig} artifacts={[blackjackArtifact]}/>);expect(screen.getByText(/不是任意策略或短期结果保证/)).toBeVisible();expect(screen.getByText('净赢率').parentElement).toHaveTextContent('未包含');
+  probability.unmount();
+  let failDetail=false;
+  let game={game_slug:'summon',title:'召唤',sort_order:'3',version:'1',publication_state:'PUBLISHED',configured_runtime_state:'AVAILABLE',implementation_key:'direct.summon.v1',active_config:config,rounds_24h:'10',needs_review_rounds:'0'};
+  let configs=[{...config,status:'ACTIVE' as string}],artifacts=[artifact];
+  const fetcher=vi.fn(async(path:string,init?:RequestInit)=>{
+   if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'AUTHENTICATED',csrf_token:'game-csrf'});
+   if(path==='/api/user/self')return ok({id:1,username:'operator',role:10});
+   if(path.startsWith('/platform/v1/access-gate?'))return ok({stage:'READY',user_id:'1',route:'/ops/games'});
+   if(path==='/api/v1/maintenance/notices')return ok({items:[]});
+   if(path==='/api/v1/ops/games')return ok({generated_at:config.created_at,games:[game]});
+   if(path==='/api/v1/ops/games/summon'&&init?.method==='PUT'){game={...game,...JSON.parse(String(init.body)),version:'2'};return ok(game)}
+   if(path.startsWith('/api/v1/ops/games/summon/configs/')){
+    const action=path.split('/')[8]||'save';let next={...configs[0]};
+    if(action==='clone')next={...config,config_version_id:'01993200-0000-7000-8000-000000000900',version_number:'3',status:'DRAFT'};
+    if(action==='save')next={...next,editable_config:JSON.parse(String(init?.body)),config_hash:'d'.repeat(64)};
+    if(action==='validate')next={...next,status:'VALIDATED'};
+    if(action==='activate')next={...next,status:'ACTIVE'};
+    configs=[next];artifacts=[{...artifact,config_version_id:next.config_version_id,config_hash:next.config_hash}];return ok(next);
+   }
+   if(path.startsWith('/api/v1/ops/games/summon?')){
+    if(failDetail)return failed();const q=new URLSearchParams(path.split('?')[1]);
+    return ok({generated_at:config.created_at,game,config_versions:configs,validation_artifacts:artifacts,baseline_locked:true,page:Number(q.get('page')),page_size:20,config_total:21});
+   }
+   throw new Error('Unexpected games endpoint: '+path);
+  });
+  const client=new ApiClient(fetcher);await client.bootstrap();
+  const app=render(<MemoryRouter initialEntries={['/ops/games']}><App client={client}/></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button',{name:'召唤'}));
+  const dialog=await screen.findByRole('dialog',{name:'游戏详情'});
+  await within(dialog).findByRole('button',{name:'保存游戏设置'});
+  fireEvent.click(within(dialog).getByRole('button',{name:'下一页'}));
+  await waitFor(()=>expect(fetcher.mock.calls.some(([p])=>p.includes('/summon?page=2'))).toBe(true));
+  await within(dialog).findByText('共 21 条 · 第 2 / 2 页');
+  fireEvent.click(within(dialog).getByRole('button',{name:'上一页'}));
+  await within(dialog).findByText('共 21 条 · 第 1 / 2 页');
+  fireEvent.change(within(dialog).getByLabelText('标题'),{target:{value:'新召唤标题'}});
+  failDetail=true;fireEvent.click(within(dialog).getByRole('button',{name:'保存游戏设置'}));
+  await within(dialog).findByText('游戏设置已保存。');await within(dialog).findByRole('alert');
+  failDetail=false;fireEvent.click(within(dialog).getByRole('button',{name:'刷新详情'}));
+  await within(dialog).findByDisplayValue('新召唤标题');
+  expect(fetcher.mock.calls.filter(([p,i])=>p==='/api/v1/ops/games/summon'&&i?.method==='PUT')).toHaveLength(1);
+  fireEvent.click(within(dialog).getByRole('button',{name:'复制为草稿'}));
+  await within(dialog).findByRole('button',{name:'保存草稿'});
+  fireEvent.change(within(dialog).getByLabelText('奖池版本'),{target:{value:'summon-ops-local'}});
+  fireEvent.click(within(dialog).getByRole('button',{name:'保存草稿'}));
+  await within(dialog).findByText('草稿已保存。');
+  await waitFor(()=>expect(within(dialog).getByRole('button',{name:'验证配置'})).toBeEnabled());
+  fireEvent.click(within(dialog).getByRole('button',{name:'验证配置'}));
+  await within(dialog).findByText('配置已验证，可查看概率工件后启用。');
+  const confirm=vi.spyOn(window,'confirm').mockReturnValue(true);
+  await waitFor(()=>expect(within(dialog).getByRole('button',{name:'启用配置'})).toBeEnabled());
+  fireEvent.click(within(dialog).getByRole('button',{name:'启用配置'}));
+  await within(dialog).findByText('配置已生效。');expect(confirm).toHaveBeenCalledOnce();confirm.mockRestore();
+  const writes=fetcher.mock.calls.filter(([,i])=>i?.method==='PUT'||i?.method==='POST');expect(writes).toHaveLength(5);
+  for(const [,init] of writes){expect(new Headers(init?.headers).get('X-CSRF-Token')).toBe('game-csrf');expect(String(init?.body)).not.toMatch(/expected_version|authz_epoch|operation_id|reason/)}
+  expect(fetcher.mock.calls.some(([p])=>/prepare|execute|ops\/bootstrap|authz_epoch/.test(p))).toBe(false);
+  app.unmount();
+
  });

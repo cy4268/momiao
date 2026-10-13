@@ -303,13 +303,10 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		bindings := campaign.OpsBindings()
 		bindings = append(bindings, platform.OpsSupportBindings(runtimeStore)...)
 		bindings = append(bindings, platform.OpsIncidentBindings(runtimeStore)...)
-		bindings = append(bindings, games.OpsBindings(cfg.games)...)
- bindings = append(bindings, roulette.OpsBindings(cfg.roulette)...)
 		bindings = append(bindings, pokerOpsBindings(pokerOpsPort)...)
 		opsService, err := platform.NewOpsService(runtimeStore, cfg.OpsEnvironment, bindings...)
 		if err != nil { return errors.New("Ops startup failed") }
 		opsReads:=newOpsPokerHandler(cfg.sessions,runtimeStore,pokerOpsPort,newOpsSupportRecordsHandler(cfg.sessions, runtimeStore, newOpsRuntimeHandler(cfg.sessions, runtimeStore, cfg.OpsEnvironment, domainHandler(cfg, newNativeRuntimeProjectionHandler(newNativeTransport(cfg.NewAPISocket))))))
-		opsReads=newOpsGamesHandler(cfg.sessions,runtimeStore,cfg.games,opsReads)
 		opsReads=newOpsGamblerHandler(cfg.sessions,campaign,opsReads)
 		cfg.ops = newOpsHandler(cfg.sessions, opsService, opsFactorAdapter{auth:sessionApp.auth}, "UNKNOWN", opsReads)
 		remoteCtx,stopRemote:=context.WithCancel(ctx);remoteDone:=make(chan struct{})
