@@ -6,6 +6,7 @@ import { App } from './App';
 import { ok, failed } from './m1-test-fixtures';
 
 it('saves maintenance directly with a local admin and shows all operations without legacy bootstrap', async () => {
+ let healthStale=true,healthReady=true;
  const supportID='10000000-0000-7000-8000-000000000081',incidentID='10000000-0000-7000-8000-000000000082';
  let support={case_id:supportID,subject_newapi_user_id:'2',category:'IDENTITY',state:'OPEN',safe_summary:'开发工单',created_by:'1',created_at:'2026-10-13T08:00:00Z',updated_at:'2026-10-13T08:00:00Z'};
  let incident={incident_id:incidentID,title:'开发事件',severity:'WARNING',state:'OPEN',safe_summary:'开发环境检查',created_by:'1',created_at:'2026-10-13T08:00:00Z',updated_at:'2026-10-13T08:00:00Z'};
@@ -29,6 +30,11 @@ it('saves maintenance directly with a local admin and shows all operations witho
   if(path==='/api/user/self')return ok({id:1,username:'operator',role:10});
   if(path.startsWith('/platform/v1/access-gate?'))return ok({stage:'READY',user_id:'1',route:new URLSearchParams(path.split('?')[1]).get('route')});
   if(path==='/api/v1/maintenance/notices')return ok({items:state.enabled?[{id:'maintenance',message:state.message,scopes:state.scopes}]:[]});
+  if(path.startsWith('/api/v1/ops/jobs?')||path.startsWith('/api/v1/ops/attention?')){
+   const q=new URLSearchParams(path.split('?')[1]),attention=path.includes('/attention?'),page=Number(q.get('page'));
+   return ok({summary:[{kind:'GAME_ROUNDS',pending_count:'21',attention_count:'1',due_count:'3',oldest_due_at:null}],items:[{kind:attention?'OPS_REMOTE':'GAME_ROUNDS',job_id:attention?'legacy-job':`job-${page}`,target_id:'dev-target',state:attention?'NEEDS_REVIEW':'PENDING',pending:!attention,attention,legacy:attention,run_at:null,updated_at:'2026-10-13T09:00:00Z'}],total:attention?1:21,page,page_size:20});
+  }
+  if(path==='/api/v1/ops/service-health')return ok({snapshot:{ready:healthReady,checked_at:'2026-10-13T09:00:00Z',components:[{name:'platform_database',state:healthReady?'READY':'UNAVAILABLE'}]},observed_at:'2026-10-13T09:00:00Z',stale_after:'2026-10-13T09:00:45Z',stale:healthStale});
   if(path.startsWith('/api/v1/ops/audit?')){
    const query=new URLSearchParams(path.split('?')[1]);const page=Number(query.get('page')||1);
    return ok({items:[{audit_id:'10000000-0000-4000-8000-000000000001',actor_newapi_user_id:'1',actor_name:'operator',action:page===1?'MAINTENANCE_SAVE':'USER_UPDATE',target_type:'MAINTENANCE',target_id:'DEVELOPMENT',before_snapshot:{enabled:false},after_snapshot:{enabled:true},occurred_at:'2026-10-12T23:00:00Z'}],total:21,page,page_size:20});
@@ -208,6 +214,36 @@ it('saves maintenance directly with a local admin and shows all operations witho
  fireEvent.change(screen.getByRole('textbox',{name:'搜索事件'}),{target:{value:'直接'}});
  fireEvent.click(screen.getByRole('button',{name:'筛选事件'}));
  await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/incidents?page=1')&&path.includes('q=%E7%9B%B4%E6%8E%A5'))).toBe(true));
+ fireEvent.click(within(screen.getByRole('navigation',{name:'运营导航'})).getByRole('link',{name:'后台任务'}));
+ fireEvent.click(await screen.findByRole('button',{name:'查看任务'}));
+ const jobDialog=await screen.findByRole('dialog',{name:'任务详情'});
+ expect(within(jobDialog).getByText('job-1')).toBeVisible();
+ expect(within(jobDialog).getByRole('link',{name:'进入业务页面 →'})).toHaveAttribute('href','/ops/games');
+ fireEvent.click(within(jobDialog).getByRole('button',{name:'关闭对话框'}));
+ fireEvent.click(screen.getByRole('button',{name:'下一页'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path==='/api/v1/ops/jobs?page=2')).toBe(true));
+ fireEvent.change(screen.getByRole('combobox',{name:'任务类型'}),{target:{value:'GAME_ROUNDS'}});
+ fireEvent.change(screen.getByRole('combobox',{name:'任务状态'}),{target:{value:'PENDING'}});
+ fireEvent.change(screen.getByLabelText('记录时间从'),{target:{value:'2026-10-13T00:00'}});
+ fireEvent.click(screen.getByRole('button',{name:'筛选任务'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/jobs?page=1')&&path.includes('kind=GAME_ROUNDS')&&path.includes('status=PENDING')&&path.includes('from='))).toBe(true));
+ expect(await screen.findByText('全局队列概况（不受上方筛选影响）')).toBeVisible();
+ fireEvent.click(within(screen.getByRole('navigation',{name:'运营导航'})).getByRole('link',{name:'待处理事项'}));
+ fireEvent.click(await screen.findByRole('button',{name:'查看任务'}));
+ const attentionDialog=await screen.findByRole('dialog',{name:'任务详情'});
+ expect(within(attentionDialog).getByText('legacy-job')).toBeVisible();
+ expect(within(attentionDialog).getByText('旧流程记录；此页不执行旧命令。')).toBeVisible();
+ expect(within(attentionDialog).getByRole('link',{name:'进入业务页面 →'})).toHaveAttribute('href','/ops/poker');
+ fireEvent.click(within(attentionDialog).getByRole('button',{name:'关闭对话框'}));
+ fireEvent.click(within(screen.getByRole('navigation',{name:'运营导航'})).getByRole('link',{name:'服务健康'}));
+ expect(await screen.findByRole('heading',{name:'服务状态快照已过期'})).toBeVisible();
+ expect(screen.getByText('未知（快照过期）')).toBeVisible();
+ healthStale=false;healthReady=false;fireEvent.click(screen.getByRole('button',{name:'刷新快照'}));
+ expect(await screen.findByRole('heading',{name:'存在不可用或尚未配置的依赖'})).toBeVisible();
+ expect(screen.getByText('不可用')).toBeVisible();
+ healthReady=true;fireEvent.click(screen.getByRole('button',{name:'刷新快照'}));
+ expect(await screen.findByRole('heading',{name:'已配置依赖检查通过'})).toBeVisible();
+ expect(fetcher.mock.calls.filter(([path])=>path.includes('/ops/jobs?')||path.includes('/ops/attention?')||path.endsWith('/ops/service-health')).every(([,init])=>init?.method==='GET')).toBe(true);
  expect(screen.queryByText('本次操作原因')).not.toBeInTheDocument();
  expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/bootstrap')||path.includes('/ops/operations')||path.includes('/ops/fresh')||path.includes('/native-runtime')||path.includes('authz_epoch'))).toBe(false);
 });

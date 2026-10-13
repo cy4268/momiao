@@ -285,6 +285,8 @@ func serveSessionRoute(handler http.Handler, w http.ResponseWriter, r *http.Requ
 }
 
 func serveOpsRoute(cfg config, w http.ResponseWriter, r *http.Request) {
+ if r.URL.Path=="/api/v1/ops/native-runtime"{walletError(w,404,"NOT_FOUND");return}
+ if opsRuntimeRoute(r.URL.Path){domainHandler(cfg,newOpsRuntimeHandler(cfg.relay,cfg.OpsEnvironment)).ServeHTTP(w,r);return}
  if opsSupportRecordsRoute(r.URL.Path){domainHandler(cfg,newOpsSupportRecordsHandler(cfg.relay)).ServeHTTP(w,r);return}
  if opsPokerRoute(r.URL.Path){domainHandler(cfg,newOpsPokerHandler(cfg.pokerOps)).ServeHTTP(w,r);return}
  if opsGamesRoute(r.URL.Path) {

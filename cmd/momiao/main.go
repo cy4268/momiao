@@ -303,8 +303,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		bindings = append(bindings, platform.OpsMasterBindings(runtimeStore)...)
 		opsService, err := platform.NewOpsService(runtimeStore, cfg.OpsEnvironment, bindings...)
 		if err != nil { return errors.New("Ops startup failed") }
-		opsReads:=newOpsRuntimeHandler(cfg.sessions, runtimeStore, cfg.OpsEnvironment, domainHandler(cfg, newNativeRuntimeProjectionHandler(newNativeTransport(cfg.NewAPISocket))))
-		opsReads=newOpsGamblerHandler(cfg.sessions,campaign,opsReads)
+		opsReads:=newOpsGamblerHandler(cfg.sessions,campaign,http.NotFoundHandler())
 		cfg.ops = newOpsHandler(cfg.sessions, opsService, opsFactorAdapter{auth:sessionApp.auth}, "UNKNOWN", opsReads)
 		remoteCtx,stopRemote:=context.WithCancel(ctx);remoteDone:=make(chan struct{})
 		remoteHealth:=&opsRemoteWorkerHealth{}

@@ -198,6 +198,7 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 	for _, webDir := range []string{"", "/unused-catalog-web"} {
 		cfg := catalogHTTPConfig(store)
 		cfg.PublicOrigin, cfg.WebDir = auth.Origin, webDir
+		cfg.OpsEnvironment = "DEVELOPMENT"
 		cfg.Session.Enabled = true
 		cfg.localIdentity = auth
 		cfg.relay = store
@@ -251,6 +252,39 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 			return w
 		}
 
+		t.Run("runtime", func(t *testing.T) {
+			for _, path := range []string{"/api/v1/ops/jobs?page=1", "/api/v1/ops/attention?page=1", "/api/v1/ops/service-health"} {
+				w := request(admin, "GET", path, "", false)
+				if w.Code != 200 {
+					t.Fatal("local runtime", path, w.Code, w.Body.String())
+				}
+				for _, user := range []int64{regular, 0} {
+					want := 403
+					if user == 0 {
+						want = 401
+					}
+					if w := request(user, "GET", path, "", false); w.Code != want {
+						t.Fatal("runtime role", path, w.Code, w.Body.String())
+					}
+				}
+				if w := request(admin, "POST", path, `{}`, true); w.Code != 405 {
+					t.Fatal("runtime read only", w.Code, w.Body.String())
+				}
+			}
+			for _, path := range []string{"/api/v1/ops/jobs?page=0", "/api/v1/ops/attention?from=bad", "/api/v1/ops/jobs?from=2026-10-14T00:00:00Z&to=2026-10-13T00:00:00Z"} {
+				if w := request(admin, "GET", path, "", false); w.Code != 400 {
+					t.Fatal("runtime filter input", w.Code, w.Body.String())
+				}
+			}
+			for _, path := range []string{"/api/v1/ops/jobs?kind=ANNOUNCEMENTS&status=PENDING&from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z&page=2", "/api/v1/ops/attention?kind=GAME_ROUNDS"} {
+				if w := request(admin, "GET", path, "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"items":`) || !strings.Contains(w.Body.String(), `"summary":`) {
+					t.Fatal("runtime filters", w.Code, w.Body.String())
+				}
+			}
+			if w := request(admin, "GET", "/api/v1/ops/native-runtime", "", false); w.Code != 404 {
+				t.Fatal("removed native runtime", w.Code, w.Body.String())
+			}
+		})
 		t.Run("support-incidents", func(t *testing.T) {
 			for _, path := range []string{"/api/v1/ops/support-cases?page=1", "/api/v1/ops/incidents?page=1"} {
 				w := request(admin, "GET", path, "", false)
