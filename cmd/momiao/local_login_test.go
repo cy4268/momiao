@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -97,7 +98,7 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	cfg.poker = remote.handler
 	cfg.opsMaintenance = newOpsMaintenanceHandler(wallets, "DEVELOPMENT")
 	cfg.opsAudit = newOpsAuditHandler(wallets)
-	cfg.apiKeys = wallets
+	cfg.relay = wallets
 	handler := newPortalHandler(cfg, nil)
 	call := func(method, path string, body any, cookie *http.Cookie, csrf string) *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(body)
@@ -206,6 +207,42 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	if prepared.Header.Get("Authorization") != "" || prepared.Header.Get("New-Api-User") != "" {
 		t.Fatal("native credential projection remains")
 	}
+	logs := call("GET", "/api/log/self?p=1&page_size=10", nil, cookie, "")
+	if logs.Code != 200 || !strings.Contains(logs.Body.String(), `"items"`) {
+		t.Fatal("local usage logs", logs.Code)
+	}
+	var logPage struct {
+		Data platform.RelayLogPage `json:"data"`
+	}
+	var totalLogs int64
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM relay.logs WHERE user_id=$1`, user.ID).Scan(&totalLogs); err != nil {
+		t.Fatal(err)
+	}
+	if json.Unmarshal(logs.Body.Bytes(), &logPage) != nil || logPage.Data.Total != totalLogs || logPage.Data.Page != 1 || logPage.Data.PageSize != 10 {
+		t.Fatal("local log pagination")
+	}
+	groups := call("GET", "/api/user/self/groups", nil, cookie, "")
+	var groupResponse struct {
+		Data map[string]platform.RelayGroup `json:"data"`
+	}
+	var expectedGroup platform.RelayGroup
+	if err := pool.QueryRow(t.Context(), `SELECT ratio::double precision,description FROM relay.groups WHERE name=$1`, user.Group).Scan(&expectedGroup.Ratio, &expectedGroup.Desc); err != nil {
+		t.Fatal(err)
+	}
+	if groups.Code != 200 || json.Unmarshal(groups.Body.Bytes(), &groupResponse) != nil || len(groupResponse.Data) != 1 || groupResponse.Data[user.Group] != expectedGroup {
+		t.Fatal("local owner group", groups.Code)
+	}
+	models := call("GET", "/api/user/models?group="+url.QueryEscape(user.Group), nil, cookie, "")
+	var modelResponse struct {
+		Data []string `json:"data"`
+	}
+	var expectedModels []string
+	if err := pool.QueryRow(t.Context(), `SELECT coalesce(array_agg(model ORDER BY model),'{}'::text[]) FROM (SELECT DISTINCT unnest(models) AS model FROM relay.channels WHERE enabled AND $1=ANY(groups)) models`, user.Group).Scan(&expectedModels); err != nil {
+		t.Fatal(err)
+	}
+	if models.Code != 200 || json.Unmarshal(models.Body.Bytes(), &modelResponse) != nil || !slices.Equal(modelResponse.Data, expectedModels) {
+		t.Fatal("local group models", models.Code)
+	}
 	keys := call("GET", "/api/token/?p=1&page_size=10", nil, cookie, "")
 	if keys.Code != 200 || !strings.Contains(keys.Body.String(), `"purpose"`) {
 		t.Fatal("local API key list", keys.Code)
@@ -213,6 +250,33 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	// Continue through the web-enabled portal, not only the API-only router.
 	cfg.WebDir = "."
 	handler = newPortalHandler(cfg, nil)
+	if denied := call("GET", "/api/log/self", nil, nil, ""); denied.Code != 401 {
+		t.Fatal("anonymous log read", denied.Code)
+	}
+	if denied := call("GET", "/api/user/models?group=not-my-group", nil, cookie, ""); denied.Code != 403 {
+		t.Fatal("other group model access", denied.Code)
+	}
+	if got := call("GET", "/api/user/self/groups", nil, cookie, ""); got.Body.String() != groups.Body.String() {
+		t.Fatal("web group routing", got.Code)
+	}
+	var sample platform.RelayLog
+	if err := pool.QueryRow(t.Context(), `SELECT id,extract(epoch FROM created_at)::bigint,model,cost_units FROM relay.logs WHERE user_id=$1 AND kind=2 ORDER BY id DESC LIMIT 1`, user.ID).Scan(&sample.ID, &sample.CreatedAt, &sample.ModelName, &sample.Quota); err != nil {
+		t.Fatal(err)
+	}
+	query := url.Values{"type": {"2"}, "model_name": {sample.ModelName}, "start_timestamp": {strconv.FormatInt(sample.CreatedAt, 10)}, "end_timestamp": {strconv.FormatInt(sample.CreatedAt, 10)}, "page_size": {"1"}}
+	filtered := call("GET", "/api/log/self?"+query.Encode(), nil, cookie, "")
+	var filteredTotal int64
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM relay.logs WHERE user_id=$1 AND kind=2 AND model=$2 AND created_at=to_timestamp($3::bigint)`, user.ID, sample.ModelName, sample.CreatedAt).Scan(&filteredTotal); err != nil {
+		t.Fatal(err)
+	}
+	if filtered.Code != 200 || json.Unmarshal(filtered.Body.Bytes(), &logPage) != nil || logPage.Data.Total != filteredTotal || len(logPage.Data.Items) != 1 || logPage.Data.Items[0].ID != sample.ID || logPage.Data.Items[0].Quota != sample.Quota {
+		t.Fatal("local log model/type/inclusive time filter", filtered.Code)
+	}
+	query.Set("p", strconv.FormatInt(filteredTotal+1, 10))
+	lastPage := call("GET", "/api/log/self?"+query.Encode(), nil, cookie, "")
+	if lastPage.Code != 200 || json.Unmarshal(lastPage.Body.Bytes(), &logPage) != nil || logPage.Data.Total != filteredTotal || len(logPage.Data.Items) != 0 {
+		t.Fatal("local log final page", lastPage.Code)
+	}
 	// Exercise one key lifecycle against the imported dev database, then delete it.
 	if denied := call("GET", "/api/token/", nil, nil, ""); denied.Code != 401 {
 		t.Fatal("anonymous key list", denied.Code)
@@ -296,6 +360,20 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = auth.Sessions.Revoke(context.Background(), ordinary) })
 	ordinaryCookie := &http.Cookie{Name: cookie.Name, Value: ordinary.Token}
+	otherLogs := call("GET", "/api/log/self?page_size=10", nil, ordinaryCookie, "")
+	var otherLogCount int64
+	if err := pool.QueryRow(t.Context(), `SELECT count(*) FROM relay.logs WHERE user_id=$1`, ordinaryID).Scan(&otherLogCount); err != nil {
+		t.Fatal(err)
+	}
+	if otherLogs.Code != 200 || json.Unmarshal(otherLogs.Body.Bytes(), &logPage) != nil || logPage.Data.Total != otherLogCount {
+		t.Fatal("ordinary user log isolation", otherLogs.Code)
+	}
+	for _, item := range logPage.Data.Items {
+		var owner int64
+		if err := pool.QueryRow(t.Context(), `SELECT user_id FROM relay.logs WHERE id=$1`, item.ID).Scan(&owner); err != nil || owner != ordinaryID {
+			t.Fatal("other user log disclosure")
+		}
+	}
 	if denied := call("POST", keyPath+"/key", nil, ordinaryCookie, ordinary.CSRFToken); denied.Code != 404 {
 		t.Fatal("other user key disclosure", denied.Code)
 	}
@@ -412,6 +490,8 @@ func TestLocalPasswordHTTP(t *testing.T) {
 			ID            int64  `json:"id"`
 			Quota         int64  `json:"quota"`
 			ReserveAmount string `json:"reserve_amount"`
+			UsedQuota     int64  `json:"used_quota"`
+			RequestCount  int64  `json:"request_count"`
 		} `json:"data"`
 	}
 	if self.Code != 200 || json.Unmarshal(self.Body.Bytes(), &local) != nil || local.Data.ID != user.ID {
@@ -429,6 +509,13 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	}
 	if local.Data.Quota != reserve || local.Data.ReserveAmount != platform.FormatAmount(reserve) {
 		t.Fatal("self does not expose Reserve")
+	}
+	var usedQuota, requestCount int64
+	if err := pool.QueryRow(t.Context(), `SELECT coalesce(sum(cost_units) FILTER(WHERE kind=2),0),count(*) FROM relay.logs WHERE user_id=$1 AND kind IN (2,5)`, user.ID).Scan(&usedQuota, &requestCount); err != nil {
+		t.Fatal(err)
+	}
+	if local.Data.UsedQuota != usedQuota || local.Data.RequestCount != requestCount {
+		t.Fatal("self does not expose local relay usage")
 	}
 	if strings.Contains(self.Body.String(), "password") {
 		t.Fatal("self exposes credentials")

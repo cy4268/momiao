@@ -48,28 +48,6 @@ func TestDomainPortalWiring(t *testing.T) {
 	}
 }
 
-func TestNativeSelfRouteOptInIsExact(t *testing.T) {
-	for _, tc := range []struct {
-		enabled bool
-		path    string
-	}{{false, "/api/user/self"}, {false, "/api/user/self/groups"}, {false, "/api/user/models"}, {false, "/api/log/self"}} {
-		calls := 0
-		transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			calls++
-			if r.URL.Path != tc.path {
-				t.Errorf("legacy proxy path=%s", r.URL.Path)
-			}
-			return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody}, nil
-		})
-		portal := newPortalHandler(config{WebDir: t.TempDir(), Session: sessionConfig{Enabled: tc.enabled}}, transport)
-		w := httptest.NewRecorder()
-		portal.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
-		if calls != 1 || w.Code != http.StatusNoContent {
-			t.Errorf("enabled=%v path=%s calls=%d status=%d", tc.enabled, tc.path, calls, w.Code)
-		}
-	}
-}
-
 func TestOpaqueModeBlocksLegacyBrowserAuthenticationRoutes(t *testing.T) {
 	routes := []struct{ method, path string }{
 		{http.MethodPost, "/api/user/login"},

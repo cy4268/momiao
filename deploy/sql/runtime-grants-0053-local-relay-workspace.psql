@@ -1,0 +1,5 @@
+\set ON_ERROR_STOP on
+BEGIN;
+GRANT SELECT,INSERT,UPDATE,DELETE ON relay.groups,relay.channels,relay.logs TO :"platform_runtime_role";
+GRANT USAGE,SELECT ON SEQUENCE relay.channels_id_seq,relay.logs_id_seq TO :"platform_runtime_role";
+COMMIT;

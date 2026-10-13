@@ -21,7 +21,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	stage := flag.String("stage", "identity", "identity or keys")
+	stage := flag.String("stage", "identity", "identity, keys or workspace")
 	flag.Parse()
 	// Files keep connection credentials out of command arguments and logs.
 	sourceDSN, err := os.ReadFile(os.Getenv("MOMIAO_IMPORT_NATIVE_DSN_FILE"))
@@ -43,6 +43,13 @@ func run(ctx context.Context) error {
 	}
 	defer target.Close()
 	// Schema migration is deliberately a separate, explicit command.
+	if *stage == "workspace" {
+		counts, err := target.ImportNativeWorkspace(ctx, source)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"stage": "workspace", "counts": counts})
+	}
 	if *stage == "keys" {
 		count, err := target.ImportNativeKeys(ctx, source)
 		if err != nil {

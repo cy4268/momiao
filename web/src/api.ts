@@ -238,11 +238,7 @@ export class ApiClient {
     async loadSelf() { const user=await this.request<User>('/api/user/self'); if (user.id !== this.snapshot.user?.id) { this.clear('会话已改变，请重新读取。'); await this.refresh(); return this.snapshot.user!; } this.publish({user}); return user; }
     async page<T>(path: string): Promise<Page<T>> { const p = await this.request<Page<T>>(path); if (!p || !Array.isArray(p.items) || !Number.isFinite(p.total) || !Number.isFinite(p.page_size))
         throw new ApiError('列表响应格式异常，请重新加载。'); return p; }
-    async groups(): Promise<Record<string, { ratio: number | string; desc: string }>> {
-        const data = await this.request<Record<string, { ratio: number | string; desc: string }>>('/api/user/self/groups');
-        if (!data || typeof data !== 'object' || Array.isArray(data) || Object.values(data).some(g => !g || typeof g.desc !== 'string' || !['number', 'string'].includes(typeof g.ratio))) throw new ApiError('分组响应格式异常，请重新加载。');
-        return data;
-    }
+    groups = () => this.request<Record<string, { ratio: number; desc: string }>>('/api/user/self/groups');
     keys = (page = 1, size = 10) => this.page<Key>(`/api/token/?p=${page}&page_size=${size}`);
     logs = (query = 'p=1&page_size=10') => this.page<UsageLog>(`/api/log/self?${query}`);
 }

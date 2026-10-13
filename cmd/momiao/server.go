@@ -112,15 +112,19 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				return
 			}
 			if r.URL.Path == "/api/user/self" {
-				domainHandler(cfg, newLocalSelfHandler(cfg.wallet)).ServeHTTP(w, r)
+				domainHandler(cfg, newLocalSelfHandler(cfg.relay)).ServeHTTP(w, r)
+				return
+			}
+			if localWorkspaceRoute(r.URL.Path) {
+				domainHandler(cfg, newLocalWorkspaceHandler(cfg.relay)).ServeHTTP(w, r)
 				return
 			}
 			if strings.HasPrefix(r.URL.Path, "/api/token/") {
-				if cfg.apiKeys == nil {
+				if cfg.relay == nil {
 					walletError(w, 503, "KEY_UNAVAILABLE")
 					return
 				}
-				domainHandler(cfg, newLocalKeysHandler(cfg.apiKeys)).ServeHTTP(w, r)
+				domainHandler(cfg, newLocalKeysHandler(cfg.relay)).ServeHTTP(w, r)
 				return
 			}
 			if sessionAPIRoute(r.URL.Path) {
@@ -185,17 +189,15 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		case cfg.Session.Enabled && legacyNativeBrowserAuthRoute(r.URL.Path):
 			sessionError(w, bffauth.Fault{Status: http.StatusNotFound, Code: "AUTH_ROUTE_NOT_FOUND"})
 		case strings.HasPrefix(r.URL.Path, "/api/token/"):
-			if cfg.apiKeys == nil {
+			if cfg.relay == nil {
 				walletError(w, 503, "KEY_UNAVAILABLE")
 				return
 			}
-			domainHandler(cfg, newLocalKeysHandler(cfg.apiKeys)).ServeHTTP(w, r)
-		case cfg.Session.Enabled && r.URL.Path == nativeLogProjectionPath:
-			domainHandler(cfg, newNativeLogProjectionHandler(transport)).ServeHTTP(w, r)
-		case cfg.Session.Enabled && (r.URL.Path == nativeWorkspaceGroupsPath || r.URL.Path == nativeWorkspaceModelsPath):
-			domainHandler(cfg, newNativeWorkspaceProjectionHandler(transport)).ServeHTTP(w, r)
+			domainHandler(cfg, newLocalKeysHandler(cfg.relay)).ServeHTTP(w, r)
+		case localWorkspaceRoute(r.URL.Path):
+			domainHandler(cfg, newLocalWorkspaceHandler(cfg.relay)).ServeHTTP(w, r)
 		case r.URL.Path == "/api/user/self":
-			domainHandler(cfg, newLocalSelfHandler(cfg.wallet)).ServeHTTP(w, r)
+			domainHandler(cfg, newLocalSelfHandler(cfg.relay)).ServeHTTP(w, r)
 		case pokerAPIRoute(r.URL.Path):
 			servePokerRoute(domainHandler(cfg, cfg.poker), w, r)
 		case r.URL.Path == "/api/v1/games" || strings.HasPrefix(r.URL.Path, "/api/v1/games/") || r.URL.Path == "/api/v1/game-rounds" || strings.HasPrefix(r.URL.Path, "/api/v1/game-rounds/"):

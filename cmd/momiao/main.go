@@ -102,7 +102,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		cfg.catalog = store
 		cfg.catalogAssets, err = newCatalogAssetStore(cfg.CatalogAssets, nil)
 		if err != nil { return errCatalogAssetConfig }
-		cfg.apiKeys = store
+		cfg.relay = store
 		cfg.rpUsage = store
 		if cfg.CatalogReaderKeyFile != "" {
 			key, err := readCatalogKey(cfg.CatalogReaderKeyFile)
