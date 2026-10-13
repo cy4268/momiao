@@ -6,21 +6,12 @@ import (
 )
 
 var (
-	ErrAnnouncementForbidden    = errors.New("ANNOUNCEMENTS_FORBIDDEN")
-	ErrAnnouncementStale        = errors.New("AUTHORIZATION_STALE")
-	ErrAnnouncementConflict     = errors.New("ANNOUNCEMENT_VERSION_CONFLICT")
-	ErrAnnouncementWindow       = errors.New("ANNOUNCEMENT_PLACEMENT_CONFLICT")
-	ErrAnnouncementNotFound     = errors.New("ANNOUNCEMENT_NOT_FOUND")
-	ErrAnnouncementConfirmation = errors.New("ANNOUNCEMENT_CONFIRMATION_REQUIRED")
-	ErrAnnouncementOperation    = errors.New("ANNOUNCEMENT_OPERATION_CONFLICT")
+	ErrAnnouncementForbidden = errors.New("ANNOUNCEMENTS_FORBIDDEN")
+	ErrAnnouncementConflict  = errors.New("ANNOUNCEMENT_STATE_CONFLICT")
+	ErrAnnouncementWindow    = errors.New("ANNOUNCEMENT_PLACEMENT_CONFLICT")
+	ErrAnnouncementNotFound  = errors.New("ANNOUNCEMENT_NOT_FOUND")
 )
 
-type AnnouncementPrincipal struct {
-	UserID      int64    `json:"user_id,string"`
-	Role        string   `json:"base_role"`
-	Epoch       int64    `json:"authz_epoch"`
-	Permissions []string `json:"permissions"`
-}
 type Acknowledgement struct {
 	DisplayName     string `json:"display_name"`
 	ExternalLink    string `json:"external_link"`
@@ -60,7 +51,7 @@ type Announcement struct {
 }
 type OpsAnnouncement struct {
 	Announcement
-	Version          int64                   `json:"version"`
+	Version          int64                   `json:"-"`
 	Content          AnnouncementContent     `json:"content"`
 	Placements       []AnnouncementPlacement `json:"placements"`
 	WithdrawnAt      *time.Time              `json:"withdrawn_at"`
@@ -69,44 +60,13 @@ type OpsAnnouncement struct {
 	CanonicalKey     string                  `json:"canonical_key"`
 }
 type AnnouncementCommand struct {
-	OperationID     string                  `json:"operation_id"`
-	Epoch           int64                   `json:"authz_epoch"`
-	ID              string                  `json:"announcement_id"`
-	ExpectedVersion int64                   `json:"expected_version"`
-	Action          string                  `json:"action"`
-	Content         *AnnouncementContent    `json:"content,omitempty"`
-	PublishAt       *time.Time              `json:"publish_at,omitempty"`
-	VisibleFrom     *time.Time              `json:"visible_from,omitempty"`
-	VisibleUntil    *time.Time              `json:"visible_until,omitempty"`
-	Placements      []AnnouncementPlacement `json:"placements,omitempty"`
-	Reason          string                  `json:"reason"`
-}
-type AnnouncementImpact struct {
-	Action               string                  `json:"action"`
-	ID                   string                  `json:"announcement_id"`
-	TargetVersion        int64                   `json:"target_version"`
-	Title                string                  `json:"title"`
-	Visibility           string                  `json:"visibility"`
-	NotificationRevision int64                   `json:"notification_revision"`
-	ReadAccounts         int64                   `json:"read_accounts"`
-	PublishAt            *time.Time              `json:"publish_at"`
-	VisibleFrom          *time.Time              `json:"visible_from"`
-	VisibleUntil         *time.Time              `json:"visible_until"`
-	Placements           []AnnouncementPlacement `json:"placements"`
-	Effect               string                  `json:"effect"`
-}
-type AnnouncementPreview struct {
-	ID        string             `json:"preview_id"`
-	ExpiresAt time.Time          `json:"expires_at"`
-	Impact    AnnouncementImpact `json:"impact"`
-}
-type AnnouncementResult struct {
-	OperationID          string `json:"operation_id"`
-	ID                   string `json:"announcement_id"`
-	Version              int64  `json:"version"`
-	ContentVersion       int64  `json:"content_version"`
-	NotificationRevision int64  `json:"notification_revision"`
-	State                string `json:"state"`
+	ID           string                  `json:"announcement_id"`
+	Action       string                  `json:"action"`
+	Content      *AnnouncementContent    `json:"content,omitempty"`
+	PublishAt    *time.Time              `json:"publish_at,omitempty"`
+	VisibleFrom  *time.Time              `json:"visible_from,omitempty"`
+	VisibleUntil *time.Time              `json:"visible_until,omitempty"`
+	Placements   []AnnouncementPlacement `json:"placements,omitempty"`
 }
 type AnnouncementFilter struct {
 	Type, Search, Placement string

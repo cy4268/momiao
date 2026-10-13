@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/cy4268/momiao/internal/identity"
 	"io"
 	"mime"
 	"net/http"
@@ -16,15 +15,14 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
 type announcementStore interface {
-	AnnouncementAuthority(context.Context, int64) (platform.AnnouncementPrincipal, error)
-	OpsAnnouncements(context.Context, int64) (platform.AnnouncementPrincipal, []platform.OpsAnnouncement, error)
-	OpsAnnouncement(context.Context, int64, string) (platform.AnnouncementPrincipal, platform.OpsAnnouncement, error)
-	PrepareAnnouncement(context.Context, int64, platform.AnnouncementCommand) (platform.AnnouncementPreview, error)
-	ExecuteAnnouncement(context.Context, int64, platform.AnnouncementCommand, string, bool) (platform.AnnouncementResult, error)
+	OpsAnnouncements(context.Context, int64) ([]platform.OpsAnnouncement, error)
+	OpsAnnouncement(context.Context, int64, string) (platform.OpsAnnouncement, error)
+	SaveAnnouncement(context.Context, int64, platform.AnnouncementCommand) (platform.OpsAnnouncement, error)
 	PublicAnnouncements(context.Context, int64, platform.AnnouncementFilter) (platform.AnnouncementPage, error)
 	PublicAnnouncement(context.Context, int64, string, bool) (platform.Announcement, error)
 	ReadAnnouncement(context.Context, int64, string, int64) (time.Time, error)
@@ -36,7 +34,7 @@ func announcementBrowserRoute(path string) bool {
 	return path == "/announcements" || path == "/ops/announcements" || strings.HasPrefix(path, "/announcements/") && announcementIDPattern.MatchString(strings.TrimPrefix(path, "/announcements/"))
 }
 
-func newAnnouncementHandler(origin string, store announcementStore, transport http.RoundTripper) http.Handler {
+func newAnnouncementHandler(origin string, store announcementStore) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
@@ -48,36 +46,24 @@ func newAnnouncementHandler(origin string, store announcementStore, transport ht
 		}
 		tail := strings.TrimPrefix(r.URL.Path, base)
 		reads := strings.HasSuffix(tail, "/reads")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		local, authenticated := identity.UserFromContext(ctx)
+		if (ops || reads || tail == "/current-post-login-popup") && !authenticated {
+			walletError(w, 401, "AUTH_UNAUTHORIZED")
+			return
+		}
+		if ops && local.Role < 10 {
+			walletError(w, 403, "ANNOUNCEMENTS_FORBIDDEN")
+			return
+		}
 		var user int64
-		hasAuth := r.Header.Get("Authorization") != "" || len(r.Header.Values("Authorization")) > 0 || len(r.Header.Values("New-Api-User")) > 0 || len(r.Header.Values("X-Auth-Session")) > 0
-		if ops || reads || hasAuth || tail == "/current-post-login-popup" {
-			if !announcementSessionCredential(r) {
-				walletError(w, 401, "AUTH_UNAUTHORIZED")
-				return
-			}
-			id, status := verifyWalletUser(r, transport)
-			if status != 0 {
-				code := "AUTH_UNAVAILABLE"
-				if status == 401 {
-					code = "AUTH_UNAUTHORIZED"
-				}
-				if status == 403 {
-					code = "AUTH_FORBIDDEN"
-				}
-				walletError(w, status, code)
-				return
-			}
-			user = id
+		if authenticated {
+			user = local.ID
 		}
 		if store == nil {
 			walletError(w, 503, "ANNOUNCEMENTS_UNAVAILABLE")
 			return
-		}
-		if ops {
-			if _, err := store.AnnouncementAuthority(ctx, user); err != nil {
-				writeAnnouncementError(w, err)
-				return
-			}
 		}
 		if r.Method != "GET" && r.Method != "POST" {
 			w.Header().Set("Allow", "GET, POST")
@@ -108,44 +94,27 @@ func newAnnouncementHandler(origin string, store announcementStore, transport ht
 			}
 			switch {
 			case r.Method == "GET" && tail == "":
-				var p platform.AnnouncementPrincipal
 				var items []platform.OpsAnnouncement
-				p, items, err = store.OpsAnnouncements(ctx, user)
-				data = map[string]any{"principal": p, "items": items}
+				items, err = store.OpsAnnouncements(ctx, user)
+				data = map[string]any{"items": items}
 			case r.Method == "GET" && announcementIDPattern.MatchString(strings.TrimPrefix(tail, "/")):
-				var p platform.AnnouncementPrincipal
-				var item platform.OpsAnnouncement
-				p, item, err = store.OpsAnnouncement(ctx, user, strings.TrimPrefix(tail, "/"))
-				data = map[string]any{"principal": p, "item": item}
+				data, err = store.OpsAnnouncement(ctx, user, strings.TrimPrefix(tail, "/"))
 			case r.Method == "POST" && tail == "/render-preview":
 				var body struct {
 					Content platform.AnnouncementContent `json:"content"`
 				}
-				if !decodeAnnouncementBody(r.Body, &body) {
+				if !decodeAnnouncementRequest(r.Body, &body) {
 					walletError(w, 400, "INVALID_REQUEST")
 					return
 				}
 				data, err = platform.RenderAnnouncement(body.Content.Markdown)
-			case r.Method == "POST" && tail == "/prepare":
-				var body struct {
-					Command platform.AnnouncementCommand `json:"command"`
-				}
-				if !decodeAnnouncementBody(r.Body, &body) {
+			case r.Method == "POST" && tail == "":
+				var body platform.AnnouncementCommand
+				if !decodeAnnouncementRequest(r.Body, &body) {
 					walletError(w, 400, "INVALID_REQUEST")
 					return
 				}
-				data, err = store.PrepareAnnouncement(ctx, user, body.Command)
-			case r.Method == "POST" && tail == "/execute":
-				var body struct {
-					Command   platform.AnnouncementCommand `json:"command"`
-					PreviewID string                       `json:"preview_id"`
-					Confirmed bool                         `json:"confirmed"`
-				}
-				if !decodeAnnouncementBody(r.Body, &body) {
-					walletError(w, 400, "INVALID_REQUEST")
-					return
-				}
-				data, err = store.ExecuteAnnouncement(ctx, user, body.Command, body.PreviewID, body.Confirmed)
+				data, err = store.SaveAnnouncement(ctx, user, body)
 			default:
 				walletError(w, 404, "NOT_FOUND")
 				return
@@ -156,7 +125,7 @@ func newAnnouncementHandler(origin string, store announcementStore, transport ht
 				var body struct {
 					Revision int64 `json:"notification_revision"`
 				}
-				if !decodeAnnouncementBody(r.Body, &body) {
+				if !decodeAnnouncementRequest(r.Body, &body) {
 					walletError(w, 400, "INVALID_REQUEST")
 					return
 				}
@@ -223,17 +192,23 @@ func newAnnouncementHandler(origin string, store announcementStore, transport ht
 	})
 }
 
-func announcementSessionCredential(r *http.Request) bool { _, ok := identity.UserFromContext(r.Context()); return ok }
+func decodeAnnouncementRequest(reader io.Reader, target any) bool {
+	decoder := json.NewDecoder(reader)
+	if decoder.Decode(target) != nil {
+		return false
+	}
+	return decoder.Decode(new(any)) == io.EOF
+}
 func writeAnnouncementError(w http.ResponseWriter, err error) {
 	status, code := 503, "ANNOUNCEMENTS_UNAVAILABLE"
 	switch {
 	case errors.Is(err, platform.ErrAnnouncementInvalid):
 		status, code = 400, err.Error()
-	case errors.Is(err, platform.ErrAnnouncementForbidden), errors.Is(err, platform.ErrAnnouncementStale):
-		status, code = 403, err.Error()
+	case errors.Is(err, platform.ErrAnnouncementForbidden), errors.Is(err, platform.ErrCatalogForbidden):
+		status, code = 403, "ANNOUNCEMENTS_FORBIDDEN"
 	case errors.Is(err, platform.ErrAnnouncementNotFound):
 		status, code = 404, err.Error()
-	case errors.Is(err, platform.ErrAnnouncementConflict), errors.Is(err, platform.ErrAnnouncementWindow), errors.Is(err, platform.ErrAnnouncementConfirmation), errors.Is(err, platform.ErrAnnouncementOperation):
+	case errors.Is(err, platform.ErrAnnouncementConflict), errors.Is(err, platform.ErrAnnouncementWindow):
 		status, code = 409, err.Error()
 	}
 	walletError(w, status, code)

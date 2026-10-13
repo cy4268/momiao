@@ -22,13 +22,6 @@ type gateFixture struct {
 	ackUser, ackVersion int64
 }
 
-func (s *gateFixture) CatalogAuthority(context.Context, int64) (platform.AnnouncementPrincipal, error) {
-	s.calls = append(s.calls, "models-role")
-	if s.stage == "models-denied" {
-		return platform.AnnouncementPrincipal{}, platform.ErrCatalogForbidden
-	}
-	return platform.AnnouncementPrincipal{Role: "OPERATOR"}, nil
-}
 
 func TestAccessGateCatalogRoutesAndScope(t *testing.T) {
 	for _, route := range []string{"/api/access", "/api/access?model_id=%E7%BB%84%2Fmodel&intent=use", "/keys?model_id=a%3Fb%23c"} {
@@ -144,13 +137,6 @@ func TestMigrationNoticeHTTPWriteBoundary(t *testing.T) {
 			}
 		})
 	}
-}
-func (s *gateFixture) AnnouncementAuthority(context.Context, int64) (platform.AnnouncementPrincipal, error) {
-	s.calls = append(s.calls, "role")
-	if s.stage == "role" {
-		return platform.AnnouncementPrincipal{}, platform.ErrAnnouncementForbidden
-	}
-	return platform.AnnouncementPrincipal{Role: "SUPER_ADMIN"}, nil
 }
 
 func TestAccessGateOrderAndMissingDeclaration(t *testing.T) {

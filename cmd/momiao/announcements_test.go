@@ -4,13 +4,17 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"errors"
+	"os"
+
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
+	"github.com/redis/go-redis/v9"
 )
 
 func announcementSessionToken(patch map[string]any) string {
@@ -28,137 +32,122 @@ func announcementReq(method, path, body string) *http.Request {
 	return r
 }
 
-type announcementTestStore struct {
-	*platform.Store
-	user                        int64
-	authorityCalls, publicCalls int
-	denied                      bool
-}
-
-func (s *announcementTestStore) AnnouncementAuthority(_ context.Context, user int64) (platform.AnnouncementPrincipal, error) {
-	s.user = user
-	s.authorityCalls++
-	if s.denied {
-		return platform.AnnouncementPrincipal{}, platform.ErrAnnouncementForbidden
-	}
-	return platform.AnnouncementPrincipal{UserID: user, Role: "AUDITOR", Epoch: 2, Permissions: []string{"announcements.read"}}, nil
-}
-func (s *announcementTestStore) OpsAnnouncements(ctx context.Context, user int64) (platform.AnnouncementPrincipal, []platform.OpsAnnouncement, error) {
-	p, e := s.AnnouncementAuthority(ctx, user)
-	return p, []platform.OpsAnnouncement{}, e
-}
-func (s *announcementTestStore) PublicAnnouncements(_ context.Context, user int64, f platform.AnnouncementFilter) (platform.AnnouncementPage, error) {
-	s.user = user
-	s.publicCalls++
-	return platform.AnnouncementPage{Items: []platform.Announcement{}}, nil
-}
+// The existing authority regression now uses local dev accounts and Redis cookies.
 func TestAnnouncementHTTPAuthority(t *testing.T) {
-	nativeCalls := 0
-	transport := walletTransport(func(r *http.Request) (*http.Response, error) {
-		nativeCalls++
-		if r.URL.String() != "http://unix/api/user/self" {
-			t.Fatal(r.URL)
+	path := os.Getenv("MOMIAO_SESSION_DSN_FILE")
+	if path == "" {
+		t.Skip("requires existing isolated dev PG and Redis")
+	}
+	dsn, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("read dev DSN")
+	}
+	store, err := platform.Open(t.Context(), strings.TrimSpace(string(dsn)))
+	if err != nil {
+		t.Fatal("open dev database")
+	}
+	defer store.Close()
+	options, err := readSessionRedisConfig(os.Getenv("MOMIAO_SESSION_REDIS_CONFIG_FILE"))
+	if err != nil {
+		t.Fatal("read dev Redis config")
+	}
+	redisClient := redis.NewClient(options)
+	defer redisClient.Close()
+	auth := &identity.HTTP{Store: &identity.Store{Pool: store.Pool()}, Sessions: identity.Sessions{Redis: redisClient}, Origin: "https://dev.momiao.win"}
+	var admin, regular int64
+	if err = store.Pool().QueryRow(t.Context(), `SELECT min(id) FILTER(WHERE role>=10),min(id) FILTER(WHERE role<10) FROM identity.users WHERE status=1 AND deleted_at IS NULL`).Scan(&admin, &regular); err != nil {
+		t.Fatal(err)
+	}
+	sessions := map[int64]identity.Session{}
+	for _, user := range []int64{admin, regular} {
+		value, e := auth.Sessions.Create(t.Context(), user)
+		if e != nil {
+			t.Fatal(e)
 		}
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"data":{"id":9007199254740993,"status":1,"role":100}}`))}, nil
-	})
-	s := &announcementTestStore{denied: true}
-	h := newAnnouncementHandler("https://wallet.example", s, transport)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/platform/v1/ops/announcements", nil))
-	if w.Code != 401 || nativeCalls != 0 || s.authorityCalls != 0 {
-		t.Fatal("anonymous Ops gate", w.Code)
+		sessions[user] = value
+		defer func() {
+			if e := auth.Sessions.Revoke(context.Background(), value); e != nil {
+				t.Error(e)
+			}
+		}()
 	}
-	w = httptest.NewRecorder()
-	r := announcementReq("GET", "/platform/v1/ops/announcements", "")
-	r.Header.Set("X-Role", "SUPER_ADMIN")
-	h.ServeHTTP(w, r)
-	if w.Code != 403 || nativeCalls != 1 || s.user != 9007199254740993 {
-		t.Fatal("native root mapped to Ops", w.Code, w.Body)
-	}
-	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/platform/v1/announcements", nil))
-	if w.Code != 200 || s.user != 0 || s.publicCalls != 1 {
-		t.Fatal("public list", w.Code, w.Body)
-	}
-	w = httptest.NewRecorder()
-	r = httptest.NewRequest("GET", "/platform/v1/announcements", nil)
-	r.Header.Set("New-Api-User", "4")
-	h.ServeHTTP(w, r)
-	if w.Code != 401 || s.publicCalls != 1 {
-		t.Fatal("invalid auth downgraded to guest", w.Code)
-	}
-}
-func TestAnnouncementHTTPStrictWrites(t *testing.T) {
-	s := &announcementTestStore{}
-	h := newAnnouncementHandler("https://wallet.example", s, profileTransport())
-	for _, body := range []string{`null`, `[]`, `{"content":{"title":"x","title":"y"}}`, `{"content":{},"unknown":1}`, `{"content":{}} trailing`, strings.Repeat(" ", 66000)} {
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, announcementReq("POST", "/platform/v1/ops/announcements/render-preview", body))
-		if w.Code != 400 {
-			t.Fatal("invalid body", w.Code)
-		}
-	}
-	w := httptest.NewRecorder()
-	r := announcementReq("POST", "/platform/v1/ops/announcements/render-preview", `{}`)
-	r.Header.Set("Origin", "https://evil.example")
-	h.ServeHTTP(w, r)
-	if w.Code != 403 {
-		t.Fatal("origin accepted", w.Code)
-	}
-	for _, query := range []string{"?type=SYSTEM&type=IMPORTANT", "?limit=51", "?offset=-1", "?archive=maybe", "?date_from=2026-02-30", "?private=1"} {
-		w = httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest("GET", "/platform/v1/announcements"+query, nil))
-		if w.Code != 400 {
-			t.Fatal(query, w.Code)
-		}
-	}
-}
-
-func TestAnnouncementHTTPRequiresNativeSessionCredential(t *testing.T) {
-	valid := announcementSessionToken(nil)
-	headerToken := func(header string) string {
-		return base64.RawURLEncoding.EncodeToString([]byte(header)) + "." + strings.Join(strings.Split(valid, ".")[1:], ".")
-	}
-	for _, tc := range []struct {
-		name, token  string
-		nativeStatus int
-		want, calls  int
-	}{
-		{"opaque PAT", "opaque-personal-access-token", 200, 401, 0},
-		{"dotted PAT", "opaque.key.with-dots", 200, 401, 0},
-		{"uppercase-only algorithm", headerToken(`{"ALG":"HS256"}`), 200, 401, 0},
-		{"missing algorithm", headerToken(`{"typ":"JWT"}`), 200, 401, 0},
-		{"non-string algorithm", headerToken(`{"alg":123}`), 200, 401, 0},
-		{"wrong issuer", announcementSessionToken(map[string]any{"iss": "other"}), 200, 401, 0},
-		{"wrong audience", announcementSessionToken(map[string]any{"aud": []string{"other"}}), 200, 401, 0},
-		{"wrong purpose", announcementSessionToken(map[string]any{"token_use": "security_proof"}), 200, 401, 0},
-		{"subject mismatch", announcementSessionToken(map[string]any{"sub": "1"}), 200, 401, 0},
-		{"session mismatch", announcementSessionToken(map[string]any{"sid": "other"}), 200, 401, 0},
-		{"malformed registered claim", announcementSessionToken(map[string]any{"exp": map[string]any{"x": 1}}), 200, 401, 0},
-		{"forged signature", valid + "forged", 401, 401, 1},
-		{"revoked session", valid, 401, 401, 1},
-		{"native-validated session", valid, 200, 200, 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			calls := 0
-			s := &announcementTestStore{}
-			h := newAnnouncementHandler("https://wallet.example", s, walletTransport(func(r *http.Request) (*http.Response, error) {
-				calls++
-				if r.Header.Get("Authorization") != "Bearer "+tc.token {
-					t.Fatal("credential was rewritten")
+	for _, webDir := range []string{"", "/unused-announcements-web"} {
+		cfg := config{WebDir: webDir, PublicOrigin: auth.Origin, announcements: store, localIdentity: auth}
+		cfg.Session.Enabled = true
+		h := newPortalHandler(cfg, walletTransport(func(*http.Request) (*http.Response, error) {
+			t.Error("announcements reached native")
+			return nil, errors.New("unexpected native call")
+		}))
+		request := func(user int64, method, path, body string, csrf bool) *httptest.ResponseRecorder {
+			r := httptest.NewRequest(method, path, strings.NewReader(body))
+			r.Header.Set("Origin", auth.Origin)
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("New-Api-User", "1")
+			r.Header.Set("X-Auth-Session", "forged")
+			if value, ok := sessions[user]; ok {
+				r.AddCookie(&http.Cookie{Name: identity.SessionCookieName, Value: value.Token})
+				if csrf {
+					r.Header.Set("X-CSRF-Token", value.CSRFToken)
 				}
-				return &http.Response{StatusCode: tc.nativeStatus, Body: io.NopCloser(strings.NewReader(`{"success":true,"data":{"id":9007199254740993,"status":1}}`))}, nil
-			}))
-			r := announcementReq("GET", "/platform/v1/ops/announcements", "")
-			r.Header.Set("Authorization", "Bearer "+tc.token)
+			}
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, r)
-			if w.Code != tc.want || calls != tc.calls {
-				t.Fatalf("status=%d native calls=%d", w.Code, calls)
-			}
-			if tc.want != 200 && s.authorityCalls != 0 {
-				t.Fatal("principal loaded before session verified")
-			}
-		})
+			return w
+		}
+		const ops = "/platform/v1/ops/announcements"
+		w := request(admin, "GET", ops, "", false)
+		if w.Code != 200 {
+			t.Fatal("local announcement Ops", w.Code, w.Body.String())
+		}
+		if w.Header().Get("Cache-Control") != "no-store" || strings.Contains(w.Body.String(), `"authz_epoch"`) || strings.Contains(w.Body.String(), `"principal"`) {
+			t.Fatal("legacy authority or cached Ops response", w.Body.String())
+		}
+		var page struct {
+			Data struct {
+				Items []platform.OpsAnnouncement `json:"items"`
+			} `json:"data"`
+		}
+		if err = json.Unmarshal(w.Body.Bytes(), &page); err != nil || len(page.Data.Items) == 0 {
+			t.Fatal("existing dev announcements", err)
+		}
+		if w = request(admin, "GET", ops+"/"+page.Data.Items[0].ID, "", false); w.Code != 200 {
+			t.Fatal("local detail", w.Code, w.Body.String())
+		}
+		if w = request(regular, "GET", ops, "", false); w.Code != 403 {
+			t.Fatal("regular Ops access", w.Code)
+		}
+		if w = request(0, "GET", ops, "", false); w.Code != 401 {
+			t.Fatal("anonymous Ops access", w.Code)
+		}
+		if w = request(admin, "POST", ops, `{"action":"SAVE"}`, false); w.Code != 403 {
+			t.Fatal("missing CSRF", w.Code)
+		}
+		if w = request(admin, "POST", ops, `{"action":"SAVE"}`, true); w.Code != 400 {
+			t.Fatal("invalid content", w.Code, w.Body.String())
+		}
+		if w = request(admin, "POST", ops+"/prepare", `{}`, true); w.Code != 404 {
+			t.Fatal("legacy prepare", w.Code)
+		}
+		if w = request(admin, "POST", ops+"/execute", `{}`, true); w.Code != 404 {
+			t.Fatal("legacy execute", w.Code)
+		}
+		if w = request(admin, "POST", ops+"/render-preview", `{"content":{"body_markdown":"## Preview\n\n**Dev content**"}}`, true); w.Code != 200 || !strings.Contains(w.Body.String(), "Dev content") {
+			t.Fatal("server render", w.Code, w.Body.String())
+		}
+		if w = request(admin, "POST", ops+"/render-preview", `{"content":{"body_markdown":"<script>alert(1)</script>"}}`, true); w.Code != 400 {
+			t.Fatal("unsafe markdown", w.Code)
+		}
+		if w = request(admin, "POST", ops, `{"action":"SAVE"} trailing`, true); w.Code != 400 {
+			t.Fatal("malformed write", w.Code)
+		}
+		if w = request(0, "GET", "/platform/v1/announcements", "", false); w.Code != 200 {
+			t.Fatal("public list", w.Code, w.Body.String())
+		}
+		if w = request(regular, "GET", "/platform/v1/announcements/current-post-login-popup", "", false); w.Code != 200 {
+			t.Fatal("local post-login popup", w.Code, w.Body.String())
+		}
+		if w = request(0, "GET", "/platform/v1/announcements/current-post-login-popup", "", false); w.Code != 401 {
+			t.Fatal("anonymous popup", w.Code)
+		}
 	}
 }

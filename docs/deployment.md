@@ -201,3 +201,12 @@ Reserve 调账接受有符号 Credit 十进制字符串和备注，复用 ParseA
 每次授权读取前，在事务内重读本地角色并写现有 ops.audit_log：RECORD_READ_LIST/DETAIL/VERIFY，after_state 包含 subject_user_id（0=全局）和查询条件。这里记录访问尝试，不代表源记录成功返回。旧 audit.record_access_events 原样保留，不再写 epoch/scopes。详情和证明复用原 domain reader，以实际 operator 为 viewer，不冒充目标参与者、不放宽暗牌/种子公开时点。
 
 开发库是历史数据副本，但创建 dev 时重新生成了游戏/Poker 加密密钥。现有 Blackjack 历史在 openSeed 失败；Poker 手牌和轮盘 reader 也返回 HISTORY_UNAVAILABLE。列表、Dice 历史与证明、Poker 会话、交易详情可以验收；这不等于那些加密详情通过。必须在联合验收前解决开发数据与密钥的一致性（旧版本号相同不表示密钥相同），不跳过解密校验或把错误当空记录。源码回退不降 schema 58，不删除访问审计；本切片没有发布网站。
+
+
+### 本地公告运营直接保存
+
+`/ops/announcements` 已移出旧 Ops bootstrap。公告接口在有/无静态网站目录的两种路由下均使用本地 Redis 会话；公共 GET 接受匿名，登录后弹窗与已读写入使用当前本地用户。管理员 role >= 10 可读取、创建、发布/预约、保存正文/展示渠道、重新通知、撤回和归档；写入沿用 CSRF/Origin，在事务内重新核对本地角色并锁公告行。
+
+POST `/platform/v1/ops/announcements` 直接接受 `announcement_id`、`action` 和对应内容/时间/渠道，返回保存后的完整公告；没有 operation_id、authz_epoch、expected_version、reason、prepare/execute 或影响预览。撤回/归档/重新通知只用浏览器确认。保留净化后的正文预览、不可变内容与通知版本、已读语义、独占展示时间窗口与预约任务；正文/渠道更新不重置已读，重新通知才增加通知版本。
+
+每个成功管理员写入在同一事务写一行 ops.audit_log（ANNOUNCEMENT_*，actor、目标及改前改后）。旧预览和 admin_operations 历史保留，未改动的预约 worker 仍写自己的 SYSTEM 任务记录。沿用 schema 58 与既有运行角色授权，不新增迁移/导入。本切片仅源码与独立 dev 最小验证，不是网站发布或完整联合验收。

@@ -167,10 +167,6 @@ func TestRuntimeJointAcceptance(t *testing.T) {
 	if err != nil || receipt.PrincipalID == "" {
 		t.Fatal("deployer-only function failed", err)
 	}
-	principal, err := runtime.AnnouncementAuthority(ctx, user)
-	if err != nil {
-		t.Fatal("runtime authority read failed", err)
-	}
 	t.Run("profile", func(t *testing.T) {
 		p, err := runtime.EnsureProvisionalProfile(ctx, user)
 		if err != nil || p.Status != "INCOMPLETE" {
@@ -180,33 +176,6 @@ func TestRuntimeJointAcceptance(t *testing.T) {
 		p, err = runtime.UpdateProfile(ctx, user, ProfilePatch{ExpectedVersion: p.ProfileVersion, DisplayName: textPtr("JointRenamed")})
 		if err != nil || p.ProfileVersion != 2 {
 			t.Fatal("profile rename", err)
-		}
-	})
-	t.Run("announcements", func(t *testing.T) {
-		draft := announcementDraft(t, runtime, ctx, principal)
-		publish := announcementPublishCommand(t, principal, draft)
-		until := time.Now().UTC().Add(time.Hour)
-		publish.VisibleUntil = &until
-		publish.Placements = []AnnouncementPlacement{{Placement: "ENTRY_POPUP"}, {Placement: "PINNED_LIST"}}
-		result := announcementConfirm(t, runtime, ctx, principal, publish)
-		view, err := runtime.PublicAnnouncement(ctx, user, result.ID, false)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err = runtime.ReadAnnouncement(ctx, user, result.ID, view.NotificationRevision); err != nil {
-			t.Fatal("announcement read ACK", err)
-		}
-		placement := AnnouncementCommand{OperationID: announcementID(t), Epoch: principal.Epoch, ID: result.ID, ExpectedVersion: result.Version, Action: "UPDATE_PLACEMENTS", Reason: "Synthetic replacement", Placements: []AnnouncementPlacement{{Placement: "PINNED_LIST", ManualOrder: 1}}}
-		announcementConfirm(t, runtime, ctx, principal, placement)
-		// Advance only these local synthetic expiry facts; the worker remains runtime.
-		if _, err = owner.pool.Exec(ctx, "UPDATE content.announcements SET visible_until=clock_timestamp()-interval '1 second' WHERE announcement_id=$1", result.ID); err != nil {
-			t.Fatal(err)
-		}
-		if _, err = owner.pool.Exec(ctx, "UPDATE content.announcement_jobs SET due_at=clock_timestamp()-interval '1 second' WHERE announcement_id=$1", result.ID); err != nil {
-			t.Fatal(err)
-		}
-		if count, err := runtime.RunAnnouncementJobs(ctx); err != nil || count != 1 {
-			t.Fatal("announcement job", count, err)
 		}
 	})
 	t.Run("admission", func(t *testing.T) {

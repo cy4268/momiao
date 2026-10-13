@@ -139,6 +139,10 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				domainHandler(cfg, newLocalKeysHandler(cfg.relay)).ServeHTTP(w, r)
 				return
 			}
+			if r.URL.Path == "/platform/v1/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/announcements/") || r.URL.Path == "/platform/v1/ops/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/announcements/") {
+				domainHandler(cfg, newAnnouncementHandler(cfg.PublicOrigin, cfg.announcements)).ServeHTTP(w, r)
+				return
+			}
 			if catalogAPIRoute(r.URL.Path) {
 				domainHandler(cfg, newCatalogHandler(cfg)).ServeHTTP(w, r)
 				return
@@ -228,7 +232,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		case catalogAPIRoute(r.URL.Path):
 			domainHandler(cfg, newCatalogHandler(cfg)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/announcements/") || r.URL.Path == "/platform/v1/ops/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/announcements/"):
-			domainHandler(cfg, newAnnouncementHandler(cfg.PublicOrigin, cfg.announcements, transport)).ServeHTTP(w, r)
+			domainHandler(cfg, newAnnouncementHandler(cfg.PublicOrigin, cfg.announcements)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/access-gate" || strings.HasPrefix(r.URL.Path, "/platform/v1/migration-notice"):
 			domainHandler(cfg, newAccessGateHandler(cfg.PublicOrigin, cfg.accessGate, cfg.accessDeclaration, transport, cfg.Poker.Enabled && cfg.poker != nil)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/admission/config":

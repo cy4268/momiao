@@ -8,17 +8,13 @@ export interface Acknowledgement { display_name: string; external_link: string; 
 export interface Announcement { announcement_id: string; content_version: number; notification_revision: number; title: string; type: AnnouncementType; sanitized_html: string; state: string; publish_at: string | null; visible_from: string | null; visible_until: string | null; updated_at: string; pinned: boolean; read: boolean; acknowledgements: Acknowledgement[] }
 export interface AnnouncementContent { title: string; type: AnnouncementType; visibility: 'PUBLIC' | 'AUTHENTICATED'; body_markdown: string; acknowledgements: Acknowledgement[] }
 export interface Placement { placement: string; manual_order: number }
-export interface OpsAnnouncement extends Announcement { version: number; content: AnnouncementContent; placements: Placement[]; withdrawn_at: string | null; first_published_at: string | null; expired_reason: string; canonical_key: string }
-export interface AnnouncementPrincipal { user_id: string; base_role: string; authz_epoch: number; permissions: string[] }
-export interface AnnouncementCommand { operation_id: string; authz_epoch: number; announcement_id: string; expected_version: number; action: string; content?: AnnouncementContent; publish_at?: string; visible_from?: string; visible_until?: string; placements?: Placement[]; reason: string }
-export interface AnnouncementImpact { action: string; announcement_id: string; target_version: number; title: string; visibility: string; notification_revision: number; read_accounts: number; publish_at: string | null; visible_from: string | null; visible_until: string | null; placements: Placement[]; effect: string }
-export interface AnnouncementPreview { preview_id: string; expires_at: string; impact: AnnouncementImpact }
-export interface AnnouncementResult { operation_id: string; announcement_id: string; version: number; content_version: number; notification_revision: number; state: string }
+export interface OpsAnnouncement extends Announcement { content: AnnouncementContent; placements: Placement[]; withdrawn_at: string | null; first_published_at: string | null; expired_reason: string; canonical_key: string }
+export interface AnnouncementCommand { announcement_id: string; action: string; content?: AnnouncementContent; publish_at?: string; visible_from?: string; visible_until?: string; placements?: Placement[] }
 export const announcementRoot = '/platform/v1/announcements';
 export const announcementOps = '/platform/v1/ops/announcements';
 export const announcementTime = (value: string | null) => value ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '长期有效';
 export function announcementError(error: unknown) {
-    const messages: Record<string, string> = { ANNOUNCEMENTS_FORBIDDEN: '当前账户没有公告运营权限。', AUTHORIZATION_STALE: '运营权限已变更，请刷新权限后重新操作。', ANNOUNCEMENT_VERSION_CONFLICT: '公告已被其他操作更新，请重新读取后再编辑。', ANNOUNCEMENT_PLACEMENT_CONFLICT: '入口弹窗或首页横幅与已有预约时间重叠，请调整时间或展示渠道。', ANNOUNCEMENT_CONFIRMATION_REQUIRED: '发布预览已过期或内容已变更，请重新生成影响预览。', ANNOUNCEMENT_OPERATION_CONFLICT: '操作编号已用于其他内容，请先核对原操作结果。', ANNOUNCEMENT_INVALID: '请检查标题、受控 Markdown、展示渠道及发布时间。', ANNOUNCEMENT_NOT_FOUND: '公告暂不可访问，可能已撤回、过期或需要登录。', ANNOUNCEMENTS_UNAVAILABLE: '公告暂时无法读取，请稍后重试。' };
+    const messages: Record<string, string> = { ANNOUNCEMENTS_FORBIDDEN: '当前账户没有公告运营权限。', ANNOUNCEMENT_STATE_CONFLICT: '当前公告状态不适合此操作，请刷新后重试。', ANNOUNCEMENT_PLACEMENT_CONFLICT: '入口弹窗或首页横幅与已有预约时间重叠，请调整时间或展示渠道。', ANNOUNCEMENT_INVALID: '请检查标题、受控 Markdown、展示渠道及发布时间。', ANNOUNCEMENT_NOT_FOUND: '公告暂不可访问，可能已撤回、过期或需要登录。', ANNOUNCEMENTS_UNAVAILABLE: '公告暂时无法读取，请稍后重试。' };
     return error instanceof ApiError ? messages[error.code] || error.message : error instanceof Error ? error.message : '请求未完成，请重试。';
 }
 export function checkedAnnouncement(value: Announcement): Announcement {

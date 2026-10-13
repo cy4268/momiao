@@ -8,7 +8,6 @@ import (
 	"io"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -214,32 +213,6 @@ func (s *Store) RequireOpsPermission(ctx context.Context, userID, expectedEpoch 
 		return OpsPrincipal{}, ErrOpsUnavailable
 	}
 	return requireOpsPermission(ctx, s.pool, userID, expectedEpoch, permission, false)
-}
-
-func legacyOpsDomainAuthority(ctx context.Context, q announcementQuerier, userID int64, lock bool, domainScope, permissionPrefix string) (AnnouncementPrincipal, error) {
-	if !validOpsScope(domainScope) || strings.ToLower(domainScope) == domainScope {
-		return AnnouncementPrincipal{UserID: userID, Permissions: []string{}}, ErrAnnouncementForbidden
-	}
-	principal, err := requireOpsPermission(ctx, q, userID, 0, permissionPrefix+".read", lock)
-	legacy := AnnouncementPrincipal{UserID: userID, Role: principal.Role, Epoch: principal.Epoch, Permissions: []string{}}
-	if errors.Is(err, ErrOpsForbidden) {
-		return legacy, ErrAnnouncementForbidden
-	}
-	if err != nil {
-		return legacy, err
-	}
-	for _, permission := range principal.Permissions {
-		if strings.HasPrefix(permission, permissionPrefix+".") {
-			if permission == "models.metadata.write" {
-				permission = "models.write"
-			}
-			legacy.Permissions = append(legacy.Permissions, permission)
-		}
-	}
-	if len(legacy.Permissions) == 0 {
-		return legacy, ErrAnnouncementForbidden
-	}
-	return legacy, nil
 }
 
 type OpsAccessControlInput struct {

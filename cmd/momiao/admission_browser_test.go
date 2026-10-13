@@ -327,25 +327,6 @@ func TestAdmissionBrowserHarness(t *testing.T) {
 		if _, err = store.Bootstrap(ctx, platform.BootstrapInput{Environment: "STAGING", UserID: 14, Username: "synthetic-portal-seed", ReleaseBuild: "synthetic-portal-integration", ExpectedEmpty: true}); err != nil {
 			t.Fatal(err)
 		}
-		principal, err := store.AnnouncementAuthority(ctx, 14)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, item := range []struct{ visibility, title string }{{"PUBLIC", "组合验收：公开公告"}, {"AUTHENTICATED", "组合验收：登录后公告"}} {
-			draft, err := store.ExecuteAnnouncement(ctx, 14, platform.AnnouncementCommand{OperationID: fixture.next(), Epoch: principal.Epoch, Action: "SAVE", Content: &platform.AnnouncementContent{Title: item.title, Type: "SYSTEM", Visibility: item.visibility, Markdown: "这是独立组合数据库中的合成验收公告。"}}, "", false)
-			if err != nil {
-				t.Fatal(err)
-			}
-			now := time.Now().UTC().Add(-time.Minute)
-			command := platform.AnnouncementCommand{OperationID: fixture.next(), Epoch: principal.Epoch, ID: draft.ID, ExpectedVersion: draft.Version, Action: "PUBLISH", PublishAt: &now, VisibleFrom: &now, Reason: "Synthetic integration seed"}
-			preview, err := store.PrepareAnnouncement(ctx, 14, command)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err = store.ExecuteAnnouncement(ctx, 14, command, preview.ID, true); err != nil {
-				t.Fatal(err)
-			}
-		}
 	}
 	native := httptest.NewServer(http.HandlerFunc(fixture.native))
 	defer native.Close()
