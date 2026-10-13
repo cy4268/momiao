@@ -2,15 +2,19 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cy4268/momiao/internal/identity"
+	"github.com/cy4268/momiao/internal/poker/connectticket"
 )
 
 // Reuses the configured dev Redis; it creates no database users or services.
@@ -72,5 +76,62 @@ func TestLocalSessionLifecycle(t *testing.T) {
 	}
 	if _, err := sessions.Read(t.Context(), second.Token); !errors.Is(err, identity.ErrSessionExpired) {
 		t.Fatal("user-wide revocation left a session active")
+	}
+	if readerPath := os.Getenv("MOMIAO_POKER_SESSION_REDIS_CONFIG_FILE"); readerPath != "" {
+		t.Run("poker-reader", func(t *testing.T) {
+			reader, err := openSessionRedis(t.Context(), readerPath)
+			if err != nil {
+				t.Fatal("Poker session reader connection", err)
+			}
+			defer reader.Close()
+			pool, err := openPokerPool(t.Context(), os.Getenv("MOMIAO_POKER_AUTH_TEST_DSN_FILE"))
+			if err != nil {
+				t.Fatal("Poker authority database connection", err)
+			}
+			defer pool.Close()
+			var user int64
+			if err := pool.QueryRow(t.Context(), `SELECT id FROM identity.users WHERE status=1 AND deleted_at IS NULL ORDER BY id LIMIT 1`).Scan(&user); err != nil {
+				t.Fatal("Poker local user read", err)
+			}
+			var writable bool
+			if err := pool.QueryRow(t.Context(), `SELECT has_table_privilege(current_user,'identity.users','INSERT,UPDATE,DELETE')`).Scan(&writable); err != nil || writable {
+				t.Fatal("Poker user reader has write access", err)
+			}
+			value, err := sessions.Create(t.Context(), user)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sessions.Revoke(context.Background(), value)
+			digest := sha256.Sum256([]byte(value.Token))
+			id := hex.EncodeToString(digest[:])
+			key := "chaldea:session:local:" + id
+			before, err := reader.PTTL(t.Context(), key).Result()
+			if err != nil {
+				t.Fatal(err)
+			}
+			authority := pokerSessionAuthority{sessions: identity.Sessions{Redis: reader}, pool: pool}
+			ref := connectticket.Session{UserID: strconv.FormatInt(user, 10), SessionIDHash: id, SessionVersion: 1}
+			deadline, err := authority.CheckUntil(t.Context(), ref)
+			if err != nil || !deadline.After(time.Now()) {
+				t.Fatal("Poker did not read the platform's live session", err)
+			}
+			after, err := reader.PTTL(t.Context(), key).Result()
+			if err != nil || after > before {
+				t.Fatal("Poker extended the session lifetime", err)
+			}
+			if err := reader.Set(t.Context(), key, "test-only", time.Minute).Err(); err == nil || !strings.Contains(err.Error(), "NOPERM") {
+				t.Fatal("Poker session reader can write", err)
+			}
+			if err := reader.Get(t.Context(), "chaldea:session:flow:reader-check").Err(); err == nil || !strings.Contains(err.Error(), "NOPERM") {
+				t.Fatal("Poker session reader can access login flows", err)
+			}
+			if err := sessions.Revoke(t.Context(), value); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := authority.CheckUntil(t.Context(), ref); !errors.Is(err, connectticket.ErrRevoked) {
+				t.Fatal("Poker accepted a revoked local session", err)
+			}
+			t.Log("POKER_LOCAL_SESSION_READ_ONLY_AND_REVOKED")
+		})
 	}
 }
