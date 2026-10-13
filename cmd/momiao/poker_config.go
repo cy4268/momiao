@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cy4268/momiao/internal/nativeself"
+	"github.com/cy4268/momiao/internal/jsonutil"
 	"github.com/cy4268/momiao/internal/poker"
 	"github.com/cy4268/momiao/internal/poker/redislease"
 	"github.com/redis/go-redis/v9"
@@ -153,7 +153,7 @@ func readPokerPrivateFile(path string, limit int64) ([]byte, error) {
 
 func decodePokerObject(raw []byte, out any, fields ...string) error {
 	d := json.NewDecoder(bytes.NewReader(raw))
-	if !nativeself.UniqueJSON(d, 0) {
+	if !jsonutil.Unique(d, 0) {
 		return errPokerConfig
 	}
 	if _, e := d.Token(); e != io.EOF {

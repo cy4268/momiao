@@ -18,7 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/cy4268/momiao/internal/nativeself"
+	"github.com/cy4268/momiao/internal/jsonutil"
 )
 
 const TTL = 60 * time.Second
@@ -177,7 +177,7 @@ func (v *Verifier) Accept(ctx context.Context, token, table string) (Claims, err
 		return Claims{}, ErrInvalid
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
-	if !nativeself.UniqueJSON(d, 0) {
+	if !jsonutil.Unique(d, 0) {
 		return Claims{}, ErrInvalid
 	}
 	if _, err = d.Token(); err != io.EOF {

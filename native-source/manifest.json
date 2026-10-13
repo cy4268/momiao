@@ -1,8 +1,0 @@
-{
-  "upstream": "https://github.com/QuantumNous/new-api",
-  "revision": "f116414284162ad15d8925f7bca494c109b83e93",
-  "source_tree": "e77bd7feecb062e4c95fe944235029f7914fbdcb",
-  "patch": "current.patch",
-  "sha256": "6048f73e32e21a595daa804d294d5695551a697e3a82a706569dd194fd01a854",
-  "patched_tree": "9bd217e05e20b98b4f8c06025574f88612556230"
-}

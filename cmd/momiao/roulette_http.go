@@ -15,7 +15,7 @@ import (
 
 	"github.com/cy4268/momiao/internal/games"
 	"github.com/cy4268/momiao/internal/identity"
-	"github.com/cy4268/momiao/internal/nativeself"
+	"github.com/cy4268/momiao/internal/jsonutil"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/roulette"
 )
@@ -53,7 +53,7 @@ func decodeRouletteJSON(w http.ResponseWriter, r *http.Request, out any) error {
 		return roulette.ErrInvalidInput
 	}
 	unique := json.NewDecoder(bytes.NewReader(raw))
-	if !nativeself.UniqueJSON(unique, 0) {
+	if !jsonutil.Unique(unique, 0) {
 		return roulette.ErrInvalidInput
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))

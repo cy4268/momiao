@@ -13,7 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/cy4268/momiao/internal/nativeself"
+	"github.com/cy4268/momiao/internal/jsonutil"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -51,7 +51,7 @@ func decodeOpsBody(r *http.Request, out any) bool {
 		return false
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
-	if !nativeself.UniqueJSON(decoder, 0) {
+	if !jsonutil.Unique(decoder, 0) {
 		return false
 	}
 	if _, err = decoder.Token(); !errors.Is(err, io.EOF) {

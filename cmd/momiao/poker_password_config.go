@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cy4268/momiao/internal/nativeself"
+	"github.com/cy4268/momiao/internal/jsonutil"
 	"github.com/cy4268/momiao/internal/poker"
 )
 
@@ -99,7 +99,7 @@ func readPokerPasswordProfiles(raw string) ([]poker.PasswordConfig, error) {
 		return nil, errPokerConfig
 	}
 	d := json.NewDecoder(bytes.NewReader(body))
-	if !nativeself.UniqueJSON(d, 0) {
+	if !jsonutil.Unique(d, 0) {
 		return nil, errPokerConfig
 	}
 	if _, err := d.Token(); err != io.EOF {

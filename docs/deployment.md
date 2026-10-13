@@ -71,7 +71,7 @@ Roll back the portal binary and built assets together if needed, retaining schem
 
 Build the Go binary and `web/dist/` from the same source commit. The portal reads local identity/relay/wallet data and uses the existing local Redis sessions. Neither ordinary startup nor recovery-lock readiness opens or probes a Native socket. `/api/v1/rankings/me` uses the local session on both router configurations, never legacy credential headers.
 
-Before deploying the integrated dev image, remove `MOMIAO_NEWAPI_SOCKET` from both platform and Poker environments, and remove only its exclusive mount. Poker still uses `MOMIAO_POKER_REMOTE_SOCKET` with its existing fixed Unix transport, signed requests, peer keys and route deadlines; do not remove that shared business connection. The separate legacy bootstrap tool and remaining Native source/deployment files still need cleanup. Source changes do not stop workers in the currently running old image.
+Before deploying the integrated dev image, remove `MOMIAO_NEWAPI_SOCKET` from both platform and Poker environments, and remove only its exclusive mount. Poker still uses `MOMIAO_POKER_REMOTE_SOCKET` with its existing fixed Unix transport, signed requests, peer keys and route deadlines; do not remove that shared business connection. The legacy bootstrap CLI, its grant installer, Native source/adapter/deployment directories and Native-auth web build script are removed. Runtime Ops authority comes from local `identity.users.role`, not old SUPER_ADMIN principals. Preserve historical migration 0008 and its records/functions; do not install new bootstrap grants. The one-time importer remains for migration, and upstream notices live in `docs/upstream/new-api/`. Source changes do not stop workers in the currently running old image.
 
 The ingress may connect to the portal's existing private Unix listener or its configured TCP address. With Unix, set `MOMIAO_LISTEN_SOCKET` instead of `MOMIAO_LISTEN_ADDR`; listener ownership and normal shutdown behavior are unchanged. The model relay needs outbound network access, so do not carry over a Native-only `AF_UNIX` network restriction.
 
@@ -105,21 +105,14 @@ When deploying the new image, remove `MOMIAO_NATIVE_QUOTA_DSN_FILE`, `MOMIAO_NAT
 
 The activation SPA route and public Native quota/transfer APIs return 404. The wallet and reward pages link to local wallets/API keys instead; exchange availability is only the selected local balance. Old `API_CHIPS_EXCHANGE` receipt metadata remains readable. No schema or runtime grant changes are needed for this deletion.
 
-## Schemas 5-9: incremental runtime grants
+## Schemas 5-9: historical runtime grants
 
-Apply the reviewed migrations as the existing non-login schema owner, retaining the 1-4 grants above. [Runtime template](../deploy/sql/runtime-grants-0005-0009.psql) and [separate bootstrap deployer template](../deploy/sql/bootstrap-deployer-grant.psql) are opt-in psql inputs, not portal startup hooks. With `apply_grants` omitted/false they issue no SQL changes. Use a protected `PGSERVICE`/passfile, `psql -X`, and trusted role-name parameters; never put passwords in arguments:
+Keep the applied migrations, historical tables and [runtime grant template](../deploy/sql/runtime-grants-0005-0009.psql) unchanged except for current explanatory comments. Later local-identity/Ops migrations and their grants define the current role-based behavior; the old principal/closure/history tables no longer grant application authority.
 
-```sh
-psql -X --set=schema_owner=SCHEMA_OWNER --set=runtime_role=RUNTIME_ROLE --file=deploy/sql/runtime-grants-0005-0009.psql
-# Only after review, add --set=apply_grants=true to apply that template.
-# Separate bootstrap template additionally requires --set=bootstrap_deployer=DEPLOYER_ROLE.
-```
+The deployment-only `momiao-bootstrap`, bootstrap grant installer and their dedicated tests are removed. Do not recreate a SUPER_ADMIN principal or grant the historical bootstrap function to runtime. Migration 0008 and denial of runtime execution remain, so existing records and rollback data are preserved. The runtime-grant test keeps its profile/admission/notice and denial checks without creating a separate bootstrap deployer; it is not evidence of full current-schema deployment acceptance.
 
-The existing roles must be distinct: runtime/deployer have no owner membership, superuser, CREATEDB, CREATEROLE, replication or BYPASSRLS powers. Bootstrap's three SECURITY DEFINER functions must retain the same controlled schema owner. No role creation, schema CREATE, ownership transfer, native `users` access, bootstrap invocation or notice publication is included. The bootstrap template grants only schema USAGE plus the narrow function EXECUTE; revoke that EXECUTE and remove its credential after the approved attempt/result reconciliation.
+No grants or databases are changed by this source cleanup. Apply the relevant local migration/grant set only in the isolated dev database before the integrated release, verify the actual runtime role, and retain all historical records on application rollback.
 
-Column grants follow the actual store SQL: announcements/job/audit writes (5), receipt/grant workers including deferred issuance reads (6), catalog sync/editorial writes (7), no runtime bootstrap/history/closure grants (8), notice SELECT plus ACK-key INSERT only (9). `UPDATE(updated_at)` on principals is required for their `SELECT FOR UPDATE`; it is not authority-field access. Announcement placement guards similarly need one UPDATE column for locking, with actual mutation still rejected by their immutable trigger. No 5-9 sequence grants are needed. No broad/default table grants are installed, and inherited pre-existing grants are not silently repaired by these templates.
-
-These templates have not been applied to production. Catalog grants were derived from the current M3c storage SQL, not an imported WIP build. Reconcile against its final integrated SHA, then perform one combined acceptance using the actual low-privilege runtime identity: announcement writes/jobs, receipt ingestion/grant completion, sync/metadata/publication, notice ACK/replay; separately verify denial of DDL, authority/closure/history mutation, bootstrap EXECUTE, notice-fact mutation and direct native `users` access. Schema-owner tests do not establish runtime acceptance. Retain all records on application rollback.
 # Model family cover uploads
 
 Apply migration `0040_model_family_covers.sql` and the additive `deploy/sql/runtime-grants-0040-model-family-covers.psql` using the separated schema owner and platform runtime roles. Retain older grants; do not give runtime DDL, DELETE, asset-history UPDATE or audit UPDATE.

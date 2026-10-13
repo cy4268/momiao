@@ -96,7 +96,7 @@ GRANT SELECT ON ops.model_previews TO :"runtime_role";
 GRANT INSERT(preview_id,newapi_user_id,authz_epoch,command_hash,source_hash,impact,expires_at) ON ops.model_previews TO :"runtime_role";
 
 -- 0008: deliberately no runtime grant on bootstrap functions, access_control_guards,
--- bootstrap_closure or admin_role_history. Use the separate deployment-only template.
+-- bootstrap_closure or admin_role_history. The legacy bootstrap installer is removed.
 -- 0009: migration_notice.go reads facts and inserts only the user/version ACK key.
 GRANT SELECT ON identity.migration_notice_versions,identity.migration_notice_requirements,identity.migration_notice_acknowledgements TO :"runtime_role";
 GRANT INSERT(newapi_user_id,version) ON identity.migration_notice_acknowledgements TO :"runtime_role";

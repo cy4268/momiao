@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cy4268/momiao/internal/identity"
+	"github.com/cy4268/momiao/internal/jsonutil"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -224,7 +225,7 @@ func decodeAnnouncementBody(reader io.Reader, target any) bool {
 	}
 	// Reject duplicate names recursively before decoding the strict typed request.
 	decoder := json.NewDecoder(bytes.NewReader(raw))
-	if !uniqueAnnouncementJSON(decoder, 0) {
+	if !jsonutil.Unique(decoder, 0) {
 		return false
 	}
 	if _, err = decoder.Token(); err != io.EOF {
@@ -233,45 +234,6 @@ func decodeAnnouncementBody(reader io.Reader, target any) bool {
 	decoder = json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(target) == nil
-}
-func uniqueAnnouncementJSON(d *json.Decoder, depth int) bool {
-	if depth > 12 {
-		return false
-	}
-	token, err := d.Token()
-	if err != nil {
-		return false
-	}
-	delimiter, ok := token.(json.Delim)
-	if !ok {
-		return true
-	}
-	if delimiter == '{' {
-		seen := map[string]bool{}
-		for d.More() {
-			token, err = d.Token()
-			key, ok := token.(string)
-			if err != nil || !ok || seen[key] {
-				return false
-			}
-			seen[key] = true
-			if !uniqueAnnouncementJSON(d, depth+1) {
-				return false
-			}
-		}
-		token, err = d.Token()
-		return err == nil && token == json.Delim('}')
-	}
-	if delimiter == '[' {
-		for d.More() {
-			if !uniqueAnnouncementJSON(d, depth+1) {
-				return false
-			}
-		}
-		token, err = d.Token()
-		return err == nil && token == json.Delim(']')
-	}
-	return false
 }
 func announcementQuery(u *url.URL) (platform.AnnouncementFilter, error) {
 	f := platform.AnnouncementFilter{Limit: 20}

@@ -23,8 +23,8 @@ import (
 )
 
 // One bounded deployment acceptance, not an alternative grant implementation.
-// Only the frozen psql templates grant schema 5-9 runtime/deployer privileges.
-func jointRuntimeStores(t *testing.T) (owner, runtime, deployer *Store) {
+// Only the frozen psql templates grant schema 5-9 runtime privileges.
+func jointRuntimeStores(t *testing.T) (owner, runtime *Store) {
 	t.Helper()
 	path := os.Getenv("MOMIAO_RUNTIME_JOINT_CONNECTION_FILE")
 	if path == "" {
@@ -47,7 +47,7 @@ func jointRuntimeStores(t *testing.T) (owner, runtime, deployer *Store) {
 	t.Cleanup(admin.Close)
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	database := "m4_joint_" + suffix
-	ownerRole, runtimeRole, deployerRole := "m4jo_"+suffix, "m4jr_"+suffix, "m4jd_"+suffix
+	ownerRole, runtimeRole := "m4jo_"+suffix, "m4jr_"+suffix
 	roles := []string{}
 	createdDatabase := false
 	t.Cleanup(func() {
@@ -68,7 +68,7 @@ func jointRuntimeStores(t *testing.T) (owner, runtime, deployer *Store) {
 		t.Fatal(err)
 	}
 	password := hex.EncodeToString(secret)
-	for _, role := range []string{ownerRole, runtimeRole, deployerRole} {
+	for _, role := range []string{ownerRole, runtimeRole} {
 		login := "NOLOGIN"
 		if role != ownerRole {
 			login = "LOGIN PASSWORD '" + password + "'"
@@ -109,9 +109,9 @@ func jointRuntimeStores(t *testing.T) (owner, runtime, deployer *Store) {
 		t.Fatal("observed 1-4 baseline failed", err)
 	}
 	fixture := fmt.Sprintf(`REVOKE ALL ON DATABASE %[1]s FROM PUBLIC;
- GRANT CONNECT ON DATABASE %[1]s TO %[2]s,%[3]s;
+ GRANT CONNECT ON DATABASE %[1]s TO %[2]s;
  CREATE TABLE public.users(id bigint PRIMARY KEY,quota bigint NOT NULL);
- INSERT INTO public.users VALUES(1,77);`, pgx.Identifier{database}.Sanitize(), pgx.Identifier{runtimeRole}.Sanitize(), pgx.Identifier{deployerRole}.Sanitize())
+ INSERT INTO public.users VALUES(1,77);`, pgx.Identifier{database}.Sanitize(), pgx.Identifier{runtimeRole}.Sanitize())
 	if _, err = owner.pool.Exec(ctx, fixture); err != nil {
 		t.Fatal("schema 1-4 baseline setup failed", err)
 	}
@@ -121,7 +121,7 @@ func jointRuntimeStores(t *testing.T) (owner, runtime, deployer *Store) {
 		if !filepath.IsAbs(psql) {
 			t.Fatal("explicit absolute psql path required")
 		}
-		args := []string{"-X", "--no-password", "-h", connection.Host, "-p", strconv.Itoa(connection.Port), "-U", connection.User, "-d", database, "--set=schema_owner=" + ownerRole, "--set=runtime_role=" + runtimeRole, "--set=bootstrap_deployer=" + deployerRole, "--file=" + filepath.Join("..", "..", "deploy", "sql", file)}
+		args := []string{"-X", "--no-password", "-h", connection.Host, "-p", strconv.Itoa(connection.Port), "-U", connection.User, "-d", database, "--set=schema_owner=" + ownerRole, "--set=runtime_role=" + runtimeRole, "--file=" + filepath.Join("..", "..", "deploy", "sql", file)}
 		if enabled {
 			args = append(args, "--set=apply_grants=true")
 		}
@@ -137,7 +137,6 @@ func jointRuntimeStores(t *testing.T) (owner, runtime, deployer *Store) {
 		t.Fatal("default template changed privileges", err)
 	}
 	apply("runtime-grants-0005-0009.psql", true)
-	apply("bootstrap-deployer-grant.psql", true)
 	openRole := func(role string) *Store {
 		t.Helper()
 		v := u
@@ -153,20 +152,15 @@ func jointRuntimeStores(t *testing.T) (owner, runtime, deployer *Store) {
 		}
 		return s
 	}
-	runtime, deployer = openRole(runtimeRole), openRole(deployerRole)
-	t.Log("actual psql templates applied; independent runtime/deployer LOGIN identities verified; fixture database", database)
+	runtime = openRole(runtimeRole)
+	t.Log("actual psql templates applied; independent runtime LOGIN identity verified; fixture database", database)
 	return
 }
 
 func TestRuntimeJointAcceptance(t *testing.T) {
-	owner, runtime, deployer := jointRuntimeStores(t)
+	owner, runtime := jointRuntimeStores(t)
 	ctx := context.Background()
 	const user int64 = 4201
-	// Synthetic local setup only: this is not a native/production bootstrap.
-	receipt, err := deployer.Bootstrap(ctx, BootstrapInput{Environment: "STAGING", UserID: user, Username: "JointSynthetic", ReleaseBuild: "synthetic-joint", ExpectedEmpty: true})
-	if err != nil || receipt.PrincipalID == "" {
-		t.Fatal("deployer-only function failed", err)
-	}
 	t.Run("profile", func(t *testing.T) {
 		p, err := runtime.EnsureProvisionalProfile(ctx, user)
 		if err != nil || p.Status != "INCOMPLETE" {
@@ -257,9 +251,6 @@ func TestRuntimeJointAcceptance(t *testing.T) {
 			if !errors.As(err, &p) || p.Code != "42501" {
 				t.Fatalf("runtime denial was not permission error: %s: %v", query, err)
 			}
-		}
-		if _, err := deployer.pool.Exec(ctx, "SELECT * FROM ops.admin_principals"); err == nil {
-			t.Fatal("deployer acquired table access")
 		}
 		var quota int
 		if err := owner.pool.QueryRow(ctx, "SELECT quota FROM public.users WHERE id=1").Scan(&quota); err != nil || quota != 77 {

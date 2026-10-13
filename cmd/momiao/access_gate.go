@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cy4268/momiao/internal/identity"
+	"github.com/cy4268/momiao/internal/jsonutil"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -48,7 +49,7 @@ func loadAccessDeclaration(path, origin string) (*accessDeclaration, error) {
 		return nil, invalid
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
-	if !uniqueAnnouncementJSON(decoder, 0) {
+	if !jsonutil.Unique(decoder, 0) {
 		return nil, invalid
 	}
 	if _, err = decoder.Token(); err != io.EOF {
@@ -96,7 +97,9 @@ func walletTransactionBrowserRoute(route string) bool {
 // Extend these explicit route policies when a new implemented route is added;
 // never accept a URL, write body, arbitrary query or credential as an intent.
 func gateRouteDomain(route string) string {
-	if opsBrowserRoute(route) { return "OPERATIONS" }
+	if opsBrowserRoute(route) {
+		return "OPERATIONS"
+	}
 	if route == "/logs?purpose=ROLEPLAY" {
 		return "API"
 	}

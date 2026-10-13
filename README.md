@@ -2,7 +2,7 @@
 
 ## Current source
 
-The current source includes local authentication adapted from official NewAPI, Redis sessions, the model portal, wallet and game services, operations UI, and illustrated homepage. The old Native/BFF authentication bridge is removed; other Native service dependencies are still being cleaned up before the integrated dev release. Runtime configuration and operational records are deliberately not stored here. Earlier feature notes below describe historical milestones, not the current deployment status or a claim that every acceptance case passed.
+The current source includes local authentication adapted from official NewAPI, Redis sessions, the model portal, wallet and game services, operations UI, and illustrated homepage. The old Native/BFF authentication bridge, Native source/adapter/deployment packages and legacy SUPER_ADMIN bootstrap tool are removed. Official NewAPI attribution is retained in [ATTRIBUTION.md](ATTRIBUTION.md). The one-time importer and historical schema remain for migration; the integrated dev release and end-to-end acceptance are still pending. Runtime configuration and operational records are deliberately not stored here. Earlier feature notes below describe historical milestones, not the current deployment status or a claim that every acceptance case passed.
 
 Build the Platform with `go build ./cmd/momiao`. In `web`, install from `package-lock.json` and run `npm run build`; login uses the local Cookie/Redis entry point, not a Native credential bridge. See [deployment configuration](docs/deployment.md#local-session-startup) for the remaining session settings. No compiled binaries, images, data or credentials are included. Public illustrations under `web/public` are application assets, not runtime records.
 

@@ -4,11 +4,11 @@
 
 Original momiao code and project-authored documentation are offered under **GNU Affero General Public License version 3 only (`AGPL-3.0-only`)**. See [LICENSE](LICENSE) for the unmodified standard license text. No later-version option is granted by this repository's license designation.
 
-## External NewAPI reference
+## Official NewAPI reuse
 
-[NewAPI](https://github.com/QuantumNous/new-api) is the independently deployed native API integrated by this portal. The inspected reference revision is `f116414284162ad15d8925f7bca494c109b83e93`; its `LICENSE` contains the GNU Affero General Public License version 3 text.
+Local authentication and related account/key behavior are adapted from the clean official [QuantumNous/new-api](https://github.com/QuantumNous/new-api) revision `f116414284162ad15d8925f7bca494c109b83e93`. Adapted files identify their origin and modifications in source comments. Model protocol adapters use the pinned official `github.com/QuantumNous/new-api/relaykit` module recorded in `go.mod`; dependency notices stay with their distributions.
 
-This repository does not vendor, fork, redistribute or modify NewAPI source code or assets. The only file copied from that reference is the unmodified standard AGPL license text. NewAPI keeps its own authorship, repository, license notices and deployment lifecycle. This independent implementation is not a claim of upstream affiliation or endorsement.
+The unmodified upstream [LICENSE](docs/upstream/new-api/LICENSE) and [NOTICE](docs/upstream/new-api/NOTICE) are retained separately from the deleted VPS-customized Native source patches and deployment tooling. The legacy Native login bridge is not the source of the local authentication implementation. New API contributors retain their authorship; no affiliation or endorsement is implied.
 
 ## Design archive and third-party assets
 
