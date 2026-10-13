@@ -1,13 +1,10 @@
 package platform
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"math"
-	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -125,7 +122,7 @@ func (s *OpsEconomyService) Ledger(ctx context.Context, actor int64, query OpsLe
 		return page, err
 	}
 	if query.UserID < 0 || query.UserID > math.MaxInt32 || (query.Asset != "" && !validAsset(query.Asset)) || len(query.BizType) > 128 || query.Limit < 1 || query.Limit > 100 ||
-		query.Before.IsZero() != (query.BeforeID == "") || query.BeforeID != "" && !opsUUIDPattern.MatchString(query.BeforeID) {
+		query.Before.IsZero() != (query.BeforeID == "") || query.BeforeID != "" && !ValidOperationKey(query.BeforeID) {
 		return page, ErrOpsInvalid
 	}
 	rows, err := s.store.pool.Query(ctx, `SELECT `+ledgerColumns+` FROM economy.wallet_ledger
@@ -179,7 +176,7 @@ func (s *OpsEconomyService) Transfers(ctx context.Context, actor int64, query Op
 	}
 	if query.UserID < 0 || query.UserID > math.MaxInt32 || query.Limit < 1 || query.Limit > 100 ||
 		query.Status != "" && !containsString([]string{"PENDING", "CONFIRMED", "REFUNDED", "NEEDS_REVIEW"}, query.Status) ||
-		query.Before.IsZero() != (query.BeforeID == "") || query.BeforeID != "" && !opsUUIDPattern.MatchString(query.BeforeID) {
+		query.Before.IsZero() != (query.BeforeID == "") || query.BeforeID != "" && !ValidOperationKey(query.BeforeID) {
 		return page, ErrOpsInvalid
 	}
 	rows, err := s.store.pool.Query(ctx, `SELECT `+transferColumns+` FROM economy.quota_transfers
@@ -286,7 +283,7 @@ func (s *OpsEconomyService) RewardClaims(ctx context.Context, actor int64, query
 	if query.UserID < 0 || query.UserID > math.MaxInt32 || query.Limit < 1 || query.Limit > 100 ||
 		query.Program != "" && !containsString([]string{"REGISTRATION", "DAILY", "HOURLY", "RELIEF"}, query.Program) ||
 		query.Status != "" && !containsString([]string{"PENDING", "RECOVERING", "SUCCEEDED"}, query.Status) ||
-		query.Before.IsZero() != (query.BeforeID == "") || query.BeforeID != "" && !opsUUIDPattern.MatchString(query.BeforeID) {
+		query.Before.IsZero() != (query.BeforeID == "") || query.BeforeID != "" && !ValidOperationKey(query.BeforeID) {
 		return page, ErrOpsInvalid
 	}
 	rows, err := s.store.pool.Query(ctx, `WITH claims AS (
@@ -368,34 +365,9 @@ func containsString(values []string, value string) bool {
 	return false
 }
 
-func decodeOpsInput(raw json.RawMessage, target any) error {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return ErrOpsInvalid
-	}
-	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return ErrOpsInvalid
-	}
-	return nil
-}
-
-func canonicalTargetUser(target OpsTarget) (int64, error) {
-	user, err := strconv.ParseInt(target.ID, 10, 64)
-	if err != nil || user <= 0 || strconv.FormatInt(user, 10) != target.ID {
-		return 0, ErrOpsInvalid
-	}
-	return user, nil
-}
-
 func rawOpsValue(value any) json.RawMessage {
 	raw, _ := json.Marshal(value)
 	return raw
-}
-
-func affectedOne() *int64 {
-	value := int64(1)
-	return &value
 }
 
 type opsRegistrationRetryState struct {
@@ -447,7 +419,7 @@ func (s *OpsEconomyService) RetryReward(ctx context.Context, actor int64, id str
 }
 
 func retryRegistrationReward(ctx context.Context, tx pgx.Tx, actor int64, id string) (opsRegistrationRetryState, error) {
-	if !opsUUIDPattern.MatchString(id) {
+	if !ValidOperationKey(id) {
 		return opsRegistrationRetryState{}, ErrOpsInvalid
 	}
 	if err := catalogAdmin(ctx, tx, actor, true); err != nil {

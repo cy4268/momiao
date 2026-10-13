@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { ApiClient } from '../api';
 import { Alert, Loading, Modal, Pager, useResource } from '../ui';
 import { opsError } from './ops-api';
-import { OpsFacts, opsTime } from './OpsOperationDetail';
+import { OpsFacts, opsTime } from './OpsFacts';
 
 type Incident={incident_id:string;title:string;severity:string;state:string;safe_summary:string;created_by:string;created_at:string;updated_at:string;resolved_at?:string;closed_at?:string};
 type Event={event_id:string;event_type:string;from_state?:string;to_state?:string;safe_summary?:string;related_type?:string;related_id?:string;actor_newapi_user_id:string;occurred_at:string};

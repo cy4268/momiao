@@ -68,7 +68,7 @@ npm run build
 
 ### 去 NewAPI：本地身份迁移（开发中，尚未部署）
 
-`internal/identity` 复用官方 `QuantumNous/new-api@f1164142` 的 bcrypt、TOTP/备用码和 Discord OAuth 逻辑，仅适配 pgx 与显式配置，不使用 VPS 的定制认证补丁。密码登录、五分钟 2FA 挑战、CSRF、退出与本地请求身份已接入源码中的主入口；复用平台 PG 连接池和现有 Redis，不再为这些请求签发 native 凭据。已用独立开发库的真实账号验证密码主流程。新增迁移 0048 和 `go build ./cmd/momiao-import-native`；默认 `-stage identity` 只导入用户与 2FA，保留 ID/密码哈希/备用码状态；Key 由独立 `-stage keys` 导入，分组/渠道/日志由 `-stage workspace` 导入；不处理额度合并或会话迁移。使用方式见 [部署说明](docs/deployment.md#local-identity-migration-in-progress)。源码已接好本地 Discord 登录/注册、账号密码/2FA、前端与 self/Reserve 读取；网站镜像仍未切换，History、Bot 与 Poker 已改为本地身份，Ops 的旧身份调用继续迁移后再做开发站整体验收。
+`internal/identity` 复用官方 `QuantumNous/new-api@f1164142` 的 bcrypt、TOTP/备用码和 Discord OAuth 逻辑，仅适配 pgx 与显式配置，不使用 VPS 的定制认证补丁。密码登录、五分钟 2FA 挑战、CSRF、退出与本地请求身份已接入源码中的主入口；复用平台 PG 连接池和现有 Redis，不再为这些请求签发 native 凭据。已用独立开发库的真实账号验证密码主流程。新增迁移 0048 和 `go build ./cmd/momiao-import-native`；默认 `-stage identity` 只导入用户与 2FA，保留 ID/密码哈希/备用码状态；Key 由独立 `-stage keys` 导入，分组/渠道/日志由 `-stage workspace` 导入；不处理额度合并或会话迁移。使用方式见 [部署说明](docs/deployment.md#local-identity-migration-in-progress)。源码已接好本地 Discord 登录/注册、账号密码/2FA、前端与 self/Reserve 读取；网站镜像仍未切换，History、Bot、Poker 与各 Ops 模块已改为本地身份；剩余 Native 启动依赖清理后再做开发站整体验收。
 
 Discord 配置使用 `MOMIAO_DISCORD_CONFIG_FILE` 指向私有 JSON，包含 `client_id`、`client_secret`；开启 `MOMIAO_ADMISSION_ENABLED=true` 的注册还需要 `guild_id`、`role_id`、`policy_version`。回调地址固定为 `MOMIAO_PUBLIC_ORIGIN` + `/oauth/discord`。新用户验证服务器身份组后，在同一事务创建账号和本地注册回执，复用赠额 worker；已有绑定账号直接登录，不重复发赠额。0049 将回执读取迁入本地，不再读取 `MOMIAO_REGISTRATION_READER_KEY_FILE`。 Bot 也复用平台连接池查询 `identity.users`，不再读取 `MOMIAO_BOT_GAMES_NATIVE_DSN_FILE`；只保留 socket、token、quote key 三项私有监听配置。History 走同一本地 Cookie 鉴权，专用记录读写角色保持不变。Poker 复用现有连接票据，签发、接入和后续命令读取同一 Redis 本地会话与本地用户状态；删除 `MOMIAO_POKER_SESSION_READER_KEY_FILE`。独立 Poker 进程新增 `MOMIAO_POKER_SESSION_REDIS_CONFIG_FILE`，使用同一 Redis 的只读会话账号，配置与授权见部署说明。
 
@@ -78,7 +78,7 @@ Discord 配置使用 `MOMIAO_DISCORD_CONFIG_FILE` 指向私有 JSON，包含 `cl
 
 统一资产现只汇总本地 Reserve、可用筹码、Poker 桌面/底池、单人游戏在途和轮盘托管，救济与收益上限复用这套读取；本地兑换仅在 Reserve 与筹码间转移，不再向 Native 额度借支。经济运营页显示六项资产并直接调整可用筹码，复用原用户调账与审计。发布前应用 0064（新救济记录的历史 Native 时间戳允许为空），独立 Poker 无须 `MOMIAO_ECONOMY_READ_SOCKET`。
 
-赌怪运营与批处理现使用本地 role >= 10，不依赖旧 Ops 预览、二次验证、epoch 或操作回执。0065 将活动执行人关联到 identity.users；历史资格、勋章和重置记录保持不可变，页面提供全局分页、时间/账户/资格/状态筛选与详情。重置仍单独确认，维护与游戏/资金在途检查保留；已受理的模型请求需由操作人先确认排空（没有新增自动请求计数器）。历史 Native 总额只供原资格展示，恢复只核对六项本地资产，不重算历史或强行接续变化的检查点。部署不会重新发奖或重置已完成活动；本批未发布网站，generic Ops 和其余 Native 启动清理仍待完成。
+赌怪运营与批处理现使用本地 role >= 10，不依赖旧 Ops 预览、二次验证、epoch 或操作回执。0065 将活动执行人关联到 identity.users；历史资格、勋章和重置记录保持不可变，页面提供全局分页、时间/账户/资格/状态筛选与详情。重置仍单独确认，维护与游戏/资金在途检查保留；已受理的模型请求需由操作人先确认排空（没有新增自动请求计数器）。历史 Native 总额只供原资格展示，恢复只核对六项本地资产，不重算历史或强行接续变化的检查点。部署不会重新发奖或重置已完成活动；本批未发布网站，其余 Native 启动清理仍待完成。
 
 操作日志 `/ops/audit` 使用本地管理员权限，统一显示直接保存日志与保留的历史审计，支持分页、时间、操作人和对象筛选；详情在弹窗查看。发布前应用 0051 和 `deploy/sql/runtime-grants-0051-ops-audit.psql`。`/ops/operations` 列表入口合并到此页；旧写流程所需的单条回执暂随未迁移页面保留。
 
@@ -136,3 +136,5 @@ SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/log
 
 ### Daily rewards and local exchange
 The wallet page now supports an explicit daily 500 Reserve API Credit claim (Asia/Shanghai day), exact 1:1 Reserve/chips exchange, receipts and durable-key retry lookup. Native Active quota is unchanged. See [wallet action contract](contracts/wallet-actions-api.md). Initial grants, hourly/relief rewards, credit purchases and games are not enabled by this slice.
+
+运营台已删除通用预览/执行/二次验证管道、访问控制页和操作回执页；所有模块及账户菜单的入口使用本地角色。历史审计和旧任务行保留只读，健康快照 worker 独立于旧 Ops 会话启动。旧 Native/BFF 会话与服务启动依赖尚待删除；本轮不改数据库或发布镜像。

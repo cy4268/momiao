@@ -96,7 +96,7 @@ func walletTransactionBrowserRoute(route string) bool {
 // Extend these explicit route policies when a new implemented route is added;
 // never accept a URL, write body, arbitrary query or credential as an intent.
 func gateRouteDomain(route string) string {
-	if opsBrowserPermission(route)!="" { return "OPERATIONS" }
+	if opsBrowserRoute(route) { return "OPERATIONS" }
 	if route == "/logs?purpose=ROLEPLAY" {
 		return "API"
 	}
@@ -266,7 +266,7 @@ func newAccessGateHandler(origin string, store accessGateStore, declaration *acc
 			send("MIGRATION_UNVERIFIED")
 			return
 		}
-		if (opsBrowserPermission(route) != "" || route == "/admin/channels") && account.Role < 10 {
+		if (opsBrowserRoute(route) || route == "/admin/channels") && account.Role < 10 {
 			send("ROLE_DENIED")
 			return
 		}

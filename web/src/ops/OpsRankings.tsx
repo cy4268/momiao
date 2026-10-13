@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { ApiClient, errorText } from '../api';
 import { Alert, Loading, Modal, Pager, useResource } from '../ui';
-import { OpsFacts, opsTime } from './OpsOperationDetail';
+import { OpsFacts, opsTime } from './OpsFacts';
 import './ops-business.css';
 
 type Aggregation={slice_target_id:string;domain:string;metric:string;period:string;date:string|null;last_source_checked_at:string|null;lag_seconds:string|null;state:string};

@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiClient, errorText } from '../api';
 import { Alert, Loading, useResource } from '../ui';
-import { OpsFacts, opsTime } from './OpsOperationDetail';
+import { OpsFacts, opsTime } from './OpsFacts';
 import { OpsLedger, OpsTransfers } from './OpsEconomyRecords';
 import './ops-business.css';
 

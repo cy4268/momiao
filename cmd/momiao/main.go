@@ -277,18 +277,14 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			pokerControl.poker = application
 		}
 	}
-	if cfg.OpsEnvironment!=""&&runtimeStore!=nil && sessionApp!=nil {
-		opsService, err := platform.NewOpsService(runtimeStore, cfg.OpsEnvironment)
-		if err != nil { return errors.New("Ops startup failed") }
-		cfg.ops = newOpsHandler(cfg.sessions, opsService, opsFactorAdapter{auth:sessionApp.auth}, "UNKNOWN", http.NotFoundHandler())
-		remoteCtx,stopRemote:=context.WithCancel(ctx);remoteDone:=make(chan struct{})
-		remoteHealth:=&opsRemoteWorkerHealth{}
-		cfg.readiness["ops_remote_worker"]=remoteHealth.check
-		go func(){defer close(remoteDone);runObservedOpsRemoteWorker(remoteCtx,opsService,remoteHealth)}()
-		defer func(){stopRemote();<-remoteDone}()
-		healthCtx,stopHealth:=context.WithCancel(ctx);healthDone:=make(chan struct{})
-		go func(){defer close(healthDone);runOpsHealthWorker(healthCtx,runtimeStore,cfg.OpsEnvironment,cfg.readiness)}()
-		defer func(){stopHealth();<-healthDone}()
+	if cfg.OpsEnvironment != "" && runtimeStore != nil {
+		healthCtx, stopHealth := context.WithCancel(ctx)
+		healthDone := make(chan struct{})
+		go func() {
+			defer close(healthDone)
+			runOpsHealthWorker(healthCtx, runtimeStore, cfg.OpsEnvironment, cfg.readiness)
+		}()
+		defer func() { stopHealth(); <-healthDone }()
 	}
 	listener, err := openListener(cfg)
 	if err != nil {

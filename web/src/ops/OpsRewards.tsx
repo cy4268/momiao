@@ -4,7 +4,7 @@ import { ApiClient, errorText } from '../api';
 import { Alert, Loading, useResource } from '../ui';
 import { opsAmount } from './OpsEconomy';
 import { type OpsPage } from './OpsEconomyRecords';
-import { opsTime, opsState } from './OpsOperationDetail';
+import { opsTime, opsState } from './OpsFacts';
 import './ops-business.css';
 
 type Program='REGISTRATION'|'DAILY'|'HOURLY'|'RELIEF';

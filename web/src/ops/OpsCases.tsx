@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { ApiClient } from '../api';
 import { Alert, Loading, Modal, Pager, useResource } from '../ui';
 import { opsError } from './ops-api';
-import { OpsFacts, opsTime } from './OpsOperationDetail';
+import { OpsFacts, opsTime } from './OpsFacts';
 import './ops-content.css';
 
 type Case={case_id:string;subject_newapi_user_id:string;category:string;state:string;safe_summary:string;created_by:string;created_at:string;updated_at:string;closed_at?:string};

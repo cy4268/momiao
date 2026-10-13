@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ApiClient } from '../api';
 import { Alert, Loading, useResource } from '../ui';
 import { opsAmount } from './OpsEconomy';
-import { opsTime, opsState } from './OpsOperationDetail';
+import { opsTime, opsState } from './OpsFacts';
 
 export type OpsWallet={user_id:string;asset:'RESERVE_API_CREDIT'|'AVAILABLE_CHIPS';balance_units:string};
 type Ledger={id:string;transaction_id:string;user_id:string;asset:OpsWallet['asset'];entry_type:string;biz_type:string;biz_id:string;delta_units:string;balance_before_units:string;balance_after_units:string;created_at:string};

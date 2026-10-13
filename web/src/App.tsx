@@ -6,12 +6,10 @@ import { RPUsage } from './RPUsage';
 import { ApiWorkbench, UsageNavigation } from './ApiWorkbench';
 import { Catalog, CatalogDetailPage, APIAccess } from './Catalog';
 import { OpsCatalog } from './OpsCatalog';
-import { OpsShell, OpsHome, OpsLegacyBoundary } from './ops/OpsShell';
+import { OpsShell, OpsHome } from './ops/OpsShell';
 import { OpsAttention, OpsJobs, OpsServiceHealth } from './ops/OpsRuntime';
-import { OpsOperationDetail } from './ops/OpsOperationDetail';
 import { OpsAudit } from './ops/OpsAudit';
 import { OpsMaintenance } from './ops/OpsMaintenance';
-import { OpsAccessControl } from './ops/OpsAccessControl';
 import { OpsEconomy } from './ops/OpsEconomy';
 import { OpsGamblerCampaign } from './ops/OpsGamblerCampaign';
 import { OpsRewards } from './ops/OpsRewards';
@@ -24,7 +22,6 @@ import { OpsGames } from './ops/OpsGames';
 import { OpsPoker } from './ops/OpsPoker';
 import { OpsRankings } from './ops/OpsRankings';
 import { CriticalNotice } from './CriticalNotice';
-import { isOpsDiscordPopup, OpsDiscordPopup } from './ops/OpsDiscordPopup';
 import type { CatalogLoginRequired } from './catalog-api';
 import { Channels, Groups } from './Channels';
 import { Wallet } from './Wallet';
@@ -71,7 +68,7 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
     };
     const [proof,setProof]=useState<{value:SensitiveProof;generation:number}>();
     useEffect(()=>{if(proof&&(proof.generation!==client.getSessionGeneration()||!['/account','/account/security','/oauth/discord'].includes(location.pathname)))setProof(undefined);},[session.user,client,location.pathname,proof]);
-    useEffect(() => { if(!isOpsDiscordPopup())void client.bootstrap(); }, [client]);
+    useEffect(() => { void client.bootstrap(); }, [client]);
     const loading = <div className="session-loading"><Crest /><Loading /></div>;
     const announcementSession = (session.user?.id || 'guest') + ':' + client.getSessionGeneration() + ':' + session.ready;
     const routedSession=announcementSession+':'+location.pathname+location.search;
@@ -108,19 +105,14 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="attention" element={<OpsAttention client={client}/>}/>
             <Route path="service-health" element={<OpsServiceHealth client={client}/>}/>
             <Route path="gambler-campaign" element={<OpsGamblerCampaign client={client}/>}/>
-            <Route element={<OpsLegacyBoundary/>}>
-            <Route path="operations/:operationID" element={<OpsOperationDetail/>}/>
-            <Route path="access-control" element={<OpsAccessControl/>}/>
-            </Route>
             <Route path="maintenance" element={<OpsMaintenance/>}/>
-            <Route path="operations" element={<Navigate to="/ops/audit" replace/>}/>
             <Route path="audit" element={<OpsAudit/>}/>
             <Route path="audit/:auditID" element={<OpsAudit/>}/>
             <Route index element={<OpsHome/>}/>
         </Route>
         <Route path="/login" element={!session.ready?loading:session.user?<Navigate to="/welcome" replace/>:<Authentication client={client} mode="login"/>} />
         <Route path="/register" element={!session.ready?loading:session.user?<Navigate to="/welcome" replace/>:<Authentication client={client} mode="registration"/>} />
-        <Route path="/oauth/discord" element={isOpsDiscordPopup()?<OpsDiscordPopup captured={capturedCallback}/>:!session.ready?loading:<DiscordCallback client={client} captured={capturedCallback} onComplete={value=>{if(value){setProof({value,generation:client.getSessionGeneration()});navigate('/account/security',{replace:true});}else navigate('/welcome',{replace:true});}}/>}/>
+        <Route path="/oauth/discord" element={!session.ready?loading:<DiscordCallback client={client} captured={capturedCallback} onComplete={value=>{if(value){setProof({value,generation:client.getSessionGeneration()});navigate('/account/security',{replace:true});}else navigate('/welcome',{replace:true});}}/>}/>
         <Route path="/welcome" element={!session.ready?loading:session.user?<PostAuthGate key={session.user.id+':'+client.getSessionGeneration()} client={client} user={session.user}/>:<Navigate to="/login" replace/>}/>
         <Route path="/poker/*" element={!session.ready?loading:session.user?<AccessGate key={announcementSession} client={client} user={session.user} route="/poker" pokerRecovery><PokerRoute key={announcementSession} client={client} path={effectivePath} onHold={holdPoker} frame={children=><Shell client={client} user={session.user!}>{children}</Shell>}/></AccessGate>:<LoginRequired/>}/>
         <Route element={!session.ready ? loading : session.user ? <AccessGate key={privateRouteSession} client={client} user={session.user} route={location.pathname+(['/keys','/logs'].includes(location.pathname)?location.search:'')}><Shell client={client} user={session.user} /></AccessGate> : <LoginRequired />}>

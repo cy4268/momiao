@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { ApiClient } from '../api';
 import { Alert, Loading, Modal, Pager, useResource } from '../ui';
-import { OpsFacts, opsTime } from './OpsOperationDetail';
+import { OpsFacts, opsTime } from './OpsFacts';
 import { opsAmount } from './OpsEconomy';
 import { opsError } from './ops-api';
 

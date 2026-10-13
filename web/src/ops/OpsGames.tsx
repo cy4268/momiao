@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ApiClient, errorText } from '../api';
 import { Alert, Loading, Modal, Pager, useResource } from '../ui';
-import { OpsFacts, opsTime } from './OpsOperationDetail';
+import { OpsFacts, opsTime } from './OpsFacts';
 import './ops-business.css';
 
 type EditableConfig={type:string;prize_table_version:string;prizes:{tier:string;multiplier:string;weight:string}[]};

@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useOutletContext } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { ApiClient, type User } from '../api';
-import { Alert, Brand, Loading, useResource } from '../ui';
-import { opsError, readOpsBootstrap, type OpsBootstrap } from './ops-api';
+import { Alert, Brand } from '../ui';
 import { assetUrl } from '../game-hall-assets';
 import art from './ops-art.json';
 import './ops.css';
@@ -14,25 +13,15 @@ const opsPages=[
  ['/ops/games','游戏'],['/ops/poker','Poker'],['/ops/economy','经济与账务'],['/ops/rewards','奖励'],
  ['/ops/logs','调用日志'],['/ops/rankings','排行榜'],['/ops/users','用户'],['/ops/records','记录查询'],['/ops/support-cases','支持工单'],['/ops/incidents','事件处理'],
  ['/ops/maintenance','维护'],['/ops/service-health','服务健康'],['/ops/jobs','后台任务'],['/ops/attention','待处理事项'],
- ['/ops/audit','操作日志'],['/ops/access-control','访问控制'],
+ ['/ops/audit','操作日志'],
 ] as const;
 const opsGroups=[
  {title:'内容与用户',paths:['/ops/models','/ops/channels','/ops/groups','/ops/announcements','/ops/users','/ops/support-cases']},
  {title:'业务管理',paths:['/ops/games','/ops/poker','/ops/economy','/ops/rewards','/ops/rankings','/ops/records','/ops/logs']},
- {title:'系统与审计',paths:['/ops/incidents','/ops/maintenance','/ops/service-health','/ops/jobs','/ops/attention','/ops/audit','/ops/access-control']},
+ {title:'系统与审计',paths:['/ops/incidents','/ops/maintenance','/ops/service-health','/ops/jobs','/ops/attention','/ops/audit']},
 ];
 function visibleGroups(){
  return opsGroups.map(group=>({...group,pages:group.paths.flatMap(path=>opsPages.filter(page=>page[0]===path))})).filter(group=>group.pages.length);
-}
-export type OpsContext={client:ApiClient;bootstrap:OpsBootstrap;reload:()=>void};
-export const useOps=()=>useOutletContext<OpsContext>();
-// Unmigrated pages still own their old operation catalogue; the shell and
-// direct-save pages never synthesize legacy permissions or fresh credentials.
-export function OpsLegacyBoundary(){
- const {client}=useOutletContext<{client:ApiClient}>();
- const location=useLocation();
- const resource=useResource(()=>readOpsBootstrap(client).catch(error=>{throw new Error(opsError(error));}),[client,location.pathname]);
- return resource.loading?<Loading/>:resource.error?<><Alert>{resource.error}</Alert><button onClick={resource.reload}>重新核对权限</button></>:resource.data?<Outlet context={{client,bootstrap:resource.data,reload:resource.reload} satisfies OpsContext}/>:null;
 }
 export function OpsShell({client,user}:{client:ApiClient;user:User}){
  const location=useLocation(),main=useRef<HTMLElement>(null);

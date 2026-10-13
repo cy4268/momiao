@@ -111,6 +111,7 @@ it('saves maintenance directly with a local admin and shows all operations witho
  fireEvent.click(screen.getByRole('button',{name:'保存'}));
  await waitFor(()=>expect(state.enabled).toBe(false));
  const nav=screen.getByRole('navigation',{name:'运营导航'});
+ expect(within(nav).queryByRole('link',{name:'访问控制'})).not.toBeInTheDocument();
  expect(within(nav).getByRole('link',{name:'用户'})).toBeVisible();
  expect(within(nav).getByRole('link',{name:'经济与账务'})).toBeVisible();
  fireEvent.click(within(nav).getByRole('link',{name:'操作日志'}));

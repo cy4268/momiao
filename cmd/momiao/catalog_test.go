@@ -253,6 +253,17 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 		}
 
 		t.Run("runtime", func(t *testing.T) {
+			for _, path := range []string{"/api/v1/ops/bootstrap", "/api/v1/ops/admin-principals", "/api/v1/ops/operations", "/api/v1/ops/operations/00000000-0000-4000-8000-000000000001", "/api/v1/ops/fresh/password", "/api/v1/ops/fresh/discord/start"} {
+				if w := request(admin, "GET", path, "", false); w.Code != 404 {
+					t.Fatal("removed ops pipeline", path, w.Code, w.Body.String())
+				}
+				if w := request(admin, "POST", path, `{}`, true); w.Code != 404 {
+					t.Fatal("removed ops write", path, w.Code, w.Body.String())
+				}
+			}
+			if gateRouteDomain("/ops/access-control") == "OPERATIONS" || gateRouteDomain("/ops/operations/00000000-0000-4000-8000-000000000001") == "OPERATIONS" {
+				t.Fatal("removed legacy Ops browser routes")
+			}
 			for _, path := range []string{"/api/v1/ops/jobs?page=1", "/api/v1/ops/attention?page=1", "/api/v1/ops/service-health"} {
 				w := request(admin, "GET", path, "", false)
 				if w.Code != 200 {

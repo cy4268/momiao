@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiClient } from '../api';
 import { Alert, Empty, Loading, Modal, Pager, useResource } from '../ui';
-import { opsTime } from './OpsOperationDetail';
+import { opsTime } from './OpsFacts';
 import './ops-system.css';
 
 type Summary={kind:string;pending_count:string;attention_count:string;due_count:string;oldest_due_at:string|null};

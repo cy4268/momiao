@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { ApiClient, errorText } from '../api';
 import { Alert, Loading, Modal, useResource } from '../ui';
-import { OpsFacts, opsTime } from './OpsOperationDetail';
+import { OpsFacts, opsTime } from './OpsFacts';
 import './ops-business.css';
 
 type Table={table_id:string;name:string;lifecycle_state:string;occupied_seats:string;max_seats:number;spectator_count:string;accepting_players:boolean;allow_new_hands:boolean;needs_review:boolean;recovery_state?:string;current_hand_id?:string};

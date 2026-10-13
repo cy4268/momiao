@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import type { ApiClient } from './api';
 import type { MasterResource } from './PersonalHub';
-import { readOpsBootstrap } from './ops/ops-api';
 import { saveRouteIntent } from './post-auth-intent';
 import { readProfile } from './profile-api';
 import { Brand, Crest, role, useResource } from './ui';
@@ -65,7 +64,6 @@ function AccountMenu({ client, master: shared }: { client: ApiClient; master?: M
     // Shell pages share their profile resource so a saved rename shows here at once; public pages read their own.
     const own = useResource(() => shared ? Promise.resolve(undefined) : readProfile(client, String(user.id)), [client, user.id, !!shared]);
     const master = shared ?? own;
-    const opsEntry = useResource(async () => { if (!menu) return false; try { return (await readOpsBootstrap(client)).principal.permissions.length > 0; } catch { return false; } }, [client, user.id, menu]);
     const names = masterNames.get(client) ?? new Map<number, string>();
     masterNames.set(client, names);
     const storageKey = 'momiao.header-name.' + user.id;
@@ -86,6 +84,6 @@ function AccountMenu({ client, master: shared }: { client: ApiClient; master?: M
     }, [menu]);
     return <div className="account-wrap" ref={account} onKeyDown={e => { if (e.key === 'Escape' && menu) { setMenu(false); trigger.current?.focus(); } }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setMenu(false); }}>
         <button ref={trigger} className="account-button" aria-label="账户菜单" aria-expanded={menu} aria-controls="account-menu" onClick={() => setMenu(!menu)}><span className="avatar"><Crest /></span><span>{name}<small>{role(user.role)}</small></span><span aria-hidden="true">⌄</span></button>
-        {menu && <div className="account-menu" id="account-menu"><strong>{name}</strong><Link to="/me">个人中心</Link><Link to="/master-profile">Master 资料</Link><Link to="/rewards">奖励中心</Link>{opsEntry.data && <Link to="/ops">运营工作台</Link>}{user.role >= 10 && <Link to="/admin/channels">渠道管理</Link>}<button onClick={() => void client.logout().catch(() => {})}>退出登录</button></div>}
+        {menu && <div className="account-menu" id="account-menu"><strong>{name}</strong><Link to="/me">个人中心</Link><Link to="/master-profile">Master 资料</Link><Link to="/rewards">奖励中心</Link>{user.role >= 10 && <Link to="/ops">运营工作台</Link>}{user.role >= 10 && <Link to="/admin/channels">渠道管理</Link>}<button onClick={() => void client.logout().catch(() => {})}>退出登录</button></div>}
     </div>;
 }

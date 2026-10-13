@@ -318,18 +318,21 @@ func serveOpsRoute(cfg config, w http.ResponseWriter, r *http.Request) {
 		domainHandler(cfg,newOpsRelayHandler(cfg.relay)).ServeHTTP(w,r)
 		return
 	}
-	handler := cfg.ops
-	if r.URL.Path == "/api/v1/ops/maintenance" && cfg.opsMaintenance != nil && cfg.OpsEnvironment != "" {
-		handler = domainHandler(cfg, cfg.opsMaintenance)
+	var handler http.Handler
+	switch {
+	case r.URL.Path == "/api/v1/ops/maintenance":
+		handler = cfg.opsMaintenance
+	case r.URL.Path == "/api/v1/ops/audit" || strings.HasPrefix(r.URL.Path, "/api/v1/ops/audit/"):
+		handler = cfg.opsAudit
+	default:
+		walletError(w, http.StatusNotFound, "NOT_FOUND")
+		return
 	}
-	if (r.URL.Path == "/api/v1/ops/audit" || strings.HasPrefix(r.URL.Path, "/api/v1/ops/audit/")) && cfg.opsAudit != nil && cfg.OpsEnvironment != "" {
-		handler = domainHandler(cfg, cfg.opsAudit)
-	}
-	if handler == nil {
+	if handler == nil || cfg.OpsEnvironment == "" {
 		walletError(w, http.StatusServiceUnavailable, "OPS_UNAVAILABLE")
 		return
 	}
-	handler.ServeHTTP(w, r)
+	domainHandler(cfg, handler).ServeHTTP(w, r)
 }
 
 func pokerAPIRoute(path string) bool {
@@ -370,7 +373,7 @@ func serveWebFile(root, assetCDNOrigin string, w http.ResponseWriter, r *http.Re
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if browserRoutes[r.URL.Path] || opsBrowserPermission(r.URL.EscapedPath()) != "" || gameBrowserRoute(r.URL.EscapedPath()) || rouletteBrowserRoute(r.URL.EscapedPath()) || walletTransactionBrowserRoute(r.URL.EscapedPath()) || pokerBrowserRoute(r.URL.EscapedPath()) && r.URL.RawQuery == "" && !r.URL.ForceQuery && r.URL.Fragment == "" || announcementBrowserRoute(r.URL.Path) || catalogBrowserRoute(r.URL.EscapedPath()) || r.URL.Path == "/index.html" {
+	if browserRoutes[r.URL.Path] || opsBrowserRoute(r.URL.EscapedPath()) || gameBrowserRoute(r.URL.EscapedPath()) || rouletteBrowserRoute(r.URL.EscapedPath()) || walletTransactionBrowserRoute(r.URL.EscapedPath()) || pokerBrowserRoute(r.URL.EscapedPath()) && r.URL.RawQuery == "" && !r.URL.ForceQuery && r.URL.Fragment == "" || announcementBrowserRoute(r.URL.Path) || catalogBrowserRoute(r.URL.EscapedPath()) || r.URL.Path == "/index.html" {
 		serveIndex(root, assetCDNOrigin, w, r)
 		return
 	}

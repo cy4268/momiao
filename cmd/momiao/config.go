@@ -27,7 +27,6 @@ type config struct {
 	PokerRemoteSocket         string
 	PokerServiceKeyringFile   string
 	PokerPeerKeyringFile      string
-	ops                       http.Handler
 	opsMaintenance            http.Handler
 	opsAudit                  http.Handler
 	maintenanceNotices        http.Handler

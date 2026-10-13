@@ -3,7 +3,10 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -86,4 +89,25 @@ func RequireLocalOpsAdmin(ctx context.Context, tx pgx.Tx, user int64) error {
 }
 func RecordOpsChange(ctx context.Context, tx pgx.Tx, user int64, action, kind, target string, before, after any) error {
 	return relayOpsAudit(ctx, tx, user, action, kind, target, before, after)
+}
+
+var (
+	ErrOpsForbidden      = errors.New("OPS_FORBIDDEN")
+	ErrOpsInvalid        = errors.New("OPS_INPUT_INVALID")
+	ErrOpsNotFound       = errors.New("OPS_OPERATION_NOT_FOUND")
+	ErrOpsConflict       = errors.New("OPS_OPERATION_CONFLICT")
+	ErrOpsUnavailable    = errors.New("OPS_CAPABILITY_UNAVAILABLE")
+	ErrOpsLastSuperAdmin = errors.New("LAST_SUPER_ADMIN_REQUIRED")
+)
+
+func nullableTime(value time.Time) any {
+	if value.IsZero() {
+		return nil
+	}
+	return value
+}
+
+func validOpsText(value string, maximum int, required bool) bool {
+	return (!required && value == "" || value != "") && len(value) <= maximum && utf8.ValidString(value) &&
+		strings.TrimSpace(value) == value && !strings.ContainsRune(value, 0)
 }

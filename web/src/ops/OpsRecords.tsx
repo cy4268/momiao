@@ -4,7 +4,7 @@ import { type ApiClient } from '../api';
 import { Alert, Loading, Modal, useResource } from '../ui';
 import { chips } from '../games-api';
 import { recordTypes, results, statuses, type Summary, type RecordType } from '../history/api';
-import { OpsFacts, opsTime } from './OpsOperationDetail';
+import { OpsFacts, opsTime } from './OpsFacts';
 import '../history/history.css';
 import './ops-business.css';
 
