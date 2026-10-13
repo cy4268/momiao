@@ -21,7 +21,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	stage := flag.String("stage", "identity", "identity, keys, workspace or prices")
+	stage := flag.String("stage", "identity", "identity, keys, workspace, prices or quota")
 	flag.Parse()
 	// Files keep connection credentials out of command arguments and logs.
 	sourceDSN, err := os.ReadFile(os.Getenv("MOMIAO_IMPORT_NATIVE_DSN_FILE"))
@@ -43,6 +43,16 @@ func run(ctx context.Context) error {
 	}
 	defer target.Close()
 	// Schema migration is deliberately a separate, explicit command.
+	if *stage == "quota" {
+		result, err := target.ImportNativeQuota(ctx, source)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(struct {
+			Stage string `json:"stage"`
+			platform.QuotaImportResult
+		}{"quota", result})
+	}
 	if *stage == "prices" {
 		result, err := target.ImportNativePrices(ctx, source)
 		if err != nil {
