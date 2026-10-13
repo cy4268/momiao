@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type
 import { Link } from 'react-router-dom';
 import { ApiClient, errorText, type TwoFactor } from './api';
 import { admissionError, type AdmissionConfig, type AdmissionResult, type DiscordCallbackInput, type SensitiveProof } from './admission-api';
-import { Alert, Brand, Loading } from './ui';
+import { Alert, Brand, Loading, NewAPIAttribution } from './ui';
 
 export type CapturedCallback = {input?: DiscordCallbackInput; error?: string};
 export function AuthFrame({children,registration=false}: {children:ReactNode;registration?:boolean}) {
@@ -15,7 +15,7 @@ export function AuthFrame({children,registration=false}: {children:ReactNode;reg
         <div className="auth-panorama" aria-hidden="true">{artFailed ? <Brand/> : <picture><source type="image/avif" srcSet="/assets/home/bg-royal-observatory-v001.avif"/><img src="/assets/home/bg-royal-observatory-v001.webp" alt="" width="1672" height="941" onError={()=>setArtFailed(true)}/></picture>}</div>
         {failedCharacter!==character&&<img className="auth-character" src={character} alt="" aria-hidden="true" width="1024" height="1536" decoding="async" onError={()=>setFailedCharacter(character)}/>}
         <div className="auth-caption"><span>BEACON / PERSONAL CONNECTION</span><span>01 — {registration?'ARRIVAL':'RETURN'}</span></div>
-    </section><section className="auth-entry"><div className="auth-card">{children}</div><footer>Chaldea Platform <span> / </span><Link to="/">返回首页</Link></footer></section></main>;
+    </section><section className="auth-entry"><div className="auth-card">{children}</div><footer>Chaldea Platform <span> / </span><Link to="/">返回首页</Link><NewAPIAttribution /></footer></section></main>;
 }
 
 export function Authentication({client,mode}: {client:ApiClient;mode:'login'|'registration'}) {

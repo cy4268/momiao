@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { errorText } from './api';
+export function NewAPIAttribution() {
+    return <span className="upstream-attribution"><a href="https://github.com/QuantumNous/new-api" target="_blank" rel="noopener noreferrer">Frontend design and development by New API contributors.</a> <a href="/notices/new-api/NOTICE.txt">许可与声明</a></span>;
+}
 export const number = (n?: number) => Number.isFinite(n) ? new Intl.NumberFormat('zh-CN').format(n!) : '—';
 export const date = (n?: number) => n === -1 ? '永不过期' : n && n > 0 ? new Date(n * 1000).toLocaleString('zh-CN', { hour12: false }) : '—';
 export const role = (n: number) => n === 100 ? '超级管理员' : n === 10 ? '管理员' : '成员';

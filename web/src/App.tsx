@@ -37,7 +37,7 @@ import { OpsAnnouncements } from './OpsAnnouncements';
 import { PersonalHub, MasterSummary, CommandChamber, type MasterResource } from './PersonalHub';
 import { Rewards } from './Rewards';
 import { readProfile, profileError } from './profile-api';
-import { Alert, Crest, Empty, Loading, Pager, date, number, useResource } from './ui';
+import { Alert, Crest, Empty, Loading, NewAPIAttribution, Pager, date, number, useResource } from './ui';
 import { Authentication, DiscordCallback, type CapturedCallback } from './Authentication';
 import { Account } from './Account';
 import { AccessGate, LoginRequired, PostAuthGate } from './PostAuthGate';
@@ -164,7 +164,7 @@ function Shell({ client, user, children }: { client: ApiClient; user: User; chil
     return <div className="portal-shell"><a className="skip-link" href="#main-content">跳至主要内容</a>
         <SiteHeader client={client} master={master} />
         <main ref={main} id="main-content" tabIndex={-1} className="main-content">{children??<Outlet context={master} />}</main>
-        <footer className="workspace-foot"><span>momiao / Chaldea Platform <span> / </span><a href="https://github.com/cy4268/momiao" target="_blank" rel="noopener noreferrer">源代码</a></span><span>你的连接，由你掌握。</span></footer>
+        <footer className="workspace-foot"><span>momiao / Chaldea Platform <span> / </span><a href="https://github.com/cy4268/momiao" target="_blank" rel="noopener noreferrer">源代码</a><NewAPIAttribution /></span><span>你的连接，由你掌握。</span></footer>
         <nav className="mobile-nav" aria-label="底部导航">
             <Link to="/dashboard" aria-current={domain === 'home' ? 'page' : undefined}>首页</Link>
             <Link to="/models" aria-current={domain === 'models' ? 'true' : undefined}>模型</Link>

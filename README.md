@@ -139,3 +139,7 @@ SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/log
 The wallet page now supports an explicit daily 500 Reserve API Credit claim (Asia/Shanghai day), exact 1:1 Reserve/chips exchange, receipts and durable-key retry lookup. Native Active quota is unchanged. See [wallet action contract](contracts/wallet-actions-api.md). Initial grants, hourly/relief rewards, credit purchases and games are not enabled by this slice.
 
 运营台已删除通用预览/执行/二次验证管道、访问控制页和操作回执页；所有模块及账户菜单的入口使用本地角色。历史审计和旧任务行保留只读，健康快照 worker 独立启动。认证启动已删除旧 Native/BFF 会话、独立会话数据库和 Native 凭据配置，直接复用平台连接池与 Redis；未注册的 `/api/` 路径返回 404。RP 记录与榜单直接读取本地归因，不再启动 Native 同步或检查其水位；部署前应用 0066，历史重复逻辑请求只计一次，原始行保留。quota/refill 启动与配置已删除，钱包只按本地余额兑换；其余 Native 投影/helper、transport/readiness 和部署文件仍待清理。0066 仅应用独立 dev，本轮无新增迁移或镜像发布。
+
+### Local-only runtime image
+
+`deploy/Dockerfile` consumes a build context with `bin/` (Linux amd64 `momiao`, `momiao-migrate`, `momiao-import-native`), `web/` (the Vite production output) and `licenses/` (this repository LICENSE/ATTRIBUTION.md plus `new-api/` from `docs/upstream/new-api`). Build Go with `CGO_ENABLED=0`, and the web with `VITE_MOMIAO_SESSION_MODE=opaque` and `VITE_ASSET_BASE_URL=https://assets.momiao.win`. Pass the committed source ID as `--build-arg REVISION=...`. The fresh Alpine image contains no Native-auth frontend, bootstrap binary or Native service; platform and Poker use the same image with their existing process-role configuration.

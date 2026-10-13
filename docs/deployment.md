@@ -224,3 +224,7 @@ The dev restore contains 29926 duplicate historical requests under different sou
 ### External Discord history bridge
 
 Deploy the Bot bridge version that resolves Discord accounts from Platform `identity.users`, with only `WEBSITE_PLATFORM_DSN`; remove `WEBSITE_NATIVE_DSN` together with the bridge image replacement. Apply `deploy/sql/runtime-grants-bot-local-identity.psql` as schema owner with `bot_reader_role` set to its dedicated read-only role. This grants only the four identity columns and the existing history function, not passwords, 2FA, or wallet writes. The Discord bot itself still receives no database DSN. First validate with an independent dev credential; keep production bridge/Native configuration unchanged until the final cutover.
+
+### Integrated local runtime cutover
+
+Prepare the new platform/Poker image together; keep the old running configuration until cutover. Add `MOMIAO_DISCORD_CONFIG_FILE`, retain the local session Redis and Poker reader configuration, and remove obsolete Native/session-bridge/quota/refill environment entries. Platform now needs the dev egress network for direct model and Discord calls. Remove Native service dependencies from the candidate compose, but retain old containers and databases for rollback. When switching, stop/drain the old writers, perform the quota stage once, then recreate platform **and edge** together (edge shares its network namespace), plus Poker. A candidate configuration or recovery-lock readiness check does not replace the full dev acceptance list.

@@ -1251,6 +1251,9 @@ td time {
   .dice-history .section-heading { align-items: flex-start; flex-wrap: wrap; gap: 12px; }
 }
 
+.upstream-attribution { display: block; font-size: 12px; line-height: 1.6; }
+.upstream-attribution a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+
 /* Conditional service impact surface, separate from announcement promotions. */
 .critical-notice{position:relative;z-index:40;padding:14px max(20px,calc((100vw - 1240px)/2));background:#fff2da;border-bottom:1px solid #c78d42;color:#4b3216;font-size:14px}
 .critical-notice>div+div{border-top:1px solid #e8cfab;margin-top:12px;padding-top:12px}

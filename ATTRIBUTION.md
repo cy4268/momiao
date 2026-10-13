@@ -8,6 +8,8 @@ Original momiao code and project-authored documentation are offered under **GNU 
 
 Local authentication and related account/key behavior are adapted from the clean official [QuantumNous/new-api](https://github.com/QuantumNous/new-api) revision `f116414284162ad15d8925f7bca494c109b83e93`. Adapted files identify their origin and modifications in source comments. Model protocol adapters use the pinned official `github.com/QuantumNous/new-api/relaykit` module recorded in `go.mod`; dependency notices stay with their distributions.
 
+Production builds emit the original LICENSE, NOTICE and THIRD-PARTY-LICENSES.md under `/notices/new-api/` as text assets. The image also includes them under `/app/licenses/new-api/`; the homepage, login and account shell show the upstream attribution and project link.
+
 The unmodified upstream [LICENSE](docs/upstream/new-api/LICENSE) and [NOTICE](docs/upstream/new-api/NOTICE) are retained separately from the deleted VPS-customized Native source patches and deployment tooling. The legacy Native login bridge is not the source of the local authentication implementation. New API contributors retain their authorship; no affiliation or endorsement is implied.
 
 ## Design archive and third-party assets

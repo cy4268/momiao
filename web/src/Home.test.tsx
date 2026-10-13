@@ -183,6 +183,8 @@ it('keeps the hero content usable if the decorative image fails', async () => {
     fireEvent.error(art!);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('在月光下');
     expect(screen.getByRole('link', { name: 'Discord 登录' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Frontend design and development by New API contributors.' })).toHaveAttribute('href', 'https://github.com/QuantumNous/new-api');
+    expect(screen.getByRole('link', { name: '许可与声明' })).toHaveAttribute('href', '/notices/new-api/NOTICE.txt');
 });
 it('opens the reviewed public catalog to guests without native group or model reads', async () => {
     const { client, fetcher } = fixtureClient(() => new Response(JSON.stringify({ success: false }), { status: 401 }));
