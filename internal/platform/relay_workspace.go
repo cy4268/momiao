@@ -82,6 +82,6 @@ func (s *Store) RelayModels(ctx context.Context, group string) ([]string, error)
 	return items, err
 }
 func (s *Store) ReadRelayUsage(ctx context.Context, user int64) (used, requests int64, err error) {
-	err = s.pool.QueryRow(ctx, `SELECT coalesce(sum(cost_units),0),count(*) FROM relay.logs WHERE user_id=$1 AND kind IN (2,5)`, user).Scan(&used, &requests)
+	err = s.pool.QueryRow(ctx, `SELECT coalesce(sum(cost_units),0),count(DISTINCT coalesce(request_id,'native:'||id::text)) FROM relay.logs WHERE user_id=$1 AND kind IN (2,5)`, user).Scan(&used, &requests)
 	return
 }

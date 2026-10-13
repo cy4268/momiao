@@ -16,16 +16,7 @@ func ModelsHandler(store *platform.Store) http.Handler {
 			writeError(w, 405, "method not allowed")
 			return
 		}
-		key := r.Header.Get("X-API-Key")
-		if authorization := r.Header.Get("Authorization"); authorization != "" {
-			scheme, value, _ := strings.Cut(authorization, " ")
-			if !strings.EqualFold(scheme, "Bearer") {
-				writeError(w, 401, "invalid API key")
-				return
-			}
-			key = strings.TrimSpace(value)
-		}
-		key = strings.TrimPrefix(key, "sk-")
+		key := apiKey(r)
 		if key == "" {
 			writeError(w, 401, "invalid API key")
 			return
@@ -65,6 +56,18 @@ func ModelsHandler(store *platform.Store) http.Handler {
 			Data   []model `json:"data"`
 		}{"list", items})
 	})
+}
+
+func apiKey(r *http.Request) string {
+	key := r.Header.Get("X-API-Key")
+	if authorization := r.Header.Get("Authorization"); authorization != "" {
+		scheme, value, _ := strings.Cut(authorization, " ")
+		if !strings.EqualFold(scheme, "Bearer") {
+			return ""
+		}
+		key = strings.TrimSpace(value)
+	}
+	return strings.TrimPrefix(key, "sk-")
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {

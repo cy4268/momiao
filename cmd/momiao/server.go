@@ -20,10 +20,7 @@ import (
 	"time"
 )
 
-const (
-	apiProxyRequestTimeout = 30 * time.Second
-	v1ProxyRequestTimeout  = 5 * time.Minute
-)
+const apiProxyRequestTimeout = 30 * time.Second
 
 var browserRoutes = map[string]bool{
 	"/":                 true,
@@ -91,10 +88,15 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		cfg.maintenanceNotices = newMaintenanceNoticesHandler(nil, "")
 	}
 	models := relay.ModelsHandler(cfg.relay)
+	generation := relay.Handler(cfg.relay)
 	if cfg.WebDir == "" {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/v1/models" {
 				models.ServeHTTP(w, r)
+				return
+			}
+			if strings.HasPrefix(r.URL.Path, "/v1/") {
+				generation.ServeHTTP(w, r)
 				return
 			}
 			if r.URL.Path == "/api/v1/maintenance/notices" {
@@ -172,10 +174,11 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		readPoker = nil
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		isRelay := strings.HasPrefix(r.URL.Path, "/v1/")
 		switch {
 		case r.URL.Path == "/v1/models":
 			models.ServeHTTP(w, r)
+		case strings.HasPrefix(r.URL.Path, "/v1/"):
+			generation.ServeHTTP(w, r)
 		case opsAPIRoute(r.URL.Path):
 			serveOpsRoute(cfg, w, r)
 		case r.URL.Path == "/api/v1/maintenance/notices":
@@ -238,16 +241,12 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 			serveWebFile(cfg.WebDir, cfg.AssetCDNOrigin, w, r)
 		case r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/"):
 			walletError(w, 404, "NOT_FOUND")
-		case strings.HasPrefix(r.URL.Path, "/api/") || isRelay:
+		case strings.HasPrefix(r.URL.Path, "/api/"):
 			if r.Header.Get("Upgrade") != "" || headerHasToken(r.Header.Get("Connection"), "upgrade") {
 				writeJSONError(w, http.StatusBadRequest, "unsupported protocol upgrade")
 				return
 			}
-			timeout := apiProxyRequestTimeout
-			if isRelay {
-				timeout = v1ProxyRequestTimeout
-			}
-			deadline := time.Now().Add(timeout)
+			deadline := time.Now().Add(apiProxyRequestTimeout)
 			if parentDeadline, ok := r.Context().Deadline(); ok && parentDeadline.Before(deadline) {
 				deadline = parentDeadline
 			}

@@ -86,23 +86,41 @@ func settleRelay(ctx context.Context, tx pgx.Tx, input RelaySettlement) (RelayCh
 	if _, err = tx.Exec(ctx, `UPDATE relay.api_keys SET used_quota=used_quota+$3,accessed_at=$4 WHERE id=$1 AND user_id=$2`, input.KeyID, input.UserID, input.CostUnits, input.CompletedAt); err != nil {
 		return result, err
 	}
-	kind := 2
-	if input.FinalStatus != "SUCCESS" {
-		kind = 5
-	}
-	err = tx.QueryRow(ctx, `INSERT INTO relay.logs(user_id,key_id,key_name,model,channel_id,group_name,kind,prompt_tokens,completion_tokens,
- cache_read_tokens,cache_write_tokens,cache_write_tokens_1h,cost_units,duration_ms,is_stream,status_code,error,created_at)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
-		input.UserID, input.KeyID, input.KeyName, input.Model, input.ChannelID, input.Group, kind, input.Usage.Prompt, input.Usage.Completion,
-		input.Usage.CacheRead, input.Usage.CacheWrite, input.Usage.CacheWrite1h, input.CostUnits, input.DurationMS, input.IsStream, input.StatusCode, input.Error, input.RequestedAt).Scan(&result.LogID)
+	err = insertRelayLog(ctx, tx, input).Scan(&result.LogID)
 	if err != nil {
 		return result, err
+	}
+	attributionError := input.Error
+	if input.FinalStatus == "SUCCESS" {
+		attributionError = "" // Warnings belong to the log, not the failure category.
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO economy.request_attributions(source_instance_id,source_event_id,logical_request_id,newapi_user_id,token_id,
  key_purpose_snapshot,purpose_version_snapshot,request_model_id_snapshot,request_model_name_snapshot,request_kind,entered_model_flow,provider_attempt_count,
  final_status,error_category,charged_raw_quota,requested_at,completed_at)
  VALUES($1,$2,$3,$4,$5,$6,CASE WHEN $6='UNCLASSIFIED' THEN 0 ELSE 1 END,$7,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
 		LocalRelaySourceID, result.LogID, input.RequestID, input.UserID, input.KeyID, input.Purpose, input.Model, input.RequestKind, input.ProviderAttempts > 0,
-		input.ProviderAttempts, input.FinalStatus, input.Error, result.ChargedUnits, input.RequestedAt, input.CompletedAt)
+		input.ProviderAttempts, input.FinalStatus, attributionError, result.ChargedUnits, input.RequestedAt, input.CompletedAt)
 	return result, err
+}
+
+// Failed attempts have no charge or attribution. The final settlement owns both.
+func (s *Store) LogRelayAttempt(ctx context.Context, input RelaySettlement) error {
+	input.FinalStatus, input.CostUnits, input.Usage = "ERROR", 0, RelayUsage{}
+	var id int64
+	return insertRelayLog(ctx, s.pool, input).Scan(&id)
+}
+
+func insertRelayLog(ctx context.Context, db interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, input RelaySettlement) pgx.Row {
+	kind := 2
+	if input.FinalStatus != "SUCCESS" {
+		kind = 5
+	}
+	return db.QueryRow(ctx, `INSERT INTO relay.logs(user_id,key_id,key_name,model,channel_id,group_name,kind,prompt_tokens,completion_tokens,
+ cache_read_tokens,cache_write_tokens,cache_write_tokens_1h,cost_units,duration_ms,is_stream,status_code,error,created_at,request_id,attempt)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
+		input.UserID, input.KeyID, input.KeyName, input.Model, input.ChannelID, input.Group, kind, input.Usage.Prompt, input.Usage.Completion,
+		input.Usage.CacheRead, input.Usage.CacheWrite, input.Usage.CacheWrite1h, input.CostUnits, input.DurationMS, input.IsStream, input.StatusCode, input.Error, input.RequestedAt,
+		input.RequestID, max(input.ProviderAttempts, 1))
 }

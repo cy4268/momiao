@@ -348,22 +348,6 @@ func TestProxyFailureIsBoundedAndUpgradeDoesNotLeak(t *testing.T) {
 	}
 }
 
-func TestV1ProxyAlignsWriteDeadlineAndKeepsOverallBound(t *testing.T) {
-	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		deadline, ok := request.Context().Deadline()
-		if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 5*time.Minute {
-			t.Fatalf("missing bounded v1 request deadline: %v %v", deadline, ok)
-		}
-		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("data: done\n\n"))}, nil
-	})
-	handler := newPortalHandler(config{WebDir: t.TempDir(), NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, transport)
-	response := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`)))
-	if remaining := time.Until(response.writeDeadline); response.Code != http.StatusOK || !response.deadlineSet || remaining < 4*time.Minute || remaining > 5*time.Minute {
-		t.Fatalf("v1 write deadline not aligned to stream bound: status=%d set=%v deadline=%v", response.Code, response.deadlineSet, response.writeDeadline)
-	}
-}
-
 func TestNativeTransportUsesRouteDeadlineForDelayedHeaders(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "newapi.sock")
 	transport := newNativeTransport(socket)

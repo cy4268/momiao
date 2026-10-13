@@ -123,6 +123,15 @@ func TestLocalRelayBilling(t *testing.T) {
 	input.FinalStatus = "SUCCESS"
 	input.StatusCode = 200
 	input.ProviderAttempts = 1
+	attempt := input
+	attempt.FinalStatus, attempt.Error, attempt.StatusCode = "ERROR", "upstream_http_503", 503
+	attempt.CostUnits, attempt.Usage = 0, RelayUsage{}
+	var attemptID int64
+	if err = insertRelayLog(ctx, tx, attempt).Scan(&attemptID); err != nil {
+		t.Fatal("failed attempt log", err)
+	}
+	input.ProviderAttempts = 2
+	input.Error = "usage_missing" // A success warning must not become a failure attribution.
 	paid, err := settleRelay(ctx, tx, input)
 	if err != nil || paid.CostUnits != cost || paid.ChargedUnits != cost {
 		t.Fatal("Reserve settlement", paid, err)
@@ -130,6 +139,15 @@ func TestLocalRelayBilling(t *testing.T) {
 	repeated, err := settleRelay(ctx, tx, input)
 	if err != nil || repeated != paid {
 		t.Fatal("request ID replay", repeated, err)
+	}
+	var attemptRows, requestCount int64
+	var category, warning string
+	err = tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM relay.logs WHERE request_id=$1),
+ (SELECT count(DISTINCT coalesce(request_id,'native:'||id::text)) FROM relay.logs WHERE request_id=$1),
+ a.error_category,l.error FROM economy.request_attributions a JOIN relay.logs l ON l.id=a.source_event_id
+ WHERE a.source_instance_id=$2 AND a.logical_request_id=$1`, input.RequestID, LocalRelaySourceID).Scan(&attemptRows, &requestCount, &category, &warning)
+	if err != nil || attemptRows != 2 || requestCount != 1 || category != "" || warning != "usage_missing" {
+		t.Fatal("retry count or warning attribution", err)
 	}
 	var balance, used, entries, logged, attributed int64
 	err = tx.QueryRow(ctx, `SELECT b.balance_units,k.used_quota,
