@@ -6,6 +6,10 @@ import { App } from './App';
 import { ok, failed } from './m1-test-fixtures';
 
 it('saves maintenance directly with a local admin and shows all operations without legacy bootstrap', async () => {
+ let pokerAccepting=true,pokerHidden=false,pokerReadsFail=false;
+ const pokerID='10000000-0000-7000-8000-000000000074',messageID='10000000-0000-7000-8000-000000000075';
+ const pokerWrites:Record<string,unknown>[]=[];
+ const pokerTable=()=>({table_id:pokerID,name:'开发牌桌',lifecycle_state:'WAITING',occupied_seats:'0',max_seats:2,spectator_count:'0',accepting_players:pokerAccepting,allow_new_hands:true,needs_review:false});
  let state={enabled:false,message:'',scopes:[] as string[]};
  let failRead=true;
  let rebuilt=false,published=false,rankingReadsFail=false;
@@ -34,6 +38,14 @@ it('saves maintenance directly with a local admin and shows all operations witho
    if(rankingReadsFail)return failed();
    const page=Number(new URLSearchParams(path.split('?')[1]).get('page'));
    return ok({page,page_size:20,job_total:21,shadow_total:rebuilt&&!published?1:0,generated_at:'2026-10-13T06:00:00Z',aggregation_status:[{slice_target_id:sliceID,domain:'GAMES',metric:'GAME_PROFIT',period:'DAY',date:'2026-10-13',state:'READY',last_source_checked_at:null,lag_seconds:null}],published:published?[snapshot()]:[],shadow_rebuilds:rebuilt&&!published?[snapshot()]:[],rebuild_jobs:rebuilt?[{job_id:'10000000-0000-4000-8000-000000000073',metric:'GAME_PROFIT',period:'DAY',status:published?'PUBLISHED':'SHADOW',attempts:'1',shadow_snapshot_id:snapshotID,updated_at:'2026-10-13T06:00:00Z'}]:[]});
+  }
+  if(path==='/api/v1/ops/poker')return ok({blockers:[],service_state:'AVAILABLE'});
+  if(path.startsWith('/api/v1/ops/poker/tables?'))return ok({items:[pokerTable()],next_cursor:pokerID});
+  if(path.startsWith('/api/v1/ops/poker/sessions?'))return ok({items:[]});
+  if(path===`/api/v1/ops/poker/tables/${pokerID}`){
+   if(init?.method==='POST'){const input=JSON.parse(String(init.body));pokerWrites.push(input);if(input.command_type==='POKER_CHAT_VISIBILITY_SET')pokerHidden=input.hidden;else{pokerAccepting=input.accepting;pokerReadsFail=true}return ok({table_id:pokerID,status:'SAVED'})}
+   if(pokerReadsFail)return failed();
+   return ok({table:pokerTable(),players:[],messages:[{message_id:messageID,kind:'USER_TEXT',body:'开发消息',created_at:'2026-10-13T07:00:00Z',moderation_state:pokerHidden?'HIDDEN':'VISIBLE',author:{display_name:'测试玩家',user_id:'2'}}],recent_events:[]});
   }
   if(path==='/api/v1/ops/maintenance'){
    if(init?.method==='PUT'){state=JSON.parse(String(init.body));return ok(state)}
@@ -99,6 +111,28 @@ it('saves maintenance directly with a local admin and shows all operations witho
  fireEvent.click(screen.getByRole('button',{name:'筛选排行榜'}));
  await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/rankings?')&&path.includes('domain=GAMES')&&path.includes('page=1'))).toBe(true));
  expect(rankingWrites).toHaveLength(2);
+ fireEvent.click(within(screen.getByRole('navigation',{name:'运营导航'})).getByRole('link',{name:'Poker'}));
+ expect(await screen.findByRole('heading',{name:'Poker 管理'})).toBeVisible();
+ const tableRegion=await screen.findByRole('region',{name:'Poker 牌桌列表'});
+ fireEvent.click(within(tableRegion).getByRole('button',{name:'开发牌桌'}));
+ const pokerDialog=await screen.findByRole('dialog',{name:'牌桌详情'});
+ fireEvent.click(await within(pokerDialog).findByRole('button',{name:'保存牌桌操作'}));
+ expect(await within(pokerDialog).findByRole('status')).toHaveTextContent('已保存');
+ expect(await within(pokerDialog).findByRole('alert')).toBeVisible();
+ expect(pokerWrites).toEqual([{command_type:'POKER_ACCEPTING_PLAYERS_SET',accepting:false}]);
+ pokerReadsFail=false;fireEvent.click(within(pokerDialog).getByRole('button',{name:'刷新本桌'}));
+ fireEvent.click(await within(pokerDialog).findByRole('button',{name:'隐藏消息'}));
+ expect(await within(pokerDialog).findByRole('button',{name:'恢复消息'})).toBeVisible();
+ expect(pokerWrites).toHaveLength(2);expect(pokerWrites[1]).toEqual({command_type:'POKER_CHAT_VISIBILITY_SET',message_id:messageID,hidden:true});
+ expect(within(pokerDialog).queryByText('操作原因')).not.toBeInTheDocument();
+ fireEvent.click(within(pokerDialog).getByRole('button',{name:'关闭对话框'}));
+ const tableSection=screen.getByRole('heading',{name:'牌桌'}).closest('section')!;
+ fireEvent.click(within(tableSection).getByRole('button',{name:'下一页'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/poker/tables?')&&path.includes('cursor='+pokerID))).toBe(true));
+ fireEvent.change(screen.getByRole('textbox',{name:'牌桌名称'}),{target:{value:'开发'}});
+ fireEvent.click(screen.getByRole('button',{name:'筛选牌桌'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('q=%E5%BC%80%E5%8F%91')&&path.endsWith('cursor='))).toBe(true));
+ expect(pokerWrites).toHaveLength(2);
  expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/bootstrap')||path.includes('/ops/operations')||path.includes('/ops/fresh')||path.includes('/native-runtime')||path.includes('authz_epoch'))).toBe(false);
 });
 

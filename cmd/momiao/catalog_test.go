@@ -25,7 +25,10 @@ import (
 	"github.com/cy4268/momiao/internal/games"
 	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
+	"github.com/cy4268/momiao/internal/poker"
+	"github.com/cy4268/momiao/internal/poker/redislease"
 	"github.com/cy4268/momiao/internal/rankings"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -203,6 +206,30 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		var pokerPool *pgxpool.Pool
+		if path := os.Getenv("MOMIAO_OPS_POKER_DSN_FILE"); path != "" {
+			raw, e := os.ReadFile(path)
+			if e != nil {
+				t.Fatal("read dev Poker DSN")
+			}
+			pokerPool, e = pgxpool.New(t.Context(), strings.TrimSpace(string(raw)))
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer pokerPool.Close()
+			lease, e := redislease.Open(t.Context(), redislease.Config{Addr: options.Addr, Username: options.Username, Password: options.Password, TLSConfig: options.TLSConfig})
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer lease.Close()
+			service, e := poker.New(poker.Options{Pool: pokerPool, Leases: lease, Keyring: poker.Keyring{Current: "read-only", Keys: map[string][]byte{"read-only": make([]byte, 32)}}})
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer service.Close()
+			cfg.pokerOps = service
+
+		}
 		h := newPortalHandler(cfg, catalogRoundTrip(func(*http.Request) (*http.Response, error) {
 			t.Error("Ops catalog reached native")
 			return nil, errors.New("unexpected native call")
@@ -223,6 +250,61 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 			h.ServeHTTP(w, r)
 			return w
 		}
+
+		t.Run("poker", func(t *testing.T) {
+			if pokerPool == nil {
+				t.Skip("requires existing dev Poker DSN")
+			}
+			for _, path := range []string{"/api/v1/ops/poker", "/api/v1/ops/poker/tables?limit=2", "/api/v1/ops/poker/sessions?limit=2"} {
+				if w := request(admin, "GET", path, "", false); w.Code != 200 {
+					t.Fatal("local poker", w.Code, w.Body.String())
+				}
+				if w := request(regular, "GET", path, "", false); w.Code != 403 {
+					t.Fatal("poker role", w.Code)
+				}
+				if w := request(0, "GET", path, "", false); w.Code != 401 {
+					t.Fatal("poker anonymous", w.Code)
+				}
+			}
+			for _, query := range []string{"?limit=-1", "?from=bad", "?from=2026-10-14T00:00:00Z&to=2026-09-01T00:00:00Z"} {
+				if w := request(admin, "GET", "/api/v1/ops/poker/tables"+query, "", false); w.Code != 400 {
+					t.Fatal("poker invalid filter", w.Code)
+				}
+			}
+			if w := request(admin, "GET", "/api/v1/ops/poker/tables?state=CLOSED&q=not-found&from=2026-09-01T00:00:00Z&to=2026-10-14T00:00:00Z", "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"items":[]`) {
+				t.Fatal("poker filter", w.Code, w.Body.String())
+			}
+			var tableID, sessionID, handID string
+			if err := pokerPool.QueryRow(t.Context(), `SELECT table_id::text,session_id::text FROM poker.sessions ORDER BY session_id LIMIT 1`).Scan(&tableID, &sessionID); err != nil {
+				t.Fatal(err)
+			}
+			if err := pokerPool.QueryRow(t.Context(), `SELECT hand_id::text FROM poker.hands ORDER BY hand_id LIMIT 1`).Scan(&handID); err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range []string{"/api/v1/ops/poker/tables/" + tableID, "/api/v1/ops/poker/sessions/" + sessionID, "/api/v1/ops/poker/hands/" + handID} {
+				w := request(admin, "GET", path, "", false)
+				if w.Code != 200 {
+					t.Fatal("poker detail", w.Code, w.Body.String())
+				}
+				if strings.Contains(w.Body.String(), `"server_seed"`) || strings.Contains(w.Body.String(), `"encrypted_snapshot"`) {
+					t.Fatal("private poker material")
+				}
+			}
+			path := "/api/v1/ops/poker/tables/00000000-0000-7000-8000-000000000001"
+			if w := request(admin, "POST", path, `{}`, false); w.Code != 403 {
+				t.Fatal("poker CSRF", w.Code)
+			}
+			if w := request(regular, "POST", path, `{}`, true); w.Code != 403 {
+				t.Fatal("poker write role", w.Code)
+			}
+			if w := request(admin, "POST", path, `{}`, true); w.Code != 400 {
+				t.Fatal("poker invalid command", w.Code, w.Body.String())
+			}
+			if w := request(admin, "POST", path, `{"command_type":"POKER_TABLE_PAUSE"}`, true); w.Code != 404 {
+				t.Fatal("poker missing", w.Code, w.Body.String())
+			}
+			t.Log("poker both routers: admin200 regular403 anonymous401 CSRF403 invalid400 missing404; global filters and public details; no native")
+		})
 
 		t.Run("games", func(t *testing.T) {
 			for _, path := range []string{"/api/v1/ops/games", "/api/v1/ops/games/scratch", "/api/v1/ops/games/devil-roulette"} {

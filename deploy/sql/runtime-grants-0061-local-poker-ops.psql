@@ -1,0 +1,8 @@
+-- Apply after 0061 using the existing Poker domain writer role.
+\set ON_ERROR_STOP on
+BEGIN;
+GRANT USAGE ON SCHEMA identity,ops TO :"poker_runtime_role";
+GRANT SELECT(id,role,status,deleted_at),UPDATE(id) ON identity.users TO :"poker_runtime_role";
+-- UPDATE(id) permits FOR SHARE role locking; no credential/role writes are granted.
+GRANT SELECT,INSERT ON ops.audit_log TO :"poker_runtime_role";
+COMMIT;

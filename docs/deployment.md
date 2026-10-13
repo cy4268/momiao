@@ -219,3 +219,11 @@ POST `/platform/v1/ops/announcements` 直接接受 `announcement_id`、`action` 
 - Reserve 调账复用 `/ops/users/:id` 的原入口、幂等业务号及审计，不保留第二套单位数/版本/预览/执行表单。旧额度划转保留只读凭据，删掉恢复旧 native 转账的操作。
 - `POST /api/v1/ops/rewards/claims/:id/retry` 仅将原注册奖励任务重新排队；保留已有领取与发放幂等逻辑。管理员角色、claim/job 行锁、更新与 `ops.audit_log` 在一个事务中；已完成的任务或领取拒绝重试。页面收到排队成功后，列表读取失败不自动重放 POST。实际发放金额读 registration_issuances（包括上限裁减为零）。
 - 赌怪一次性活动暂保留原组件与行为，独立放在 `/ops/gambler-campaign`，经济页有链接；该旧入口仍待随剩余运营模块迁移，不是新的资产重置操作，部署时不自动触发活动。
+
+### Poker 运营直接操作
+
+`/ops/poker` 使用本地 cookie/Redis 身份与 CSRF，role >= 10；牌桌/会话列表支持全局游标分页、时间与状态筛选，名称/账户/牌桌是可选条件，详情在弹窗中。`POST /api/v1/ops/poker/tables/:id` 直接提交 `command_type` 与对应参数，服务器绑定当前 actor/table；不再接收审批版本、原因、operation_id 或生成操作回执。成功后刷新，读取失败不重放写入。
+
+保留原 Poker 单桌 actor、手牌边界离桌/关桌、资金处理、恢复与聊天规则，内部签名 Unix RPC 仍承载独立 Poker 进程。只有 USER_TEXT 可以隐藏；牌桌、手牌和玩家的游戏版本/恢复状态仍是游戏业务数据，不是运营审批流程。每次成功管理员写入在同一事务锁本地角色，并写一条 ops.audit_log（前后桌面/玩家/目标禁言与消息状态）；原 poker.audit_events/admin_operations 历史保留，近期事件合并读取新审计。
+
+应用 `0061_local_poker_ops_actor.sql` 后，以 owner 执行 `deploy/sql/runtime-grants-0061-local-poker-ops.psql`，变量 `poker_runtime_role` 为现有 Poker domain writer。仅为该角色增加本地用户 id/role/status/deleted_at 的读取、id 列 UPDATE（供 FOR SHARE 锁使用）及 ops.audit_log SELECT/INSERT，不授予凭据/角色修改。本切片未发布网站，独立 dev 的无资金回退事务不代替在途手牌、观众断开及多进程联合验收。

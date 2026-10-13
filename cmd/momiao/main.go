@@ -49,7 +49,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 	var sessionApp *sessionApplication
 	var runtimeStore *platform.Store
 	var campaign *platform.GamblerCampaignService
-	var pokerOpsPort PokerOpsPort
 	var pokerControl *sessionPokerControl
 	if cfg.Session.Enabled && cfg.Poker.Enabled {
 		pokerControl = &sessionPokerControl{}
@@ -279,7 +278,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		if err != nil { return errPokerStartup }
 		defer remote.Close()
 		cfg.poker = remote.handler
-		pokerOpsPort=remote
+		cfg.pokerOps=remote
 		cfg.pokerCatalogRuntime = remote.catalogRuntime
 		cfg.readiness["poker_process"] = remote.ready
 		if pokerControl != nil { pokerControl.remote = remote }
@@ -290,7 +289,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		}
 		defer application.Close()
 		cfg.poker = application.handler
-		pokerOpsPort=application.service
+		cfg.pokerOps=application.service
 		cfg.readiness["poker_database"] = application.pokerPool.Ping
 		cfg.readiness["poker_auth_database"] = application.authPool.Ping
 		cfg.readiness["poker_cache"] = func(ctx context.Context) error { return application.tickets.Ping(ctx).Err() }
@@ -303,10 +302,9 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		bindings := campaign.OpsBindings()
 		bindings = append(bindings, platform.OpsSupportBindings(runtimeStore)...)
 		bindings = append(bindings, platform.OpsIncidentBindings(runtimeStore)...)
-		bindings = append(bindings, pokerOpsBindings(pokerOpsPort)...)
 		opsService, err := platform.NewOpsService(runtimeStore, cfg.OpsEnvironment, bindings...)
 		if err != nil { return errors.New("Ops startup failed") }
-		opsReads:=newOpsPokerHandler(cfg.sessions,runtimeStore,pokerOpsPort,newOpsSupportRecordsHandler(cfg.sessions, runtimeStore, newOpsRuntimeHandler(cfg.sessions, runtimeStore, cfg.OpsEnvironment, domainHandler(cfg, newNativeRuntimeProjectionHandler(newNativeTransport(cfg.NewAPISocket))))))
+		opsReads:=newOpsSupportRecordsHandler(cfg.sessions, runtimeStore, newOpsRuntimeHandler(cfg.sessions, runtimeStore, cfg.OpsEnvironment, domainHandler(cfg, newNativeRuntimeProjectionHandler(newNativeTransport(cfg.NewAPISocket)))))
 		opsReads=newOpsGamblerHandler(cfg.sessions,campaign,opsReads)
 		cfg.ops = newOpsHandler(cfg.sessions, opsService, opsFactorAdapter{auth:sessionApp.auth}, "UNKNOWN", opsReads)
 		remoteCtx,stopRemote:=context.WithCancel(ctx);remoteDone:=make(chan struct{})

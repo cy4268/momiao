@@ -18,6 +18,7 @@ import (
 )
 
 type config struct {
+ pokerOps PokerOpsPort
 	Discord identity.Discord
 	BotGames botGamesConfig
  EconomyReadSocket string

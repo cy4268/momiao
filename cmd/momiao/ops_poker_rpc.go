@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/poker"
+	"github.com/jackc/pgx/v5"
 )
 
 const pokerOpsRPCPrefix = pokerInternalPrefix + "ops/"
@@ -27,8 +29,7 @@ type PokerOpsPort interface {
 	ListOpsSessions(context.Context, poker.OpsSessionQuery) (poker.OpsSessionPage, error)
 	ReadOpsSession(context.Context, string) (poker.OpsSession, error)
 	ReadOpsHand(context.Context, string) (poker.OpsHand, error)
-	ReadOpsOperation(context.Context, string) (poker.OpsReceipt, error)
-	ExecuteOpsCommand(context.Context, poker.OpsCommand) (poker.OpsReceipt, error)
+	ExecuteOpsCommand(context.Context, poker.OpsCommand) (poker.OpsResult, error)
 }
 
 type pokerOpsRPC struct{ service *poker.Service }
@@ -115,7 +116,7 @@ func (h *pokerOpsRPC) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		result, err := h.service.ReadOpsHand(r.Context(), id)
 		pokerOpsRPCResult(w, result, err, true)
-	case path == "operations":
+	case path == "commands":
 		if !requireMethod(w, r, http.MethodPost) {
 			return
 		}
@@ -126,17 +127,6 @@ func (h *pokerOpsRPC) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		result, err := h.service.ExecuteOpsCommand(r.Context(), command)
 		pokerOpsRPCResult(w, result, err, false)
-	case strings.HasPrefix(path, "operations/"):
-		if !pokerOpsRPCRead(w, r) {
-			return
-		}
-		id := strings.TrimPrefix(path, "operations/")
-		if id == "" || strings.ContainsRune(id, '/') {
-			walletError(w, http.StatusNotFound, "NOT_FOUND")
-			return
-		}
-		result, err := h.service.ReadOpsOperation(r.Context(), id)
-		pokerOpsRPCResult(w, result, err, true)
 	default:
 		walletError(w, http.StatusNotFound, "NOT_FOUND")
 	}
@@ -160,6 +150,14 @@ func pokerOpsRPCResult(w http.ResponseWriter, result any, err error, deniedMeans
 	}
 	if deniedMeansMissing && errors.Is(err, poker.ErrDenied) {
 		walletError(w, http.StatusNotFound, "NOT_FOUND")
+		return
+	}
+	if errors.Is(err, platform.ErrCatalogForbidden) {
+		walletError(w, 403, "OPS_FORBIDDEN")
+		return
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		walletError(w, 404, "NOT_FOUND")
 		return
 	}
 	fault := pokerDomainError(err)
@@ -241,6 +239,8 @@ func (p *pokerRemote) callOps(ctx context.Context, method, path string, input, o
 		return errPokerStartup
 	}
 	switch {
+	case response.StatusCode == 403 && fault.Code == "OPS_FORBIDDEN":
+		return platform.ErrCatalogForbidden
 	case response.StatusCode == http.StatusNotFound && fault.Code == "NOT_FOUND":
 		return errPokerOpsNotFound
 	case response.StatusCode == http.StatusBadRequest && fault.Code == "POKER_INVALID_COMMAND":
@@ -309,17 +309,8 @@ func (p *pokerRemote) ReadOpsHand(ctx context.Context, id string) (poker.OpsHand
 	return result, err
 }
 
-func (p *pokerRemote) ReadOpsOperation(ctx context.Context, id string) (poker.OpsReceipt, error) {
-	var result poker.OpsReceipt
-	if !opsUUIDPatternHTTP(id) {
-		return result, poker.ErrInvalid
-	}
-	err := p.callOps(ctx, http.MethodGet, "ops/operations/"+id, nil, &result)
-	return result, err
-}
-
-func (p *pokerRemote) ExecuteOpsCommand(ctx context.Context, command poker.OpsCommand) (poker.OpsReceipt, error) {
-	var result poker.OpsReceipt
-	err := p.callOps(ctx, http.MethodPost, "ops/operations", command, &result)
+func (p *pokerRemote) ExecuteOpsCommand(ctx context.Context, command poker.OpsCommand) (poker.OpsResult, error) {
+	var result poker.OpsResult
+	err := p.callOps(ctx, http.MethodPost, "ops/commands", command, &result)
 	return result, err
 }
