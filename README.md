@@ -143,3 +143,5 @@ The wallet page now supports an explicit daily 500 Reserve API Credit claim (Asi
 ### Local-only runtime image
 
 `deploy/Dockerfile` consumes a build context with `bin/` (Linux amd64 `momiao`, `momiao-migrate`, `momiao-import-native`), `web/` (the Vite production output) and `licenses/` (this repository LICENSE/ATTRIBUTION.md plus `new-api/` from `docs/upstream/new-api`). Build Go with `CGO_ENABLED=0`, and the web with `VITE_MOMIAO_SESSION_MODE=opaque` and `VITE_ASSET_BASE_URL=https://assets.momiao.win`. Pass the committed source ID as `--build-arg REVISION=...`. The fresh Alpine image contains no Native-auth frontend, bootstrap binary or Native service; platform and Poker use the same image with their existing process-role configuration.
+
+The current VPS uses the legacy Docker builder; the Dockerfile does not require BuildKit. Use `docker build --network host --build-arg REVISION=... -t IMAGE CONTEXT` there for package downloads; this build option does not change the runtime compose networks.
