@@ -94,6 +94,7 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="users" element={<OpsUsers client={client} user={session.user!}/>}/>
             <Route path="users/:userID" element={<OpsUsers client={client} user={session.user!}/>}/>
             <Route path="logs" element={<OpsLogs key={location.search} client={client}/>}/>
+            <Route path="records" element={<OpsRecords key={location.search} client={client}/>}/>
             <Route element={<OpsLegacyBoundary/>}>
             <Route path="announcements" element={<OpsAnnouncements client={client} embedded/>}/>
             <Route path="jobs" element={<OpsJobs/>}/>
@@ -104,7 +105,6 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="rewards" element={<OpsRewards/>}/>
             <Route path="support-cases" element={<OpsSupportCases/>}/>
             <Route path="incidents" element={<OpsIncidents/>}/>
-            <Route path="records" element={<OpsRecords/>}/>
             <Route path="games" element={<OpsGames/>}/>
             <Route path="poker" element={<OpsPoker/>}/>
             <Route path="rankings" element={<OpsRankings/>}/>

@@ -12,7 +12,7 @@ var (
 	ErrUnavailable = errors.New("history: source unavailable")
 )
 
-// RecordsVerifier must check current server-side Records Scope and audit access.
+// RecordsVerifier must check the current local operator role and audit access.
 // Success is bound to both identities; absence or revocation must return an error.
 type RecordsVerifier func(context.Context, int64, int64) error
 
@@ -26,7 +26,7 @@ func Own(authenticatedUser int64) Access {
 	return Access{viewer: authenticatedUser, subject: authenticatedUser}
 }
 
-// Records is an internal BFF seam, not a scope issuer or a client assertion.
+// Records carries an authenticated operator, not a client-supplied authority.
 func Records(authenticatedViewer, subject int64, verify RecordsVerifier) Access {
 	return Access{viewer: authenticatedViewer, subject: subject, verify: verify, alwaysVerify: true}
 }

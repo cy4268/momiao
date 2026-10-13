@@ -192,4 +192,12 @@ Reserve 调账接受有符号 Credit 十进制字符串和备注，复用 ParseA
 
 全局日志只列 kind 2/5 的消费/错误尝试。用户、Key、模型、渠道、日志分组和起止时间筛选后，用 request_id 合并逻辑请求；历史无 request_id 的每条日志独立计算。筛选内所有尝试均失败才计为错误请求，因此筛选单渠道或「仅错误」会改变该口径。Token 为 input + output（不重复叠加已包含的缓存输入），费用用 PostgreSQL numeric / 500000 转十进制字符串。Top 20 按当前维度请求数排序，现场 SQL GROUP BY，不建预聚合表或缓存。沿用 schema 57 和现有授权，无新迁移。
 
-用户详情的游戏记录链接继续指向全局 records 的用户筛选；该全局页面与其余旧运营模块在后续切片迁移，联合验收前不发布这批局部源码。
+### 本地全局游戏记录
+
+`/ops/records` 已移出旧 Ops bootstrap；本地 role >= 10 即可读取。GET `/api/v1/ops/records` 默认跨用户，`user` 为可选正整数；其余类型/模式/游戏/时间/结果/状态/ID/limit/cursor 沿用个人 History 契约。默认不夹带 Poker 手牌，选择 POKER_HAND 时逐参与者列出。详情 `/api/v1/ops/records/{rounds|sessions|hands|roulette|transactions}/{id}` 和适用的 `/verify` 必须带该行的 `user`，返回 `{subject_user_id,record_type,record}`。用户详情链接为 `/ops/records?user=ID`。
+
+部署顺序：0058 migration → `deploy/sql/runtime-grants-0058-local-ops-records.psql`（schema owner，platform_runtime_role）→ 新源码。全局 SQL 只授权 platform；原 History reader 仍只有正用户的 `games.history_list`，继续复用同一投影函数，不授权索引原表。分页最后加参与者 ID，避免同一 Poker/轮盘局的其他参与者跨页丢失；个人游标格式与读取边界保留。
+
+每次授权读取前，在事务内重读本地角色并写现有 ops.audit_log：RECORD_READ_LIST/DETAIL/VERIFY，after_state 包含 subject_user_id（0=全局）和查询条件。这里记录访问尝试，不代表源记录成功返回。旧 audit.record_access_events 原样保留，不再写 epoch/scopes。详情和证明复用原 domain reader，以实际 operator 为 viewer，不冒充目标参与者、不放宽暗牌/种子公开时点。
+
+开发库是历史数据副本，但创建 dev 时重新生成了游戏/Poker 加密密钥。现有 Blackjack 历史在 openSeed 失败；Poker 手牌和轮盘 reader 也返回 HISTORY_UNAVAILABLE。列表、Dice 历史与证明、Poker 会话、交易详情可以验收；这不等于那些加密详情通过。必须在联合验收前解决开发数据与密钥的一致性（旧版本号相同不表示密钥相同），不跳过解密校验或把错误当空记录。源码回退不降 schema 58，不删除访问审计；本切片没有发布网站。

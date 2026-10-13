@@ -94,6 +94,14 @@ it('manages local users and filtered relay logs without legacy operations', asyn
    return ok(null);
   }
   if(path.startsWith('/api/v1/ops/logs?'))return ok({items:[{id:1,user_id:2,username:'member',key_id:7,key_name:'user key',model:'gpt-test',channel_id:20,channel_name:'dev channel',group:'工作',created_at:u.created_at,tokens:'15',cost:'0.000002',duration_ms:120,status_code:200,error:'',kind:2,request_id:'req',attempt:2}],total:1,page:1,page_size:20,summary:{requests:1,attempts:2,errors:0,tokens:'15',cost:'0.000002',error_rate:0},top:[{name:'gpt-test',requests:1,attempts:2,errors:0,tokens:'15',cost:'0.000002',error_rate:0}]});
+  if(path.startsWith('/api/v1/ops/records?')){
+   const q=new URLSearchParams(path.split('?')[1]),users=q.get('user')?[q.get('user')!]:q.has('cursor')?['4']:['2','3'];
+   return ok({items:users.map(user=>({record_type:'DIRECT_PLAY_ROUND',source_id:'01993200-0000-7000-8000-000000000001',newapi_user_id:user,occurred_at:u.created_at,status:'SETTLED',stake_units:'5000000',payout_units:'10000000',net_change_units:'5000000',snapshot:{game_title:'命运骰盅',actor_display_name:'玩家'+user}})),has_more:!q.has('cursor'),next_cursor:q.has('cursor')?null:'next-records',game_options:[{game_slug:'dice',game_title:'命运骰盅',retired:false}]});
+  }
+  if(path.startsWith('/api/v1/ops/records/')){
+   expect(path).not.toContain('authz_epoch');
+   return ok({subject_user_id:new URLSearchParams(path.split('?')[1]).get('user'),record_type:'DIRECT_PLAY_ROUND',record:path.includes('/verify?')?{released:false}:path.includes('/transactions/')?{id:'01993200-0000-7000-8000-000000000002',kind:'GAME_PAYOUT',links:[]}:{id:'01993200-0000-7000-8000-000000000001',state:'SETTLED',transactions:[{id:'01993200-0000-7000-8000-000000000002'}]}});
+  }
   throw new Error('Unexpected endpoint: '+path);
  });
  const client=new ApiClient(fetcher);await client.bootstrap();
@@ -133,6 +141,27 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  fireEvent.change(screen.getByLabelText('汇总维度'),{target:{value:'user'}});
  fireEvent.click(screen.getByLabelText('仅错误'));
  await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/logs?')&&path.includes('user=2')&&path.includes('dimension=user')&&path.includes('errors_only=true'))).toBe(true));
+ fireEvent.click(screen.getByRole('link',{name:'member'}));
+ fireEvent.click(await screen.findByRole('link',{name:'游戏记录'}));
+ expect(await screen.findByRole('heading',{name:'全局游戏记录'})).toBeVisible();
+ expect(screen.getByLabelText('用户 ID（可选）')).toHaveValue('2');
+ await screen.findByRole('button',{name:'读取详情'});
+ fireEvent.change(screen.getByLabelText('用户 ID（可选）'),{target:{value:''}});
+ fireEvent.click(screen.getByRole('button',{name:'查询业务记录'}));
+ await waitFor(()=>expect(screen.getAllByRole('button',{name:'读取详情'})).toHaveLength(2));
+ fireEvent.click(screen.getAllByRole('button',{name:'读取详情'})[1]);
+ const recordDialog=await screen.findByRole('dialog',{name:'记录详情'});
+ await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/records/rounds/')&&path.includes('user=3'))).toBe(true));
+ fireEvent.click(await within(recordDialog).findByRole('button',{name:'读取获授权的公平性材料'}));
+ expect(await within(recordDialog).findByText('released')).toBeVisible();
+ fireEvent.click(within(recordDialog).getByRole('button',{name:/交易 0199/}));
+ expect(await within(recordDialog).findByText('GAME_PAYOUT')).toBeVisible();
+ expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/records/transactions/')&&path.includes('user=3'))).toBe(true);
+ fireEvent.click(within(recordDialog).getByRole('button',{name:'关闭对话框'}));
+ fireEvent.click(screen.getByRole('button',{name:'下一页'}));
+ expect(await screen.findByText('当时昵称：玩家4')).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'上一页'}));
+ expect(await screen.findByText('当时昵称：玩家3')).toBeVisible();
  expect(fetcher.mock.calls.some(([path])=>path.includes('bootstrap')&&path.includes('/ops/'))).toBe(false);
  expect(writes.some(w=>JSON.stringify(w.body).includes('authz_epoch'))).toBe(false);
 });

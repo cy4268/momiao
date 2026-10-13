@@ -1,0 +1,5 @@
+-- Run as schema owner after 0058; do not grant this to the personal History reader.
+\set ON_ERROR_STOP on
+BEGIN;
+GRANT EXECUTE ON FUNCTION games.ops_history_list(bigint,jsonb) TO :"platform_runtime_role";
+COMMIT;

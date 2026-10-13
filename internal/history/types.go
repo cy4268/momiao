@@ -8,10 +8,10 @@ import (
 type Source string
 
 const (
-	Round   Source = "DIRECT_PLAY_ROUND"
-	Session Source = "POKER_SESSION"
-	Hand    Source = "POKER_HAND"
- RouletteRound Source = "ROULETTE_ROUND"
+	Round         Source = "DIRECT_PLAY_ROUND"
+	Session       Source = "POKER_SESSION"
+	Hand          Source = "POKER_HAND"
+	RouletteRound Source = "ROULETTE_ROUND"
 )
 
 var ErrQuery = errors.New("HISTORY_QUERY_INVALID")
@@ -74,10 +74,11 @@ type Page struct {
 }
 
 type cursor struct {
-	Version int
-	UserID  int64
-	Filter  string
-	Time    time.Time
-	Type    Source
-	ID      string
+	Version     int
+	UserID      int64
+	Filter      string
+	Time        time.Time
+	Type        Source
+	ID          string
+	Participant int64 `json:",omitempty"`
 }
