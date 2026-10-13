@@ -78,7 +78,9 @@ Discord 配置使用 `MOMIAO_DISCORD_CONFIG_FILE` 指向私有 JSON，包含 `cl
 
 API Key 管理已使用本地登录及 `relay.api_keys`，保留 `/api/token/` 的列表、创建、修改、查看与删除接口。用途随创建一起保存，修改用途不再经过 native 同步。发布前应用 0052 和 `deploy/sql/runtime-grants-0052-local-api-keys.psql`，再用 `momiao-import-native -stage keys` 单次导入未删除的旧 key；已导入的身份和余额不动。此阶段尚未接通本地模型中转与 Reserve 计费，须联合完成后发布。
 
-调用日志、用户分组和可用模型接口已直接读取本地 `relay.logs/groups/channels`，self 的用量与请求数也由本地日志汇总；分组只返回账号所属组。发布前应用 0053 和 `deploy/sql/runtime-grants-0053-local-relay-workspace.psql`，用 `momiao-import-native -stage workspace` 向空的三张表单次导入全部日志元数据、分组和渠道配置。独立 dev 已导入 4 组、17 渠道、29279 条日志，保留模型映射、请求/头覆盖和多 Key 配置；不复制日志正文或 IP，不合并余额，不更换运行镜像。定价与 Reserve 中转仍待接入。
+调用日志、用户分组和可用模型接口已直接读取本地 `relay.logs/groups/channels`，self 的用量与请求数也由本地日志汇总；分组只返回账号所属组。发布前应用 0053 和 `deploy/sql/runtime-grants-0053-local-relay-workspace.psql`，用 `momiao-import-native -stage workspace` 向空的三张表单次导入全部日志元数据、分组和渠道配置。独立 dev 已导入 4 组、17 渠道、29279 条日志，保留模型映射、请求/头覆盖和多 Key 配置；不复制日志正文或 IP，不合并余额，不更换运行镜像。`/v1` 协议转发仍待接入。
+
+定价与 Reserve 结算底层已接好：应用 0054 和 `deploy/sql/runtime-grants-0054-local-relay-billing.psql` 后，`momiao-import-native -stage prices` 单次把旧倍率转成 `relay.prices` 的最终单价。dev 已导入297条，其中32条按次、1条按视频时长；没有有效定价的模型不填免费价格。结算复用钱包事务，扣款不超过现有 Reserve，完整费用记入日志与Key用量，实际扣款写入归因；RP记录和排行榜同时读取历史与本地来源。协议适配和 `/v1` 路由尚未接线，本轮不发布网站镜像，也不进行余额合并。
 
 **只运行存活探针**：不设置额外环境变量，执行构建出的 `momiao`（Windows 为 `momiao.exe`），默认监听 `127.0.0.1:8080`。`GET/HEAD /healthz` 返回 `{"status":"ok"}`；该模式其他路径为 404。存活不代表上游或业务就绪。
 

@@ -511,7 +511,7 @@ func TestLocalPasswordHTTP(t *testing.T) {
 		t.Fatal("self does not expose Reserve")
 	}
 	var usedQuota, requestCount int64
-	if err := pool.QueryRow(t.Context(), `SELECT coalesce(sum(cost_units) FILTER(WHERE kind=2),0),count(*) FROM relay.logs WHERE user_id=$1 AND kind IN (2,5)`, user.ID).Scan(&usedQuota, &requestCount); err != nil {
+	if err := pool.QueryRow(t.Context(), `SELECT coalesce(sum(cost_units),0),count(*) FROM relay.logs WHERE user_id=$1 AND kind IN (2,5)`, user.ID).Scan(&usedQuota, &requestCount); err != nil {
 		t.Fatal(err)
 	}
 	if local.Data.UsedQuota != usedQuota || local.Data.RequestCount != requestCount {

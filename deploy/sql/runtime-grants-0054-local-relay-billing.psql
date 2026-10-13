@@ -1,0 +1,5 @@
+\set ON_ERROR_STOP on
+BEGIN;
+GRANT SELECT,INSERT,UPDATE,DELETE ON relay.prices TO :"platform_runtime_role";
+GRANT SELECT,INSERT ON economy.request_attributions TO :"platform_runtime_role";
+COMMIT;

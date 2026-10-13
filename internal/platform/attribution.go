@@ -214,7 +214,17 @@ func (s *Store) ReadRPUsage(ctx context.Context, user int64, filter RPUsageFilte
 		return result, err
 	}
 	defer rollback(tx)
-	where := ` FROM economy.request_attributions WHERE source_instance_id=$1 AND newapi_user_id=$2 AND key_purpose_snapshot='ROLEPLAY'
+	result, err = readRPUsage(ctx, tx, user, filter)
+	if err != nil {
+		return result, err
+	}
+	return result, tx.Commit(ctx)
+}
+
+func readRPUsage(ctx context.Context, tx pgx.Tx, user int64, filter RPUsageFilter) (RPUsagePage, error) {
+	result := RPUsagePage{Items: []RPUsageItem{}, Page: filter.Page, PageSize: filter.PageSize}
+	var err error
+	where := ` FROM economy.request_attributions WHERE (source_instance_id=$1 OR source_instance_id='` + LocalRelaySourceID + `'::uuid) AND newapi_user_id=$2 AND key_purpose_snapshot='ROLEPLAY'
 	 AND entered_model_flow AND requested_at>=$3`
 	args := []any{filter.SourceInstanceID, user, filter.ActivationTime}
 	add := func(value any, clause string) {
@@ -238,7 +248,7 @@ func (s *Store) ReadRPUsage(ctx context.Context, user int64, filter RPUsageFilte
 	}
 	offset := (filter.Page - 1) * filter.PageSize
 	if int64(offset) >= result.Total {
-		return result, tx.Commit(ctx)
+		return result, nil
 	}
 	query := `SELECT logical_request_id,token_id,request_model_id_snapshot,request_model_name_snapshot,request_kind,
 	 provider_attempt_count,final_status,error_category,charged_raw_quota,requested_at,completed_at` + where
@@ -264,5 +274,5 @@ func (s *Store) ReadRPUsage(ctx context.Context, user int64, filter RPUsageFilte
 		return result, err
 	}
 	result.HasMore = int64(filter.Page*filter.PageSize) < result.Total
-	return result, tx.Commit(ctx)
+	return result, nil
 }
