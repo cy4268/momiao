@@ -24,7 +24,7 @@ import { OpsRankings } from './ops/OpsRankings';
 import { CriticalNotice } from './CriticalNotice';
 import { isOpsDiscordPopup, OpsDiscordPopup } from './ops/OpsDiscordPopup';
 import type { CatalogLoginRequired } from './catalog-api';
-import { Channels } from './Channels';
+import { Channels, Groups } from './Channels';
 import { Wallet } from './Wallet';
 import { QuotaActivation } from './QuotaActivation';
 import { GamesCatalog, GamePage } from './Games';
@@ -87,6 +87,9 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
         <Route path="/api/access" element={<APIAccess key={routedSession} client={client} onLoginRequired={onCatalogLoginRequired} />} />
         <Route path="/ops" element={!session.ready?loading:session.user?<AccessGate key={routedSession} client={client} user={session.user} route={location.pathname}><OpsShell client={client} user={session.user}/></AccessGate>:<LoginRequired/>}>
             <Route path="models" element={<OpsCatalog client={client} embedded/>}/>
+            <Route path="channels" element={<Channels client={client}/>}/>
+            <Route path="channels/:channelID" element={<Channels client={client}/>}/>
+            <Route path="groups" element={<Groups client={client}/>}/>
             <Route element={<OpsLegacyBoundary/>}>
             <Route path="announcements" element={<OpsAnnouncements client={client} embedded/>}/>
             <Route path="jobs" element={<OpsJobs/>}/>
@@ -134,7 +137,7 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="/wallet/activate" element={session.user && <QuotaActivation key={session.user.id + ':' + client.getSessionGeneration()} client={client} userID={String(session.user.id)} />} />
             <Route path="/wallet" element={<Wallet client={client} user={session.user!} />} />
             <Route path="/master-profile" element={<ProfileRoute client={client} user={session.user!} />} />
-            <Route path="/admin/channels" element={<Channels client={client} user={session.user!} />} />
+            <Route path="/admin/channels" element={<Navigate to="/ops/channels" replace/>} />
             <Route path="/keys" element={<Keys client={client} />} />
             <Route path="/logs" element={<Logs client={client} />} />
         </Route>

@@ -193,6 +193,7 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 		cfg.PublicOrigin, cfg.WebDir = auth.Origin, webDir
 		cfg.Session.Enabled = true
 		cfg.localIdentity = auth
+		cfg.relay = store
 		h := newPortalHandler(cfg, catalogRoundTrip(func(*http.Request) (*http.Response, error) {
 			t.Error("Ops catalog reached native")
 			return nil, errors.New("unexpected native call")
@@ -212,6 +213,33 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, r)
 			return w
+		}
+		for _, path := range []string{"/api/v1/ops/channels", "/api/v1/ops/groups", "/api/v1/ops/groups/availability"} {
+			w := request(admin, "GET", path, "", false)
+			if w.Code != 200 {
+				t.Fatal("local relay Ops", path, w.Code, w.Body.String())
+			}
+			if strings.Contains(w.Body.String(), `"key":`) || strings.Contains(w.Body.String(), `"channel_info":`) {
+				t.Fatal("channel secret returned")
+			}
+			if w = request(regular, "GET", path, "", false); w.Code != 403 {
+				t.Fatal("regular role", path, w.Code)
+			}
+			if w = request(0, "GET", path, "", false); w.Code != 401 {
+				t.Fatal("anonymous role", path, w.Code)
+			}
+		}
+		if w := request(admin, "PUT", "/api/v1/ops/channels", `{}`, false); w.Code != 403 {
+			t.Fatal("channel CSRF", w.Code)
+		}
+		if w := request(admin, "PUT", "/api/v1/ops/channels", `{}`, true); w.Code != 400 {
+			t.Fatal("channel input", w.Code)
+		}
+		if w := request(admin, "GET", "/api/channel/", "", false); w.Code != 404 {
+			t.Fatal("old channel proxy remains", w.Code)
+		}
+		if gateRouteDomain("/ops/channels/20") != "OPERATIONS" || gateRouteDomain("/ops/groups") != "OPERATIONS" {
+			t.Fatal("local Ops navigation gate")
 		}
 		w := request(admin, "GET", "/platform/v1/ops/models", "", false)
 		if w.Code != 200 {
@@ -244,6 +272,33 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 		}
 		if w = request(admin, "POST", "/platform/v1/ops/models/prepare", `{}`, true); w.Code != 404 {
 			t.Fatal("legacy prepare remains", w.Code)
+		}
+		if webDir == "" {
+			var probeID string
+			if err = store.Pool().QueryRow(t.Context(), `SELECT id::text FROM relay.channels WHERE enabled AND type=1 AND models[1]='gpt-5.6-sol' ORDER BY id LIMIT 1`).Scan(&probeID); err != nil {
+				t.Fatal("existing small dev channel", err)
+			}
+			w = request(admin, "POST", "/api/v1/ops/channels/"+probeID+"/models", `{}`, true)
+			var models struct {
+				Data []string `json:"data"`
+			}
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &models) != nil || len(models.Data) == 0 {
+				t.Fatal("upstream model discovery", w.Code, w.Body.String())
+			}
+			w = request(admin, "POST", "/api/v1/ops/channels/"+probeID+"/test", `{}`, true)
+			var probe struct {
+				Data struct {
+					OK       bool   `json:"ok"`
+					Status   int    `json:"status_code"`
+					Duration int64  `json:"duration_ms"`
+					Model    string `json:"model"`
+					Message  string `json:"message"`
+				} `json:"data"`
+			}
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &probe) != nil || !probe.Data.OK || probe.Data.Status != 200 || probe.Data.Model != "gpt-5.6-sol" {
+				t.Fatal("manual first-model probe", w.Code, w.Body.String())
+			}
+			t.Logf("saved channel %s: discovery=%d models; first-model %s max_tokens=1 HTTP%d %dms; no Reserve debit", probeID, len(models.Data), probe.Data.Model, probe.Data.Status, probe.Data.Duration)
 		}
 	}
 	t.Log("local admin read and editable prices; regular403/anonymous401/CSRF403/invalid400/legacy404; both routers; no native transport")

@@ -108,7 +108,7 @@ func upstreamRequest(ctx context.Context, incoming *http.Request, body []byte, f
 	if err != nil {
 		return nil, to, meta, err
 	}
-	base := strings.TrimRight(channel.BaseURL, "/")
+	base := channelBaseURL(channel)
 	headers := make(http.Header)
 	headers.Set("Content-Type", "application/json")
 	headers.Set("Accept", "application/json")
@@ -118,17 +118,11 @@ func upstreamRequest(ctx context.Context, incoming *http.Request, body []byte, f
 	path := incoming.URL.Path
 	switch channel.Type {
 	case 1:
-		if base == "" {
-			base = "https://api.openai.com"
-		}
 		if from == types.RelayFormatClaude {
 			path = "/v1/chat/completions"
 		}
 		headers.Set("Authorization", "Bearer "+channel.Key)
 	case 43:
-		if base == "" {
-			base = "https://api.deepseek.com"
-		}
 		if from == types.RelayFormatOpenAIResponses {
 			path = "/responses"
 		}
@@ -137,9 +131,6 @@ func upstreamRequest(ctx context.Context, incoming *http.Request, body []byte, f
 		}
 		headers.Set("Authorization", "Bearer "+channel.Key)
 	case 14:
-		if base == "" {
-			base = "https://api.anthropic.com"
-		}
 		path = "/v1/messages"
 		headers.Set("X-API-Key", channel.Key)
 	case 24, 41:
@@ -148,9 +139,6 @@ func upstreamRequest(ctx context.Context, incoming *http.Request, body []byte, f
 			action = "streamGenerateContent?alt=sse"
 		}
 		if channel.Type == 24 {
-			if base == "" {
-				base = "https://generativelanguage.googleapis.com"
-			}
 			version := "v1beta"
 			if channel.UpstreamModel == "gemini-1.0-pro" {
 				version = "v1"
@@ -213,14 +201,8 @@ func upstreamRequest(ctx context.Context, incoming *http.Request, body []byte, f
 			path += "?beta=true"
 		}
 	}
-	var overrides map[string]string
-	if len(channel.HeaderOverride) > 0 {
-		if err := json.Unmarshal(channel.HeaderOverride, &overrides); err != nil {
-			return nil, to, meta, err
-		}
-	}
-	for name, value := range overrides {
-		headers.Set(name, strings.ReplaceAll(value, "{api_key}", channel.Key))
+	if err := channelHeaders(headers, channel); err != nil {
+		return nil, to, meta, err
 	}
 	request, err := http.NewRequestWithContext(ctx, "POST", base+path, bytes.NewReader(body))
 	if err != nil {

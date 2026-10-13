@@ -91,6 +91,10 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	generation := relay.Handler(cfg.relay)
 	if cfg.WebDir == "" {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/channel" || strings.HasPrefix(r.URL.Path, "/api/channel/") {
+				walletError(w,404,"NOT_FOUND")
+				return
+			}
 			if r.URL.Path == "/v1/models" {
 				models.ServeHTTP(w, r)
 				return
@@ -246,6 +250,10 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		case r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/"):
 			walletError(w, 404, "NOT_FOUND")
 		case strings.HasPrefix(r.URL.Path, "/api/"):
+			if r.URL.Path == "/api/channel" || strings.HasPrefix(r.URL.Path, "/api/channel/") {
+				walletError(w,404,"NOT_FOUND")
+				return
+			}
 			if r.Header.Get("Upgrade") != "" || headerHasToken(r.Header.Get("Connection"), "upgrade") {
 				writeJSONError(w, http.StatusBadRequest, "unsupported protocol upgrade")
 				return
@@ -273,6 +281,10 @@ func serveSessionRoute(handler http.Handler, w http.ResponseWriter, r *http.Requ
 }
 
 func serveOpsRoute(cfg config, w http.ResponseWriter, r *http.Request) {
+	if opsRelayRoute(r.URL.Path) {
+		domainHandler(cfg,newOpsRelayHandler(cfg.relay)).ServeHTTP(w,r)
+		return
+	}
 	handler := cfg.ops
 	if r.URL.Path == "/api/v1/ops/maintenance" && cfg.opsMaintenance != nil && cfg.OpsEnvironment != "" {
 		handler = domainHandler(cfg, cfg.opsMaintenance)
