@@ -296,7 +296,7 @@ it('manages local users and filtered relay logs without legacy operations', asyn
    if(path.endsWith('/master-rename-required'))master={...master,rename_required:body.required};
    if(path.endsWith('/master-force-rename')){master={...master,display_name:body.display_name,rename_required:false};masterReadsFail=true}
    if(path.endsWith('/reserve')){
-    if(!adjustment){adjustment=body.request_id;u.reserve='2.000002';ledger.push({id:'entry',created_at:u.created_at,biz_type:'OPS_ADJUST',delta_amount:'0.000002',balance_after_amount:u.reserve,note:body.note});return failed()}
+    if(!adjustment){adjustment=body.request_id;u.reserve='1.999998';ledger.push({id:'entry',created_at:u.created_at,biz_type:'OPS_ADJUST',delta_amount:'-0.000002',balance_after_amount:u.reserve,note:body.note});return failed()}
     expect(body.request_id).toBe(adjustment);
    }
    if(path.endsWith('/disable-key'))keys[0].status=2;
@@ -348,8 +348,12 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  expect(await screen.findByText('此账号尚未完成 Master 资料，不创建资料或钱包。')).toBeVisible();
  expect(screen.queryByRole('button',{name:'强制改名'})).not.toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'余额与流水'}));
- fireEvent.change(await screen.findByLabelText('调整金额（负数扣减）'),{target:{value:'0.000002'}});
+ fireEvent.change(await screen.findByLabelText('调整金额（负数扣减）'),{target:{value:'-0.000002'}});
  fireEvent.change(screen.getByLabelText('调账备注'),{target:{value:'核对最小单位'}});
+ vi.mocked(window.confirm).mockReturnValueOnce(false);
+ fireEvent.click(screen.getByRole('button',{name:'保存调账'}));
+ expect(window.confirm).toHaveBeenLastCalledWith('确认扣减此用户的 Reserve？');
+ expect(writes.filter(w=>w.path.endsWith('/reserve'))).toHaveLength(0);
  fireEvent.click(screen.getByRole('button',{name:'保存调账'}));
  await screen.findByRole('alert');
  fireEvent.click(screen.getByRole('button',{name:'保存调账'}));
