@@ -69,13 +69,24 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  let u={id:2,username:'member',display_name:'测试用户',discord_id:'123456789',group:'default',role:1,status:1,two_fa_enabled:true,reserve:'2',wallet_initialized:true,created_at:'2026-10-12T10:00:00Z',last_login_at:null};
  let keys=[{id:7,name:'user key',key:'abcd**********wxyz',status:1,purpose:'GENERAL'}];
  const writes:{path:string;body:Record<string,unknown>}[]=[],ledger:unknown[]=[];
- let adjustment='';let readsFail=false;
+ let adjustment='';let readsFail=false;let rewardReadsFail=false,requeues=0;
+ const rewardID='10000000-0000-4000-8000-000000000061';
  vi.spyOn(window,'confirm').mockReturnValue(true);
  const fetcher=vi.fn(async(path:string,init?:RequestInit)=>{
   if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'AUTHENTICATED',csrf_token:'local-csrf'});
   if(path==='/api/user/self')return ok({id:1,username:'operator',role:100});
   if(path.startsWith('/platform/v1/access-gate?'))return ok({stage:'READY',user_id:'1',route:new URLSearchParams(path.split('?')[1]).get('route')});
   if(path==='/api/v1/maintenance/notices')return ok({items:[]});
+  if(path==='/api/v1/ops/economy/overview')return ok({observed_at:'2026-10-13T06:00:00Z',wallet_accounts:'44',reserve_units:'500000',available_chips_units:'0',transactions:'100'});
+  if(path.startsWith('/api/v1/ops/economy/user?'))return ok({observed_at:'2026-10-13T06:00:00Z',wallets:[{user_id:'2',asset:'RESERVE_API_CREDIT',balance_units:'500000'}],migration:{registration_status:'CONFIRMED'}});
+  if(path.startsWith('/api/v1/ops/economy/ledger?')){
+   const q=new URLSearchParams(path.split('?')[1]);const second=q.has('before');
+   return ok({items:[{id:second?'second-ledger':'first-ledger',user_id:q.get('newapi_user_id')||'3',asset:'RESERVE_API_CREDIT',delta_units:'-1',balance_before_units:'500000',balance_after_units:'499999',biz_type:'OPS_ADJUST',biz_id:second?'older-adjustment':'latest-adjustment',transaction_id:'00000000-0000-4000-8000-000000000002',entry_type:'OPS_ADJUST',created_at:'2026-10-13T06:00:00Z'}],...(!second?{next_before:'2026-10-13T06:00:00Z',next_before_id:'00000000-0000-4000-8000-000000000002'}:{})});
+  }
+  if(path.startsWith('/api/v1/ops/economy/transfers?'))return ok({items:[]});
+  if(path==='/api/v1/ops/rewards/policies')return ok({items:[{program:'REGISTRATION',policy_version:'1',amount_units:'500000000',schedule:'ONE_TIME_ON_ACCEPTED_REGISTRATION'}]});
+  if(path===`/api/v1/ops/rewards/claims/${rewardID}/retry`){requeues++;return ok({claim_id:rewardID})}
+  if(path.startsWith('/api/v1/ops/rewards/claims?'))return rewardReadsFail?failed():ok({items:[{id:rewardID,newapi_user_id:'2',program:'REGISTRATION',amount_units:'0',status:'RECOVERING',created_at:'2026-10-13T06:00:00Z',retryable:true,attempts:'2'}]});
   if(path==='/api/v1/ops/groups')return ok([{name:'default'},{name:'工作'}]);
   if(path.startsWith('/api/v1/ops/users?'))return ok({items:[u],page:1,page_size:20,total:1});
   if(path.startsWith('/api/v1/ops/users/2/ledger?'))return ok({items:ledger,total:ledger.length,page:1,page_size:20});
@@ -163,5 +174,33 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  fireEvent.click(screen.getByRole('button',{name:'上一页'}));
  expect(await screen.findByText('当时昵称：玩家3')).toBeVisible();
  expect(fetcher.mock.calls.some(([path])=>path.includes('bootstrap')&&path.includes('/ops/'))).toBe(false);
+ fireEvent.click(within(screen.getByRole('navigation',{name:'运营导航'})).getByRole('link',{name:'经济与账务'}));
+ expect(await screen.findByRole('heading',{name:'全局账变'})).toBeVisible();
+ expect(await screen.findByText('latest-adjustment')).toBeVisible();
+ expect(screen.queryByText('Active API Quota')).not.toBeInTheDocument();
+ expect(screen.getByText('−0.000002')).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'下一页'}));
+ expect(await screen.findByText('older-adjustment')).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'上一页'}));
+ expect(await screen.findByText('latest-adjustment')).toBeVisible();
+ fireEvent.change(screen.getByLabelText('账户编号（可选）'),{target:{value:'2'}});
+ fireEvent.click(screen.getByRole('button',{name:'查询账户与账变'}));
+ expect(await screen.findByRole('link',{name:'管理账户与调整 Reserve'})).toHaveAttribute('href','/ops/users/2');
+ await screen.findByText('latest-adjustment');
+ fireEvent.change(screen.getByLabelText('业务类型'),{target:{value:'OPS_ADJUST'}});
+ fireEvent.click(screen.getByRole('button',{name:'筛选账变'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([p])=>p.includes('/economy/ledger?')&&p.includes('newapi_user_id=2')&&p.includes('biz_type=OPS_ADJUST'))).toBe(true));
+ fireEvent.click(within(screen.getByRole('navigation',{name:'运营导航'})).getByRole('link',{name:'奖励'}));
+ const retry=await screen.findByRole('button',{name:'重试注册奖励'});
+ rewardReadsFail=true;fireEvent.click(retry);
+ expect(await screen.findByRole('status')).toHaveTextContent('已重新排队');
+ expect(await screen.findByRole('alert')).toBeVisible();
+ expect(requeues).toBe(1);
+ rewardReadsFail=false;fireEvent.click(screen.getByRole('button',{name:'刷新奖励'}));
+ await screen.findByRole('button',{name:'重试注册奖励'});expect(requeues).toBe(1);
+ const retryCall=fetcher.mock.calls.find(([p])=>p.endsWith('/retry'))!;
+ expect(new Headers(retryCall[1]?.headers).get('X-CSRF-Token')).toBe('local-csrf');
+ expect(JSON.parse(String(retryCall[1]?.body))).toEqual({});
+ expect(fetcher.mock.calls.some(([p])=>p.includes('/ops/bootstrap')||p.includes('/ops/operations')||p.includes('/native-runtime'))).toBe(false);
  expect(writes.some(w=>JSON.stringify(w.body).includes('authz_epoch'))).toBe(false);
 });

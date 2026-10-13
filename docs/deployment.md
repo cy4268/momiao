@@ -210,3 +210,10 @@ Reserve 调账接受有符号 Credit 十进制字符串和备注，复用 ParseA
 POST `/platform/v1/ops/announcements` 直接接受 `announcement_id`、`action` 和对应内容/时间/渠道，返回保存后的完整公告；没有 operation_id、authz_epoch、expected_version、reason、prepare/execute 或影响预览。撤回/归档/重新通知只用浏览器确认。保留净化后的正文预览、不可变内容与通知版本、已读语义、独占展示时间窗口与预约任务；正文/渠道更新不重置已读，重新通知才增加通知版本。
 
 每个成功管理员写入在同一事务写一行 ops.audit_log（ANNOUNCEMENT_*，actor、目标及改前改后）。旧预览和 admin_operations 历史保留，未改动的预约 worker 仍写自己的 SYSTEM 任务记录。沿用 schema 58 与既有运行角色授权，不新增迁移/导入。本切片仅源码与独立 dev 最小验证，不是网站发布或完整联合验收。
+
+### 本地经济与奖励运营
+
+- `/ops/economy`、`/ops/rewards` 由本地 Redis 会话与角色（role >= 10）保护，不读取旧 Ops bootstrap。账变默认全局，支持账户、资产、业务类型与游标分页；账户钱包区展示 Reserve 和可用筹码，不把钱包余额当作含游戏在途资金的统一资产。
+- Reserve 调账复用 `/ops/users/:id` 的原入口、幂等业务号及审计，不保留第二套单位数/版本/预览/执行表单。旧额度划转保留只读凭据，删掉恢复旧 native 转账的操作。
+- `POST /api/v1/ops/rewards/claims/:id/retry` 仅将原注册奖励任务重新排队；保留已有领取与发放幂等逻辑。管理员角色、claim/job 行锁、更新与 `ops.audit_log` 在一个事务中；已完成的任务或领取拒绝重试。页面收到排队成功后，列表读取失败不自动重放 POST。实际发放金额读 registration_issuances（包括上限裁减为零）。
+- 赌怪一次性活动暂保留原组件与行为，独立放在 `/ops/gambler-campaign`，经济页有链接；该旧入口仍待随剩余运营模块迁移，不是新的资产重置操作，部署时不自动触发活动。

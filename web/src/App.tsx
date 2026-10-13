@@ -13,6 +13,7 @@ import { OpsAudit } from './ops/OpsAudit';
 import { OpsMaintenance } from './ops/OpsMaintenance';
 import { OpsAccessControl } from './ops/OpsAccessControl';
 import { OpsEconomy } from './ops/OpsEconomy';
+import { OpsGamblerCampaign } from './ops/OpsGamblerCampaign';
 import { OpsRewards } from './ops/OpsRewards';
 import { OpsUsers } from './ops/OpsUsers';
 import { OpsLogs } from './ops/OpsLogs';
@@ -96,13 +97,14 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="logs" element={<OpsLogs key={location.search} client={client}/>}/>
             <Route path="records" element={<OpsRecords key={location.search} client={client}/>}/>
             <Route path="announcements" element={<OpsAnnouncements client={client} embedded/>}/>
+            <Route path="economy" element={<OpsEconomy client={client}/>}/>
+            <Route path="rewards" element={<OpsRewards client={client}/>}/>
             <Route element={<OpsLegacyBoundary/>}>
+            <Route path="gambler-campaign" element={<OpsGamblerCampaign/>}/>
             <Route path="jobs" element={<OpsJobs/>}/>
             <Route path="attention" element={<OpsAttention/>}/>
             <Route path="operations/:operationID" element={<OpsOperationDetail/>}/>
             <Route path="access-control" element={<OpsAccessControl/>}/>
-            <Route path="economy" element={<OpsEconomy/>}/>
-            <Route path="rewards" element={<OpsRewards/>}/>
             <Route path="support-cases" element={<OpsSupportCases/>}/>
             <Route path="incidents" element={<OpsIncidents/>}/>
             <Route path="games" element={<OpsGames/>}/>

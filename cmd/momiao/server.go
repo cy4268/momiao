@@ -285,6 +285,11 @@ func serveSessionRoute(handler http.Handler, w http.ResponseWriter, r *http.Requ
 }
 
 func serveOpsRoute(cfg config, w http.ResponseWriter, r *http.Request) {
+ if opsEconomyRuntimeRoute(r.URL.Path) {
+  domainHandler(cfg, newOpsEconomyRuntimeHandler(cfg.relay)).ServeHTTP(w, r)
+  return
+ }
+
  if opsRecordsRoute(r.URL.Path) {
   domainHandler(cfg, newLocalOpsRecordsHandler(cfg.relay, cfg.history)).ServeHTTP(w, r)
   return

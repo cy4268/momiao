@@ -48,7 +48,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 	}
 	var sessionApp *sessionApplication
 	var runtimeStore *platform.Store
-	var opsEconomy *platform.OpsEconomyService
 	var campaign *platform.GamblerCampaignService
 	var pokerOpsPort PokerOpsPort
 	var pokerControl *sessionPokerControl
@@ -262,8 +261,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		}
 		if cfg.OpsEnvironment != "" {
 			if sessionApp == nil { return errors.New("Ops startup requires opaque sessions") }
-			opsEconomy, err = platform.NewOpsEconomyService(store, unifiedAssets)
-			if err != nil { return errors.New("Ops economy startup failed") }
 			campaign,err=platform.NewGamblerCampaignService(store,unifiedAssets)
 			if err!=nil{return errors.New("campaign startup failed")}
 		backgroundCtx, stopBackground := context.WithCancel(ctx)
@@ -303,8 +300,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		}
 	}
 	if cfg.OpsEnvironment!=""&&runtimeStore!=nil {
-		bindings := opsEconomy.OpsBindings()
-		bindings=append(bindings,campaign.OpsBindings()...)
+		bindings := campaign.OpsBindings()
 		bindings = append(bindings, platform.OpsSupportBindings(runtimeStore)...)
 		bindings = append(bindings, platform.OpsIncidentBindings(runtimeStore)...)
 		bindings = append(bindings, games.OpsBindings(cfg.games)...)
@@ -313,7 +309,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		bindings = append(bindings, pokerOpsBindings(pokerOpsPort)...)
 		opsService, err := platform.NewOpsService(runtimeStore, cfg.OpsEnvironment, bindings...)
 		if err != nil { return errors.New("Ops startup failed") }
-		opsReads:=newOpsPokerHandler(cfg.sessions,runtimeStore,pokerOpsPort,newOpsSupportRecordsHandler(cfg.sessions, runtimeStore, newOpsEconomyRuntimeHandler(cfg.sessions, opsEconomy, newOpsRuntimeHandler(cfg.sessions, runtimeStore, cfg.OpsEnvironment, domainHandler(cfg, newNativeRuntimeProjectionHandler(newNativeTransport(cfg.NewAPISocket)))))))
+		opsReads:=newOpsPokerHandler(cfg.sessions,runtimeStore,pokerOpsPort,newOpsSupportRecordsHandler(cfg.sessions, runtimeStore, newOpsRuntimeHandler(cfg.sessions, runtimeStore, cfg.OpsEnvironment, domainHandler(cfg, newNativeRuntimeProjectionHandler(newNativeTransport(cfg.NewAPISocket))))))
 		opsReads=newOpsGamesHandler(cfg.sessions,runtimeStore,cfg.games,opsReads)
 		opsReads=newOpsRankingsHandler(cfg.sessions,runtimeStore,cfg.rankings,opsReads)
 		opsReads=newOpsGamblerHandler(cfg.sessions,campaign,opsReads)

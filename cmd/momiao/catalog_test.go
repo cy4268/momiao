@@ -215,6 +215,46 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 			h.ServeHTTP(w, r)
 			return w
 		}
+		t.Run("economy", func(t *testing.T) {
+			user := strconv.FormatInt(regular, 10)
+			for _, path := range []string{"/api/v1/ops/economy/overview", "/api/v1/ops/economy/user?newapi_user_id=" + user, "/api/v1/ops/economy/ledger?limit=2", "/api/v1/ops/economy/transfers?limit=2", "/api/v1/ops/rewards/policies", "/api/v1/ops/rewards/claims?limit=2"} {
+				w := request(admin, "GET", path, "", false)
+				if w.Code != 200 {
+					t.Fatal("local economy/rewards", path, w.Code, w.Body.String())
+				}
+				if strings.Contains(w.Body.String(), `"authz_epoch"`) || strings.Contains(w.Body.String(), `"active_quota_units"`) {
+					t.Fatal("legacy economy response", w.Body.String())
+				}
+				if w = request(regular, "GET", path, "", false); w.Code != 403 {
+					t.Fatal("regular", w.Code)
+				}
+				if w = request(0, "GET", path, "", false); w.Code != 401 {
+					t.Fatal("anonymous", w.Code)
+				}
+			}
+			for _, path := range []string{"/api/v1/ops/economy/ledger?newapi_user_id=-1", "/api/v1/ops/economy/ledger?asset=bad", "/api/v1/ops/rewards/claims?program=bad"} {
+				if w := request(admin, "GET", path, "", false); w.Code != 400 {
+					t.Fatal("invalid filter", w.Code, w.Body.String())
+				}
+			}
+			path := "/api/v1/ops/rewards/claims/00000000-0000-4000-8000-000000000001/retry"
+			if w := request(admin, "POST", path, `{}`, false); w.Code != 403 {
+				t.Fatal("retry CSRF", w.Code)
+			}
+			if w := request(admin, "POST", path, `{}`, true); w.Code != 404 {
+				t.Fatal("missing claim", w.Code, w.Body.String())
+			}
+			if w := request(regular, "POST", path, `{}`, true); w.Code != 403 {
+				t.Fatal("regular retry", w.Code)
+			}
+			if w := request(admin, "POST", "/api/v1/ops/economy/transfers", `{}`, true); w.Code != 405 {
+				t.Fatal("historical transfers readonly", w.Code)
+			}
+			if gateRouteDomain("/ops/gambler-campaign") != "OPERATIONS" {
+				t.Fatal("preserved campaign navigation")
+			}
+			t.Log("economy/rewards both routers: local admin200 regular403 anonymous401 CSRF403 invalid400 missing404; transfers readonly405; no native")
+		})
 		t.Run("users", func(t *testing.T) {
 			for _, path := range []string{"/api/v1/ops/users", "/api/v1/ops/users/" + strconv.FormatInt(regular, 10), "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/ledger", "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/keys", "/api/v1/ops/logs"} {
 				if w := request(admin, "GET", path, "", false); w.Code != 200 {

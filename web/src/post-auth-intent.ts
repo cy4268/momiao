@@ -8,7 +8,7 @@ export function validModelID(id:unknown):id is string {return typeof id==='strin
 // routes extend this function, not a second auth client or intent storage key.
 export function normalizeRouteIntent(path:string):string|undefined {
  if(/^\/ops\/(?:channels|users)\/[1-9][0-9]*$/.test(path))return path;
- if(['/ops','/ops/games','/ops/poker','/ops/economy','/ops/rewards','/ops/rankings','/ops/users','/ops/records','/ops/support-cases','/ops/incidents','/ops/maintenance','/ops/service-health','/ops/jobs','/ops/attention','/ops/operations','/ops/audit','/ops/access-control'].includes(path)||/^\/ops\/(?:operations|audit)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(path))return path;
+ if(['/ops','/ops/games','/ops/poker','/ops/economy','/ops/gambler-campaign','/ops/rewards','/ops/rankings','/ops/users','/ops/records','/ops/support-cases','/ops/incidents','/ops/maintenance','/ops/service-health','/ops/jobs','/ops/attention','/ops/operations','/ops/audit','/ops/access-control'].includes(path)||/^\/ops\/(?:operations|audit)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(path))return path;
  if(/^\/ops\/(?:logs|records)\?user=[1-9][0-9]*$/.test(path))return path;
  if(path==='/rankings'||path==='/logs?purpose=ROLEPLAY')return path;
  if(routes.includes(path)||pokerRouteIntent(path)||rouletteRouteIntent(path))return path;
