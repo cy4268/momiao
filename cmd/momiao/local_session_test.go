@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/cy4268/momiao/internal/identity"
-	"github.com/redis/go-redis/v9"
 )
 
 // Reuses the configured dev Redis; it creates no database users or services.
@@ -20,11 +19,15 @@ func TestLocalSessionLifecycle(t *testing.T) {
 	if path == "" {
 		t.Skip("requires the existing dev session Redis configuration")
 	}
-	options, err := readSessionRedisConfig(path)
-	if err != nil {
-		t.Fatal("read session Redis config")
+	cfg := config{WalletDSNFile: os.Getenv("MOMIAO_SESSION_DSN_FILE"), PublicOrigin: "https://dev.momiao.win"}
+	values := map[string]string{"MOMIAO_SESSION_ENABLED": "true", "MOMIAO_SESSION_REDIS_CONFIG_FILE": path}
+	if err := loadSessionConfig(&cfg, func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err != nil {
+		t.Fatalf("local-only session configuration: %v", err)
 	}
-	client := redis.NewClient(options)
+	client, err := openSessionRedis(t.Context(), cfg.Session.RedisConfigFile)
+	if err != nil {
+		t.Fatal("local Redis startup", err)
+	}
 	t.Cleanup(func() { _ = client.Close() })
 	sessions := identity.Sessions{Redis: client}
 	userID := time.Now().UnixNano() // Redis-only test ID, not an application account.

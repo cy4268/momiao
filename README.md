@@ -2,9 +2,9 @@
 
 ## Current source
 
-The current source includes the platform session/BFF integration, model portal, wallet and game services, operations UI, simplified illustrated homepage, and isolated Native login UI. Runtime configuration and operational records are deliberately not stored here. Earlier feature notes below describe historical milestones, not the current deployment status or a claim that every acceptance case passed.
+The current source includes local authentication adapted from official NewAPI, Redis sessions, the model portal, wallet and game services, operations UI, and illustrated homepage. The old Native/BFF authentication bridge is removed; other Native service dependencies are still being cleaned up before the integrated dev release. Runtime configuration and operational records are deliberately not stored here. Earlier feature notes below describe historical milestones, not the current deployment status or a claim that every acceptance case passed.
 
-Build the Platform with `go build ./cmd/momiao`. In `web`, install from `package-lock.json` and run `npm run build`; the committed non-secret `web/.env.production` selects opaque sessions. See [Native source integration](native-source/README.md) to reconstruct and build the matching Native backend/authentication UI from source. No compiled binaries, images, data or credentials are included. Public illustrations under `web/public` are application assets, not runtime records.
+Build the Platform with `go build ./cmd/momiao`. In `web`, install from `package-lock.json` and run `npm run build`; login uses the local Cookie/Redis entry point, not a Native credential bridge. See [deployment configuration](docs/deployment.md#local-session-startup) for the remaining session settings. No compiled binaries, images, data or credentials are included. Public illustrations under `web/public` are application assets, not runtime records.
 
 ### Game hall artwork
 
@@ -92,23 +92,28 @@ API Key 管理已使用本地登录及 `relay.api_keys`，保留 `/api/token/` �
 
 **只运行存活探针**：不设置额外环境变量，执行构建出的 `momiao`（Windows 为 `momiao.exe`），默认监听 `127.0.0.1:8080`。`GET/HEAD /healthz` 返回 `{"status":"ok"}`；无后端配置时业务接口未就绪。存活不代表上游或业务就绪。
 
-**完整界面**：需要一个运行中的兼容 NewAPI，以及指向它的私有 Unix HTTP Socket。Linux 示例：
+**本地登录界面**：需要已迁移的平台数据库与会话 Redis，Linux 示例（其余业务组件配置见部署说明）：
 
 ```sh
 MOMIAO_WEB_DIR=/srv/momiao/web/dist \
-MOMIAO_NEWAPI_SOCKET=/run/native-api/http.sock \
+MOMIAO_WALLET_DSN_FILE=/run/secrets/wallet.dsn \
+MOMIAO_PUBLIC_ORIGIN=https://dev.momiao.win \
+MOMIAO_SESSION_ENABLED=true \
+MOMIAO_SESSION_REDIS_CONFIG_FILE=/run/secrets/session-redis.json \
 MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 ./momiao
 ```
 
-打开 `/login`。生产环境使用 HTTPS 入口并配置原生安全 Cookie 和准确的可信 Origin；原生认证 Cookie 的 Path 不作改写。也可用 `MOMIAO_LISTEN_SOCKET` 替换 TCP 监听，供支持 Unix Socket 的入口直接连接，见 [部署说明](docs/deployment.md)。没有随仓库提供的账户、默认密码或数据库。
+打开 `/login`，HTTPS 入口使用本地 `__Host-chaldea_session` Cookie 与准确的 Public Origin。也可用 `MOMIAO_LISTEN_SOCKET` 替换 TCP 监听，供支持 Unix Socket 的入口直接连接，见 [部署说明](docs/deployment.md)。没有随仓库提供的账户、默认密码或数据库。其余 Native 业务依赖仍在清理，完整开发验收前不切生产。
 
 | 环境变量 | 缺省 / 含义 |
 |---|---|
 | `MOMIAO_LISTEN_ADDR` | `127.0.0.1:8080`；数字 IP 与 `1..65535` 端口，IPv6 加方括号 |
 | `MOMIAO_LISTEN_SOCKET` | 可选绝对路径；与显式设置的 TCP 地址互斥；新 Socket 为 0600，不覆盖已有路径 |
-| `MOMIAO_WEB_DIR` | 可选绝对路径；必须存在且含 `index.html`，与上游 Socket 成对配置 |
-| `MOMIAO_NEWAPI_SOCKET` | 固定上游绝对路径；浏览器不参与选择上游 |
+| `MOMIAO_WEB_DIR` | 可选绝对路径；必须存在且含 `index.html`，不再要求 Native Socket |
+| `MOMIAO_NEWAPI_SOCKET` | 尚存 Native 业务读取使用的私有 Socket，非本地登录依赖 |
+| `MOMIAO_SESSION_ENABLED` | `true` 启用本地登录，会话需要平台数据库、Public Origin 与 Redis |
+| `MOMIAO_SESSION_REDIS_CONFIG_FILE` | 现有 Redis TLS 配置文件绝对路径 |
 | `MOMIAO_WALLET_DSN_FILE` | 可选受限平台 DSN 文件绝对路径；钱包与 Master 共用，与 Public Origin 成对 |
 | `MOMIAO_NATIVE_QUOTA_DSN_FILE` | 可选原生额度适配器受限 DSN 绝对路径；需平台钱包配置和显式安装验证 |
 | `MOMIAO_PUBLIC_ORIGIN` | 与平台 DSN 成对的准确 HTTPS Origin，用于显式写入验证 |
@@ -120,11 +125,9 @@ MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 
 SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/admin/channels`、`/wallet`、`/wallet/activate`、`/master-profile`、`/games/dice`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
 
-`GET /v1/models` 已使用本地 Key 认证和分组/模型限制；其余未由门户处理的 `/api/` 与 `/v1/` 请求暂仍转发到固定原生服务，待本地协议中转接通后删除。门户文本测试与 `/pg/chat/completions` 转发已移除，前端不复制认证规则。适配版本和真实请求载荷见 [原生接口契约](contracts/native-api.md)。[OpenAPI](contracts/openapi.json) 声明 momiao 自有的 `/healthz` 、`/platform/v1/wallet` 与 `/platform/v1/master-profile` 接口。
+`GET /v1/models` 使用本地 Key 认证和分组/模型限制，`/v1/*` 由已接线的本地中转处理。未注册的 `/api/` 路径直接返回 404，不再兜底代理到 Native；旧登录、渠道等路径没有兼容代理。门户文本测试与 `/pg/chat/completions` 转发已移除。历史 [原生接口契约](contracts/native-api.md) 不代表当前认证入口。
 
-代理 `/api/` 总上限 30 秒、`/v1/` 总上限 5 分钟。它们是明确的工程上限，**不是并发容量或压测结论**；WebSocket 升级尚不支持。本版主动移除转发身份头，原生端看到的是内部代理地址，未宣称按真实客户端 IP 审计或限流。
-
-登录实际入口使用密码。二步验证有源码契约和自动化覆盖，尚未使用真实已绑定账户验收；OAuth、Passkey、注册、密码找回和 CAPTCHA 控件不在本次范围。
+密码、2FA、Discord 登录及注册准入使用本地身份模块；来源固定为官方 f1164142。开发站真实浏览器、第三方 OAuth、在途游戏等验收仍待完成，源码测试通过不等于网站已发布。
 
 ## 设计与贡献
 
@@ -137,4 +140,4 @@ SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/log
 ### Daily rewards and local exchange
 The wallet page now supports an explicit daily 500 Reserve API Credit claim (Asia/Shanghai day), exact 1:1 Reserve/chips exchange, receipts and durable-key retry lookup. Native Active quota is unchanged. See [wallet action contract](contracts/wallet-actions-api.md). Initial grants, hourly/relief rewards, credit purchases and games are not enabled by this slice.
 
-运营台已删除通用预览/执行/二次验证管道、访问控制页和操作回执页；所有模块及账户菜单的入口使用本地角色。历史审计和旧任务行保留只读，健康快照 worker 独立于旧 Ops 会话启动。旧 Native/BFF 会话与服务启动依赖尚待删除；本轮不改数据库或发布镜像。
+运营台已删除通用预览/执行/二次验证管道、访问控制页和操作回执页；所有模块及账户菜单的入口使用本地角色。历史审计和旧任务行保留只读，健康快照 worker 独立启动。认证启动已删除旧 Native/BFF 会话、独立会话数据库和 Native 凭据配置，直接复用平台连接池与 Redis；未注册的 `/api/` 路径返回 404。其余 Native 业务读取与 quota/refill/attribution 启动仍待清理；本轮不改数据库或发布镜像。

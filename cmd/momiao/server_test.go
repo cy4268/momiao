@@ -96,7 +96,7 @@ func TestUnownedPlatformAPINeverReachesNative(t *testing.T) {
 				calls++
 				return nil, errors.New("unowned Platform route reached Native")
 			}))
-			for _, route := range []string{"/api/v1", "/api/v1/not-owned", "/api/v1/not-owned?source=browser", "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup", "/internal/v1/bot-games/dice/%70repare", "/internal/v1/bot-games/dice/prepare?x=1", "/internal/v1/bot-games/slot/prepare", "/internal/v1/bot-games/slot/play", "/internal/v1/bot-games/slot/lookup", "/internal/v1/bot-games/slot/%70repare", "/internal/v1/bot-games/slot/prepare?x=1"} {
+			for _, route := range []string{"/api/user/login", "/api/momiao/auth/discord/login/start", "/api/unowned", "/api/v1", "/api/v1/not-owned", "/api/v1/not-owned?source=browser", "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup", "/internal/v1/bot-games/dice/%70repare", "/internal/v1/bot-games/dice/prepare?x=1", "/internal/v1/bot-games/slot/prepare", "/internal/v1/bot-games/slot/play", "/internal/v1/bot-games/slot/lookup", "/internal/v1/bot-games/slot/%70repare", "/internal/v1/bot-games/slot/prepare?x=1"} {
 				for _, method := range []string{http.MethodGet, http.MethodPost} {
 					response := httptest.NewRecorder()
 					handler.ServeHTTP(response, httptest.NewRequest(method, route, nil))
@@ -248,106 +248,6 @@ func TestPortalCanonicalizesWebRootAlias(t *testing.T) {
 	}
 }
 
-func TestProxyPreservesNativeContractAndRejectsSpoofedForwarding(t *testing.T) {
-	var captured *http.Request
-	var capturedBody string
-	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		captured = request.Clone(request.Context())
-		body, err := io.ReadAll(request.Body)
-		if err != nil {
-			return nil, err
-		}
-		capturedBody = string(body)
-		return &http.Response{
-			StatusCode: http.StatusCreated,
-			Header: http.Header{
-				"Content-Type":   []string{"application/json"},
-				"Set-Cookie":     []string{"session=native; Secure; HttpOnly"},
-				"Connection":     []string{"X-Internal-Hop"},
-				"X-Internal-Hop": []string{"secret"},
-			},
-			Body: io.NopCloser(strings.NewReader(`{"ok":true}`)),
-		}, nil
-	})
-	handler := newPortalHandler(config{WebDir: t.TempDir(), NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, transport)
-	request := httptest.NewRequest(http.MethodPost, "/api/items/a%2Fb?cursor=x%2Fy", strings.NewReader(`{"name":"key"}`))
-	request.Header.Set("Authorization", "Bearer token")
-	request.Header.Set("New-Api-User", "42")
-	request.Header.Set("Cookie", "session=native")
-	request.Header.Set("Origin", "https://portal.example")
-	request.Header.Set("Forwarded", "for=attacker")
-	request.Header.Set("X-Forwarded-For", "203.0.113.10")
-	request.Header.Set("X-Forwarded-Proto", "https")
-	request.Header.Set("X-Real-IP", "203.0.113.11")
-	request.Header.Set("CF-Connecting-IP", "203.0.113.12")
-	request.Header.Set("True-Client-IP", "203.0.113.13")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-
-	if response.Code != http.StatusCreated || response.Body.String() != `{"ok":true}` {
-		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("request did not reach transport")
-	}
-	if captured.Method != http.MethodPost || captured.URL.EscapedPath() != "/api/items/a%2Fb" || captured.URL.RawQuery != "cursor=x%2Fy" || capturedBody != `{"name":"key"}` {
-		t.Fatalf("native request changed: method=%s path=%s query=%s body=%q", captured.Method, captured.URL.EscapedPath(), captured.URL.RawQuery, capturedBody)
-	}
-	for key, want := range map[string]string{
-		"Authorization": "Bearer token",
-		"New-Api-User":  "42",
-		"Cookie":        "session=native",
-		"Origin":        "https://portal.example",
-	} {
-		if got := captured.Header.Get(key); got != want {
-			t.Errorf("%s=%q, want %q", key, got, want)
-		}
-	}
-	if captured.Header.Get("Forwarded") != "" || captured.Header.Get("X-Forwarded-For") != "" || captured.Header.Get("X-Forwarded-Proto") != "" || captured.Header.Get("X-Real-IP") != "" || captured.Header.Get("CF-Connecting-IP") != "" || captured.Header.Get("True-Client-IP") != "" {
-		t.Fatalf("spoofed forwarding headers reached upstream: %v", captured.Header)
-	}
-	if captured.URL.Scheme != "http" || captured.URL.Host != "unix" {
-		t.Fatalf("proxy target was not fixed: %s", captured.URL)
-	}
-	if got := response.Header().Get("Set-Cookie"); got != "session=native; Secure; HttpOnly" {
-		t.Fatalf("Set-Cookie=%q", got)
-	}
-	if response.Header().Get("X-Internal-Hop") != "" {
-		t.Fatal("hop-by-hop response header leaked")
-	}
-}
-
-func TestProxyFailureIsBoundedAndUpgradeDoesNotLeak(t *testing.T) {
-	called := 0
-	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		called++
-		deadline, ok := request.Context().Deadline()
-		if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > time.Minute {
-			t.Fatalf("missing bounded request deadline: %v %v", deadline, ok)
-		}
-		return nil, errors.New("Authorization: Bearer secret")
-	})
-	handler := newPortalHandler(config{WebDir: t.TempDir(), NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, transport)
-
-	response := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/status", nil))
-	if response.Code != http.StatusBadGateway || response.Header().Get("Content-Type") != "application/json" || response.Body.String() != "{\"error\":\"upstream unavailable\"}\n" || strings.Contains(response.Body.String(), "secret") {
-		t.Fatalf("unsafe proxy error: status=%d headers=%v body=%q", response.Code, response.Header(), response.Body.String())
-	}
-	if remaining := time.Until(response.writeDeadline); !response.deadlineSet || remaining < 20*time.Second || remaining > 30*time.Second {
-		t.Fatalf("api write deadline not aligned to request bound: set=%v deadline=%v", response.deadlineSet, response.writeDeadline)
-	}
-
-	upgrade := httptest.NewRequest(http.MethodGet, "/api/live", nil)
-	upgrade.Header.Set("Connection", "keep-alive, Upgrade")
-	upgrade.Header.Set("Upgrade", "websocket")
-	upgradeResponse := httptest.NewRecorder()
-	handler.ServeHTTP(upgradeResponse, upgrade)
-	if upgradeResponse.Code != http.StatusBadRequest || called != 1 {
-		t.Fatalf("upgrade reached transport: status=%d calls=%d", upgradeResponse.Code, called)
-	}
-}
-
 func TestNativeTransportUsesRouteDeadlineForDelayedHeaders(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "newapi.sock")
 	transport := newNativeTransport(socket)
@@ -439,18 +339,6 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return fn(request)
-}
-
-type deadlineRecorder struct {
-	*httptest.ResponseRecorder
-	writeDeadline time.Time
-	deadlineSet   bool
-}
-
-func (recorder *deadlineRecorder) SetWriteDeadline(deadline time.Time) error {
-	recorder.writeDeadline = deadline
-	recorder.deadlineSet = true
-	return nil
 }
 
 func TestServeGracefullyDrainsActiveRequest(t *testing.T) {

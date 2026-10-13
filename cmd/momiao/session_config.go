@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"io"
 	"net"
@@ -17,12 +16,11 @@ import (
 	"github.com/redis/go-redis/v9/maintnotifications"
 )
 
-var errSessionConfig = errors.New("session requires complete, distinct, private authority configuration")
+var errSessionConfig = errors.New("local sessions require Redis configuration, platform database and public origin")
 
 type sessionConfig struct {
-	Enabled                                                           bool
-	DSNFile, RedisConfigFile, ReaderKeyFile, OpsKeyFile               string
-	SessionSealKeyFile, CredentialSealKeyFile, OpsSocket, Environment string
+	Enabled         bool
+	RedisConfigFile string
 }
 
 func loadSessionConfig(cfg *config, lookup func(string) (string, bool)) error {
@@ -30,79 +28,18 @@ func loadSessionConfig(cfg *config, lookup func(string) (string, bool)) error {
 	if present && enabled != "true" && enabled != "false" {
 		return errSessionConfig
 	}
+	path, configured := lookup("MOMIAO_SESSION_REDIS_CONFIG_FILE")
 	s := sessionConfig{Enabled: enabled == "true"}
-	fields := []struct {
-		name   string
-		target *string
-		path   bool
-	}{
-		{"MOMIAO_SESSION_DSN_FILE", &s.DSNFile, true},
-		{"MOMIAO_SESSION_REDIS_CONFIG_FILE", &s.RedisConfigFile, true},
-		{"MOMIAO_SESSION_READER_KEY_FILE", &s.ReaderKeyFile, true},
-		{"MOMIAO_SESSION_OPS_KEY_FILE", &s.OpsKeyFile, true},
-		{"MOMIAO_SESSION_SEAL_KEY_FILE", &s.SessionSealKeyFile, true},
-		{"MOMIAO_SESSION_CREDENTIAL_SEAL_KEY_FILE", &s.CredentialSealKeyFile, true},
-		{"MOMIAO_SESSION_OPS_SOCKET", &s.OpsSocket, true},
-		{"MOMIAO_SESSION_ENVIRONMENT", &s.Environment, false},
-	}
-	seen := map[string]bool{}
-	for _, value := range []string{cfg.WalletDSNFile, cfg.Poker.DSNFile, cfg.Poker.StateKeyringFile, cfg.Poker.TicketKeyringFile, cfg.Poker.RedisConfigFile} {
-		if value != "" {
-			seen[pokerPathKey(value)] = true
-		}
-	}
-	for _, field := range fields {
-		value, set := lookup(field.name)
-		if !s.Enabled {
-			if set {
-				return errSessionConfig
-			}
-			continue
-		}
-		if !set || value == "" {
+	if s.Enabled {
+		if !filepath.IsAbs(path) || cfg.PublicOrigin == "" || cfg.WalletDSNFile == "" {
 			return errSessionConfig
 		}
-		if field.path {
-			if !filepath.IsAbs(value) || seen[pokerPathKey(value)] {
-				return errSessionConfig
-			}
-			seen[pokerPathKey(value)] = true
-			value = filepath.Clean(value)
-		}
-		*field.target = value
-	}
-	if s.Enabled && (cfg.WebDir == "" || cfg.NewAPISocket == "" || cfg.PublicOrigin == "" || cfg.WalletDSNFile == "" || s.OpsSocket == cfg.NewAPISocket || !sessionName(s.Environment)) {
+		s.RedisConfigFile = filepath.Clean(path)
+	} else if configured {
 		return errSessionConfig
 	}
 	cfg.Session = s
 	return nil
-}
-
-func sessionName(value string) bool {
-	if len(value) < 1 || len(value) > 128 {
-		return false
-	}
-	for i, r := range value {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || i > 0 && strings.ContainsRune("_.:-", r)) {
-			return false
-		}
-	}
-	return true
-}
-
-func readSessionKey(path string) ([32]byte, error) {
-	var out [32]byte
-	raw, err := readPokerPrivateFile(path, 66)
-	if err != nil {
-		return out, errSessionConfig
-	}
-	text := strings.TrimSuffix(strings.TrimSuffix(string(raw), "\n"), "\r")
-	key, err := hex.DecodeString(text)
-	if err != nil || len(key) != len(out) || hex.EncodeToString(key) != text {
-		return out, errSessionConfig
-	}
-	copy(out[:], key)
-	return out, nil
 }
 
 func readSessionRedisConfig(path string) (*redis.Options, error) {

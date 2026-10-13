@@ -48,7 +48,7 @@ func TestDomainPortalWiring(t *testing.T) {
 	}
 }
 
-func TestOpaqueModeBlocksLegacyBrowserAuthenticationRoutes(t *testing.T) {
+func TestRemovedBrowserAuthenticationRoutes(t *testing.T) {
 	routes := []struct{ method, path string }{
 		{http.MethodPost, "/api/user/login"},
 		{http.MethodPost, "/api/user/login/2fa"},
@@ -67,25 +67,9 @@ func TestOpaqueModeBlocksLegacyBrowserAuthenticationRoutes(t *testing.T) {
 			})
 			response := httptest.NewRecorder()
 			newPortalHandler(config{WebDir: t.TempDir(), Session: sessionConfig{Enabled: true}}, transport).ServeHTTP(response, httptest.NewRequest(tc.method, tc.path, nil))
-			if calls != 0 || response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), `"code":"AUTH_ROUTE_NOT_FOUND"`) {
-				t.Fatalf("legacy auth route escaped opaque boundary: calls=%d status=%d body=%s", calls, response.Code, response.Body.String())
+			if calls != 0 || response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), `"code":"NOT_FOUND"`) {
+				t.Fatalf("removed auth route reached Native: calls=%d status=%d body=%s", calls, response.Code, response.Body.String())
 			}
 		})
-	}
-}
-
-func TestNativeModeKeepsLegacyPasswordLoginProxy(t *testing.T) {
-	calls := 0
-	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		calls++
-		if r.URL.Path != "/api/user/login" {
-			t.Fatalf("legacy proxy path=%s", r.URL.Path)
-		}
-		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody}, nil
-	})
-	response := httptest.NewRecorder()
-	newPortalHandler(config{WebDir: t.TempDir()}, transport).ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/user/login", nil))
-	if calls != 1 || response.Code != http.StatusNoContent {
-		t.Fatalf("native mode changed: calls=%d status=%d", calls, response.Code)
 	}
 }

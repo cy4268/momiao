@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/cy4268/momiao/internal/bffauth"
 	"github.com/cy4268/momiao/internal/games"
 	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/roulette"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/rankings"
 	"github.com/jackc/pgx/v5"
+	"github.com/redis/go-redis/v9"
 	"log"
 	"net/http"
 	"os"
@@ -46,28 +46,17 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		defer transport.CloseIdleConnections()
 		cfg.readiness["native"] = nativeReadiness(transport)
 	}
-	var sessionApp *sessionApplication
+	var sessionRedis *redis.Client
 	var runtimeStore *platform.Store
 	var campaign *platform.GamblerCampaignService
-	var pokerControl *sessionPokerControl
-	if cfg.Session.Enabled && cfg.Poker.Enabled {
-		pokerControl = &sessionPokerControl{}
-	}
 	if cfg.Session.Enabled {
-		var controls []bffauth.ControlRevoker
-		if pokerControl != nil {
-			controls = append(controls, pokerControl)
-		}
-		application, err := openSessionApplication(ctx, cfg, controls...)
+		client, err := openSessionRedis(ctx, cfg.Session.RedisConfigFile)
 		if err != nil {
-			return errSessionStartup
+			return err
 		}
-		defer application.Close()
-		sessionApp = application
-		cfg.readiness["session_database"] = application.pool.Ping
-		cfg.readiness["session_cache"] = func(ctx context.Context) error { return application.redis.Ping(ctx).Err() }
-		cfg.sessions = application.sessions
-		cfg.sessionBridge = application.auth
+		defer client.Close()
+		sessionRedis = client
+		cfg.readiness["session_cache"] = func(ctx context.Context) error { return client.Ping(ctx).Err() }
 	}
 	if cfg.WalletDSNFile != "" {
 		var rankingAssets rankings.AssetReader
@@ -87,8 +76,8 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		cfg.readiness["platform_database"] = func(ctx context.Context) error {
 			return store.WithTx(ctx, func(tx pgx.Tx) error { var one int; return tx.QueryRow(ctx, "SELECT 1").Scan(&one) })
 		}
-		if sessionApp != nil {
-			cfg.localIdentity = &identity.HTTP{Store: &identity.Store{Pool: store.Pool()}, Sessions: identity.Sessions{Redis: sessionApp.redis}, Origin: cfg.PublicOrigin, Discord: cfg.Discord, RegistrationEnabled: cfg.AdmissionEnabled}
+		if sessionRedis != nil {
+			cfg.localIdentity = &identity.HTTP{Store: &identity.Store{Pool: store.Pool()}, Sessions: identity.Sessions{Redis: sessionRedis}, Origin: cfg.PublicOrigin, Discord: cfg.Discord, RegistrationEnabled: cfg.AdmissionEnabled}
 			cfg.sessionAuth = cfg.localIdentity
 		}
 		cfg.wallet = store
@@ -260,7 +249,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		cfg.pokerOps=remote
 		cfg.pokerCatalogRuntime = remote.catalogRuntime
 		cfg.readiness["poker_process"] = remote.ready
-		if pokerControl != nil { pokerControl.remote = remote }
 	} else if cfg.Poker.Enabled {
 		application, err := openPokerApplication(ctx, cfg)
 		if err != nil {
@@ -273,9 +261,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		cfg.readiness["poker_auth_database"] = application.authPool.Ping
 		cfg.readiness["poker_cache"] = func(ctx context.Context) error { return application.tickets.Ping(ctx).Err() }
 		cfg.pokerCatalogRuntime = application.service.CatalogRuntime
-		if pokerControl != nil {
-			pokerControl.poker = application
-		}
 	}
 	if cfg.OpsEnvironment != "" && runtimeStore != nil {
 		healthCtx, stopHealth := context.WithCancel(ctx)

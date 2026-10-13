@@ -17,7 +17,6 @@ import (
 
 	"github.com/cy4268/momiao/internal/poker/connectticket"
 	pt "github.com/cy4268/momiao/internal/poker/transport"
-	"github.com/cy4268/momiao/internal/session"
 )
 
 const pokerInternalPrefix = "/internal/v1/poker/"
@@ -101,15 +100,6 @@ func runPokerProcess(ctx context.Context, cfg config, logger *log.Logger) error 
 		case pokerInternalPrefix+"catalog":
 			if r.Method != http.MethodGet { walletError(w,405,"METHOD_NOT_ALLOWED");return }
 			state,err:=app.service.CatalogRuntime(r.Context());if err!=nil {walletError(w,503,"POKER_SERVICE_UNAVAILABLE");return};walletJSON(w,200,map[string]string{"state":state})
-		case pokerInternalPrefix+"revoke":
-			if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/json" {walletError(w,400,"POKER_INVALID_REQUEST");return}
-			raw,err:=io.ReadAll(io.LimitReader(r.Body,1025));var input pokerRevokeInput
-			if err!=nil||len(raw)>1024||decodePokerObject(raw,&input,"user_id","native_session_id_hash")!=nil||!pokerSessionHash.MatchString(input.NativeSessionIDHash){walletError(w,400,"POKER_INVALID_REQUEST");return}
-			user,err:=strconv.ParseInt(input.UserID,10,64);if err!=nil||user<=0||strconv.FormatInt(user,10)!=input.UserID {walletError(w,400,"POKER_INVALID_REQUEST");return}
-			bounded,cancel:=context.WithTimeout(r.Context(),5*time.Second);defer cancel()
-			err=app.service.RevokeSessionControls(bounded,user,input.NativeSessionIDHash)
-			app.handler.RevokeSession(user,input.NativeSessionIDHash)
-			if err!=nil {walletError(w,503,"POKER_SERVICE_UNAVAILABLE");return};walletJSON(w,200,map[string]bool{"revoked":true})
 		default: walletError(w,404,"NOT_FOUND")
 		}
 	})
@@ -121,10 +111,6 @@ func runPokerProcess(ctx context.Context, cfg config, logger *log.Logger) error 
 	return serve(ctx,server,listener,cfg.ShutdownTimeout)
 }
 
-type pokerRevokeInput struct {
-	UserID string `json:"user_id"`
-	NativeSessionIDHash string `json:"native_session_id_hash"`
-}
 type pokerRemote struct {
 	transport *http.Transport
 	signing pokerTicketKeys
@@ -190,8 +176,4 @@ func(p *pokerRemote)catalogRuntime(ctx context.Context)(string,error){
 }
 func(p *pokerRemote)ready(ctx context.Context)error{
 	var out readinessView;if err:=p.call(ctx,http.MethodGet,"ready",nil,&out);err!=nil{return err};if !out.Ready||len(out.Components)==0{return errors.New("Poker unavailable")};return nil
-}
-func(p *pokerRemote)revoke(ctx context.Context,binding session.BFFBinding)error{
-	var out struct{Revoked bool `json:"revoked"`};err:=p.call(ctx,http.MethodPost,"revoke",pokerRevokeInput{binding.UserID,binding.NativeSessionIDHash},&out)
-	if err!=nil||!out.Revoked{return errPokerStartup};return nil
 }

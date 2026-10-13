@@ -88,7 +88,7 @@ func TestBotGamesConfig(t *testing.T) {
 			case "refill":
 				c.RefillSocket = p
 			case "session":
-				c.Session.OpsSocket = p
+				c.Session.RedisConfigFile = p
 			case "poker":
 				c.PokerRemoteSocket = p
 			case "fairness_collision":

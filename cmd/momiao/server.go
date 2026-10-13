@@ -4,23 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/cy4268/momiao/internal/bffauth"
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/nativeself"
 	"github.com/cy4268/momiao/internal/relay"
 	"io"
-	"log"
 	"mime"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"time"
 )
-
-const apiProxyRequestTimeout = 30 * time.Second
 
 var browserRoutes = map[string]bool{
 	"/":                 true,
@@ -167,7 +163,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				walletError(w, 503, "WALLET_UNAVAILABLE")
 				return
 			}
-			if r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			if r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/") {
 				walletError(w, 404, "NOT_FOUND")
 				return
 			}
@@ -180,7 +176,6 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	if transport == nil {
 		transport = newNativeTransport(cfg.NewAPISocket)
 	}
-	proxy := newNativeProxy(transport)
 	readPoker := cfg.pokerCatalogRuntime
 	if !cfg.Poker.Enabled || cfg.poker == nil {
 		readPoker = nil
@@ -209,8 +204,6 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 			domainHandler(cfg, cfg.history).ServeHTTP(w, r)
 		case sessionAPIRoute(r.URL.Path):
 			serveSessionRoute(cfg.sessionAuth, w, r)
-		case cfg.Session.Enabled && legacyNativeBrowserAuthRoute(r.URL.Path):
-			sessionError(w, bffauth.Fault{Status: http.StatusNotFound, Code: "AUTH_ROUTE_NOT_FOUND"})
 		case strings.HasPrefix(r.URL.Path, "/api/token/"):
 			if cfg.relay == nil {
 				walletError(w, 503, "KEY_UNAVAILABLE")
@@ -251,25 +244,8 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 			healthHandler().ServeHTTP(w, r)
 		case r.URL.Path == "/api/access":
 			serveWebFile(cfg.WebDir, cfg.AssetCDNOrigin, w, r)
-		case r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/"):
-			walletError(w, 404, "NOT_FOUND")
-		case strings.HasPrefix(r.URL.Path, "/api/"):
-			if r.URL.Path == "/api/channel" || strings.HasPrefix(r.URL.Path, "/api/channel/") {
-				walletError(w,404,"NOT_FOUND")
-				return
-			}
-			if r.Header.Get("Upgrade") != "" || headerHasToken(r.Header.Get("Connection"), "upgrade") {
-				writeJSONError(w, http.StatusBadRequest, "unsupported protocol upgrade")
-				return
-			}
-			deadline := time.Now().Add(apiProxyRequestTimeout)
-			if parentDeadline, ok := r.Context().Deadline(); ok && parentDeadline.Before(deadline) {
-				deadline = parentDeadline
-			}
-			_ = http.NewResponseController(w).SetWriteDeadline(deadline)
-			ctx, cancel := context.WithDeadline(r.Context(), deadline)
-			defer cancel()
-			proxy.ServeHTTP(w, r.WithContext(ctx))
+		case r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/"):
+			walletError(w, http.StatusNotFound, "NOT_FOUND")
 		default:
 			serveWebFile(cfg.WebDir, cfg.AssetCDNOrigin, w, r)
 		}
@@ -278,7 +254,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 
 func serveSessionRoute(handler http.Handler, w http.ResponseWriter, r *http.Request) {
 	if handler == nil {
-		sessionError(w, bffauth.Fault{Status: http.StatusServiceUnavailable, Code: "SESSION_UNAVAILABLE"})
+		identity.WriteError(w, identity.Fault{Status: http.StatusServiceUnavailable, Code: "SESSION_UNAVAILABLE"})
 		return
 	}
 	handler.ServeHTTP(w, r)
@@ -348,25 +324,6 @@ func servePokerRoute(handler http.Handler, w http.ResponseWriter, r *http.Reques
 }
 
 func newNativeTransport(socket string) *http.Transport { return nativeself.NewTransport(socket) }
-func newNativeProxy(transport http.RoundTripper) *httputil.ReverseProxy {
-	return &httputil.ReverseProxy{
-		Transport: transport,
-		Rewrite: func(proxyRequest *httputil.ProxyRequest) {
-			request := proxyRequest.Out
-			request.URL.Scheme = "http"
-			request.URL.Host = "unix"
-			request.Host = "localhost"
-			for _, key := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP", "CF-Connecting-IP", "True-Client-IP"} {
-				request.Header.Del(key)
-			}
-		},
-		ErrorLog: log.New(io.Discard, "", 0),
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
-			writeJSONError(w, http.StatusBadGateway, "upstream unavailable")
-		},
-	}
-}
-
 func serveWebFile(root, assetCDNOrigin string, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
@@ -481,15 +438,6 @@ func fingerprinted(name string) bool {
 			}
 		}
 		if valid {
-			return true
-		}
-	}
-	return false
-}
-
-func headerHasToken(value, token string) bool {
-	for _, part := range strings.Split(value, ",") {
-		if strings.EqualFold(strings.TrimSpace(part), token) {
 			return true
 		}
 	}

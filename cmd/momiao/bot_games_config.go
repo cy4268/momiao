@@ -51,7 +51,7 @@ func loadBotGamesConfig(cfg *config, lookup func(string) (string, bool)) error {
 		return errBotGamesConfig
 	}
 	seen := map[string]bool{}
-	for _, p := range []string{cfg.ListenSocket, cfg.NewAPISocket, cfg.RefillSocket, cfg.PokerRemoteSocket, cfg.Session.OpsSocket, cfg.WalletDSNFile, cfg.GameFairnessKeyringFile, cfg.NativeQuotaDSNFile, cfg.NativeQuotaKeyFile, cfg.RefillKeyFile, cfg.CatalogAssets.CredentialsFile, cfg.PokerServiceKeyringFile, cfg.PokerPeerKeyringFile, cfg.Poker.DSNFile, cfg.Poker.StateKeyringFile, cfg.Poker.TicketKeyringFile, cfg.Poker.RedisConfigFile, cfg.Poker.SessionRedisConfigFile, cfg.Session.DSNFile, cfg.Session.RedisConfigFile, cfg.Session.ReaderKeyFile, cfg.Session.OpsKeyFile, cfg.Session.SessionSealKeyFile, cfg.Session.CredentialSealKeyFile, cfg.History.ReaderDSNFile, cfg.History.WorkerDSNFile, cfg.History.PokerDSNFile, cfg.History.PokerKeyringFile} {
+	for _, p := range []string{cfg.ListenSocket, cfg.NewAPISocket, cfg.RefillSocket, cfg.PokerRemoteSocket, cfg.WalletDSNFile, cfg.GameFairnessKeyringFile, cfg.NativeQuotaDSNFile, cfg.NativeQuotaKeyFile, cfg.RefillKeyFile, cfg.CatalogAssets.CredentialsFile, cfg.PokerServiceKeyringFile, cfg.PokerPeerKeyringFile, cfg.Poker.DSNFile, cfg.Poker.StateKeyringFile, cfg.Poker.TicketKeyringFile, cfg.Poker.RedisConfigFile, cfg.Poker.SessionRedisConfigFile, cfg.Session.RedisConfigFile, cfg.History.ReaderDSNFile, cfg.History.WorkerDSNFile, cfg.History.PokerDSNFile, cfg.History.PokerKeyringFile} {
 		if p != "" {
 			seen[pokerPathKey(p)] = true
 		}

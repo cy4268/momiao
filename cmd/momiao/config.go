@@ -2,13 +2,11 @@ package main
 
 import (
 	"errors"
-	"github.com/cy4268/momiao/internal/bffauth"
 	"github.com/cy4268/momiao/internal/games"
 	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/rankings"
 	"github.com/cy4268/momiao/internal/roulette"
-	"github.com/cy4268/momiao/internal/session"
 	"net"
 	"net/http"
 	"os"
@@ -42,8 +40,6 @@ type config struct {
 	Session                   sessionConfig
 	sessionAuth               http.Handler
 	localIdentity             *identity.HTTP
-	sessionBridge             *bffauth.Service
-	sessions                  *session.Service
 	Poker                     pokerConfig
 	poker                     http.Handler
 	pokerCatalogRuntime       games.PokerCatalogRuntime
@@ -146,9 +142,6 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 		}
 		cfg.NewAPISocket = filepath.Clean(value)
 	}
-	if cfg.WebDir != "" && cfg.NewAPISocket == "" {
-		return config{}, errors.New("MOMIAO_NEWAPI_SOCKET is required when MOMIAO_WEB_DIR is set")
-	}
 	if cfg.WebDir == "" && cfg.NewAPISocket != "" && cfg.ProcessRole != "poker" {
 		return config{}, errors.New("MOMIAO_NEWAPI_SOCKET requires MOMIAO_WEB_DIR")
 	}
@@ -234,7 +227,7 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 		}
 		cfg.Discord = discord
 	}
-	if cfg.PokerRemoteSocket != "" && !cfg.Session.Enabled { return config{}, errors.New("remote Poker requires platform opaque sessions") }
+	if cfg.PokerRemoteSocket != "" && !cfg.Session.Enabled { return config{}, errors.New("remote Poker requires platform local sessions") }
 	history, err := loadHistoryConfig(lookup)
 	if err != nil || history.Enabled && (!cfg.Session.Enabled || cfg.WalletDSNFile == "" || cfg.GameFairnessKeyringFile == "") {
 		return config{}, errHistoryConfig
@@ -244,13 +237,13 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 		return config{}, errors.New("Poker process must own only its Poker runtime")
 	}
 	if value, ok := lookup("MOMIAO_OPS_ENVIRONMENT"); ok {
-		if (value != "DEVELOPMENT" && value != "STAGING" && value != "PRODUCTION") || !cfg.Session.Enabled || cfg.WalletDSNFile == "" || value != cfg.Session.Environment {
-			return config{}, errors.New("Ops requires an explicit DEVELOPMENT, STAGING or PRODUCTION environment, opaque sessions and platform wallet")
+		if (value != "DEVELOPMENT" && value != "STAGING" && value != "PRODUCTION") || !cfg.Session.Enabled || cfg.WalletDSNFile == "" {
+			return config{}, errors.New("Ops requires an explicit DEVELOPMENT, STAGING or PRODUCTION environment, local sessions and platform wallet")
 		}
 		cfg.OpsEnvironment = value
 	}
 	if cfg.RecoveryAuthProbes && (!cfg.Session.Enabled || cfg.ProcessRole != "platform") {
-		return config{}, errors.New("DR_RECOVERY_AUTH_PROBES requires platform opaque sessions")
+		return config{}, errors.New("DR_RECOVERY_AUTH_PROBES requires platform local sessions")
 	}
 	if err := loadBotGamesConfig(&cfg, lookup); err != nil {
 		return config{}, err
