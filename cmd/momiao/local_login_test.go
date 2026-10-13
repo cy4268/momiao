@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +97,7 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	cfg.poker = remote.handler
 	cfg.opsMaintenance = newOpsMaintenanceHandler(wallets, "DEVELOPMENT")
 	cfg.opsAudit = newOpsAuditHandler(wallets)
+	cfg.apiKeys = wallets
 	handler := newPortalHandler(cfg, nil)
 	call := func(method, path string, body any, cookie *http.Cookie, csrf string) *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(body)
@@ -204,6 +206,63 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	if prepared.Header.Get("Authorization") != "" || prepared.Header.Get("New-Api-User") != "" {
 		t.Fatal("native credential projection remains")
 	}
+	keys := call("GET", "/api/token/?p=1&page_size=10", nil, cookie, "")
+	if keys.Code != 200 || !strings.Contains(keys.Body.String(), `"purpose"`) {
+		t.Fatal("local API key list", keys.Code)
+	}
+	// Continue through the web-enabled portal, not only the API-only router.
+	cfg.WebDir = "."
+	handler = newPortalHandler(cfg, nil)
+	// Exercise one key lifecycle against the imported dev database, then delete it.
+	if denied := call("GET", "/api/token/", nil, nil, ""); denied.Code != 401 {
+		t.Fatal("anonymous key list", denied.Code)
+	}
+	keyInput := map[string]any{"name": "local-key-lifecycle", "purpose": "ROLEPLAY", "remain_quota": 125, "unlimited_quota": false, "expired_time": -1}
+	if denied := call("POST", "/api/token/", keyInput, cookie, ""); denied.Code != 403 {
+		t.Fatal("key creation missing CSRF", denied.Code)
+	}
+	createdKey := call("POST", "/api/token/", keyInput, cookie, csrf)
+	var keyID struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if createdKey.Code != 200 || json.Unmarshal(createdKey.Body.Bytes(), &keyID) != nil || keyID.Data.ID == "" {
+		t.Fatal("create local key", createdKey.Code)
+	}
+	keyNumber, err := strconv.ParseInt(keyID.Data.ID, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM relay.api_keys WHERE user_id=$1 AND id=$2`, user.ID, keyNumber)
+	})
+	keyPath := "/api/token/" + keyID.Data.ID
+	revealed := call("POST", keyPath+"/key", nil, cookie, csrf)
+	var secret struct {
+		Data struct {
+			Key string `json:"key"`
+		} `json:"data"`
+	}
+	if revealed.Code != 200 || json.Unmarshal(revealed.Body.Bytes(), &secret) != nil || len(secret.Data.Key) != 48 {
+		t.Fatal("reveal local key", revealed.Code)
+	}
+	keyDetail := call("GET", keyPath, nil, cookie, "")
+	if keyDetail.Code != 200 || strings.Contains(keyDetail.Body.String(), secret.Data.Key) || !strings.Contains(keyDetail.Body.String(), `"purpose":"ROLEPLAY"`) {
+		t.Fatal("masked local key", keyDetail.Code)
+	}
+	editKey := call("PUT", "/api/token/", map[string]any{"id": keyNumber, "name": "edited-local-key", "remain_quota": 77, "unlimited_quota": false, "expired_time": -1}, cookie, csrf)
+	if editKey.Code != 200 || !strings.Contains(editKey.Body.String(), `"remain_quota":77`) || !strings.Contains(editKey.Body.String(), `"purpose":"ROLEPLAY"`) {
+		t.Fatal("local key edit", editKey.Code)
+	}
+	purposeKey := call("PUT", "/api/token/?purpose_only=true", map[string]any{"id": keyNumber, "purpose": "GENERAL"}, cookie, csrf)
+	if purposeKey.Code != 200 || !strings.Contains(purposeKey.Body.String(), `"purpose":"GENERAL"`) {
+		t.Fatal("local key purpose", purposeKey.Code)
+	}
+	disabledKey := call("PUT", "/api/token/?status_only=true", map[string]any{"id": keyNumber, "status": 2}, cookie, csrf)
+	if disabledKey.Code != 200 || !strings.Contains(disabledKey.Body.String(), `"status":2`) {
+		t.Fatal("local key disable", disabledKey.Code)
+	}
 	audits := call("GET", "/api/v1/ops/audit?page=1&page_size=20", nil, cookie, "")
 	if audits.Code != 200 || !strings.Contains(audits.Body.String(), `"items":`) {
 		t.Fatal("local audit list", audits.Code)
@@ -237,6 +296,18 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = auth.Sessions.Revoke(context.Background(), ordinary) })
 	ordinaryCookie := &http.Cookie{Name: cookie.Name, Value: ordinary.Token}
+	if denied := call("POST", keyPath+"/key", nil, ordinaryCookie, ordinary.CSRFToken); denied.Code != 404 {
+		t.Fatal("other user key disclosure", denied.Code)
+	}
+	if denied := call("DELETE", keyPath, nil, ordinaryCookie, ordinary.CSRFToken); denied.Code != 404 {
+		t.Fatal("other user key deletion", denied.Code)
+	}
+	if deleted := call("DELETE", keyPath, nil, cookie, csrf); deleted.Code != 200 {
+		t.Fatal("local key delete", deleted.Code)
+	}
+	if gone := call("GET", keyPath, nil, cookie, ""); gone.Code != 404 {
+		t.Fatal("deleted key remains", gone.Code)
+	}
 	if denied := call("GET", "/api/v1/ops/audit", nil, ordinaryCookie, ""); denied.Code != 403 {
 		t.Fatal("ordinary user audit read", denied.Code)
 	}

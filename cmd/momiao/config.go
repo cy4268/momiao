@@ -35,8 +35,7 @@ type config struct {
 	OpsEnvironment            string
 	readiness                 map[string]readinessCheck
 	rankings                  *rankings.Service
-	keyPurposes               keyPurposeStore
-	nativePurposes            platform.NativePurposeWriter
+	apiKeys                   *platform.Store
 	rpUsage                   *platform.Store
 	RankingActivationTime     time.Time
 	AttributionSourceInstanceID string

@@ -198,3 +198,17 @@ func newNativeLogProjectionHandler(transport http.RoundTripper) http.Handler {
 		walletSuccess(w, result)
 	})
 }
+
+const nativeTokenListMaxOffset = int64(1<<31 - 1)
+
+func nativeTokenListPositive(value string) (int64, bool) {
+	if value == "" || strings.IndexFunc(value, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(value, 10, 64)
+	return n, err == nil && n > 0
+}
+
+func nativeTokenListSigned(value int64) bool {
+	return value >= -nativeSelfMaxSafeInteger && value <= nativeSelfMaxSafeInteger
+}

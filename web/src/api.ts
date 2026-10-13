@@ -16,6 +16,7 @@ export interface User {
     request_count?: number | null;
 }
 export interface Key {
+    purpose: 'GENERAL' | 'ROLEPLAY' | 'UNCLASSIFIED';
     id: number;
     name: string;
     key: string;

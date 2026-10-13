@@ -115,6 +115,14 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				domainHandler(cfg, newLocalSelfHandler(cfg.wallet)).ServeHTTP(w, r)
 				return
 			}
+			if strings.HasPrefix(r.URL.Path, "/api/token/") {
+				if cfg.apiKeys == nil {
+					walletError(w, 503, "KEY_UNAVAILABLE")
+					return
+				}
+				domainHandler(cfg, newLocalKeysHandler(cfg.apiKeys)).ServeHTTP(w, r)
+				return
+			}
 			if sessionAPIRoute(r.URL.Path) {
 				serveSessionRoute(cfg.sessionAuth, w, r)
 				return
@@ -169,19 +177,21 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		case r.URL.Path == "/api/v1/usage/rp":
 			domainHandler(cfg, newRPUsageHandler(cfg)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/key-purposes" || strings.HasPrefix(r.URL.Path, "/platform/v1/key-purposes/"):
-			domainHandler(cfg, newKeyPurposeHandler(cfg.PublicOrigin, cfg.keyPurposes, cfg.nativePurposes, transport)).ServeHTTP(w, r)
+			walletError(w, http.StatusNotFound, "NOT_FOUND")
 		case historyAPIRoute(r.URL.Path):
 			domainHandler(cfg, cfg.history).ServeHTTP(w, r)
 		case sessionAPIRoute(r.URL.Path):
 			serveSessionRoute(cfg.sessionAuth, w, r)
 		case cfg.Session.Enabled && legacyNativeBrowserAuthRoute(r.URL.Path):
 			sessionError(w, bffauth.Fault{Status: http.StatusNotFound, Code: "AUTH_ROUTE_NOT_FOUND"})
-		case cfg.Session.Enabled && strings.HasPrefix(r.URL.Path, nativeTokenWritePath) && (r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete):
-			domainHandler(cfg, newNativeTokenWriteProjectionHandler(transport)).ServeHTTP(w, r)
+		case strings.HasPrefix(r.URL.Path, "/api/token/"):
+			if cfg.apiKeys == nil {
+				walletError(w, 503, "KEY_UNAVAILABLE")
+				return
+			}
+			domainHandler(cfg, newLocalKeysHandler(cfg.apiKeys)).ServeHTTP(w, r)
 		case cfg.Session.Enabled && r.URL.Path == nativeLogProjectionPath:
 			domainHandler(cfg, newNativeLogProjectionHandler(transport)).ServeHTTP(w, r)
-		case cfg.Session.Enabled && r.Method == http.MethodGet && r.URL.Path == nativeTokenListPath:
-			domainHandler(cfg, newNativeTokenListProjectionHandler(transport)).ServeHTTP(w, r)
 		case cfg.Session.Enabled && (r.URL.Path == nativeWorkspaceGroupsPath || r.URL.Path == nativeWorkspaceModelsPath):
 			domainHandler(cfg, newNativeWorkspaceProjectionHandler(transport)).ServeHTTP(w, r)
 		case r.URL.Path == "/api/user/self":

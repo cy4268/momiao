@@ -102,7 +102,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		cfg.catalog = store
 		cfg.catalogAssets, err = newCatalogAssetStore(cfg.CatalogAssets, nil)
 		if err != nil { return errCatalogAssetConfig }
-		cfg.keyPurposes = store
+		cfg.apiKeys = store
 		cfg.rpUsage = store
 		if cfg.CatalogReaderKeyFile != "" {
 			key, err := readCatalogKey(cfg.CatalogReaderKeyFile)
@@ -169,12 +169,10 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			if cfg.AttributionSourceInstanceID != "" {
 				attribution, err := platform.NewNativeAttributionPort(transport, key, cfg.AttributionSourceInstanceID)
 				if err != nil { return errors.New("attribution startup failed") }
-				cfg.nativePurposes = attribution
 				attributionCtx, stopAttribution := context.WithCancel(ctx)
-				attributionDone, purposeDone := make(chan struct{}), make(chan struct{})
+				attributionDone := make(chan struct{})
 				go func() { defer close(attributionDone); platform.RunAttributionWorker(attributionCtx, store, attribution, cfg.AttributionSourceInstanceID) }()
-				go func() { defer close(purposeDone); platform.RunKeyPurposeWorker(attributionCtx, store, attribution) }()
-				defer func() { stopAttribution(); <-attributionDone; <-purposeDone }()
+				defer func() { stopAttribution(); <-attributionDone }()
 				cfg.readiness["request_attribution"] = func(ctx context.Context) error { _, err := attributionObserved(ctx, store, cfg.AttributionSourceInstanceID); return err }
 			}
 			workerCtx, cancel := context.WithCancel(ctx)

@@ -70,57 +70,6 @@ func TestNativeSelfRouteOptInIsExact(t *testing.T) {
 	}
 }
 
-func TestNativeTokenListRouteOptInIsExact(t *testing.T) {
-	for _, tc := range []struct {
-		enabled      bool
-		method, path string
-	}{
-		{false, http.MethodGet, "/api/token/"},
-		{false, http.MethodPost, "/api/token/"},
-		{false, http.MethodPut, "/api/token/?status_only=true"},
-		{false, http.MethodPost, "/api/token/1/key"},
-		{false, http.MethodDelete, "/api/token/1"},
-	} {
-		calls := 0
-		transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			calls++
-			if r.Method != tc.method {
-				t.Errorf("legacy method=%s", r.Method)
-			}
-			return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody}, nil
-		})
-		portal := newPortalHandler(config{WebDir: t.TempDir(), Session: sessionConfig{Enabled: tc.enabled}}, transport)
-		w := httptest.NewRecorder()
-		portal.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
-		if calls != 1 || w.Code != http.StatusNoContent {
-			t.Errorf("enabled=%v %s %s calls=%d status=%d", tc.enabled, tc.method, tc.path, calls, w.Code)
-		}
-	}
-}
-
-func TestNativeTokenWritePortalRequiresBridge(t *testing.T) {
-	transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
-		t.Error("unverified token mutation reached Native")
-		return nil, errors.New("unexpected Native call")
-	})
-	portal := newPortalHandler(config{WebDir: t.TempDir(), Session: sessionConfig{Enabled: true}}, transport)
-	for _, tc := range []struct{ method, path string }{
-		{http.MethodPost, "/api/token/"},
-		{http.MethodPut, "/api/token/?status_only=true"},
-		{http.MethodPost, "/api/token/9/key"},
-		{http.MethodDelete, "/api/token/9"},
-		{http.MethodPost, "/api/token/09/key"},
-		{http.MethodPut, "/api/token/?status_only=false"},
-		{http.MethodPost, "/api/token/9/key?x=1"},
-	} {
-		w := httptest.NewRecorder()
-		portal.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
-		if w.Code != http.StatusServiceUnavailable {
-			t.Errorf("%s %s missing bridge status=%d", tc.method, tc.path, w.Code)
-		}
-	}
-}
-
 func TestOpaqueModeBlocksLegacyBrowserAuthenticationRoutes(t *testing.T) {
 	routes := []struct{ method, path string }{
 		{http.MethodPost, "/api/user/login"},

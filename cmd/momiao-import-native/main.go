@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -14,12 +15,14 @@ import (
 
 func main() {
 	if err := run(context.Background()); err != nil {
-		fmt.Fprintln(os.Stderr, "identity import failed")
+		fmt.Fprintln(os.Stderr, "native data import failed")
 		os.Exit(1)
 	}
 }
 
 func run(ctx context.Context) error {
+	stage := flag.String("stage", "identity", "identity or keys")
+	flag.Parse()
 	// Files keep connection credentials out of command arguments and logs.
 	sourceDSN, err := os.ReadFile(os.Getenv("MOMIAO_IMPORT_NATIVE_DSN_FILE"))
 	if err != nil {
@@ -40,6 +43,16 @@ func run(ctx context.Context) error {
 	}
 	defer target.Close()
 	// Schema migration is deliberately a separate, explicit command.
+	if *stage == "keys" {
+		count, err := target.ImportNativeKeys(ctx, source)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"stage": "keys", "api_keys": count})
+	}
+	if *stage != "identity" {
+		return fmt.Errorf("unknown import stage")
+	}
 	result, err := target.ImportNativeIdentity(ctx, source)
 	if err != nil {
 		return err
