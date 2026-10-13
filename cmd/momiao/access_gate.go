@@ -143,7 +143,7 @@ func gateRouteDomain(route string) string {
 	}
 	return ""
 }
-func newAccessGateHandler(origin string, store accessGateStore, declaration *accessDeclaration, transport http.RoundTripper, pokerWired bool) http.Handler {
+func newAccessGateHandler(origin string, store accessGateStore, declaration *accessDeclaration, pokerWired bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gate := r.URL.Path == "/platform/v1/access-gate"
 		ack := r.URL.Path == "/platform/v1/migration-notice/acknowledge"

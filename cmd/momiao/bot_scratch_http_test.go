@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"errors"
 	"github.com/cy4268/momiao/internal/botgames"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -121,10 +119,7 @@ func TestBotScratchAbsentFromPublicPortal(t *testing.T) {
 		for _, enabled := range []bool{false, true} {
 			cfg := config{WebDir: web}
 			cfg.Session.Enabled = enabled
-			h := newPortalHandler(cfg, roundTripFunc(func(*http.Request) (*http.Response, error) {
-				t.Error("scratch reached Native proxy")
-				return nil, errors.New("unexpected Native")
-			}))
+			h := newPortalHandler(cfg)
 			for _, path := range []string{"prepare", "play", "lookup", "%70repare", "prepare?x=1"} {
 				for _, method := range []string{"GET", "POST"} {
 					w := httptest.NewRecorder()

@@ -14,7 +14,7 @@ type admissionStore interface {
 	ReadAdmission(context.Context, int64) (platform.AdmissionStatus, error)
 }
 
-func newAdmissionHandler(origin string, store admissionStore, transport http.RoundTripper) http.Handler {
+func newAdmissionHandler(origin string, store admissionStore) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			walletError(w, 503, "ADMISSION_UNAVAILABLE")
@@ -41,16 +41,9 @@ func newAdmissionHandler(origin string, store admissionStore, transport http.Rou
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
-		user, status := verifyWalletUser(r, transport)
+		user, status := verifyWalletUser(r)
 		if status != 0 {
-			code := "AUTH_UNAVAILABLE"
-			if status == 401 {
-				code = "AUTH_UNAUTHORIZED"
-			}
-			if status == 403 {
-				code = "AUTH_FORBIDDEN"
-			}
-			walletError(w, status, code)
+			walletError(w, status, "AUTH_UNAUTHORIZED")
 			return
 		}
 		if ensure {

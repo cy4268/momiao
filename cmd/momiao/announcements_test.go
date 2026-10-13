@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"errors"
 	"os"
 
 	"github.com/cy4268/momiao/internal/identity"
@@ -74,10 +73,7 @@ func TestAnnouncementHTTPAuthority(t *testing.T) {
 	for _, webDir := range []string{"", "/unused-announcements-web"} {
 		cfg := config{WebDir: webDir, PublicOrigin: auth.Origin, announcements: store, localIdentity: auth}
 		cfg.Session.Enabled = true
-		h := newPortalHandler(cfg, walletTransport(func(*http.Request) (*http.Response, error) {
-			t.Error("announcements reached native")
-			return nil, errors.New("unexpected native call")
-		}))
+		h := newPortalHandler(cfg)
 		request := func(user int64, method, path, body string, csrf bool) *httptest.ResponseRecorder {
 			r := httptest.NewRequest(method, path, strings.NewReader(body))
 			r.Header.Set("Origin", auth.Origin)

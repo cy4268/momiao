@@ -94,11 +94,6 @@ func runRecoveryLockedProcess(ctx context.Context, cfg config, logger *log.Logge
 	if cfg.WebDir != "" {
 		cfg.readiness["web"] = webReadiness(cfg.WebDir)
 	}
-	if cfg.NewAPISocket != "" {
-		transport := newNativeTransport(cfg.NewAPISocket)
-		defer transport.CloseIdleConnections()
-		cfg.readiness["native"] = nativeReadiness(transport)
-	}
 	var platformPool *pgxpool.Pool
 	if cfg.WalletDSNFile != "" {
 		pool, err := openPokerPool(ctx, cfg.WalletDSNFile)

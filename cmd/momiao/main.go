@@ -40,11 +40,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 	if cfg.WebDir != "" {
 		cfg.readiness["web"] = webReadiness(cfg.WebDir)
 	}
-	if cfg.NewAPISocket != "" {
-		transport := newNativeTransport(cfg.NewAPISocket)
-		defer transport.CloseIdleConnections()
-		cfg.readiness["native"] = nativeReadiness(transport)
-	}
 	var sessionRedis *redis.Client
 	var runtimeStore *platform.Store
 	var campaign *platform.GamblerCampaignService

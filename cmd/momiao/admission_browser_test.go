@@ -15,7 +15,6 @@ import (
 	"html/template"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -328,17 +327,7 @@ func TestAdmissionBrowserHarness(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	native := httptest.NewServer(http.HandlerFunc(fixture.native))
-	defer native.Close()
-	nativeURL, _ := url.Parse(native.URL)
-	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		copy := r.Clone(r.Context())
-		u := *r.URL
-		u.Scheme = nativeURL.Scheme
-		u.Host = nativeURL.Host
-		copy.URL = &u
-		return http.DefaultTransport.RoundTrip(copy)
-	})
+
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -352,7 +341,7 @@ func TestAdmissionBrowserHarness(t *testing.T) {
 	if combined {
 		cfg.announcements = store
 	}
-	portal := newPortalHandler(cfg, transport)
+	portal := newPortalHandler(cfg)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/__fixture/") {
 			portal.ServeHTTP(w, r)

@@ -63,7 +63,6 @@ type config struct {
 	ListenSocket              string
 	AssetCDNOrigin            string
 	WebDir                    string
-	NewAPISocket              string
 	ShutdownTimeout           time.Duration
 }
 
@@ -124,21 +123,6 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 			return config{}, errors.New("MOMIAO_WEB_DIR must contain a regular index.html")
 		}
 		cfg.WebDir = resolved
-	}
-	if value, ok := lookup("MOMIAO_NEWAPI_SOCKET"); ok {
-		if value == "" {
-			return config{}, errors.New("MOMIAO_NEWAPI_SOCKET must not be empty")
-		}
-		if !filepath.IsAbs(value) {
-			return config{}, errors.New("MOMIAO_NEWAPI_SOCKET must be an absolute path")
-		}
-		cfg.NewAPISocket = filepath.Clean(value)
-	}
-	if cfg.WebDir == "" && cfg.NewAPISocket != "" && cfg.ProcessRole != "poker" {
-		return config{}, errors.New("MOMIAO_NEWAPI_SOCKET requires MOMIAO_WEB_DIR")
-	}
-	if cfg.ListenSocket != "" && cfg.ListenSocket == cfg.NewAPISocket {
-		return config{}, errors.New("MOMIAO_LISTEN_SOCKET and MOMIAO_NEWAPI_SOCKET must differ")
 	}
 	if value, ok := lookup("MOMIAO_SHUTDOWN_TIMEOUT"); ok {
 		if value == "" {

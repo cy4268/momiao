@@ -104,14 +104,13 @@ MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 ./momiao
 ```
 
-打开 `/login`，HTTPS 入口使用本地 `__Host-chaldea_session` Cookie 与准确的 Public Origin。也可用 `MOMIAO_LISTEN_SOCKET` 替换 TCP 监听，供支持 Unix Socket 的入口直接连接，见 [部署说明](docs/deployment.md)。没有随仓库提供的账户、默认密码或数据库。其余 Native 业务依赖仍在清理，完整开发验收前不切生产。
+打开 `/login`，HTTPS 入口使用本地 `__Host-chaldea_session` Cookie 与准确的 Public Origin。也可用 `MOMIAO_LISTEN_SOCKET` 替换 TCP 监听，供支持 Unix Socket 的入口直接连接，见 [部署说明](docs/deployment.md)。没有随仓库提供的账户、默认密码或数据库。门户已删除 Native Socket、身份投影与就绪探测；其余 Native 源码/工具与部署文件仍在清理，完整开发验收前不切生产。
 
 | 环境变量 | 缺省 / 含义 |
 |---|---|
 | `MOMIAO_LISTEN_ADDR` | `127.0.0.1:8080`；数字 IP 与 `1..65535` 端口，IPv6 加方括号 |
 | `MOMIAO_LISTEN_SOCKET` | 可选绝对路径；与显式设置的 TCP 地址互斥；新 Socket 为 0600，不覆盖已有路径 |
 | `MOMIAO_WEB_DIR` | 可选绝对路径；必须存在且含 `index.html`，不再要求 Native Socket |
-| `MOMIAO_NEWAPI_SOCKET` | 尚存 Native 业务读取使用的私有 Socket，非本地登录依赖 |
 | `MOMIAO_SESSION_ENABLED` | `true` 启用本地登录，会话需要平台数据库、Public Origin 与 Redis |
 | `MOMIAO_SESSION_REDIS_CONFIG_FILE` | 现有 Redis TLS 配置文件绝对路径 |
 | `MOMIAO_WALLET_DSN_FILE` | 可选受限平台 DSN 文件绝对路径；钱包与 Master 共用，与 Public Origin 成对 |

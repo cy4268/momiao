@@ -99,7 +99,7 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	cfg.opsMaintenance = newOpsMaintenanceHandler(wallets, "DEVELOPMENT")
 	cfg.opsAudit = newOpsAuditHandler(wallets)
 	cfg.relay = wallets
-	handler := newPortalHandler(cfg, nil)
+	handler := newPortalHandler(cfg)
 	call := func(method, path string, body any, cookie *http.Cookie, csrf string) *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(body)
 		r := httptest.NewRequest(method, "https://dev.momiao.win"+path, bytes.NewReader(raw))
@@ -198,7 +198,7 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	if !ok || user.Username != username {
 		t.Fatal("request identity mismatch")
 	}
-	if id, status := verifyWalletUser(prepared, nil); status != 0 || id != user.ID {
+	if id, status := verifyWalletUser(prepared); status != 0 || id != user.ID {
 		t.Fatal("wallet still requires native credentials", status)
 	}
 	if binding := identity.SessionIDFromContext(prepared.Context()); binding == "" || binding == cookie.Value {
@@ -249,7 +249,7 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	}
 	// Continue through the web-enabled portal, not only the API-only router.
 	cfg.WebDir = "."
-	handler = newPortalHandler(cfg, nil)
+	handler = newPortalHandler(cfg)
 	if denied := call("GET", "/api/log/self", nil, nil, ""); denied.Code != 401 {
 		t.Fatal("anonymous log read", denied.Code)
 	}
@@ -463,7 +463,7 @@ func TestLocalPasswordHTTP(t *testing.T) {
 	}
 	prepared.URL, _ = url.Parse("https://dev.momiao.win/platform/v1/access-gate?route=/account")
 	gate := httptest.NewRecorder()
-	newAccessGateHandler(auth.Origin, wallets, &accessDeclaration{MigrationApplicability: "NO_MIGRATION_APPLICABLE", Resources: map[string]string{"ACCOUNT": "AVAILABLE"}}, nil, false).ServeHTTP(gate, prepared)
+	newAccessGateHandler(auth.Origin, wallets, &accessDeclaration{MigrationApplicability: "NO_MIGRATION_APPLICABLE", Resources: map[string]string{"ACCOUNT": "AVAILABLE"}}, false).ServeHTTP(gate, prepared)
 	if gate.Code != 200 || !(strings.Contains(gate.Body.String(), `"stage":"READY"`) || strings.Contains(gate.Body.String(), `"stage":"MASTER_REQUIRED"`)) {
 		t.Fatal("local access gate", gate.Code)
 	}

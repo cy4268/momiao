@@ -11,7 +11,7 @@ func TestDisabledSessionEnvelope(t *testing.T) {
 		for _, path := range []string{"/api/v1/session/bootstrap", "/api/v1/auth/password/login"} {
 			t.Run(dir+path, func(t *testing.T) {
 				response := httptest.NewRecorder()
-				newPortalHandler(config{WebDir: dir}, nil).ServeHTTP(response, httptest.NewRequest("GET", path, nil))
+				newPortalHandler(config{WebDir: dir}).ServeHTTP(response, httptest.NewRequest("GET", path, nil))
 				var body struct {
 					Success bool `json:"success"`
 					Error   struct {

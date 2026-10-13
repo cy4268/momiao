@@ -10,8 +10,8 @@ import (
 
 func TestConfigDefaults(t *testing.T) {
 	cfg, err := loadConfig(func(key string) (string, bool) {
-		if strings.HasPrefix(key, "MOMIAO_NATIVE_QUOTA_") || strings.HasPrefix(key, "MOMIAO_REFILL_") {
-			t.Fatalf("obsolete quota config still read: %s", key)
+		if key == "MOMIAO_NEWAPI_SOCKET" || strings.HasPrefix(key, "MOMIAO_NATIVE_QUOTA_") || strings.HasPrefix(key, "MOMIAO_REFILL_") {
+			t.Fatalf("obsolete native config still read: %s", key)
 		}
 		return "", false
 	})
@@ -85,29 +85,22 @@ func TestPortalConfigAcceptanceAndRejection(t *testing.T) {
 		t.Fatal(err)
 	}
 	absSocket := filepath.Join(t.TempDir(), "portal.sock")
-	upstreamSocket := filepath.Join(t.TempDir(), "newapi.sock")
 
 	for _, tc := range []struct {
 		name string
 		env  map[string]string
 		ok   bool
 	}{
-		{"web with fixed upstream", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, true},
 		{"unix listener", map[string]string{"MOMIAO_LISTEN_SOCKET": absSocket}, true},
-		{"complete production shape", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_LISTEN_SOCKET": absSocket, "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, true},
 		{"empty web", map[string]string{"MOMIAO_WEB_DIR": ""}, false},
 		{"empty listener socket", map[string]string{"MOMIAO_LISTEN_SOCKET": ""}, false},
-		{"empty upstream socket", map[string]string{"MOMIAO_NEWAPI_SOCKET": ""}, false},
+		{"missing web", map[string]string{"MOMIAO_WEB_DIR": filepath.Join(t.TempDir(), "missing")}, false},
+		{"web without index", map[string]string{"MOMIAO_WEB_DIR": t.TempDir()}, false},
 		{"relative web", map[string]string{"MOMIAO_WEB_DIR": "web"}, false},
-		{"missing web", map[string]string{"MOMIAO_WEB_DIR": filepath.Join(t.TempDir(), "missing"), "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, false},
-		{"web without index", map[string]string{"MOMIAO_WEB_DIR": t.TempDir(), "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, false},
 		{"relative listener socket", map[string]string{"MOMIAO_LISTEN_SOCKET": "portal.sock"}, false},
-		{"relative upstream socket", map[string]string{"MOMIAO_NEWAPI_SOCKET": "newapi.sock"}, false},
 		{"web without upstream", map[string]string{"MOMIAO_WEB_DIR": webDir}, true},
 		{"local sessions without native", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_WALLET_DSN_FILE": filepath.Join(webDir, "wallet.dsn"), "MOMIAO_PUBLIC_ORIGIN": "https://dev.momiao.win", "MOMIAO_SESSION_ENABLED": "true", "MOMIAO_SESSION_REDIS_CONFIG_FILE": filepath.Join(webDir, "redis.json"), "MOMIAO_OPS_ENVIRONMENT": "DEVELOPMENT"}, true},
-		{"upstream without web", map[string]string{"MOMIAO_NEWAPI_SOCKET": upstreamSocket}, false},
 		{"tcp and unix listener", map[string]string{"MOMIAO_LISTEN_ADDR": "127.0.0.1:8090", "MOMIAO_LISTEN_SOCKET": absSocket}, false},
-		{"same listener and upstream", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_LISTEN_SOCKET": absSocket, "MOMIAO_NEWAPI_SOCKET": absSocket}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg, err := loadConfig(func(key string) (string, bool) {

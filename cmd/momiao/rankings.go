@@ -6,7 +6,6 @@ import (
  "net/url"
  "strconv"
 
- "github.com/cy4268/momiao/internal/nativeself"
  "github.com/cy4268/momiao/internal/rankings"
 )
 
@@ -19,9 +18,8 @@ func newRankingsHandler(service *rankings.Service, private bool) http.Handler {
   if r.Method!=http.MethodGet{w.Header().Set("Allow","GET");walletError(w,405,"METHOD_NOT_ALLOWED");return}
   var user int64
   if private {
-   claimed,ok:=authHeader(r,"New-Api-User",19,true)
-   id,e:=decimalInt(claimed)
-   if !ok||e!=nil||id<=0||!nativeself.SessionCredential(r){walletError(w,401,"UNAUTHORIZED");return};user=id
+   id,status:=verifyWalletUser(r)
+   if status!=0{walletError(w,status,"UNAUTHORIZED");return};user=id
   }
   query,e:=url.ParseQuery(r.URL.RawQuery)
   if e!=nil||len(r.URL.RawQuery)>2048||r.URL.ForceQuery {walletError(w,400,"RANKING_QUERY_INVALID");return}

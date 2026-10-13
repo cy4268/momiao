@@ -97,7 +97,7 @@ func TestPokerLobbyHTTPReadOnlyMaintenanceBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer h.Close()
-	server := httptest.NewServer(newPortalHandler(config{WebDir: f.dir, poker: h}, nil))
+	server := httptest.NewServer(newPortalHandler(config{WebDir: f.dir, poker: h}))
 	defer server.Close()
 	target, _ := url.Parse(server.URL)
 	wire := httputil.NewSingleHostReverseProxy(target) // appHTTP now traverses an actual TCP listener.

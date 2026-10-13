@@ -24,7 +24,7 @@ func (s *admissionTestStore) ReadAdmission(ctx context.Context, u int64) (platfo
 }
 func TestAdmissionHTTPAuthorityAndExplicitEnsure(t *testing.T) {
 	s := &admissionTestStore{}
-	h := newAdmissionHandler("https://wallet.example", s, profileTransport())
+	h := newAdmissionHandler("https://wallet.example", s)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, walletReq("GET", "/platform/v1/admission", ""))
 	if w.Code != 200 || s.statusReads != 1 || s.inits != 0 {
@@ -58,7 +58,7 @@ func TestAdmissionHTTPAuthorityAndExplicitEnsure(t *testing.T) {
 func TestAdmissionPrivatePathNeverProxied(t *testing.T) {
 	cfg := config{WebDir: t.TempDir()}
 	called := false
-	h := newPortalHandler(cfg, roundTripFunc(func(*http.Request) (*http.Response, error) { called = true; return httptest.NewRecorder().Result(), nil }))
+	h := newPortalHandler(cfg)
 	for _, path := range []string{"/internal/momiao/registrations", "/internal", "/internal/else", "/api/../internal/momiao/registrations", "/api/%2e%2e/internal/momiao/registrations", "/%69nternal/momiao/registrations"} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("GET", path, nil)

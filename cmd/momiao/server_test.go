@@ -91,11 +91,7 @@ func TestUnownedPlatformAPINeverReachesNative(t *testing.T) {
 		for _, enabled := range []bool{false, true} {
 			cfg := config{WebDir: webDir}
 			cfg.Session.Enabled = enabled
-			calls := 0
-			handler := newPortalHandler(cfg, roundTripFunc(func(*http.Request) (*http.Response, error) {
-				calls++
-				return nil, errors.New("unowned Platform route reached Native")
-			}))
+			handler := newPortalHandler(cfg)
 			for _, route := range []string{"/platform/v1/native-quota", "/platform/v1/quota-transfers", "/platform/v1/quota-transfers/by-key", "/internal/momiao/active-quota/refill", "/api/user/login", "/api/momiao/auth/discord/login/start", "/api/unowned", "/api/v1", "/api/v1/not-owned", "/api/v1/not-owned?source=browser", "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup", "/internal/v1/bot-games/dice/%70repare", "/internal/v1/bot-games/dice/prepare?x=1", "/internal/v1/bot-games/slot/prepare", "/internal/v1/bot-games/slot/play", "/internal/v1/bot-games/slot/lookup", "/internal/v1/bot-games/slot/%70repare", "/internal/v1/bot-games/slot/prepare?x=1"} {
 				for _, method := range []string{http.MethodGet, http.MethodPost} {
 					response := httptest.NewRecorder()
@@ -107,9 +103,6 @@ func TestUnownedPlatformAPINeverReachesNative(t *testing.T) {
 						t.Fatalf("web=%t session=%t %s %s: status=%d body=%q", webDir != "", enabled, method, route, response.Code, response.Body.String())
 					}
 				}
-			}
-			if calls != 0 {
-				t.Fatalf("unowned Platform routes made %d Native calls", calls)
 			}
 		}
 	}
@@ -144,8 +137,8 @@ func TestPortalServesOnlyApprovedSPAAndCompiledFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := newPortalHandler(config{WebDir: webDir, NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, nil)
-	cdnHandler := newPortalHandler(config{WebDir: webDir, AssetCDNOrigin: "https://assets.example.test"}, nil)
+	handler := newPortalHandler(config{WebDir: webDir})
+	cdnHandler := newPortalHandler(config{WebDir: webDir, AssetCDNOrigin: "https://assets.example.test"})
 	cdnResponse := httptest.NewRecorder()
 	cdnHandler.ServeHTTP(cdnResponse, httptest.NewRequest(http.MethodGet, "/models", nil))
 	if csp := cdnResponse.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "img-src 'self' data: https://assets.example.test;") || !strings.Contains(csp, "connect-src 'self'") || strings.Count(csp, "assets.example.test") != 1 {
@@ -240,7 +233,7 @@ func TestPortalCanonicalizesWebRootAlias(t *testing.T) {
 	if err := os.Symlink(realRoot, alias); err != nil {
 		t.Skipf("directory aliases are unavailable on this host: %v", err)
 	}
-	handler := newPortalHandler(config{WebDir: alias, NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, nil)
+	handler := newPortalHandler(config{WebDir: alias})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/app-CfXwKDEl.js", nil))
 	if response.Code != http.StatusOK || response.Body.String() != "asset" {
@@ -248,12 +241,12 @@ func TestPortalCanonicalizesWebRootAlias(t *testing.T) {
 	}
 }
 
-func TestNativeTransportUsesRouteDeadlineForDelayedHeaders(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "newapi.sock")
-	transport := newNativeTransport(socket)
+func TestPokerTransportUsesRouteDeadlineForDelayedHeaders(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "poker.sock")
+	transport := newPokerTransport(socket)
 	defer transport.CloseIdleConnections()
 	if transport.ResponseHeaderTimeout != 0 {
-		t.Fatalf("native transport imposed an independent response-header timeout: %v", transport.ResponseHeaderTimeout)
+		t.Fatalf("Poker transport imposed an independent response-header timeout: %v", transport.ResponseHeaderTimeout)
 	}
 
 	address, err := net.ResolveUnixAddr("unix", socket)
@@ -269,7 +262,7 @@ func TestNativeTransportUsesRouteDeadlineForDelayedHeaders(t *testing.T) {
 	}
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(50 * time.Millisecond)
-		_, _ = io.WriteString(w, "native")
+		_, _ = io.WriteString(w, "poker")
 	})}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
@@ -280,7 +273,7 @@ func TestNativeTransportUsesRouteDeadlineForDelayedHeaders(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://unix/v1/models", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://unix/internal/v1/poker/ready", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,8 +287,8 @@ func TestNativeTransportUsesRouteDeadlineForDelayedHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(started); response.StatusCode != http.StatusOK || string(body) != "native" || elapsed < 40*time.Millisecond || elapsed >= 500*time.Millisecond {
-		t.Fatalf("delayed native response ignored route context: status=%d body=%q elapsed=%v", response.StatusCode, body, elapsed)
+	if elapsed := time.Since(started); response.StatusCode != http.StatusOK || string(body) != "poker" || elapsed < 40*time.Millisecond || elapsed >= 500*time.Millisecond {
+		t.Fatalf("delayed Poker response ignored route context: status=%d body=%q elapsed=%v", response.StatusCode, body, elapsed)
 	}
 }
 

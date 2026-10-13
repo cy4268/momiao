@@ -14,7 +14,7 @@ func TestHistoryWiringBoundary(t *testing.T) {
 	}
 	for _, dir := range []string{"", t.TempDir()} {
 		response := httptest.NewRecorder()
-		newPortalHandler(config{WebDir: dir}, nil).ServeHTTP(response, httptest.NewRequest("GET", "/api/v1/history", nil))
+		newPortalHandler(config{WebDir: dir}).ServeHTTP(response, httptest.NewRequest("GET", "/api/v1/history", nil))
 		var body struct {
 			Code string `json:"code"`
 		}

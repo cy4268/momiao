@@ -98,7 +98,7 @@ func TestLocalOpsRecords(t *testing.T) {
 	}
 	for _, webDir := range []string{"", "/unused-records-web"} {
 		cfg := config{PublicOrigin: auth.Origin, OpsEnvironment: "DEVELOPMENT", WebDir: webDir, Session: sessionConfig{Enabled: true}, localIdentity: auth, relay: store, history: historyHandler}
-		h := newPortalHandler(cfg, catalogRoundTrip(func(*http.Request) (*http.Response, error) { t.Fatal("records reached native"); return nil, nil }))
+		h := newPortalHandler(cfg)
 		call := func(user int64, method, path string, want int) *httptest.ResponseRecorder {
 			t.Helper()
 			r := httptest.NewRequest(method, path, nil)

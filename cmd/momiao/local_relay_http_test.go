@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -33,10 +32,7 @@ func TestLocalRelayHTTP(t *testing.T) {
 	}
 	defer store.Close()
 	for _, web := range []string{"", "/unused-local-relay-web"} {
-		h := newPortalHandler(config{WebDir: web, relay: store}, roundTripFunc(func(*http.Request) (*http.Response, error) {
-			t.Error("generation reached native transport")
-			return nil, errors.New("unexpected native request")
-		}))
+		h := newPortalHandler(config{WebDir: web, relay: store})
 		for _, endpoint := range []string{"chat/completions", "responses", "messages"} {
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, httptest.NewRequest("POST", "/v1/"+endpoint, strings.NewReader(`{"model":"gpt-5.6-sol"}`)))
@@ -45,7 +41,7 @@ func TestLocalRelayHTTP(t *testing.T) {
 			}
 		}
 	}
-	server := httptest.NewServer(newPortalHandler(config{relay: store}, nil))
+	server := httptest.NewServer(newPortalHandler(config{relay: store}))
 	defer server.Close()
 	client := &http.Client{Timeout: 5 * time.Minute}
 	var totalCharged int64

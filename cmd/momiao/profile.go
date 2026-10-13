@@ -20,7 +20,7 @@ type profileStore interface {
 	UpdateProfile(context.Context, int64, platform.ProfilePatch) (platform.Profile, error)
 }
 
-func newProfileHandler(origin string, store profileStore, transport http.RoundTripper) http.Handler {
+func newProfileHandler(origin string, store profileStore) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			walletError(w, 503, "PROFILE_UNAVAILABLE")
@@ -29,15 +29,9 @@ func newProfileHandler(origin string, store profileStore, transport http.RoundTr
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
-		user, status := verifyWalletUser(r, transport)
+		user, status := verifyWalletUser(r)
 		if status != 0 {
-			code := "AUTH_UNAVAILABLE"
-			if status == 401 {
-				code = "AUTH_UNAUTHORIZED"
-			} else if status == 403 {
-				code = "AUTH_FORBIDDEN"
-			}
-			walletError(w, status, code)
+			walletError(w, status, "AUTH_UNAUTHORIZED")
 			return
 		}
 		initialize := r.URL.Path == "/platform/v1/master-profile/initialize"

@@ -138,7 +138,7 @@ func TestRecoveryLockAuthProbeAllowlistAndAmbiguousRequests(t *testing.T) {
 	cfg.RecoveryAuthProbes, cfg.Session.Enabled = true, true
 	called := 0
 	cfg.sessionAuth = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called++; w.WriteHeader(204) })
-	h := newPortalHandler(cfg, nil)
+	h := newPortalHandler(cfg)
 	for _, path := range []string{"/api/v1/session/bootstrap", "/api/v1/account"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))

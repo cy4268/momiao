@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"hash/crc32"
 	"image"
 	"image/jpeg"
@@ -233,10 +232,7 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 			cfg.pokerOps = service
 
 		}
-		h := newPortalHandler(cfg, catalogRoundTrip(func(*http.Request) (*http.Response, error) {
-			t.Error("Ops catalog reached native")
-			return nil, errors.New("unexpected native call")
-		}))
+		h := newPortalHandler(cfg)
 		request := func(user int64, method, path, body string, csrf bool) *httptest.ResponseRecorder {
 			r := httptest.NewRequest(method, path, strings.NewReader(body))
 			r.Header.Set("New-Api-User", "1")
@@ -253,6 +249,54 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 			h.ServeHTTP(w, r)
 			return w
 		}
+
+		t.Run("native-dependencies", func(t *testing.T) {
+			for _, user := range []int64{admin, regular} {
+				r := httptest.NewRequest("GET", "/local-wallet", nil)
+				r.AddCookie(&http.Cookie{Name: identity.SessionCookieName, Value: sessions[user].Token})
+				prepared, err := auth.Request(r, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if id, status := verifyWalletUser(prepared); status != 0 || id != user {
+					t.Fatal("local wallet identity", id, status)
+				}
+				prepared.URL.Path = "/platform/v1/wallet"
+				wallet := httptest.NewRecorder()
+				newWalletHandler(auth.Origin, store).ServeHTTP(wallet, prepared)
+				if wallet.Code != 200 || !strings.Contains(wallet.Body.String(), `"user_id":"`+strconv.FormatInt(user, 10)+`"`) {
+					t.Fatal("local wallet read", wallet.Code, wallet.Body.String())
+				}
+				w := request(user, "GET", "/api/v1/rankings/me", "", false)
+				if w.Code != 200 {
+					t.Fatalf("web=%t local personal ranking: status=%d body=%s", webDir != "", w.Code, w.Body.String())
+				}
+				var actual struct {
+					Data rankings.Page `json:"data"`
+				}
+				if json.Unmarshal(w.Body.Bytes(), &actual) != nil {
+					t.Fatal("ranking response")
+				}
+				expected, err := cfg.rankings.Read(t.Context(), rankings.Query{Metric: "TOTAL_ASSETS", Period: "CURRENT", Page: 1}, user)
+				if err != nil {
+					t.Fatal(err)
+				}
+				a, _ := json.Marshal(actual.Data)
+				b, _ := json.Marshal(expected)
+				if !bytes.Equal(a, b) {
+					t.Fatal("ranking does not match the local session user")
+				}
+			}
+			if w := request(0, "GET", "/api/v1/rankings/me", "", false); w.Code != 401 {
+				t.Fatal("ranking anonymous", w.Code)
+			}
+			if w := request(admin, "POST", "/api/v1/rankings/me", `{}`, true); w.Code != 405 {
+				t.Fatal("ranking read only", w.Code)
+			}
+			if w := request(admin, "GET", "/api/v1/rankings/me?page=0", "", false); w.Code != 400 {
+				t.Fatal("ranking invalid page", w.Code)
+			}
+		})
 
 		t.Run("rp", func(t *testing.T) {
 			for _, user := range []int64{admin, regular} {
@@ -829,10 +873,7 @@ func TestCatalogHTTPPersonalPriceBoundaryAndWithdrawal(t *testing.T) {
 		cfg.PublicOrigin, cfg.WebDir = auth.Origin, webDir
 		cfg.Session.Enabled = true
 		cfg.localIdentity = auth
-		h := newPortalHandler(cfg, catalogRoundTrip(func(*http.Request) (*http.Response, error) {
-			t.Error("local catalog reached native transport")
-			return nil, errors.New("unexpected native call")
-		}))
+		h := newPortalHandler(cfg)
 		request := func(id, extra string, authenticated bool) *httptest.ResponseRecorder {
 			t.Helper()
 			r := httptest.NewRequest("GET", "/platform/v1/models/personal-price?"+url.Values{"model_id": []string{id}}.Encode()+extra, nil)
@@ -875,10 +916,7 @@ func TestCatalogBrowserOpaqueRoutesAndExactAccessProxy(t *testing.T) {
 	calls := 0
 	cfg := catalogHTTPConfig(&catalogHTTPStore{})
 	cfg.WebDir = dir
-	h := newPortalHandler(cfg, catalogRoundTrip(func(r *http.Request) (*http.Response, error) {
-		calls++
-		return &http.Response{StatusCode: 201, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("native"))}, nil
-	}))
+	h := newPortalHandler(cfg)
 	for _, path := range []string{"/api/access?model_id=x", "/models/" + url.PathEscape("组织/x%2F'"), "/models/~Lg", "/models/~Li4", "/models/%7ELg", "/ops/models"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))

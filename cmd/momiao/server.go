@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cy4268/momiao/internal/identity"
-	"github.com/cy4268/momiao/internal/nativeself"
 	"github.com/cy4268/momiao/internal/relay"
 	"io"
 	"mime"
@@ -66,7 +65,7 @@ func healthHandler() http.Handler {
 func newServer(cfg config) *http.Server {
 	return &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           newPortalHandler(cfg, nil),
+		Handler:           newPortalHandler(cfg),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -75,7 +74,7 @@ func newServer(cfg config) *http.Server {
 	}
 }
 
-func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
+func newPortalHandler(cfg config) http.Handler {
 	if cfg.RecoveryLock {
 		return newRecoveryLockedHandler(cfg)
 	}
@@ -108,6 +107,10 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 			}
 			if r.URL.Path == "/readyz" {
 				newReadinessHandler(cfg.readiness).ServeHTTP(w, r)
+				return
+			}
+			if r.URL.Path == "/api/v1/rankings/me" {
+				domainHandler(cfg, newRankingsHandler(cfg.rankings, true)).ServeHTTP(w,r)
 				return
 			}
 			if r.URL.Path == "/api/v1/rankings" {
@@ -180,9 +183,6 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	if root, err := filepath.EvalSymlinks(cfg.WebDir); err == nil {
 		cfg.WebDir = root
 	}
-	if transport == nil {
-		transport = newNativeTransport(cfg.NewAPISocket)
-	}
 	readPoker := cfg.pokerCatalogRuntime
 	if !cfg.Poker.Enabled || cfg.poker == nil {
 		readPoker = nil
@@ -224,9 +224,9 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		case pokerAPIRoute(r.URL.Path):
 			servePokerRoute(domainHandler(cfg, cfg.poker), w, r)
 		case r.URL.Path == "/api/v1/games" || strings.HasPrefix(r.URL.Path, "/api/v1/games/") || r.URL.Path == "/api/v1/game-rounds" || strings.HasPrefix(r.URL.Path, "/api/v1/game-rounds/"):
-			domainHandler(cfg, newGameHandler(cfg.PublicOrigin, cfg.games, transport, readPoker)).ServeHTTP(w, r)
+			domainHandler(cfg, newGameHandler(cfg.PublicOrigin, cfg.games, readPoker)).ServeHTTP(w, r)
 		case r.URL.Path == "/api/v1/roulette" || strings.HasPrefix(r.URL.Path, "/api/v1/roulette/"):
-			domainHandler(cfg, newRouletteHandler(cfg.PublicOrigin, cfg.roulette, cfg.games, transport)).ServeHTTP(w, r)
+			domainHandler(cfg, newRouletteHandler(cfg.PublicOrigin, cfg.roulette, cfg.games)).ServeHTTP(w, r)
 		case path.Clean(r.URL.Path) == "/internal" || strings.HasPrefix(path.Clean(r.URL.Path), "/internal/"):
 			walletError(w, 404, "NOT_FOUND")
 		case catalogAPIRoute(r.URL.Path):
@@ -234,17 +234,17 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		case r.URL.Path == "/platform/v1/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/announcements/") || r.URL.Path == "/platform/v1/ops/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/announcements/"):
 			domainHandler(cfg, newAnnouncementHandler(cfg.PublicOrigin, cfg.announcements)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/access-gate" || strings.HasPrefix(r.URL.Path, "/platform/v1/migration-notice"):
-			domainHandler(cfg, newAccessGateHandler(cfg.PublicOrigin, cfg.accessGate, cfg.accessDeclaration, transport, cfg.Poker.Enabled && cfg.poker != nil)).ServeHTTP(w, r)
+			domainHandler(cfg, newAccessGateHandler(cfg.PublicOrigin, cfg.accessGate, cfg.accessDeclaration, cfg.Poker.Enabled && cfg.poker != nil)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/admission/config":
 			newAdmissionConfigHandler(cfg.AdmissionEnabled).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/admission" || strings.HasPrefix(r.URL.Path, "/platform/v1/admission/"):
-			domainHandler(cfg, newAdmissionHandler(cfg.PublicOrigin, cfg.admission, transport)).ServeHTTP(w, r)
+			domainHandler(cfg, newAdmissionHandler(cfg.PublicOrigin, cfg.admission)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/wallet/exchange" || strings.HasPrefix(r.URL.Path, "/platform/v1/rewards/") || strings.HasPrefix(r.URL.Path, "/platform/v1/transactions"):
-			domainHandler(cfg, newEconomyHandler(cfg.PublicOrigin, cfg.economy, transport)).ServeHTTP(w, r)
+			domainHandler(cfg, newEconomyHandler(cfg.PublicOrigin, cfg.economy)).ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/platform/v1/master-profile"):
-			domainHandler(cfg, newProfileHandler(cfg.PublicOrigin, cfg.profile, transport)).ServeHTTP(w, r)
+			domainHandler(cfg, newProfileHandler(cfg.PublicOrigin, cfg.profile)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/wallet" || r.URL.Path == "/platform/v1/wallet/ledger" || r.URL.Path == "/platform/v1/wallet/initialize":
-			domainHandler(cfg, newWalletHandler(cfg.PublicOrigin, cfg.wallet, transport)).ServeHTTP(w, r)
+			domainHandler(cfg, newWalletHandler(cfg.PublicOrigin, cfg.wallet)).ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/platform/v1/"):
 			walletError(w, 404, "NOT_FOUND")
 		case r.URL.Path == "/healthz":
@@ -330,7 +330,6 @@ func servePokerRoute(handler http.Handler, w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
-func newNativeTransport(socket string) *http.Transport { return nativeself.NewTransport(socket) }
 func serveWebFile(root, assetCDNOrigin string, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")

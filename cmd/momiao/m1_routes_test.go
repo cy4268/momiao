@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,10 +15,7 @@ func TestM1DirectRoutesAndNativePrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	var forwarded string
-	handler := newPortalHandler(config{WebDir: root}, roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		forwarded = r.URL.Path
-		return &http.Response{StatusCode: http.StatusNotFound, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"native":true}`))}, nil
-	}))
+	handler := newPortalHandler(config{WebDir: root})
 	for _, path := range []string{"/", "/me", "/rewards"} {
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
 			t.Run(method+path, func(t *testing.T) {
@@ -47,7 +43,7 @@ func TestM1PublicImageFormats(t *testing.T) {
 	if err := os.MkdirAll(assetDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	handler := newPortalHandler(config{WebDir: root}, nil)
+	handler := newPortalHandler(config{WebDir: root})
 	for _, ext := range []string{"avif", "webp"} {
 		name := "bg-royal-observatory-v001." + ext
 		if err := os.WriteFile(filepath.Join(assetDir, name), []byte("synthetic image bytes"), 0600); err != nil {

@@ -55,64 +55,36 @@ For Unix-socket deployments, protect the socket directory and require SCRAM auth
 
 Build `./cmd/momiao-migrate` as a separate administration tool. It reads only `MOMIAO_MIGRATION_DSN_FILE`, performs explicit checksum-checked migration and prints generic success/failure; it is not invoked by portal startup. Preserve applied SQL bytes (repository LF policy); validate migration twice, restore a backup into a separate temporary database, and test the runtime role's denied operations before enabling the wallet.
 
-The runtime uses a lazy pool: a connection outage returns wallet 503 without preventing native portal startup. Invalid configuration remains a startup error. Test database restart, portal restart, preserved initialized balances, and credential-restricted recovery in the actual environment. Such tests are not whole-host reboot or load-capacity evidence. A portal rollback must retain the independent database and initialized users, not delete them.
+The runtime uses a lazy pool: a connection outage returns wallet 503 without preventing portal startup. Invalid configuration remains a startup error. Test database restart, portal restart, preserved initialized balances, and credential-restricted recovery in the actual environment. Such tests are not whole-host reboot or load-capacity evidence. A portal rollback must retain the independent database and initialized users, not delete them.
 
-Wallet paths and payloads: [wallet-api.md](../contracts/wallet-api.md). Native authentication and database operations share a 5-second context budget. Request reads are separately subject to the HTTP server's 10-second read timeout. These are engineering ceilings, not throughput guarantees.
+Wallet paths and payloads: [wallet-api.md](../contracts/wallet-api.md). Local identity and wallet reads share the existing request context; wallet database operations use a 5-second budget. Request reads are separately subject to the HTTP server's 10-second read timeout. These are engineering ceilings, not throughput guarantees.
 
 ## Master profile extension
 
-Schema migration 2 adds own Master profiles and append-only name history; the reserved-name baseline is versioned in application code. Never edit already applied migration 1. Master shares the existing protected platform DSN and native identity transport. Apply the new migration explicitly with the separate migration tool, then grant only profile-specific SELECT/INSERT/UPDATE columns and history INSERT to the runtime role. Do not widen economic writes, database ownership or credential access.
+Schema migration 2 adds own Master profiles and append-only name history; the reserved-name baseline is versioned in application code. Never edit already applied migration 1. Master shares the existing protected platform DSN and local identity context. Apply the new migration explicitly with the separate migration tool, then grant only profile-specific SELECT/INSERT/UPDATE columns and history INSERT to the runtime role. Do not widen economic writes, database ownership or credential access.
 
 Back up initialized wallets before migration, migrate twice, and compare all pre-existing identity/economy rows exactly. Test the new application with the runtime role against a separate acceptance database, including name conflict, stale versions, rename cooldown, no-op updates and immutable history. Never choose and permanently save a real user's public display name just to complete a test.
 
 Roll back the portal binary and built assets together if needed, retaining schema 2 and every real profile/history/wallet record. The older migration executable intentionally rejects unknown newer schema versions; it is not a downgrade tool. Verify the previous portal's wallet reads against schema 2 separately. Whole-host recovery, broad moderation and public-game profile gates remain independent acceptance items. See [Master API](../contracts/master-profile-api.md) and [slice decision](decisions/0006-master-profile.md).
 
-## Existing native portal transport
+## Local portal and Poker transport
 
-Build the Go binary and `web/dist/` from the same source commit. Deploy an immutable release containing `bin/momiao` and `web/`, record file hashes, and point a `current` symlink at that release. Run with an unprivileged service identity.
+Build the Go binary and `web/dist/` from the same source commit. The portal reads local identity/relay/wallet data and uses the existing local Redis sessions. Neither ordinary startup nor recovery-lock readiness opens or probes a Native socket. `/api/v1/rankings/me` uses the local session on both router configurations, never legacy credential headers.
 
-The deployment topology for this slice is:
+Before deploying the integrated dev image, remove `MOMIAO_NEWAPI_SOCKET` from both platform and Poker environments, and remove only its exclusive mount. Poker still uses `MOMIAO_POKER_REMOTE_SOCKET` with its existing fixed Unix transport, signed requests, peer keys and route deadlines; do not remove that shared business connection. The separate legacy bootstrap tool and remaining Native source/deployment files still need cleanup. Source changes do not stop workers in the currently running old image.
 
-```text
-HTTPS ingress -> private portal Unix socket -> private native API Unix socket
-                         |
-                    built SPA assets
-```
-
-No public application port is required. The portal process needs read access to the build, permission to create its own listener, and connection permission on the upstream socket. Keep both runtime directories private. A service can use a private network namespace and `RestrictAddressFamilies=AF_UNIX`; Unix sockets still connect across namespaces through the shared filesystem.
-
-## Environment
+The ingress may connect to the portal's existing private Unix listener or its configured TCP address. With Unix, set `MOMIAO_LISTEN_SOCKET` instead of `MOMIAO_LISTEN_ADDR`; listener ownership and normal shutdown behavior are unchanged. The model relay needs outbound network access, so do not carry over a Native-only `AF_UNIX` network restriction.
 
 ```text
 MOMIAO_WEB_DIR=/srv/momiao/current/web
 MOMIAO_LISTEN_SOCKET=/run/momiao/portal.sock
-MOMIAO_NEWAPI_SOCKET=/run/native-api/http.sock
+MOMIAO_WALLET_DSN_FILE=/run/secrets/wallet.dsn
+MOMIAO_PUBLIC_ORIGIN=https://dev.momiao.win
+MOMIAO_SESSION_ENABLED=true
+MOMIAO_SESSION_REDIS_CONFIG_FILE=/run/secrets/session-redis.json
 ```
 
-Do not additionally set `MOMIAO_LISTEN_ADDR`. New listener paths are mode 0600. Existing objects are never unlinked at startup; use a service-owned runtime directory with a managed lifetime. Stop the service normally before replacing a listener. A killed process may leave a stale path which must be inspected before removal.
-
-The native service must independently support the [pinned API contract](../contracts/native-api.md). Set native `SESSION_COOKIE_SECURE=true`, `SESSION_COOKIE_TRUSTED_URL` to the exact public HTTPS origin, and native `ServerAddress` to that origin. Preserve incoming Origin and the native refresh cookie unchanged. The portal does not create users, reset passwords, or migrate accounts at startup.
-
-Use service hardening (read-only releases, no added capabilities, private runtime directory). If an ingress service and portal share a UID for 0600 socket access, deny the portal access to the ingress credential directories; do not give the application a tunnel or DNS API token.
-
-## Acceptance and rollback
-
-1. Verify the new private socket's owner/mode and `GET /healthz` before changing ingress.
-2. Verify HTML and built assets, then the fixed upstream `GET /api/status` through the private socket.
-3. Change only the intended hostname's origin service. Keep unrelated routes, DNS records, old service and databases untouched.
-4. Through public HTTPS, verify actual login, self, temporary bounded-key creation/reveal/status/delete, personal logs, refresh and logout. Do not retain test keys or put their values in logs.
-5. Check desktop/mobile layout, service status, and host network/firewall invariants. A green health endpoint alone does not pass this gate.
-6. Roll back ingress to the previous origin if acceptance fails. Retain the previous origin and release until this verification is complete.
-
-This revision has no automated database migration or automatic upstream fallback. Configuring a channel alone does not establish model traffic: verify one bounded synthetic request, streamed termination and native consumption records. 2FA enrollment, trusted client-IP propagation, rate-limit policy and load behavior need their own acceptance.
-
-## Native model traffic
-
-The portal no longer offers a browser text playground or forwards `/pg/chat/completions`. Public API clients retain `/v1/`, their own API keys and the five-minute total relay deadline. Model calls require a configured, reachable and priced native channel.
-
-For an outbound-isolated native namespace, a fixed-destination transport can keep that isolation intact: a loopback-only namespace listener connects through a private Unix socket to a host-side TLS connection for one upstream. Verify certificate trust and hostname/SNI, preserve the correct upstream HTTP Host, and keep the Unix directory/socket private. Use a dedicated unprivileged identity; do not grant the portal access to the transport or credentials. Reconcile the bridge when the native namespace changes, stopping it when the namespace is not ready. Do not add a generic forward proxy or change Docker/LXD firewall rules merely to serve the portal.
-
-This transport is deployment-specific, not automatically installed by momiao. Its destination, ports, authentication and native metering must be derived from the actual environment. Example bounds or one successful request are not capacity measurements. Rolling back a portal release does not roll back channel settings; retain a separate record of explicit channel/rate changes and disable the new channel before removing its transport.
+Complete acceptance on the restricted dev hostname first: local login/2FA/Discord, account revocation, existing model key non-streaming/streaming requests with Reserve settlement, local logs, Ops and ongoing games. `/healthz` is liveness and `/readyz` lists configured local dependencies; neither alone proves migration acceptance. No production switch is implied by handler tests. Keep production Native containers and database for the planned rollback until the full dev checklist is complete.
 
 ### Schema 3: wallet actions
 Apply the explicit migrator once before the portal release, with a database backup for the changed constraints/new daily table. No database restart is needed. Add only these runtime object grants (retain existing wallet/profile grants):

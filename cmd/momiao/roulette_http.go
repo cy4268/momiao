@@ -67,7 +67,7 @@ func decodeRouletteJSON(w http.ResponseWriter, r *http.Request, out any) error {
 	}
 	return nil
 }
-func newRouletteHandler(origin string, service *roulette.Service, csrf *games.Service, transport http.RoundTripper) http.Handler {
+func newRouletteHandler(origin string, service *roulette.Service, csrf *games.Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -82,13 +82,9 @@ func newRouletteHandler(origin string, service *roulette.Service, csrf *games.Se
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
-		user, status := verifyWalletUser(r, transport)
+		user, status := verifyWalletUser(r)
 		if status != 0 {
-			code := "AUTH_UNAVAILABLE"
-			if status == 401 || status == 403 {
-				code = "AUTH_UNAUTHORIZED"
-			}
-			walletError(w, status, code)
+			walletError(w, status, "AUTH_UNAUTHORIZED")
 			return
 		}
 		session := identity.SessionIDFromContext(r.Context())

@@ -92,7 +92,7 @@ func decodeEconomyRequest(body io.Reader, exchange bool) (map[string]string, err
 	return values, nil
 }
 
-func newEconomyHandler(origin string, store economyStore, transport http.RoundTripper) http.Handler {
+func newEconomyHandler(origin string, store economyStore) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			walletError(w, 503, "ECONOMY_UNAVAILABLE")
@@ -101,16 +101,9 @@ func newEconomyHandler(origin string, store economyStore, transport http.RoundTr
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
-		user, status := verifyWalletUser(r, transport)
+		user, status := verifyWalletUser(r)
 		if status != 0 {
-			code := "AUTH_UNAVAILABLE"
-			if status == 401 {
-				code = "AUTH_UNAUTHORIZED"
-			}
-			if status == 403 {
-				code = "AUTH_FORBIDDEN"
-			}
-			walletError(w, status, code)
+			walletError(w, status, "AUTH_UNAUTHORIZED")
 			return
 		}
 		path := r.URL.Path

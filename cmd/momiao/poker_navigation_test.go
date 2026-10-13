@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -23,7 +21,7 @@ func TestPokerNavigationDocumentAndGateRoutes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<!doctype html><title>poker navigation fixture</title>"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	handler := newPortalHandler(config{WebDir: root}, nil)
+	handler := newPortalHandler(config{WebDir: root})
 	for _, tc := range []struct {
 		path  string
 		valid bool
@@ -115,12 +113,7 @@ func TestPokerNavigationApplicationGateOrder(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &pokerNavigationStore{gateFixture: gateFixture{stage: tc.stage}}
-			transport := walletTransport(func(*http.Request) (*http.Response, error) {
-				if tc.stage == "native-error" {
-					return &http.Response{StatusCode: 503, Body: io.NopCloser(strings.NewReader("{}"))}, nil
-				}
-				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"success":true,"data":{"id":9007199254740993,"username":"synthetic-user","status":%d,"role":1}}`, tc.account)))}, nil
-			})
+
 			cfg := config{WebDir: root, PublicOrigin: "https://example.test", Poker: pokerConfig{Enabled: tc.enabled}, accessGate: store, accessDeclaration: &accessDeclaration{Resources: map[string]string{"EXPERIENCE": tc.resource, "ASSETS": "AVAILABLE"}}}
 			if tc.handler {
 				cfg.poker = http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("navigation invoked Poker runtime") })
@@ -130,7 +123,7 @@ func TestPokerNavigationApplicationGateOrder(t *testing.T) {
 			if tc.stage == "no-auth" {
 				request.Header.Del("Authorization")
 			}
-			newPortalHandler(cfg, transport).ServeHTTP(w, request)
+			newPortalHandler(cfg).ServeHTTP(w, request)
 			var body struct {
 				Data accessGateView `json:"data"`
 			}

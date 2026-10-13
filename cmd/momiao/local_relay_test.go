@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -55,10 +54,7 @@ func TestLocalRelayModels(t *testing.T) {
 		t.Fatal("empty model restriction became unrestricted", err)
 	}
 	for _, webDir := range []string{"", "/unused-local-relay-web"} {
-		handler := newPortalHandler(config{WebDir: webDir, relay: store}, roundTripFunc(func(*http.Request) (*http.Response, error) {
-			t.Error("model discovery reached native transport")
-			return nil, errors.New("unexpected native request")
-		}))
+		handler := newPortalHandler(config{WebDir: webDir, relay: store})
 		call := func(header, value string) *httptest.ResponseRecorder {
 			r := httptest.NewRequest("GET", "https://dev.momiao.win/v1/models?group=工作", nil)
 			r.Header.Set(header, value)

@@ -17,6 +17,7 @@ import (
 
 	"github.com/cy4268/momiao/internal/poker/connectticket"
 	pt "github.com/cy4268/momiao/internal/poker/transport"
+	"net"
 )
 
 const pokerInternalPrefix = "/internal/v1/poker/"
@@ -33,9 +34,9 @@ func loadPokerProcessConfig(cfg *config, lookup func(string) (string, bool)) err
  cfg.PokerServiceKeyringFile = filepath.Clean(key)
 	cfg.PokerPeerKeyringFile = filepath.Clean(peer)
 	if cfg.ProcessRole == "poker" {
-		if hasRemote || cfg.ListenSocket == "" || cfg.ListenSocket == cfg.NewAPISocket { return errPokerConfig }
+		if hasRemote || cfg.ListenSocket == "" { return errPokerConfig }
 	} else {
-		if !hasRemote || !filepath.IsAbs(remote) || filepath.Clean(remote) == cfg.NewAPISocket || filepath.Clean(remote) == cfg.ListenSocket { return errPokerConfig }
+		if !hasRemote || !filepath.IsAbs(remote) || filepath.Clean(remote) == cfg.ListenSocket { return errPokerConfig }
 		cfg.PokerRemoteSocket = filepath.Clean(remote)
 	}
 	return nil
@@ -124,7 +125,7 @@ func openPokerRemote(ctx context.Context,cfg config) (*pokerRemote,error) {
 	peer,err:=readPokerPublicKeys(cfg.PokerPeerKeyringFile);if err!=nil||!distinctPokerPublicKeys(signing.public,peer){return nil,errPokerStartup}
 	ticket,err:=readPokerTicketKeys(cfg.Poker.TicketKeyringFile);if err!=nil{return nil,errPokerStartup}
 	if !distinctPokerPublicKeys(signing.public,ticket.public)||!distinctPokerPublicKeys(peer,ticket.public){return nil,errPokerStartup}
-	out:=&pokerRemote{transport:newNativeTransport(cfg.PokerRemoteSocket),signing:signing}
+	out:=&pokerRemote{transport:newPokerTransport(cfg.PokerRemoteSocket),signing:signing}
 	authority:=pokerSessionAuthority{sessions:cfg.localIdentity.Sessions,pool:cfg.localIdentity.Store.Pool}
 	out.auth=pokerHTTPAuth
 	issuer,err:=connectticket.NewIssuer(connectticket.IssuerOptions{KeyID:ticket.active,PrivateKey:ticket.private,CheckSession:authority.Check});if err!=nil{out.Close();return nil,errPokerStartup}
@@ -176,4 +177,20 @@ func(p *pokerRemote)catalogRuntime(ctx context.Context)(string,error){
 }
 func(p *pokerRemote)ready(ctx context.Context)error{
 	var out readinessView;if err:=p.call(ctx,http.MethodGet,"ready",nil,&out);err!=nil{return err};if !out.Ready||len(out.Components)==0{return errors.New("Poker unavailable")};return nil
+}
+
+// The Poker service retains its existing fixed Unix transport, independent of Native.
+func newPokerTransport(socket string) *http.Transport {
+	dialer := &net.Dialer{Timeout: 2 * time.Second, KeepAlive: 30 * time.Second}
+	return &http.Transport{
+		Proxy: nil,
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, "unix", socket)
+		},
+		ForceAttemptHTTP2:     false,
+		MaxIdleConns:          16,
+		MaxIdleConnsPerHost:   16,
+		IdleConnTimeout:       60 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}
 }

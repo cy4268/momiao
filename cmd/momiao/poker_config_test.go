@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -78,7 +77,7 @@ func TestPokerApplicationConfigRequiresCompleteExplicitAuthority(t *testing.T) {
 			t.Fatal("partial/reused authority accepted")
 		}
 	}
-	process := config{ProcessRole: "poker", ListenSocket: filepath.Join(dir, "poker.sock"), NewAPISocket: base.NewAPISocket}
+	process := config{ProcessRole: "poker", ListenSocket: filepath.Join(dir, "poker.sock")}
 	processValues := map[string]string{"MOMIAO_POKER_SERVICE_KEYRING_FILE": filepath.Join(dir, "service.json"), "MOMIAO_POKER_PEER_KEYRING_FILE": filepath.Join(dir, "peer.json")}
 	if err := loadPokerProcessConfig(&process, lookup(processValues)); err != nil {
 		t.Fatal("local assets need no reverse Native read socket", err)
@@ -174,11 +173,7 @@ func TestPokerApplicationDisabledRoutesNeverProxy(t *testing.T) {
 	}
 	for _, web := range []string{"", dir} {
 		calls := 0
-		h := newPortalHandler(config{WebDir: web}, roundTripFunc(func(*http.Request) (*http.Response, error) {
-			calls++
-			t.Fatal("disabled Poker reached native proxy")
-			return nil, nil
-		}))
+		h := newPortalHandler(config{WebDir: web})
 		for _, path := range []string{"/api/v1/poker", "/api/v1/poker/tables", "/api/v1/poker/connect-tickets", "/ws/poker"} {
 			r := httptest.NewRequest("GET", path, nil)
 			w := httptest.NewRecorder()
