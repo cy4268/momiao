@@ -201,11 +201,7 @@ func TestLocalRelayBilling(t *testing.T) {
 	if _, err = prepareRelay(ctx, tx, key, "gpt-5.6-sol", nil); !errors.Is(err, ErrInsufficientBalance) {
 		t.Fatal("empty Reserve admitted new relay", err)
 	}
-	var source string
-	if err = tx.QueryRow(ctx, `SELECT source_instance_id::text FROM platform_meta.attribution_checkpoints ORDER BY source_instance_id LIMIT 1`).Scan(&source); err != nil {
-		t.Fatal(err)
-	}
-	page, err := readRPUsage(ctx, tx, input.UserID, RPUsageFilter{SourceInstanceID: source, ActivationTime: input.RequestedAt, ModelID: input.Model, Page: 1, PageSize: 10})
+	page, err := readRPUsage(ctx, tx, input.UserID, RPUsageFilter{ActivationTime: input.RequestedAt, ModelID: input.Model, Page: 1, PageSize: 10})
 	if err != nil || page.Total != 3 {
 		t.Fatal("RP reader missed local source", page.Total, err)
 	}
@@ -215,7 +211,7 @@ func TestLocalRelayBilling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = tx.Exec(ctx, `SELECT rankings.build_rp_entries($1,$2)`, snapshot, source); err != nil {
+	if _, err = tx.Exec(ctx, `SELECT rankings.build_rp_entries($1,NULL::uuid)`, snapshot); err != nil {
 		t.Fatal("rank local attribution", err)
 	}
 	var calls, errorsCount, credits int64

@@ -202,6 +202,8 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 		cfg.Session.Enabled = true
 		cfg.localIdentity = auth
 		cfg.relay = store
+		cfg.rpUsage = store
+		cfg.RankingActivationTime = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 		cfg.rankings = rankings.NewService(store, rankings.Options{ActivationTime: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)})
 		cfg.games, err = games.NewService(store, games.Keyring{Active: "ops-read-only", Keys: map[string][32]byte{"ops-read-only": {}}})
 		if err != nil {
@@ -251,6 +253,44 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 			h.ServeHTTP(w, r)
 			return w
 		}
+
+		t.Run("rp", func(t *testing.T) {
+			for _, user := range []int64{admin, regular} {
+				w := request(user, "GET", "/api/v1/usage/rp", "", false)
+				if w.Code != 200 {
+					t.Fatalf("local RP usage: status=%d body=%s", w.Code, w.Body.String())
+				}
+				var body struct {
+					Data struct {
+						platform.RPUsagePage
+						ObservedAt time.Time `json:"observed_at"`
+					} `json:"data"`
+				}
+				if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+					t.Fatal(err)
+				}
+				var total int64
+				if err := store.Pool().QueryRow(t.Context(), `SELECT count(DISTINCT logical_request_id) FROM economy.request_attributions WHERE newapi_user_id=$1 AND key_purpose_snapshot='ROLEPLAY' AND entered_model_flow AND requested_at>=$2`, user, cfg.RankingActivationTime).Scan(&total); err != nil {
+					t.Fatal(err)
+				}
+				if body.Data.Total != total || body.Data.ObservedAt.IsZero() {
+					t.Fatal("RP account isolation or observation", body.Data.Total, total)
+				}
+				w = request(user, "GET", "/api/v1/usage/rp?model=no-such-model&status=SUCCESS&page=2&from=2026-09-01T00:00:00Z&to=2026-10-14T00:00:00Z", "", false)
+				if w.Code != 200 || !strings.Contains(w.Body.String(), `"total":"0"`) || !strings.Contains(w.Body.String(), `"page":2`) {
+					t.Fatal("RP filters", w.Code, w.Body.String())
+				}
+			}
+			if w := request(0, "GET", "/api/v1/usage/rp", "", false); w.Code != 401 {
+				t.Fatal("RP anonymous", w.Code)
+			}
+			if w := request(admin, "POST", "/api/v1/usage/rp", `{}`, true); w.Code != 405 {
+				t.Fatal("RP read only", w.Code)
+			}
+			if w := request(admin, "GET", "/api/v1/usage/rp?page=0", "", false); w.Code != 400 {
+				t.Fatal("RP bad page", w.Code)
+			}
+		})
 
 		t.Run("runtime", func(t *testing.T) {
 			for _, path := range []string{"/api/v1/ops/bootstrap", "/api/v1/ops/admin-principals", "/api/v1/ops/operations", "/api/v1/ops/operations/00000000-0000-4000-8000-000000000001", "/api/v1/ops/fresh/password", "/api/v1/ops/fresh/discord/start"} {

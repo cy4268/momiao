@@ -189,12 +189,14 @@ it('redirects a mismatched old session to login without logging out the shared c
     expect(fetcher.mock.calls.some(call => call[0].includes('/auth/logout'))).toBe(false);
 });
 
-it('keeps native and RP usage separate with existing filter semantics and no model calls', async () => {
-    const { client, fetcher } = fixtureClient(path => {
+it('keeps API and local RP usage separate with existing filters and no model calls', async () => {
+    const { fetcher } = fixtureClient(path => {
+        if (path === '/api/v1/session/bootstrap') return ok({authentication_state:'AUTHENTICATED',csrf_token:'local-rp-csrf',user});
+        if (path.startsWith('/platform/v1/access-gate?')) return ok({user_id:String(user.id),route:new URLSearchParams(path.split('?')[1]).get('route'),stage:'READY'});
         if (path.startsWith('/api/log/self')) return ok({ ...list, total: 1, items: [{ id: 1, type: 2, created_at: 1727000000, model_name: 'account-model', token_name: 'account-key', prompt_tokens: 321, completion_tokens: 123, quota: 444 }] });
         if (path.startsWith('/api/v1/usage/rp')) return ok({ items: [{ logical_request_id: 'fixture-request', token_id: '9', model_id: 'rp-model', model_name: 'RP model', request_kind: 'CHAT', provider_attempt_count: 2, final_status: 'SUCCESS', error_category: '', charged_raw_quota: '50000', charged_amount: '0.1', requested_at: '2026-09-06T00:00:00Z', completed_at: '2026-09-06T00:00:01Z' }], total: '1', page: 1, page_size: 50, has_more: false, observed_at: '2026-09-06T00:01:00Z' });
     });
-    render(<MemoryRouter initialEntries={['/logs']}><App client={client}/></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/logs']}><App client={new ApiClient(fetcher)}/></MemoryRouter>);
     await screen.findByText('account-model');
     expect(screen.getByRole('link', { name: 'API 调用' })).toHaveAttribute('aria-current','page');
     expect(screen.getByRole('columnheader', { name: '额度' })).toBeVisible();
@@ -205,8 +207,10 @@ it('keeps native and RP usage separate with existing filter semantics and no mod
     await waitFor(() => expect(fetcher.mock.calls.some(([path]) => path.startsWith('/api/log/self?') && new URLSearchParams(path.split('?')[1]).get('start_timestamp') === String(new Date('2026-09-06T00:00:00').getTime()/1000))).toBe(true));
     fireEvent.click(screen.getByRole('link', { name: 'RP 调用' }));
     await screen.findByText('RP model');
+    expect(screen.getByText(/查询时间：/)).toBeVisible();
+    expect(screen.queryByText(/同步时间：/)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'RP 调用' })).toHaveAttribute('aria-current','page');
-    expect(screen.getByRole('columnheader', { name: 'API Credit 消耗' })).toBeVisible();
+    expect(screen.getByRole('columnheader', { name: 'Reserve 消耗' })).toBeVisible();
     expect(screen.queryByRole('columnheader', { name: '额度' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '下一页' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('模型 ID'), { target: { value: 'rp-model' } });

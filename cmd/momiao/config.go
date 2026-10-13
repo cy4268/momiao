@@ -34,7 +34,6 @@ type config struct {
 	relay                     *platform.Store
 	rpUsage                   *platform.Store
 	RankingActivationTime     time.Time
-	AttributionSourceInstanceID string
 	History                   historyConfig
 	history                   *historyHTTP
 	Session                   sessionConfig
@@ -189,12 +188,6 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 			return config{}, errors.New("ranking activation requires an explicit RFC3339 cutover time and platform wallet")
 		}
 		cfg.RankingActivationTime = activation.UTC()
-	}
-	if value, ok := lookup("MOMIAO_ATTRIBUTION_SOURCE_INSTANCE_ID"); ok {
-		if !platform.ValidOperationKey(value) || cfg.NativeQuotaKeyFile == "" {
-			return config{}, errors.New("attribution source requires an immutable UUID and private Native quota port configuration")
-		}
-		cfg.AttributionSourceInstanceID = value
 	}
 	if path, ok := lookup("MOMIAO_ACCESS_GATE_DECLARATION_FILE"); ok {
 		declaration, err := loadAccessDeclaration(path, cfg.PublicOrigin)

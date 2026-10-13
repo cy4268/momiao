@@ -37,7 +37,7 @@ func TestLocalOpsRankings(t *testing.T) {
 	}
 	var activation, start time.Time
 	var end *time.Time
-	if err = tx.QueryRow(ctx, `SELECT activation_at,period_start,period_end FROM rankings.snapshots s WHERE domain='GAMES' AND period='DAY' AND EXISTS(SELECT 1 FROM rankings.entries e WHERE e.snapshot_id=s.snapshot_id AND metric='GAME_PROFIT') ORDER BY built_at DESC LIMIT 1`).Scan(&activation, &start, &end); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT activation_at,period_start,period_end FROM rankings.snapshots s WHERE domain='RP' AND period='DAY' AND EXISTS(SELECT 1 FROM rankings.entries e WHERE e.snapshot_id=s.snapshot_id AND metric='RP_CALLS') ORDER BY built_at DESC LIMIT 1`).Scan(&activation, &start, &end); err != nil {
 		t.Fatal(err)
 	}
 	// Exercise an ordinary local operator, not root-only publication rights.
@@ -45,11 +45,15 @@ func TestLocalOpsRankings(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := NewService(store, Options{ActivationTime: activation})
-	input := OpsRebuildInput{Domain: "GAMES", Metric: "GAME_PROFIT", Period: "DAY", Date: start.In(time.FixedZone("Asia/Shanghai", 8*3600)).Format("2006-01-02")}
+	_, checked, err := service.buildInputs(ctx, "RP", time.Now().UTC())
+	if err != nil || checked.IsZero() {
+		t.Fatal("local RP source without Native checkpoint", err)
+	}
+	input := OpsRebuildInput{Domain: "RP", Metric: "RP_CALLS", Period: "DAY", Date: start.In(time.FixedZone("Asia/Shanghai", 8*3600)).Format("2006-01-02")}
 	if _, err = service.createRebuild(ctx, tx, regular, input); !errors.Is(err, platform.ErrCatalogForbidden) {
 		t.Fatal("regular write", err)
 	}
-	oldID, oldVersion, err := readPublishedPointer(ctx, tx, "GAMES", "GAME_PROFIT", "DAY", start, activation, false)
+	oldID, oldVersion, err := readPublishedPointer(ctx, tx, "RP", "RP_CALLS", "DAY", start, activation, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,25 +64,32 @@ func TestLocalOpsRankings(t *testing.T) {
 	if _, err = service.createRebuild(ctx, tx, admin, input); !errors.Is(err, platform.ErrOpsConflict) {
 		t.Fatal("duplicate pending rebuild", err)
 	}
-	shadow, err := service.buildSnapshotTx(ctx, tx, "GAMES", "DAY", start, end, time.Now().UTC(), nil, "REPAIR", job.JobID)
+	shadow, err := service.buildSnapshotTx(ctx, tx, "RP", "DAY", start, end, checked, nil, "REPAIR", job.JobID)
 	if err != nil {
-		t.Fatal("existing game aggregation", err)
+		t.Fatal("existing RP aggregation", err)
+	}
+	var calls, expected int64
+	if err = tx.QueryRow(ctx, `SELECT coalesce(sum(calls),0)::bigint FROM rankings.entries WHERE snapshot_id=$1 AND metric='RP_CALLS' AND model_scope='ALL'`, shadow).Scan(&calls); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT count(DISTINCT (a.newapi_user_id,a.logical_request_id)) FROM economy.request_attributions a JOIN identity.master_profiles p USING(newapi_user_id) WHERE a.key_purpose_snapshot='ROLEPLAY' AND a.entered_model_flow AND a.final_status='SUCCESS' AND a.requested_at>=greatest($1::timestamptz,$2::timestamptz) AND a.requested_at<$3`, activation, start, end).Scan(&expected); err != nil || calls != expected || calls == 0 {
+		t.Fatal("historical RP requests counted more than once", calls, expected, err)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE rankings.rebuild_jobs SET status='SHADOW',shadow_snapshot_id=$2,attempts=1 WHERE operation_id=$1::uuid`, job.JobID, shadow); err != nil {
 		t.Fatal(err)
 	}
-	id, version, err := readPublishedPointer(ctx, tx, "GAMES", "GAME_PROFIT", "DAY", start, activation, false)
+	id, version, err := readPublishedPointer(ctx, tx, "RP", "RP_CALLS", "DAY", start, activation, false)
 	if err != nil || id != oldID || version != oldVersion {
 		t.Fatal("shadow must not publish", id, version, err)
 	}
-	diff, err := rankingDiff(ctx, tx, oldID, shadow, "GAME_PROFIT")
+	diff, err := rankingDiff(ctx, tx, oldID, shadow, "RP_CALLS")
 	if err != nil || len(diff.NewHash) != 64 || diff.NewCount == 0 {
 		t.Fatal("real snapshot diff", diff, err)
 	}
 	if err = service.publishRepair(ctx, tx, admin, shadow); err != nil {
 		t.Fatal("direct publish", err)
 	}
-	id, version, err = readPublishedPointer(ctx, tx, "GAMES", "GAME_PROFIT", "DAY", start, activation, false)
+	id, version, err = readPublishedPointer(ctx, tx, "RP", "RP_CALLS", "DAY", start, activation, false)
 	if err != nil || id != shadow || version != oldVersion+1 {
 		t.Fatal("published pointer", id, version, err)
 	}

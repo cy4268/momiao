@@ -140,4 +140,4 @@ SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/log
 ### Daily rewards and local exchange
 The wallet page now supports an explicit daily 500 Reserve API Credit claim (Asia/Shanghai day), exact 1:1 Reserve/chips exchange, receipts and durable-key retry lookup. Native Active quota is unchanged. See [wallet action contract](contracts/wallet-actions-api.md). Initial grants, hourly/relief rewards, credit purchases and games are not enabled by this slice.
 
-运营台已删除通用预览/执行/二次验证管道、访问控制页和操作回执页；所有模块及账户菜单的入口使用本地角色。历史审计和旧任务行保留只读，健康快照 worker 独立启动。认证启动已删除旧 Native/BFF 会话、独立会话数据库和 Native 凭据配置，直接复用平台连接池与 Redis；未注册的 `/api/` 路径返回 404。其余 Native 业务读取与 quota/refill/attribution 启动仍待清理；本轮不改数据库或发布镜像。
+运营台已删除通用预览/执行/二次验证管道、访问控制页和操作回执页；所有模块及账户菜单的入口使用本地角色。历史审计和旧任务行保留只读，健康快照 worker 独立启动。认证启动已删除旧 Native/BFF 会话、独立会话数据库和 Native 凭据配置，直接复用平台连接池与 Redis；未注册的 `/api/` 路径返回 404。RP 记录与榜单直接读取本地归因，不再启动 Native 同步或检查其水位；部署前应用 0066，历史重复逻辑请求只计一次，原始行保留。其余 Native 业务读取与 quota/refill 启动仍待清理；0066 仅应用独立 dev，本轮未发布镜像。

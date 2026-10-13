@@ -133,15 +133,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 				go func(){defer close(refillDone);if err:=serve(refillCtx,server,listener,cfg.ShutdownTimeout);err!=nil{cancelRun(errors.New("refill listener failed"))}}()
 				defer func(){stopRefill();<-refillDone;_ = listener.Close()}()
 			}
-			if cfg.AttributionSourceInstanceID != "" {
-				attribution, err := platform.NewNativeAttributionPort(transport, key, cfg.AttributionSourceInstanceID)
-				if err != nil { return errors.New("attribution startup failed") }
-				attributionCtx, stopAttribution := context.WithCancel(ctx)
-				attributionDone := make(chan struct{})
-				go func() { defer close(attributionDone); platform.RunAttributionWorker(attributionCtx, store, attribution, cfg.AttributionSourceInstanceID) }()
-				defer func() { stopAttribution(); <-attributionDone }()
-				cfg.readiness["request_attribution"] = func(ctx context.Context) error { _, err := attributionObserved(ctx, store, cfg.AttributionSourceInstanceID); return err }
-			}
 			workerCtx, cancel := context.WithCancel(ctx)
 			done := make(chan struct{})
 			go func() { defer close(done); runQuotaWorker(workerCtx, store, native) }()
@@ -219,8 +210,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		}
 		cfg.rankings = rankings.NewService(store, rankings.Options{
 			Assets: rankingAssets,
-			ActivationTime: cfg.RankingActivationTime, SourceInstanceID: cfg.AttributionSourceInstanceID,
-			AttributionHealth: func(ctx context.Context) (time.Time,error) { return attributionObserved(ctx, store, cfg.AttributionSourceInstanceID) },
+			ActivationTime: cfg.RankingActivationTime,
 		})
 		if !cfg.RankingActivationTime.IsZero() {
 			rankingCtx, stopRankings := context.WithCancel(ctx)

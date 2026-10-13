@@ -123,6 +123,10 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				domainHandler(cfg, newLocalSelfHandler(cfg.relay)).ServeHTTP(w, r)
 				return
 			}
+			if r.URL.Path == "/api/v1/usage/rp" {
+				domainHandler(cfg, newRPUsageHandler(cfg)).ServeHTTP(w, r)
+				return
+			}
 			if localWorkspaceRoute(r.URL.Path) {
 				domainHandler(cfg, newLocalWorkspaceHandler(cfg.relay)).ServeHTTP(w, r)
 				return
