@@ -6,6 +6,7 @@ import { Alert, Loading, Pager, role, useResource } from '../ui';
 type OpsUser={id:number;username:string;display_name:string;discord_id:string;group:string;role:number;status:number;two_fa_enabled:boolean;reserve:string;wallet_initialized:boolean;created_at:string;last_login_at:string|null};
 type Group={name:string};
 type Ledger={id:string;created_at:string;biz_type:string;delta_amount:string;balance_after_amount:string;note:string};
+type Master={newapi_user_id:string;display_name:string;profile_version:string;rename_required:boolean;nickname_changed_at:string|null};
 const root='/api/v1/ops/users';
 const time=(v:string|null)=>v?new Date(v).toLocaleString('zh-CN',{hour12:false}):'—';
 export function OpsUsers({client,user}:{client:ApiClient;user:User}){
@@ -32,16 +33,28 @@ function UserDetail({client,current,id}:{client:ApiClient;current:User;id:string
  const u=resource.data,canManage=!!u&&(current.role===100||current.role>u.role);
  return <><header className="page-heading"><div><p className="eyebrow">OPERATIONS / USER {id}</p><h1>{u?.username||'用户详情'}</h1></div><Link to="/ops/users">返回用户列表</Link></header>
  {notice&&<p role="status">{notice}</p>}{error&&<Alert>{error}</Alert>}{resource.error&&<Alert>{notice?'操作已保存，详情读取失败，请刷新核对。':resource.error}</Alert>}<button disabled={busy} onClick={resource.reload}>刷新详情</button>
- <div className="row-actions">{[['profile','资料与会话'],['balance','余额与流水'],['keys','API Key']].map(([key,label])=><button key={key} aria-pressed={tab===key} onClick={()=>setTab(key)}>{label}</button>)}<Link to={'/ops/logs?user='+id}>调用日志</Link><Link to={'/ops/records?user='+id}>游戏记录</Link></div>
+ <div className="row-actions">{[['profile','资料与会话'],['master','Master 资料'],['balance','余额与流水'],['keys','API Key']].map(([key,label])=><button key={key} aria-pressed={tab===key} onClick={()=>setTab(key)}>{label}</button>)}<Link to={'/ops/logs?user='+id}>调用日志</Link><Link to={'/ops/records?user='+id}>游戏记录</Link></div>
  {resource.loading?<Loading/>:u&&<><p>{u.display_name} · #{u.id} · Discord {u.discord_id||'未绑定'} · 注册 {time(u.created_at)} · 最近登录 {time(u.last_login_at)}</p>
  {tab==='profile'&&<section className="panel"><Profile key={version} u={u} groups={groups.data||[]} root={current.role===100} disabled={busy||!canManage} save={body=>action('',body)}/>{groups.error&&<Alert>{groups.error}</Alert>}<p>2FA：{u.two_fa_enabled?'已启用':'未启用'}</p><div className="row-actions"><button disabled={busy||!canManage} onClick={()=>{if(window.confirm('重置此用户的 2FA 并撤销全部会话？'))void action('reset-2fa',{})}}>重置 2FA</button><button disabled={busy||!canManage} onClick={()=>{if(window.confirm('撤销此用户的全部登录会话？'))void action('logout',{})}}>强制下线</button></div></section>}
  {tab==='balance'&&<Balance key={version} client={client} u={u} disabled={busy||!canManage} adjust={body=>action('reserve',body)}/>}
+ {tab==='master'&&<MasterProfile key={version} client={client} id={id} disabled={busy||!canManage} action={action}/>}
  {tab==='keys'&&<UserKeys key={version} client={client} id={id} disabled={busy||!canManage} action={action}/>}</>}
  </>;
 }
 function Profile({u,groups,root:asRoot,disabled,save}:{u:OpsUser;groups:Group[];root:boolean;disabled:boolean;save:(body:unknown)=>Promise<boolean>}){
  const [group,setGroup]=useState(u.group),[status,setStatus]=useState(u.status),[newRole,setRole]=useState(u.role);
  return <form onSubmit={e=>{e.preventDefault();void save({group,status,...(asRoot?{role:newRole}:{})})}}><fieldset disabled={disabled}><label>用户分组<select value={group} onChange={e=>setGroup(e.target.value)}>{[...new Set([u.group,...groups.map(g=>g.name)])].map(g=><option key={g}>{g}</option>)}</select></label><label>账号状态<select value={status} onChange={e=>setStatus(Number(e.target.value))}><option value={1}>正常</option><option value={2}>封禁</option></select></label>{asRoot?<label>用户角色<select value={newRole} onChange={e=>setRole(Number(e.target.value))}>{[1,10,100].map(r=><option value={r} key={r}>{role(r)}</option>)}</select></label>:<p>角色：{role(u.role)}</p>}<button type="submit">保存资料</button></fieldset></form>;
+}
+function MasterProfile({client,id,disabled,action}:{client:ApiClient;id:string;disabled:boolean;action:(kind:string,body:unknown)=>Promise<boolean>}){
+ const resource=useResource(()=>client.request<Master>(root+'/'+id+'/master'),[client,id]);
+ return <section className="panel"><h2>Master 昵称管理</h2><p>管理游戏和排行榜使用的昵称，不修改登录账号的显示名。</p><button onClick={resource.reload} disabled={disabled}>刷新 Master 资料</button>
+ {resource.error&&<Alert>{resource.error}</Alert>}{resource.loading?<Loading/>:resource.data&&(resource.data.profile_version==='0'?<p>此账号尚未完成 Master 资料，不创建资料或钱包。</p>:<MasterForm master={resource.data} disabled={disabled} action={action}/>)}</section>;
+}
+function MasterForm({master,disabled,action}:{master:Master;disabled:boolean;action:(kind:string,body:unknown)=>Promise<boolean>}){
+ const [name,setName]=useState(master.display_name),[required,setRequired]=useState(master.rename_required);
+ return <><p>用户最近主动改名：{time(master.nickname_changed_at)}。管理员强制改名不占用用户的七天改名冷却。</p>
+ <form onSubmit={e=>{e.preventDefault();void action('master-rename-required',{required})}}><fieldset disabled={disabled}><label><input type="checkbox" checked={required} onChange={e=>setRequired(e.target.checked)}/>要求用户改名</label><button type="submit">保存改名要求</button></fieldset></form>
+ <form onSubmit={e=>{e.preventDefault();if(window.confirm('将此用户的 Master 昵称改为“'+name+'”并清除改名要求？'))void action('master-force-rename',{display_name:name})}}><fieldset disabled={disabled}><label>Master 昵称<input required value={name} onChange={e=>setName(e.target.value)}/></label><button type="submit">强制改名</button></fieldset></form></>;
 }
 function Balance({client,u,disabled,adjust}:{client:ApiClient;u:OpsUser;disabled:boolean;adjust:(body:unknown)=>Promise<boolean>}){
  const [page,setPage]=useState(1),[amount,setAmount]=useState(''),[note,setNote]=useState(''),[requestID]=useState(()=>crypto.randomUUID());

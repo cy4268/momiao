@@ -74,6 +74,8 @@ Discord 配置使用 `MOMIAO_DISCORD_CONFIG_FILE` 指向私有 JSON，包含 `cl
 
 运营维护页已改为本地管理员（role ≥ 10）的开关、可选提示语和范围直接保存；每次保存与一行 `ops.audit_log` 同事务提交。发布前应用 0050 及 `deploy/sql/runtime-grants-0050-local-ops.psql`。维护不再使用预约、预览或 fresh，已有业务准入锁继续复用。其他运营页面仍在迁移，整套开发验收前不切生产。 排行榜运营也已使用本地角色：直接创建重建任务、比较影子快照并确认发布；发布前应用 0059，将操作人外键改接本地用户，保留原聚合与发布历史。
 
+用户运营页的 Master 资料已接本地角色与直接保存：设置改名要求或强制改名，不改变登录显示名和用户改名冷却。复用已有 Master 表、昵称规则和审计，无新迁移或授权；旧 Master Ops 绑定已删除，整站仍待开发验收后发布。
+
 操作日志 `/ops/audit` 使用本地管理员权限，统一显示直接保存日志与保留的历史审计，支持分页、时间、操作人和对象筛选；详情在弹窗查看。发布前应用 0051 和 `deploy/sql/runtime-grants-0051-ops-audit.psql`。`/ops/operations` 列表入口合并到此页；旧写流程所需的单条回执暂随未迁移页面保留。
 
 API Key 管理已使用本地登录及 `relay.api_keys`，保留 `/api/token/` 的列表、创建、修改、查看与删除接口。用途随创建一起保存，修改用途不再经过 native 同步。发布前应用 0052 和 `deploy/sql/runtime-grants-0052-local-api-keys.psql`，再用 `momiao-import-native -stage keys` 单次导入未删除的旧 key；已导入的身份和余额不动。此阶段尚未接通本地模型中转与 Reserve 计费，须联合完成后发布。

@@ -109,11 +109,11 @@ func newLocalOpsUsersHandler(store *platform.Store, auth *identity.HTTP) http.Ha
 				result, err = store.LocalOpsLedger(ctx, id, page, size)
 			case action == "keys" && r.Method == "GET":
 				result, err = store.ListAPIKeys(ctx, id, int(page), int(size))
-			case action == "" && r.Method == "PUT" || r.Method == "POST" && (action == "logout" || action == "reset-2fa" || action == "reserve" || action == "disable-key" || action == "delete-key"):
+			case action == "master" && r.Method == "GET":
+				result, err = store.LocalOpsMaster(ctx, id)
+			case action == "" && r.Method == "PUT" || r.Method == "POST" && (action == "logout" || action == "reset-2fa" || action == "reserve" || action == "disable-key" || action == "delete-key" || action == "master-rename-required" || action == "master-force-rename"):
 				var v platform.OpsUserChange
-				decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
-				decoder.DisallowUnknownFields()
-				if decoder.Decode(&v) != nil {
+				if json.NewDecoder(r.Body).Decode(&v) != nil {
 					walletError(w, 400, "OPS_INPUT_INVALID")
 					return
 				}
@@ -143,6 +143,8 @@ func newLocalOpsUsersHandler(store *platform.Store, auth *identity.HTTP) http.Ha
 				writeJSONError(w, 400, "金额超出上限")
 			case errors.Is(err, platform.ErrIdempotencyConflict):
 				writeJSONError(w, 409, "调账编号已用于另一笔操作")
+			case errors.Is(err, platform.ErrNicknameTaken), errors.Is(err, platform.ErrNicknameReserved), errors.Is(err, platform.ErrInvalidNickname):
+				writeProfileError(w, err)
 			default:
 				writeOpsError(w, err)
 			}

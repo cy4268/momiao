@@ -82,14 +82,42 @@ func readLocalOpsUser(ctx context.Context, q announcementQuerier, id int64) (Loc
 	return scanLocalOpsUser(q.QueryRow(ctx, `SELECT `+localOpsUserColumns+localOpsUserTables+` WHERE u.id=$1 AND u.deleted_at IS NULL`, id))
 }
 
+type opsMasterSnapshot struct {
+	UserID            int64      `json:"newapi_user_id,string"`
+	DisplayName       string     `json:"display_name"`
+	ProfileVersion    int64      `json:"profile_version,string"`
+	RenameRequired    bool       `json:"rename_required"`
+	NicknameChangedAt *time.Time `json:"nickname_changed_at"`
+}
+
+func opsMasterProfileSnapshot(profile Profile) opsMasterSnapshot {
+	return opsMasterSnapshot{
+		UserID: profile.UserID, DisplayName: profile.DisplayName, ProfileVersion: profile.ProfileVersion,
+		RenameRequired: profile.RenameRequired, NicknameChangedAt: profile.NicknameChangedAt,
+	}
+}
+
+func (s *Store) LocalOpsMaster(ctx context.Context, id int64) (opsMasterSnapshot, error) {
+	return readLocalOpsMaster(ctx, s.pool, id)
+}
+func readLocalOpsMaster(ctx context.Context, q announcementQuerier, id int64) (opsMasterSnapshot, error) {
+	var v opsMasterSnapshot
+	err := q.QueryRow(ctx, `SELECT u.id,coalesce(p.display_name,''),coalesce(p.profile_version,0),coalesce(p.rename_required,false),p.nickname_changed_at
+	 FROM identity.users u LEFT JOIN identity.master_profiles p ON p.newapi_user_id=u.id WHERE u.id=$1 AND u.deleted_at IS NULL`, id).
+		Scan(&v.UserID, &v.DisplayName, &v.ProfileVersion, &v.RenameRequired, &v.NicknameChangedAt)
+	return v, err
+}
+
 type OpsUserChange struct {
-	Group     string `json:"group"`
-	Status    int    `json:"status"`
-	Role      *int   `json:"role"`
-	Amount    string `json:"amount"`
-	Note      string `json:"note"`
-	RequestID string `json:"request_id"`
-	KeyID     int64  `json:"key_id"`
+	Group       string `json:"group"`
+	Status      int    `json:"status"`
+	Role        *int   `json:"role"`
+	Amount      string `json:"amount"`
+	Note        string `json:"note"`
+	RequestID   string `json:"request_id"`
+	KeyID       int64  `json:"key_id"`
+	Required    *bool  `json:"required"`
+	DisplayName string `json:"display_name"`
 }
 
 func (s *Store) ChangeLocalOpsUser(ctx context.Context, sessions identity.Sessions, actor, subject int64, action string, v OpsUserChange) error {
@@ -163,6 +191,36 @@ func changeLocalOpsUser(ctx context.Context, tx pgx.Tx, sessions identity.Sessio
 	target := strconv.FormatInt(subject, 10)
 	kind := "USER"
 	switch action {
+	case "master-rename-required", "master-force-rename":
+		master, e := scanProfile(tx.QueryRow(ctx, `SELECT `+profileColumns+` FROM identity.master_profiles WHERE newapi_user_id=$1 FOR UPDATE`, subject))
+		if errors.Is(e, pgx.ErrNoRows) || e == nil && master.ProfileVersion == 0 {
+			return ErrOpsNotFound
+		}
+		if e != nil {
+			return e
+		}
+		var changed Profile
+		if action == "master-rename-required" {
+			if v.Required == nil {
+				return ErrOpsInvalid
+			}
+			changed, err = scanProfile(tx.QueryRow(ctx, `UPDATE identity.master_profiles SET rename_required=$2,profile_version=profile_version+1,updated_at=clock_timestamp() WHERE newapi_user_id=$1 RETURNING `+profileColumns, subject, *v.Required))
+		} else {
+			display, normalized, e := ValidateNickname(v.DisplayName)
+			if e != nil {
+				return e
+			}
+			// Administrator moderation does not consume the user's nickname cooldown.
+			changed, err = scanProfile(tx.QueryRow(ctx, `UPDATE identity.master_profiles SET display_name=$2,normalized_name=$3,profile_version=profile_version+1,rename_required=false,updated_at=clock_timestamp() WHERE newapi_user_id=$1 RETURNING `+profileColumns, subject, display, normalized))
+			if err == nil && master.DisplayName != changed.DisplayName {
+				err = appendProfileName(ctx, tx, changed, normalized)
+			}
+		}
+		if err != nil {
+			return profileDBError(err)
+		}
+		beforeAudit, after = opsMasterProfileSnapshot(master), opsMasterProfileSnapshot(changed)
+		auditAction, kind = strings.ToUpper(strings.ReplaceAll(action, "-", "_")), "MASTER_PROFILE"
 	case "profile":
 		role := before.Role
 		if v.Role != nil {

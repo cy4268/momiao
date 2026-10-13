@@ -300,7 +300,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 	}
 	if cfg.OpsEnvironment!=""&&runtimeStore!=nil {
 		bindings := campaign.OpsBindings()
-		bindings = append(bindings, platform.OpsMasterBindings(runtimeStore)...)
 		opsService, err := platform.NewOpsService(runtimeStore, cfg.OpsEnvironment, bindings...)
 		if err != nil { return errors.New("Ops startup failed") }
 		opsReads:=newOpsGamblerHandler(cfg.sessions,campaign,http.NotFoundHandler())

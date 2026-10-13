@@ -254,6 +254,7 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  let keys=[{id:7,name:'user key',key:'abcd**********wxyz',status:1,purpose:'GENERAL'}];
  const writes:{path:string;body:Record<string,unknown>}[]=[],ledger:unknown[]=[];
  let adjustment='';let readsFail=false;let rewardReadsFail=false,requeues=0;
+ let master={newapi_user_id:'2',display_name:'原昵称',profile_version:'1',rename_required:false,nickname_changed_at:null};let masterReadsFail=false;
  const rewardID='10000000-0000-4000-8000-000000000061';
  vi.spyOn(window,'confirm').mockReturnValue(true);
  const fetcher=vi.fn(async(path:string,init?:RequestInit)=>{
@@ -276,10 +277,13 @@ it('manages local users and filtered relay logs without legacy operations', asyn
   if(path.startsWith('/api/v1/ops/users/2/ledger?'))return ok({items:ledger,total:ledger.length,page:1,page_size:20});
   if(path.startsWith('/api/v1/ops/users/2/keys?'))return ok({items:keys,total:keys.length,page:1,page_size:20});
   if(path==='/api/v1/ops/users/2'&&init?.method==='GET')return readsFail?failed():ok(u);
+  if(path==='/api/v1/ops/users/2/master'&&init?.method==='GET')return masterReadsFail?failed():ok(master);
   if(path.startsWith('/api/v1/ops/users/2')&&init?.method!=='GET'){
    const body=JSON.parse(String(init?.body));writes.push({path,body});
    if(path==='/api/v1/ops/users/2'){u={...u,...body};readsFail=true}
    if(path.endsWith('/reset-2fa'))u.two_fa_enabled=false;
+   if(path.endsWith('/master-rename-required'))master={...master,rename_required:body.required};
+   if(path.endsWith('/master-force-rename')){master={...master,display_name:body.display_name,rename_required:false};masterReadsFail=true}
    if(path.endsWith('/reserve')){
     if(!adjustment){adjustment=body.request_id;u.reserve='2.000002';ledger.push({id:'entry',created_at:u.created_at,biz_type:'OPS_ADJUST',delta_amount:'0.000002',balance_after_amount:u.reserve,note:body.note});return failed()}
     expect(body.request_id).toBe(adjustment);
@@ -315,6 +319,23 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  fireEvent.click(screen.getByRole('button',{name:'强制下线'}));
  await waitFor(()=>expect(writes.some(w=>w.path.endsWith('/logout'))).toBe(true));
  await screen.findByLabelText('用户分组');
+ fireEvent.click(screen.getByRole('button',{name:'Master 资料'}));
+ fireEvent.click(await screen.findByLabelText('要求用户改名'));
+ fireEvent.click(screen.getByRole('button',{name:'保存改名要求'}));
+ await waitFor(()=>expect(writes.find(w=>w.path.endsWith('/master-rename-required'))?.body).toEqual({required:true}));
+ expect(await screen.findByLabelText('要求用户改名')).toBeChecked();
+ fireEvent.change(screen.getByLabelText('Master 昵称'),{target:{value:'新昵称'}});
+ fireEvent.click(screen.getByRole('button',{name:'强制改名'}));
+ expect(await screen.findByRole('alert')).toBeVisible();
+ expect(screen.getByText('操作已保存')).toBeVisible();
+ expect(writes.find(w=>w.path.endsWith('/master-force-rename'))?.body).toEqual({display_name:'新昵称'});
+ masterReadsFail=false;fireEvent.click(screen.getByRole('button',{name:'刷新 Master 资料'}));
+ expect(await screen.findByLabelText('Master 昵称')).toHaveValue('新昵称');
+ expect(screen.getByLabelText('要求用户改名')).not.toBeChecked();
+ expect(writes.filter(w=>w.path.includes('/master-'))).toHaveLength(2);
+ master={...master,profile_version:'0'};fireEvent.click(screen.getByRole('button',{name:'刷新 Master 资料'}));
+ expect(await screen.findByText('此账号尚未完成 Master 资料，不创建资料或钱包。')).toBeVisible();
+ expect(screen.queryByRole('button',{name:'强制改名'})).not.toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'余额与流水'}));
  fireEvent.change(await screen.findByLabelText('调整金额（负数扣减）'),{target:{value:'0.000002'}});
  fireEvent.change(screen.getByLabelText('调账备注'),{target:{value:'核对最小单位'}});

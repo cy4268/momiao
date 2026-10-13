@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -270,4 +271,113 @@ func TestV08OpsUsersShortAccountSearch(t *testing.T) {
 		t.Fatal("secret in Ops user DTO")
 	}
 	t.Log("existing dev user: role/group/ban/2FA/logout; +1/replay/-1 Reserve units; masked keys/history; 10 audits; filtered SQL Top20; all PG writes rolled back")
+}
+
+// Reuse imported dev identities and Master history; every write stays in one
+// transaction that rolls back, including the temporary local administrator role.
+func TestLocalOpsMasterModeration(t *testing.T) {
+	path := os.Getenv("MOMIAO_SESSION_DSN_FILE")
+	if path == "" {
+		t.Skip("requires existing isolated dev database")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("read dev DSN")
+	}
+	s, err := Open(t.Context(), strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal("open dev database")
+	}
+	defer s.Close()
+	ctx := t.Context()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	var actor, subject int64
+	if err = tx.QueryRow(ctx, `SELECT max(id) FROM identity.users WHERE role=1 AND status=1 AND deleted_at IS NULL`).Scan(&actor); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT min(u.id) FROM identity.users u JOIN identity.master_profiles p ON p.newapi_user_id=u.id WHERE u.role=1 AND u.status=1 AND u.deleted_at IS NULL AND p.profile_version>0 AND u.id<>$1`, actor).Scan(&subject); err != nil {
+		t.Fatal(err)
+	}
+	before, err := readLocalOpsMaster(ctx, tx, subject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var audits, operations int
+	if err = tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM ops.audit_log),(SELECT count(*) FROM ops.admin_operations)`).Scan(&audits, &operations); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE identity.users SET role=10 WHERE id=$1`, actor); err != nil {
+		t.Fatal(err)
+	}
+	if err = changeLocalOpsUser(ctx, tx, identity.Sessions{}, subject, actor, "master-rename-required", OpsUserChange{}); !errors.Is(err, ErrOpsForbidden) {
+		t.Fatal("regular role", err)
+	}
+	if err = changeLocalOpsUser(ctx, tx, identity.Sessions{}, actor, actor, "master-rename-required", OpsUserChange{}); !errors.Is(err, ErrOpsForbidden) {
+		t.Fatal("peer role", err)
+	}
+	required := true
+	for i := 0; i < 2; i++ {
+		if err = changeLocalOpsUser(ctx, tx, identity.Sessions{}, actor, subject, "master-rename-required", OpsUserChange{Required: &required}); err != nil {
+			t.Fatal("require rename and same-value save", err)
+		}
+	}
+	marked, err := readLocalOpsMaster(ctx, tx, subject)
+	if err != nil || !marked.RenameRequired || marked.ProfileVersion != before.ProfileVersion+2 {
+		t.Fatal("rename marker", err, marked)
+	}
+	if err = changeLocalOpsUser(ctx, tx, identity.Sessions{}, actor, subject, "master-rename-required", OpsUserChange{}); !errors.Is(err, ErrOpsInvalid) {
+		t.Fatal("missing required", err)
+	}
+	if err = changeLocalOpsUser(ctx, tx, identity.Sessions{}, actor, subject, "master-force-rename", OpsUserChange{DisplayName: "Admin"}); !errors.Is(err, ErrNicknameReserved) {
+		t.Fatal("reserved name", err)
+	}
+	name := "Dev " + announcementID(t)[:8]
+	if err = changeLocalOpsUser(ctx, tx, identity.Sessions{}, actor, subject, "master-force-rename", OpsUserChange{DisplayName: " Ｄｅｖ " + strings.TrimPrefix(name, "Dev ") + " "}); err != nil {
+		t.Fatal("normalized forced rename", err)
+	}
+	if err = changeLocalOpsUser(ctx, tx, identity.Sessions{}, actor, subject, "master-force-rename", OpsUserChange{DisplayName: name}); err != nil {
+		t.Fatal("same name save", err)
+	}
+	required = false
+	if err = changeLocalOpsUser(ctx, tx, identity.Sessions{}, actor, subject, "master-rename-required", OpsUserChange{Required: &required}); err != nil {
+		t.Fatal("clear rename required", err)
+	}
+	after, err := readLocalOpsMaster(ctx, tx, subject)
+	if err != nil || after.DisplayName != name || after.RenameRequired || after.ProfileVersion != before.ProfileVersion+5 || !reflect.DeepEqual(after.NicknameChangedAt, before.NicknameChangedAt) {
+		t.Fatal("Master state or user cooldown changed", err, after)
+	}
+	var duplicate string
+	if err = tx.QueryRow(ctx, `SELECT display_name FROM identity.master_profiles WHERE newapi_user_id<>$1 AND profile_version>0 ORDER BY newapi_user_id LIMIT 1`, subject).Scan(&duplicate); err != nil {
+		t.Fatal(err)
+	}
+	sub, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = changeLocalOpsUser(ctx, sub, identity.Sessions{}, actor, subject, "master-force-rename", OpsUserChange{DisplayName: duplicate})
+	if !errors.Is(err, ErrNicknameTaken) {
+		t.Fatal("unique nickname", err)
+	}
+	if err = sub.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var count, oldOperations, masterAudits int
+	if err = tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM ops.audit_log),(SELECT count(*) FROM ops.admin_operations),(SELECT count(*) FROM ops.audit_log WHERE actor_user_id=$1 AND target_type='MASTER_PROFILE' AND target=$2 AND before_state->>'display_name' IS NOT NULL AND after_state->>'display_name' IS NOT NULL)`, actor, strconv.FormatInt(subject, 10)).Scan(&count, &oldOperations, &masterAudits); err != nil || count != audits+5 || oldOperations != operations || masterAudits != 5 {
+		t.Fatal("atomic audit without legacy operations", err, count-audits, masterAudits)
+	}
+	if err = tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := readLocalOpsMaster(ctx, s.pool, subject)
+	if err != nil || !reflect.DeepEqual(restored, before) {
+		t.Fatal("Master rollback", err)
+	}
+	if err = s.pool.QueryRow(ctx, `SELECT count(*) FROM ops.audit_log`).Scan(&count); err != nil || count != audits {
+		t.Fatal("audit rollback", err)
+	}
+	t.Log("local role10: require/clear and normalized force rename; same-value saves; regular/peer/reserved/duplicate denied; 5 atomic audits, 0 legacy operations; user cooldown unchanged; all rows rolled back")
 }

@@ -193,6 +193,8 @@ The portal's runtime CSP must separately allow the same CDN origin used at build
 
 `/ops/users`、`/ops/users/:id`、`/ops/logs` 使用本地 Redis 会话、CSRF 和 role >= 10，不读取旧 Ops bootstrap/epoch，不走 prepare/execute。用户写入事务重新核对操作者状态/角色；沿用官方 f1164142 的「root 或严格高于目标角色」规则，仅 root 修改角色，至少保留一位启用的 root。分组先锁 relay.groups，再锁用户行，与组改名保持同一顺序。角色/状态变更、重置 2FA 和强制下线复用现有用户会话撤销；组变更由后续请求实时读取。
 
+Master 页签使用 GET `/api/v1/ops/users/:id/master`，POST `/:id/master-rename-required`（`required`）和 `/:id/master-force-rename`（`display_name`）。写入沿用上述角色规则，在同一事务更新资料并写一条审计；复用原昵称规范化、保留名、唯一约束及改名历史，不占用用户七天冷却。强制改名清除改名要求，同值保存正常记审计；未完成 Master 的账号不创建资料或钱包。客户端不传版本，保存后的读取失败只刷新读取，不重放写入。沿用既有 Master 表权限，无新迁移或授权，旧 Master Ops 绑定已删除。
+
 Reserve 调账接受有符号 Credit 十进制字符串和备注，复用 ParseAmount / applyInTx，最小单位 0.000002，不透支、不四舍五入。浏览器在当前表单保留 request_id，失败后同一输入重试；业务号、账务幂等键同源。一次成功写入 OPS_ADJUST 流水和一条审计，重复请求不新增审计；备注由同事务审计关联到流水。不自动为尚未初始化的用户新建钱包。Key 只列掩码，停用/删除保留调用历史。
 
 全局日志只列 kind 2/5 的消费/错误尝试。用户、Key、模型、渠道、日志分组和起止时间筛选后，用 request_id 合并逻辑请求；历史无 request_id 的每条日志独立计算。筛选内所有尝试均失败才计为错误请求，因此筛选单渠道或「仅错误」会改变该口径。Token 为 input + output（不重复叠加已包含的缓存输入），费用用 PostgreSQL numeric / 500000 转十进制字符串。Top 20 按当前维度请求数排序，现场 SQL GROUP BY，不建预聚合表或缓存。沿用 schema 57 和现有授权，无新迁移。
@@ -236,4 +238,4 @@ POST `/platform/v1/ops/announcements` 直接接受 `announcement_id`、`action` 
 
 应用 `0062_local_support_incidents.sql` 后，`/api/v1/ops/support-cases` 与 `/api/v1/ops/incidents` 使用本地 Redis 会话和管理员角色。POST 列表路径新建，PUT `/:id` 保存 `next_state`，POST 工单 `/:id/facts` / 事件 `/:id/events` 追加事实或处理记录；写入与 `ops.audit_log` 同事务。列表默认全局，每页 20 项，支持创建时间 `from`（含）/`to`（不含）、状态、关键词，以及工单账户/类别或事件程度。详情保留原核验事实和事件时间线。
 
-工单的核验/处理状态和事件的研判/解决状态仍是业务记录，不会触发账号变更；移除的是通用 Ops 预览审批、客户端版本、原因和回执。历史 operation 引用保留为可空列，旧行和不可变历史仍保留；新写入仅用本地用户外键及现有权限，无新增运行授权。Master 强制改名的旧绑定另待用户运营收口，不属于本次工单/事件迁移。
+工单的核验/处理状态和事件的研判/解决状态仍是业务记录，不会触发账号变更；移除的是通用 Ops 预览审批、客户端版本、原因和回执。历史 operation 引用保留为可空列，旧行和不可变历史仍保留；新写入仅用本地用户外键及现有权限，无新增运行授权。Master 改名管理已并入本地用户运营，不再保留旧绑定。

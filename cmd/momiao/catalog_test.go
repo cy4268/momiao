@@ -521,6 +521,38 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 			t.Log("economy/rewards both routers: local admin200 regular403 anonymous401 CSRF403 invalid400 missing404; transfers readonly405; no native")
 		})
 		t.Run("users", func(t *testing.T) {
+			masterPath := "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/master"
+			w := request(admin, "GET", masterPath, "", false)
+			if w.Code != 200 || !strings.Contains(w.Body.String(), `"rename_required":`) {
+				t.Fatal("local Master", w.Code, w.Body.String())
+			}
+			for _, actor := range []int64{regular, 0} {
+				want := 403
+				if actor == 0 {
+					want = 401
+				}
+				if w := request(actor, "GET", masterPath, "", false); w.Code != want {
+					t.Fatal("Master role", w.Code)
+				}
+			}
+			for _, action := range []string{"master-rename-required", "master-force-rename"} {
+				path := "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/" + action
+				if w := request(admin, "POST", path, `{}`, false); w.Code != 403 {
+					t.Fatal("Master CSRF", w.Code)
+				}
+				if w := request(regular, "POST", path, `{}`, true); w.Code != 403 {
+					t.Fatal("Master write role", w.Code)
+				}
+				if w := request(admin, "POST", path, `{}`, true); w.Code != 400 {
+					t.Fatal("Master input", w.Code, w.Body.String())
+				}
+			}
+			if w := request(admin, "POST", "/api/v1/ops/users/"+strconv.FormatInt(regular, 10)+"/master-force-rename", `{"display_name":"Admin"}`, true); w.Code != 403 {
+				t.Fatal("reserved Master name", w.Code, w.Body.String())
+			}
+			if w := request(admin, "GET", "/api/v1/ops/users/9223372036854775807/master", "", false); w.Code != 404 {
+				t.Fatal("missing Master", w.Code)
+			}
 			for _, path := range []string{"/api/v1/ops/users", "/api/v1/ops/users/" + strconv.FormatInt(regular, 10), "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/ledger", "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/keys", "/api/v1/ops/logs"} {
 				if w := request(admin, "GET", path, "", false); w.Code != 200 {
 					t.Fatal("local users Ops", path, w.Code, w.Body.String())
