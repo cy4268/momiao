@@ -6,6 +6,12 @@ import { App } from './App';
 import { ok, failed } from './m1-test-fixtures';
 
 it('saves maintenance directly with a local admin and shows all operations without legacy bootstrap', async () => {
+ const supportID='10000000-0000-7000-8000-000000000081',incidentID='10000000-0000-7000-8000-000000000082';
+ let support={case_id:supportID,subject_newapi_user_id:'2',category:'IDENTITY',state:'OPEN',safe_summary:'开发工单',created_by:'1',created_at:'2026-10-13T08:00:00Z',updated_at:'2026-10-13T08:00:00Z'};
+ let incident={incident_id:incidentID,title:'开发事件',severity:'WARNING',state:'OPEN',safe_summary:'开发环境检查',created_by:'1',created_at:'2026-10-13T08:00:00Z',updated_at:'2026-10-13T08:00:00Z'};
+ const supportWrites:{path:string;body:Record<string,unknown>}[]=[],incidentWrites:{path:string;body:Record<string,unknown>}[]=[];
+ const supportFacts:unknown[]=[],incidentEvents:Record<string,unknown>[]=[];
+ let supportReadsFail=false;
  let pokerAccepting=true,pokerHidden=false,pokerReadsFail=false;
  const pokerID='10000000-0000-7000-8000-000000000074',messageID='10000000-0000-7000-8000-000000000075';
  const pokerWrites:Record<string,unknown>[]=[];
@@ -38,6 +44,29 @@ it('saves maintenance directly with a local admin and shows all operations witho
    if(rankingReadsFail)return failed();
    const page=Number(new URLSearchParams(path.split('?')[1]).get('page'));
    return ok({page,page_size:20,job_total:21,shadow_total:rebuilt&&!published?1:0,generated_at:'2026-10-13T06:00:00Z',aggregation_status:[{slice_target_id:sliceID,domain:'GAMES',metric:'GAME_PROFIT',period:'DAY',date:'2026-10-13',state:'READY',last_source_checked_at:null,lag_seconds:null}],published:published?[snapshot()]:[],shadow_rebuilds:rebuilt&&!published?[snapshot()]:[],rebuild_jobs:rebuilt?[{job_id:'10000000-0000-4000-8000-000000000073',metric:'GAME_PROFIT',period:'DAY',status:published?'PUBLISHED':'SHADOW',attempts:'1',shadow_snapshot_id:snapshotID,updated_at:'2026-10-13T06:00:00Z'}]:[]});
+  }
+  if(path.startsWith('/api/v1/ops/support-cases')){
+   if(init?.method!=='GET'){
+    const body=JSON.parse(String(init?.body));supportWrites.push({path,body});
+    if(path==='/api/v1/ops/support-cases')support={...support,...body};
+    else if(path.endsWith('/facts'))supportFacts.push(body);
+    else{support={...support,state:body.next_state};supportReadsFail=true}
+    return ok(support);
+   }
+   if(supportReadsFail)return failed();
+   if(path.includes('?'))return ok({items:[support],total:21});
+   return ok({case:support,verification_facts:supportFacts});
+  }
+  if(path.startsWith('/api/v1/ops/incidents')){
+   if(init?.method!=='GET'){
+    const body=JSON.parse(String(init?.body));incidentWrites.push({path,body});
+    if(path==='/api/v1/ops/incidents')incident={...incident,...body};
+    else if(path.endsWith('/events'))incidentEvents.push({event_id:'dev-event',actor_newapi_user_id:'1',occurred_at:'2026-10-13T08:00:00Z',...body});
+    else incident={...incident,state:body.next_state};
+    return ok(incident);
+   }
+   if(path.includes('?'))return ok({items:[incident],total:21});
+   return ok({incident,events:incidentEvents});
   }
   if(path==='/api/v1/ops/poker')return ok({blockers:[],service_state:'AVAILABLE'});
   if(path.startsWith('/api/v1/ops/poker/tables?'))return ok({items:[pokerTable()],next_cursor:pokerID});
@@ -133,6 +162,53 @@ it('saves maintenance directly with a local admin and shows all operations witho
  fireEvent.click(screen.getByRole('button',{name:'筛选牌桌'}));
  await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('q=%E5%BC%80%E5%8F%91')&&path.endsWith('cursor='))).toBe(true));
  expect(pokerWrites).toHaveLength(2);
+ fireEvent.click(within(screen.getByRole('navigation',{name:'运营导航'})).getByRole('link',{name:'支持工单'}));
+ fireEvent.click(await screen.findByRole('button',{name:'新建工单'}));
+ const createCase=await screen.findByRole('dialog',{name:'新建工单'});
+ fireEvent.change(within(createCase).getByRole('spinbutton',{name:'工单账户'}),{target:{value:'2'}});
+ fireEvent.change(within(createCase).getByRole('textbox',{name:'摘要'}),{target:{value:'直接新建工单'}});
+ fireEvent.click(within(createCase).getByRole('button',{name:'保存新工单'}));
+ const caseDialog=await screen.findByRole('dialog',{name:'工单详情'});
+ fireEvent.click(await within(caseDialog).findByRole('button',{name:'保存核验事实'}));
+ await waitFor(()=>expect(supportWrites).toHaveLength(2));
+ expect(supportWrites[0].body).toEqual({subject_newapi_user_id:'2',category:'ACCOUNT_ACCESS',safe_summary:'直接新建工单'});
+ expect(supportWrites[1].body).toEqual({fact_type:'IDENTITY_MATCH',result:'INCONCLUSIVE',safe_reference:''});
+ fireEvent.click(await within(caseDialog).findByRole('button',{name:'保存工单状态'}));
+ expect(await within(caseDialog).findByRole('status')).toHaveTextContent('工单已保存');
+ expect(await within(caseDialog).findByRole('alert')).toBeVisible();
+ expect(supportWrites).toHaveLength(3);expect(supportWrites[2].body).toEqual({next_state:'VERIFYING'});
+ supportReadsFail=false;fireEvent.click(screen.getByRole('button',{name:'刷新工单'}));
+ expect(await within(caseDialog).findByRole('button',{name:'保存工单状态'})).toBeVisible();
+ fireEvent.click(within(caseDialog).getByRole('button',{name:'关闭对话框'}));
+ fireEvent.click(screen.getByRole('button',{name:'下一页'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/support-cases?page=2'))).toBe(true));
+ fireEvent.change(screen.getByRole('spinbutton',{name:'账户编号'}),{target:{value:'2'}});
+ fireEvent.change(screen.getByRole('combobox',{name:'工单状态'}),{target:{value:'VERIFYING'}});
+ fireEvent.click(screen.getByRole('button',{name:'筛选工单'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/support-cases?page=1')&&path.includes('subject_newapi_user_id=2')&&path.includes('state=VERIFYING'))).toBe(true));
+ expect(supportWrites).toHaveLength(3);
+ fireEvent.click(within(screen.getByRole('navigation',{name:'运营导航'})).getByRole('link',{name:'事件处理'}));
+ fireEvent.click(await screen.findByRole('button',{name:'创建事件'}));
+ const createIncident=await screen.findByRole('dialog',{name:'创建事件'});
+ fireEvent.change(within(createIncident).getByRole('textbox',{name:'标题'}),{target:{value:'直接新建事件'}});
+ fireEvent.change(within(createIncident).getByRole('textbox',{name:'业务影响摘要'}),{target:{value:'仅开发验收'}});
+ fireEvent.click(within(createIncident).getByRole('button',{name:'保存新事件'}));
+ const incidentDialog=await screen.findByRole('dialog',{name:'事件详情'});
+ fireEvent.change(await within(incidentDialog).findByRole('textbox',{name:'处理备注'}),{target:{value:'已经检查'}});
+ fireEvent.click(within(incidentDialog).getByRole('button',{name:'保存处理记录'}));
+ expect(await within(incidentDialog).findByText('已经检查')).toBeVisible();
+ fireEvent.change(within(incidentDialog).getByRole('combobox',{name:'下一状态'}),{target:{value:'CLOSED'}});
+ fireEvent.click(within(incidentDialog).getByRole('button',{name:'保存事件状态'}));
+ await waitFor(()=>expect(within(incidentDialog).queryByRole('button',{name:'保存处理记录'})).not.toBeInTheDocument());
+ expect(window.confirm).toHaveBeenCalledWith('确认关闭这项事件？');
+ expect(incidentWrites.map(v=>v.body)).toEqual([{title:'直接新建事件',severity:'WARNING',safe_summary:'仅开发验收'},{event_type:'COMMENT',safe_summary:'已经检查'},{next_state:'CLOSED'}]);
+ fireEvent.click(within(incidentDialog).getByRole('button',{name:'关闭对话框'}));
+ fireEvent.click(screen.getByRole('button',{name:'下一页'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/incidents?page=2'))).toBe(true));
+ fireEvent.change(screen.getByRole('textbox',{name:'搜索事件'}),{target:{value:'直接'}});
+ fireEvent.click(screen.getByRole('button',{name:'筛选事件'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/incidents?page=1')&&path.includes('q=%E7%9B%B4%E6%8E%A5'))).toBe(true));
+ expect(screen.queryByText('本次操作原因')).not.toBeInTheDocument();
  expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/bootstrap')||path.includes('/ops/operations')||path.includes('/ops/fresh')||path.includes('/native-runtime')||path.includes('authz_epoch'))).toBe(false);
 });
 

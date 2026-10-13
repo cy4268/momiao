@@ -300,11 +300,10 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 	}
 	if cfg.OpsEnvironment!=""&&runtimeStore!=nil {
 		bindings := campaign.OpsBindings()
-		bindings = append(bindings, platform.OpsSupportBindings(runtimeStore)...)
-		bindings = append(bindings, platform.OpsIncidentBindings(runtimeStore)...)
+		bindings = append(bindings, platform.OpsMasterBindings(runtimeStore)...)
 		opsService, err := platform.NewOpsService(runtimeStore, cfg.OpsEnvironment, bindings...)
 		if err != nil { return errors.New("Ops startup failed") }
-		opsReads:=newOpsSupportRecordsHandler(cfg.sessions, runtimeStore, newOpsRuntimeHandler(cfg.sessions, runtimeStore, cfg.OpsEnvironment, domainHandler(cfg, newNativeRuntimeProjectionHandler(newNativeTransport(cfg.NewAPISocket)))))
+		opsReads:=newOpsRuntimeHandler(cfg.sessions, runtimeStore, cfg.OpsEnvironment, domainHandler(cfg, newNativeRuntimeProjectionHandler(newNativeTransport(cfg.NewAPISocket))))
 		opsReads=newOpsGamblerHandler(cfg.sessions,campaign,opsReads)
 		cfg.ops = newOpsHandler(cfg.sessions, opsService, opsFactorAdapter{auth:sessionApp.auth}, "UNKNOWN", opsReads)
 		remoteCtx,stopRemote:=context.WithCancel(ctx);remoteDone:=make(chan struct{})

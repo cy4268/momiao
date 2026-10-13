@@ -18,7 +18,7 @@ type OpsSupportCase struct {
 	Category        string     `json:"category"`
 	State           string     `json:"state"`
 	SafeSummary     string     `json:"safe_summary"`
-	Version         int64      `json:"version,string"`
+	Version         int64      `json:"-"`
 	CreatedBy       int64      `json:"created_by,string"`
 	LastOperationID string     `json:"-"`
 	CreatedAt       time.Time  `json:"created_at"`
@@ -33,7 +33,7 @@ type OpsSupportVerificationFact struct {
 	Result        string    `json:"result"`
 	SafeReference string    `json:"safe_reference,omitempty"`
 	ActorUserID   int64     `json:"actor_newapi_user_id,string"`
-	OperationID   string    `json:"operation_id"`
+	OperationID   string    `json:"-"`
 	RecordedAt    time.Time `json:"recorded_at"`
 }
 
@@ -43,13 +43,15 @@ type OpsSupportCaseDetail struct {
 }
 
 type OpsSupportCaseQuery struct {
-	State     string
-	SubjectID int64
-	Limit     int
+	State            string
+	SubjectID        int64
+	Page             int
+	Category, Search string
+	From, To         time.Time
 }
 
 const opsSupportColumns = `case_id::text,subject_newapi_user_id,category,state,safe_summary,version,
- created_by,last_operation_id::text,created_at,updated_at,closed_at`
+ created_by,COALESCE(last_operation_id::text,''),created_at,updated_at,closed_at`
 
 func scanOpsSupportCase(row pgx.Row) (OpsSupportCase, error) {
 	var item OpsSupportCase
@@ -91,47 +93,48 @@ func supportTransitionAllowed(from, to string) bool {
 	}
 }
 
-func (s *Store) OpsSupportCases(ctx context.Context, actor, epoch int64, query OpsSupportCaseQuery) ([]OpsSupportCase, error) {
-	items := []OpsSupportCase{}
-	if s == nil || s.pool == nil {
-		return items, ErrOpsUnavailable
+type OpsSupportCasePage struct {
+	Items    []OpsSupportCase `json:"items"`
+	Total    int64            `json:"total"`
+	Page     int              `json:"page"`
+	PageSize int              `json:"page_size"`
+}
+
+func (s *Store) OpsSupportCases(ctx context.Context, query OpsSupportCaseQuery) (OpsSupportCasePage, error) {
+	return readOpsSupportCases(ctx, s.pool, query)
+}
+func readOpsSupportCases(ctx context.Context, q announcementQuerier, query OpsSupportCaseQuery) (OpsSupportCasePage, error) {
+	page := OpsSupportCasePage{Items: []OpsSupportCase{}, Page: query.Page, PageSize: 20}
+	where := ` FROM ops.support_cases WHERE ($1='' OR state=$1) AND ($2::bigint=0 OR subject_newapi_user_id=$2)
+ AND ($3='' OR category=$3) AND ($4='' OR safe_summary ILIKE '%'||$4||'%')
+ AND ($5::timestamptz IS NULL OR created_at >= $5) AND ($6::timestamptz IS NULL OR created_at < $6)`
+	args := []any{query.State, query.SubjectID, query.Category, query.Search, nullableTime(query.From), nullableTime(query.To)}
+	if err := q.QueryRow(ctx, `SELECT count(*)`+where, args...).Scan(&page.Total); err != nil {
+		return page, err
 	}
-	if !validSupportState(query.State, true) || query.SubjectID < 0 || query.Limit < 1 || query.Limit > 100 {
-		return items, ErrOpsInvalid
-	}
-	if _, err := s.RequireOpsPermission(ctx, actor, epoch, "support-cases.read"); err != nil {
-		return items, err
-	}
-	rows, err := s.pool.Query(ctx, `SELECT `+opsSupportColumns+` FROM ops.support_cases
-	 WHERE ($1='' OR state=$1) AND ($2=0 OR subject_newapi_user_id=$2)
-	 ORDER BY updated_at DESC,case_id DESC LIMIT $3`, query.State, query.SubjectID, query.Limit)
+	args = append(args, int64(query.Page-1)*20)
+	rows, err := q.Query(ctx, `SELECT `+opsSupportColumns+where+` ORDER BY created_at DESC,case_id DESC LIMIT 20 OFFSET $7`, args...)
 	if err != nil {
-		return items, err
+		return page, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		item, scanErr := scanOpsSupportCase(rows)
-		if scanErr != nil {
-			return items, scanErr
+		item, e := scanOpsSupportCase(rows)
+		if e != nil {
+			return page, e
 		}
-		items = append(items, item)
+		page.Items = append(page.Items, item)
 	}
-	return items, rows.Err()
+	return page, rows.Err()
 }
 
-func (s *Store) OpsSupportCaseDetail(ctx context.Context, actor, epoch int64, caseID string) (OpsSupportCaseDetail, error) {
+func (s *Store) OpsSupportCaseDetail(ctx context.Context, caseID string) (OpsSupportCaseDetail, error) {
+	return readOpsSupportCase(ctx, s.pool, caseID)
+}
+func readOpsSupportCase(ctx context.Context, q announcementQuerier, caseID string) (OpsSupportCaseDetail, error) {
 	detail := OpsSupportCaseDetail{VerificationFacts: []OpsSupportVerificationFact{}}
-	if s == nil || s.pool == nil {
-		return detail, ErrOpsUnavailable
-	}
-	if !opsUUIDPattern.MatchString(caseID) {
-		return detail, ErrOpsInvalid
-	}
-	if _, err := s.RequireOpsPermission(ctx, actor, epoch, "support-cases.read"); err != nil {
-		return detail, err
-	}
 	var err error
-	detail.Case, err = scanOpsSupportCase(s.pool.QueryRow(ctx, `SELECT `+opsSupportColumns+`
+	detail.Case, err = scanOpsSupportCase(q.QueryRow(ctx, `SELECT `+opsSupportColumns+`
 	 FROM ops.support_cases WHERE case_id=$1`, caseID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return detail, ErrOpsNotFound
@@ -139,8 +142,8 @@ func (s *Store) OpsSupportCaseDetail(ctx context.Context, actor, epoch int64, ca
 	if err != nil {
 		return detail, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT verification_fact_id::text,case_id::text,fact_type,result,
-	 COALESCE(safe_reference,''),actor_newapi_user_id,operation_id::text,recorded_at
+	rows, err := q.Query(ctx, `SELECT verification_fact_id::text,case_id::text,fact_type,result,
+	 COALESCE(safe_reference,''),actor_newapi_user_id,COALESCE(operation_id::text,''),recorded_at
 	 FROM ops.support_verification_facts WHERE case_id=$1
 	 ORDER BY recorded_at,verification_fact_id`, caseID)
 	if err != nil {
@@ -171,278 +174,101 @@ func loadOpsSupportCase(ctx context.Context, tx pgx.Tx, caseID string, lock bool
 	return item, err
 }
 
-type opsSupportCaseCreateInput struct {
-	SubjectID   int64  `json:"subject_newapi_user_id,string"`
-	Category    string `json:"category"`
-	SafeSummary string `json:"safe_summary"`
-}
-
-func normalizeSupportCaseCreate(input opsSupportCaseCreateInput) (opsSupportCaseCreateInput, error) {
-	if input.SubjectID <= 0 || !validSupportCategory(input.Category) || !validOpsText(input.SafeSummary, 2048, true) {
-		return input, ErrOpsInvalid
-	}
-	return input, nil
-}
-
-type supportCaseCreateOpsHandler struct{ store *Store }
-
-func (supportCaseCreateOpsHandler) Canonicalize(raw json.RawMessage) (json.RawMessage, error) {
-	var input opsSupportCaseCreateInput
-	if err := decodeOpsInput(raw, &input); err != nil {
-		return nil, err
-	}
-	input, err := normalizeSupportCaseCreate(input)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(input)
-}
-
-func (handler supportCaseCreateOpsHandler) Prepare(ctx context.Context, tx pgx.Tx, actor OpsPrincipal, request OpsPrepareRequest, lock bool) (OpsPreparedMaterial, error) {
-	if handler.store == nil || tx == nil || !opsUUIDPattern.MatchString(request.Target.ID) ||
-		request.Target.ExpectedVersion != "0" {
-		return OpsPreparedMaterial{}, ErrOpsInvalid
-	}
-	var input opsSupportCaseCreateInput
-	if err := decodeOpsInput(request.Input, &input); err != nil {
-		return OpsPreparedMaterial{}, err
-	}
-	input, err := normalizeSupportCaseCreate(input)
-	if err != nil {
-		return OpsPreparedMaterial{}, err
-	}
-	if lock {
-		if err = lockIdentity(ctx, tx, "ops-support-case", request.Target.ID); err != nil {
-			return OpsPreparedMaterial{}, err
-		}
-	}
-	var accountExists, caseExists bool
-	if err = tx.QueryRow(ctx, `SELECT
-	 EXISTS(SELECT 1 FROM identity.account_refs WHERE newapi_user_id=$1),
-	 EXISTS(SELECT 1 FROM ops.support_cases WHERE case_id=$2)`,
-		input.SubjectID, request.Target.ID).Scan(&accountExists, &caseExists); err != nil {
-		return OpsPreparedMaterial{}, err
-	}
-	if !accountExists {
-		return OpsPreparedMaterial{}, ErrOpsNotFound
-	}
-	if caseExists {
-		return OpsPreparedMaterial{}, ErrOpsConflict
-	}
-	proposed := OpsSupportCase{CaseID: request.Target.ID, SubjectID: input.SubjectID, Category: input.Category,
-		State: "OPEN", SafeSummary: input.SafeSummary, Version: 1, CreatedBy: actor.UserID}
-	impact := OpsImpact{
-		CurrentState: rawOpsValue(struct {
-			Exists bool `json:"exists"`
-		}{false}),
-		ProposedChange:          rawOpsValue(proposed),
-		AffectedUsers:           affectedOne(),
-		AffectedItems:           affectedOne(),
-		BlockingFacts:           []string{},
-		ContinuingAcceptedWork:  []string{},
-		RelatedIDs:              []string{request.Target.ID, strconv.FormatInt(input.SubjectID, 10)},
-		UnavailableMeasurements: []string{},
-	}
-	return OpsPreparedMaterial{Impact: impact, TargetVersion: "0", TargetLocator: request.Target.ID}, nil
-}
-
-func (handler supportCaseCreateOpsHandler) Execute(ctx context.Context, tx pgx.Tx, actor OpsPrincipal, operation OpsOperation, _ OpsPreparedMaterial) (OpsExecutionResult, error) {
-	var input opsSupportCaseCreateInput
-	if err := decodeOpsInput(operation.inputPayload, &input); err != nil {
-		return OpsExecutionResult{}, err
-	}
-	after, err := scanOpsSupportCase(tx.QueryRow(ctx, `INSERT INTO ops.support_cases(
-	 case_id,subject_newapi_user_id,category,safe_summary,created_by,last_operation_id)
-	 VALUES($1,$2,$3,$4,$5,$6) RETURNING `+opsSupportColumns,
-		operation.Target.ID, input.SubjectID, input.Category, input.SafeSummary, actor.UserID, operation.OperationID))
-	if err != nil {
-		return OpsExecutionResult{}, err
-	}
-	before := struct {
-		Exists bool `json:"exists"`
-	}{false}
-	result := struct {
-		Case OpsSupportCase `json:"case"`
-	}{after}
-	return OpsExecutionResult{BeforeSnapshot: rawOpsValue(before), AfterSnapshot: rawOpsValue(after),
-		Result: rawOpsValue(result), RelatedBusinessID: after.CaseID}, nil
-}
-
-type opsSupportTransitionInput struct {
-	NextState string `json:"next_state"`
-}
-
-type supportCaseTransitionOpsHandler struct{ store *Store }
-
-func (supportCaseTransitionOpsHandler) Canonicalize(raw json.RawMessage) (json.RawMessage, error) {
-	var input opsSupportTransitionInput
-	if err := decodeOpsInput(raw, &input); err != nil || !validSupportState(input.NextState, false) {
-		return nil, ErrOpsInvalid
-	}
-	return json.Marshal(input)
-}
-
-func (handler supportCaseTransitionOpsHandler) Prepare(ctx context.Context, tx pgx.Tx, _ OpsPrincipal, request OpsPrepareRequest, lock bool) (OpsPreparedMaterial, error) {
-	if handler.store == nil || tx == nil || !opsUUIDPattern.MatchString(request.Target.ID) {
-		return OpsPreparedMaterial{}, ErrOpsInvalid
-	}
-	var input opsSupportTransitionInput
-	if err := decodeOpsInput(request.Input, &input); err != nil || !validSupportState(input.NextState, false) {
-		return OpsPreparedMaterial{}, ErrOpsInvalid
-	}
-	current, err := loadOpsSupportCase(ctx, tx, request.Target.ID, lock)
-	if err != nil {
-		return OpsPreparedMaterial{}, err
-	}
-	if request.Target.ExpectedVersion != strconv.FormatInt(current.Version, 10) {
-		return OpsPreparedMaterial{}, ErrOpsPreviewStale
-	}
-	if !supportTransitionAllowed(current.State, input.NextState) || current.Version == math.MaxInt64 {
-		return OpsPreparedMaterial{}, ErrOpsConflict
-	}
-	proposed := struct {
-		CaseID  string `json:"case_id"`
-		State   string `json:"state"`
-		Version int64  `json:"version,string"`
-	}{current.CaseID, input.NextState, current.Version + 1}
-	impact := OpsImpact{CurrentState: rawOpsValue(current), ProposedChange: rawOpsValue(proposed),
-		AffectedUsers: affectedOne(), AffectedItems: affectedOne(), BlockingFacts: []string{},
-		ContinuingAcceptedWork: []string{}, RelatedIDs: []string{current.CaseID}, UnavailableMeasurements: []string{}}
-	return OpsPreparedMaterial{Impact: impact, TargetVersion: strconv.FormatInt(current.Version, 10),
-		TargetLocator: current.CaseID}, nil
-}
-
-func (handler supportCaseTransitionOpsHandler) Execute(ctx context.Context, tx pgx.Tx, _ OpsPrincipal, operation OpsOperation, _ OpsPreparedMaterial) (OpsExecutionResult, error) {
-	var input opsSupportTransitionInput
-	if err := decodeOpsInput(operation.inputPayload, &input); err != nil {
-		return OpsExecutionResult{}, err
-	}
-	before, err := loadOpsSupportCase(ctx, tx, operation.Target.ID, false)
-	if err != nil {
-		return OpsExecutionResult{}, err
-	}
-	after, err := scanOpsSupportCase(tx.QueryRow(ctx, `UPDATE ops.support_cases SET state=$2,version=version+1,
-	 last_operation_id=$3,updated_at=clock_timestamp(),
-	 closed_at=CASE WHEN $2='CLOSED' THEN clock_timestamp() ELSE NULL END
-	 WHERE case_id=$1 RETURNING `+opsSupportColumns, operation.Target.ID, input.NextState, operation.OperationID))
-	if err != nil {
-		return OpsExecutionResult{}, err
-	}
-	result := struct {
-		Case OpsSupportCase `json:"case"`
-	}{after}
-	return OpsExecutionResult{BeforeSnapshot: rawOpsValue(before), AfterSnapshot: rawOpsValue(after),
-		Result: rawOpsValue(result), RelatedBusinessID: after.CaseID}, nil
+type OpsSupportInput struct {
+	SubjectID     int64  `json:"subject_newapi_user_id,string"`
+	Category      string `json:"category"`
+	SafeSummary   string `json:"safe_summary"`
+	NextState     string `json:"next_state"`
+	FactType      string `json:"fact_type"`
+	Result        string `json:"result"`
+	SafeReference string `json:"safe_reference"`
 }
 
 var opsSafeReferencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:._/-]*$`)
 
-type opsSupportVerificationInput struct {
-	FactType      string `json:"fact_type"`
-	Result        string `json:"result"`
-	SafeReference string `json:"safe_reference,omitempty"`
+func (s *Store) SaveOpsSupportCase(ctx context.Context, actor int64, id, action string, input OpsSupportInput) (OpsSupportCase, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return OpsSupportCase{}, err
+	}
+	defer tx.Rollback(ctx)
+	result, err := saveOpsSupportCase(ctx, tx, actor, id, action, input)
+	if err != nil {
+		return result, err
+	}
+	return result, tx.Commit(ctx)
 }
-
-func normalizeSupportVerification(input opsSupportVerificationInput) (opsSupportVerificationInput, error) {
-	if !containsString([]string{
-		"IDENTITY_MATCH", "OWNERSHIP_VERIFIED", "DISCORD_BINDING_VERIFIED", "CONTACT_VERIFIED", "OTHER_SAFE_METADATA",
-	}, input.FactType) ||
-		!containsString([]string{"VERIFIED", "NOT_VERIFIED", "INCONCLUSIVE"}, input.Result) ||
-		!validOpsText(input.SafeReference, 256, false) ||
-		input.SafeReference != "" && !opsSafeReferencePattern.MatchString(input.SafeReference) {
-		return input, ErrOpsInvalid
+func saveOpsSupportCase(ctx context.Context, tx pgx.Tx, actor int64, id, action string, input OpsSupportInput) (OpsSupportCase, error) {
+	var before, after OpsSupportCase
+	switch action {
+	case "create":
+		if input.SubjectID <= 0 || !validSupportCategory(input.Category) || !validOpsText(input.SafeSummary, 2048, true) {
+			return after, ErrOpsInvalid
+		}
+	case "state":
+		if !validSupportState(input.NextState, false) {
+			return after, ErrOpsInvalid
+		}
+	case "facts":
+		if !containsString([]string{"IDENTITY_MATCH", "OWNERSHIP_VERIFIED", "DISCORD_BINDING_VERIFIED", "CONTACT_VERIFIED", "OTHER_SAFE_METADATA"}, input.FactType) || !containsString([]string{"VERIFIED", "NOT_VERIFIED", "INCONCLUSIVE"}, input.Result) || !validOpsText(input.SafeReference, 256, false) || input.SafeReference != "" && !opsSafeReferencePattern.MatchString(input.SafeReference) {
+			return after, ErrOpsInvalid
+		}
+	default:
+		return after, ErrOpsInvalid
 	}
-	return input, nil
-}
-
-type supportVerificationOpsHandler struct{ store *Store }
-
-func (supportVerificationOpsHandler) Canonicalize(raw json.RawMessage) (json.RawMessage, error) {
-	var input opsSupportVerificationInput
-	if err := decodeOpsInput(raw, &input); err != nil {
-		return nil, err
+	if err := RequireLocalOpsAdmin(ctx, tx, actor); err != nil {
+		return after, err
 	}
-	input, err := normalizeSupportVerification(input)
+	var err error
+	if action == "create" {
+		var exists bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity.users WHERE id=$1 AND deleted_at IS NULL)`, input.SubjectID).Scan(&exists); err != nil {
+			return after, err
+		}
+		if !exists {
+			return after, ErrOpsNotFound
+		}
+		id, err = uuidV7()
+		if err != nil {
+			return after, err
+		}
+		after, err = scanOpsSupportCase(tx.QueryRow(ctx, `INSERT INTO ops.support_cases(case_id,subject_newapi_user_id,category,safe_summary,created_by) VALUES($1,$2,$3,$4,$5) RETURNING `+opsSupportColumns, id, input.SubjectID, input.Category, input.SafeSummary, actor))
+	} else {
+		before, err = loadOpsSupportCase(ctx, tx, id, true)
+		if err != nil {
+			return after, err
+		}
+		if before.State == "CLOSED" {
+			return after, ErrOpsConflict
+		}
+		next := before.State
+		if action == "state" {
+			if input.NextState != before.State && !supportTransitionAllowed(before.State, input.NextState) {
+				return after, ErrOpsConflict
+			}
+			next = input.NextState
+		}
+		after, err = scanOpsSupportCase(tx.QueryRow(ctx, `UPDATE ops.support_cases SET state=$2,version=version+1,last_operation_id=NULL,updated_at=clock_timestamp(),closed_at=CASE WHEN $2='CLOSED' THEN clock_timestamp() ELSE NULL END WHERE case_id=$1 RETURNING `+opsSupportColumns, id, next))
+	}
 	if err != nil {
-		return nil, err
+		return after, err
 	}
-	return json.Marshal(input)
-}
-
-func (handler supportVerificationOpsHandler) Prepare(ctx context.Context, tx pgx.Tx, _ OpsPrincipal, request OpsPrepareRequest, lock bool) (OpsPreparedMaterial, error) {
-	if handler.store == nil || tx == nil || !opsUUIDPattern.MatchString(request.Target.ID) {
-		return OpsPreparedMaterial{}, ErrOpsInvalid
+	var auditAfter any = after
+	if action == "facts" {
+		factID, e := uuidV7()
+		if e != nil {
+			return after, e
+		}
+		var fact OpsSupportVerificationFact
+		err = tx.QueryRow(ctx, `INSERT INTO ops.support_verification_facts(verification_fact_id,case_id,fact_type,result,safe_reference,actor_newapi_user_id) VALUES($1,$2,$3,$4,NULLIF($5,''),$6) RETURNING verification_fact_id::text,case_id::text,fact_type,result,COALESCE(safe_reference,''),actor_newapi_user_id,recorded_at`, factID, id, input.FactType, input.Result, input.SafeReference, actor).Scan(&fact.FactID, &fact.CaseID, &fact.FactType, &fact.Result, &fact.SafeReference, &fact.ActorUserID, &fact.RecordedAt)
+		if err != nil {
+			return after, err
+		}
+		auditAfter = map[string]any{"case": after, "verification_fact": fact}
 	}
-	var input opsSupportVerificationInput
-	if err := decodeOpsInput(request.Input, &input); err != nil {
-		return OpsPreparedMaterial{}, err
-	}
-	input, err := normalizeSupportVerification(input)
-	if err != nil {
-		return OpsPreparedMaterial{}, err
-	}
-	current, err := loadOpsSupportCase(ctx, tx, request.Target.ID, lock)
-	if err != nil {
-		return OpsPreparedMaterial{}, err
-	}
-	if request.Target.ExpectedVersion != strconv.FormatInt(current.Version, 10) {
-		return OpsPreparedMaterial{}, ErrOpsPreviewStale
-	}
-	if current.State == "CLOSED" || current.Version == math.MaxInt64 {
-		return OpsPreparedMaterial{}, ErrOpsConflict
-	}
-	proposed := struct {
-		CaseID        string `json:"case_id"`
-		FactType      string `json:"fact_type"`
-		Result        string `json:"result"`
-		SafeReference string `json:"safe_reference,omitempty"`
-		NextVersion   int64  `json:"next_version,string"`
-	}{current.CaseID, input.FactType, input.Result, input.SafeReference, current.Version + 1}
-	impact := OpsImpact{CurrentState: rawOpsValue(current), ProposedChange: rawOpsValue(proposed),
-		AffectedUsers: affectedOne(), AffectedItems: affectedOne(), BlockingFacts: []string{},
-		ContinuingAcceptedWork: []string{}, RelatedIDs: []string{current.CaseID}, UnavailableMeasurements: []string{}}
-	return OpsPreparedMaterial{Impact: impact, TargetVersion: strconv.FormatInt(current.Version, 10),
-		TargetLocator: current.CaseID}, nil
-}
-
-func (handler supportVerificationOpsHandler) Execute(ctx context.Context, tx pgx.Tx, actor OpsPrincipal, operation OpsOperation, _ OpsPreparedMaterial) (OpsExecutionResult, error) {
-	var input opsSupportVerificationInput
-	if err := decodeOpsInput(operation.inputPayload, &input); err != nil {
-		return OpsExecutionResult{}, err
-	}
-	before, err := loadOpsSupportCase(ctx, tx, operation.Target.ID, false)
-	if err != nil {
-		return OpsExecutionResult{}, err
-	}
-	after, err := scanOpsSupportCase(tx.QueryRow(ctx, `UPDATE ops.support_cases SET version=version+1,
-	 last_operation_id=$2,updated_at=clock_timestamp() WHERE case_id=$1 RETURNING `+opsSupportColumns,
-		operation.Target.ID, operation.OperationID))
-	if err != nil {
-		return OpsExecutionResult{}, err
-	}
-	factID, err := uuidV7()
-	if err != nil {
-		return OpsExecutionResult{}, err
-	}
-	var fact OpsSupportVerificationFact
-	err = tx.QueryRow(ctx, `INSERT INTO ops.support_verification_facts(
-	 verification_fact_id,case_id,fact_type,result,safe_reference,actor_newapi_user_id,operation_id)
-	 VALUES($1,$2,$3,$4,NULLIF($5,''),$6,$7)
-	 RETURNING verification_fact_id::text,case_id::text,fact_type,result,COALESCE(safe_reference,''),
-	  actor_newapi_user_id,operation_id::text,recorded_at`,
-		factID, operation.Target.ID, input.FactType, input.Result, input.SafeReference,
-		actor.UserID, operation.OperationID).Scan(&fact.FactID, &fact.CaseID, &fact.FactType, &fact.Result,
-		&fact.SafeReference, &fact.ActorUserID, &fact.OperationID, &fact.RecordedAt)
-	if err != nil {
-		return OpsExecutionResult{}, err
-	}
-	fact.RecordedAt = fact.RecordedAt.UTC()
-	result := struct {
-		Case             OpsSupportCase             `json:"case"`
-		VerificationFact OpsSupportVerificationFact `json:"verification_fact"`
-	}{after, fact}
-	return OpsExecutionResult{BeforeSnapshot: rawOpsValue(before), AfterSnapshot: rawOpsValue(after),
-		Result: rawOpsValue(result), RelatedBusinessID: after.CaseID}, nil
+	actions := map[string]string{"create": "SUPPORT_CASE_CREATE", "state": "SUPPORT_CASE_TRANSITION", "facts": "SUPPORT_VERIFICATION_ADD"}
+	err = RecordOpsChange(ctx, tx, actor, actions[action], "SUPPORT_CASE", id, before, auditAfter)
+	return after, err
 }
 
 type opsMasterSnapshot struct {
@@ -657,30 +483,12 @@ func (handler masterForceRenameOpsHandler) Execute(ctx context.Context, tx pgx.T
 		RelatedBusinessID: operation.Target.ID}, nil
 }
 
-// OpsSupportBindings supplies O04 support-case and Master moderation commands.
-func OpsSupportBindings(store *Store) []OpsOperationBinding {
+// OpsMasterBindings remains until Master moderation moves to the local user page.
+func OpsMasterBindings(store *Store) []OpsOperationBinding {
 	if store == nil {
 		return []OpsOperationBinding{}
 	}
 	return []OpsOperationBinding{
-		{Descriptor: OpsOperationDescriptor{OperationType: "SUPPORT_CASE_CREATE", Risk: OpsRiskRoutine,
-			RequiredPermission: "support-cases.write", AllowedRoles: []string{"SUPER_ADMIN", "OPERATOR"},
-			TargetType: "SUPPORT_CASE", InputSchemaVersion: "support-case-create.v1",
-			ImpactSchemaVersion: "support-case-create-impact.v1", RequiresReason: true,
-			ConfirmationMode: OpsConfirmNone, ExecutionMode: OpsSameDatabase},
-			Handler: supportCaseCreateOpsHandler{store: store}},
-		{Descriptor: OpsOperationDescriptor{OperationType: "SUPPORT_CASE_TRANSITION", Risk: OpsRiskImpactful,
-			RequiredPermission: "support-cases.write", AllowedRoles: []string{"SUPER_ADMIN", "OPERATOR"},
-			TargetType: "SUPPORT_CASE", InputSchemaVersion: "support-case-transition.v1",
-			ImpactSchemaVersion: "support-case-transition-impact.v1", RequiresReason: true,
-			ConfirmationMode: OpsConfirmExplicit, ExecutionMode: OpsSameDatabase},
-			Handler: supportCaseTransitionOpsHandler{store: store}},
-		{Descriptor: OpsOperationDescriptor{OperationType: "SUPPORT_VERIFICATION_ADD", Risk: OpsRiskImpactful,
-			RequiredPermission: "support-cases.write", AllowedRoles: []string{"SUPER_ADMIN", "OPERATOR"},
-			TargetType: "SUPPORT_CASE", InputSchemaVersion: "support-verification-add.v1",
-			ImpactSchemaVersion: "support-verification-add-impact.v1", RequiresReason: true,
-			ConfirmationMode: OpsConfirmExplicit, ExecutionMode: OpsSameDatabase},
-			Handler: supportVerificationOpsHandler{store: store}},
 		{Descriptor: OpsOperationDescriptor{OperationType: "MASTER_RENAME_REQUIRED", Risk: OpsRiskRoutine,
 			RequiredPermission: "users.master.moderate", AllowedRoles: []string{"SUPER_ADMIN", "OPERATOR"},
 			TargetType: "MASTER_PROFILE", InputSchemaVersion: "master-rename-required.v1",

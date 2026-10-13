@@ -251,6 +251,50 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 			return w
 		}
 
+		t.Run("support-incidents", func(t *testing.T) {
+			for _, path := range []string{"/api/v1/ops/support-cases?page=1", "/api/v1/ops/incidents?page=1"} {
+				w := request(admin, "GET", path, "", false)
+				if w.Code != 200 || !strings.Contains(w.Body.String(), `"items":`) {
+					t.Fatal("local support/incidents", path, w.Code, w.Body.String())
+				}
+				for _, user := range []int64{regular, 0} {
+					want := 403
+					if user == 0 {
+						want = 401
+					}
+					if w := request(user, "GET", path, "", false); w.Code != want {
+						t.Fatal("support role", w.Code, w.Body.String())
+					}
+				}
+			}
+			for _, root := range []string{"/api/v1/ops/support-cases", "/api/v1/ops/incidents"} {
+				if w := request(admin, "POST", root, `{}`, false); w.Code != 403 {
+					t.Fatal("support CSRF", w.Code, w.Body.String())
+				}
+				if w := request(admin, "POST", root, `{}`, true); w.Code != 400 {
+					t.Fatal("support input", w.Code, w.Body.String())
+				}
+				if w := request(regular, "POST", root, `{}`, true); w.Code != 403 {
+					t.Fatal("support write role", w.Code, w.Body.String())
+				}
+				if w := request(admin, "GET", root+"?page=0", "", false); w.Code != 400 {
+					t.Fatal("support page", w.Code, w.Body.String())
+				}
+				if w := request(admin, "GET", root+"?from=bad", "", false); w.Code != 400 {
+					t.Fatal("support date", w.Code, w.Body.String())
+				}
+				if w := request(admin, "GET", root+"?q=not-found&from=2026-09-01T00:00:00Z&to=2026-10-14T00:00:00Z", "", false); w.Code != 200 {
+					t.Fatal("support filters", w.Code, w.Body.String())
+				}
+				missing := root + "/10000000-0000-7000-8000-000000000099"
+				if w := request(admin, "GET", missing, "", false); w.Code != 404 {
+					t.Fatal("support missing", w.Code, w.Body.String())
+				}
+				if w := request(admin, "PUT", missing, `{"next_state":"CLOSED"}`, true); w.Code != 404 {
+					t.Fatal("support update missing", w.Code, w.Body.String())
+				}
+			}
+		})
 		t.Run("poker", func(t *testing.T) {
 			if pokerPool == nil {
 				t.Skip("requires existing dev Poker DSN")

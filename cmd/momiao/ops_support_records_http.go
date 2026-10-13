@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
-	"github.com/cy4268/momiao/internal/session"
 )
 
 const (
@@ -16,17 +18,6 @@ const (
 	opsSupportCasesPath = "/api/v1/ops/support-cases"
 	opsIncidentsPath    = "/api/v1/ops/incidents"
 )
-
-type opsSupportRecordsHTTP struct {
-	sessions *session.Service
-	store    *platform.Store
-	next     http.Handler
-}
-
-func newOpsSupportRecordsHandler(sessions *session.Service, store *platform.Store,
-	next http.Handler) http.Handler {
-	return &opsSupportRecordsHTTP{sessions: sessions, store: store, next: next}
-}
 
 func opsSupportRecordsRoute(path string) bool {
 	for _, prefix := range []string{opsSupportCasesPath, opsIncidentsPath} {
@@ -36,150 +27,122 @@ func opsSupportRecordsRoute(path string) bool {
 	}
 	return false
 }
-
-func (h *opsSupportRecordsHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r == nil || r.URL == nil || !opsSupportRecordsRoute(r.URL.Path) {
-		if h != nil && h.next != nil {
-			h.next.ServeHTTP(w, r)
-			return
-		}
-		walletError(w, http.StatusNotFound, "NOT_FOUND")
-		return
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if !opsRequestSafe(r) {
-		walletError(w, http.StatusBadRequest, "OPS_INPUT_INVALID")
-		return
-	}
-	if !requireMethod(w, r, http.MethodGet) {
-		return
-	}
-	if r.ContentLength > 0 || h == nil || h.sessions == nil || h.store == nil {
-		if r.ContentLength > 0 {
-			walletError(w, http.StatusBadRequest, "OPS_INPUT_INVALID")
-		} else {
-			walletError(w, http.StatusServiceUnavailable, "OPS_UNAVAILABLE")
-		}
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	r = r.WithContext(ctx)
-	verified, err := h.sessions.VerifyPrivateRequest(r)
-	if err != nil {
-		sessionError(w, err)
-		return
-	}
-	actor, err := strconv.ParseInt(verified.View().UserID, 10, 64)
-	if err != nil || actor <= 0 {
-		walletError(w, http.StatusUnauthorized, "SESSION_UNAUTHORIZED")
-		return
-	}
-	switch {
-	case r.URL.Path == opsSupportCasesPath:
-		h.supportCases(w, r, actor)
-	case strings.HasPrefix(r.URL.Path, opsSupportCasesPath+"/"):
-		h.supportCase(w, r, actor)
-	case r.URL.Path == opsIncidentsPath:
-		h.incidents(w, r, actor)
-	case strings.HasPrefix(r.URL.Path, opsIncidentsPath+"/"):
-		h.incident(w, r, actor)
-	default:
-		walletError(w, http.StatusNotFound, "NOT_FOUND")
-	}
-}
-
-func opsReadLimit(value string) (int, bool) {
-	if value == "" {
-		return 50, true
-	}
-	limit, err := strconv.Atoi(value)
-	return limit, err == nil && limit >= 1 && limit <= 100 && strconv.Itoa(limit) == value
-}
-
 func opsOptionalSubject(value string) (int64, bool) {
 	if value == "" {
 		return 0, true
 	}
 	return opsEpoch(value)
 }
-
-func (h *opsSupportRecordsHTTP) supportCases(w http.ResponseWriter, r *http.Request, actor int64) {
-	if !requireOpsQuery(w, r, "authz_epoch", "state", "subject_newapi_user_id", "limit") {
-		return
-	}
-	values := r.URL.Query()
-	epoch, validEpoch := opsEpoch(values.Get("authz_epoch"))
-	subject, validSubject := opsOptionalSubject(values.Get("subject_newapi_user_id"))
-	limit, validLimit := opsReadLimit(values.Get("limit"))
-	if !validEpoch || !validSubject || !validLimit {
-		walletError(w, http.StatusBadRequest, "OPS_INPUT_INVALID")
-		return
-	}
-	items, err := h.store.OpsSupportCases(r.Context(), actor, epoch, platform.OpsSupportCaseQuery{
-		State: values.Get("state"), SubjectID: subject, Limit: limit,
+func newOpsSupportRecordsHandler(store *platform.Store) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		user, ok := identity.UserFromContext(r.Context())
+		if !ok {
+			walletError(w, 401, "AUTH_UNAUTHORIZED")
+			return
+		}
+		if user.Role < 10 {
+			walletError(w, 403, "OPS_FORBIDDEN")
+			return
+		}
+		if store == nil {
+			walletError(w, 503, "OPS_UNAVAILABLE")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		support := r.URL.Path == opsSupportCasesPath || strings.HasPrefix(r.URL.Path, opsSupportCasesPath+"/")
+		root := opsIncidentsPath
+		if support {
+			root = opsSupportCasesPath
+		}
+		path := strings.TrimPrefix(r.URL.Path, root)
+		parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+		var result any
+		var err error
+		switch {
+		case path == "" && r.Method == "GET":
+			values := r.URL.Query()
+			page := 1
+			if v := values.Get("page"); v != "" {
+				page, err = strconv.Atoi(v)
+			}
+			if err != nil || page < 1 || page > 100000 {
+				walletError(w, 400, "OPS_INPUT_INVALID")
+				return
+			}
+			subject, valid := opsOptionalSubject(values.Get("subject_newapi_user_id"))
+			if !valid {
+				walletError(w, 400, "OPS_INPUT_INVALID")
+				return
+			}
+			var from, to time.Time
+			for key, target := range map[string]*time.Time{"from": &from, "to": &to} {
+				if v := values.Get(key); v != "" {
+					*target, err = time.Parse(time.RFC3339, v)
+					if err != nil {
+						walletError(w, 400, "OPS_INPUT_INVALID")
+						return
+					}
+				}
+			}
+			if !from.IsZero() && !to.IsZero() && !to.After(from) {
+				walletError(w, 400, "OPS_INPUT_INVALID")
+				return
+			}
+			if support {
+				result, err = store.OpsSupportCases(ctx, platform.OpsSupportCaseQuery{Page: page, SubjectID: subject, State: values.Get("state"), Category: values.Get("category"), Search: values.Get("q"), From: from, To: to})
+			} else {
+				result, err = store.OpsIncidents(ctx, platform.OpsIncidentQuery{Page: page, State: values.Get("state"), Severity: values.Get("severity"), Search: values.Get("q"), From: from, To: to})
+			}
+		case path != "" && len(parts) == 1 && r.Method == "GET":
+			if !opsUUIDPatternHTTP(parts[0]) {
+				walletError(w, 404, "NOT_FOUND")
+				return
+			}
+			if support {
+				result, err = store.OpsSupportCaseDetail(ctx, parts[0])
+			} else {
+				result, err = store.OpsIncidentDetail(ctx, parts[0])
+			}
+		default:
+			id, action := "", ""
+			if path == "" && r.Method == "POST" {
+				action = "create"
+			} else if len(parts) == 1 && r.Method == "PUT" {
+				id, action = parts[0], "state"
+			} else if len(parts) == 2 && r.Method == "POST" && (support && parts[1] == "facts" || !support && parts[1] == "events") {
+				id, action = parts[0], parts[1]
+			}
+			if action == "" || action != "create" && !opsUUIDPatternHTTP(id) {
+				walletError(w, 404, "NOT_FOUND")
+				return
+			}
+			if support {
+				var input platform.OpsSupportInput
+				if json.NewDecoder(r.Body).Decode(&input) != nil {
+					walletError(w, 400, "OPS_INPUT_INVALID")
+					return
+				}
+				result, err = store.SaveOpsSupportCase(ctx, user.ID, id, action, input)
+			} else {
+				var input platform.OpsIncidentInput
+				if json.NewDecoder(r.Body).Decode(&input) != nil {
+					walletError(w, 400, "OPS_INPUT_INVALID")
+					return
+				}
+				result, err = store.SaveOpsIncident(ctx, user.ID, id, action, input)
+			}
+		}
+		if errors.Is(err, platform.ErrCatalogForbidden) {
+			walletError(w, 403, "OPS_FORBIDDEN")
+			return
+		}
+		if err != nil {
+			writeOpsError(w, err)
+			return
+		}
+		walletSuccess(w, result)
 	})
-	if err != nil {
-		writeOpsError(w, err)
-		return
-	}
-	sessionEnvelope(w, http.StatusOK, map[string]any{"items": items})
-}
-
-func (h *opsSupportRecordsHTTP) supportCase(w http.ResponseWriter, r *http.Request, actor int64) {
-	if !requireOpsQuery(w, r, "authz_epoch") {
-		return
-	}
-	caseID := strings.TrimPrefix(r.URL.Path, opsSupportCasesPath+"/")
-	epoch, validEpoch := opsEpoch(r.URL.Query().Get("authz_epoch"))
-	if !opsUUIDPatternHTTP(caseID) || !validEpoch {
-		walletError(w, http.StatusNotFound, "NOT_FOUND")
-		return
-	}
-	detail, err := h.store.OpsSupportCaseDetail(r.Context(), actor, epoch, caseID)
-	if err != nil {
-		writeOpsError(w, err)
-		return
-	}
-	sessionEnvelope(w, http.StatusOK, detail)
-}
-
-func (h *opsSupportRecordsHTTP) incidents(w http.ResponseWriter, r *http.Request, actor int64) {
-	if !requireOpsQuery(w, r, "authz_epoch", "state", "severity", "limit") {
-		return
-	}
-	values := r.URL.Query()
-	epoch, validEpoch := opsEpoch(values.Get("authz_epoch"))
-	limit, validLimit := opsReadLimit(values.Get("limit"))
-	if !validEpoch || !validLimit {
-		walletError(w, http.StatusBadRequest, "OPS_INPUT_INVALID")
-		return
-	}
-	items, err := h.store.OpsIncidents(r.Context(), actor, epoch, platform.OpsIncidentQuery{
-		State: values.Get("state"), Severity: values.Get("severity"), Limit: limit,
-	})
-	if err != nil {
-		writeOpsError(w, err)
-		return
-	}
-	sessionEnvelope(w, http.StatusOK, map[string]any{"items": items})
-}
-
-func (h *opsSupportRecordsHTTP) incident(w http.ResponseWriter, r *http.Request, actor int64) {
-	if !requireOpsQuery(w, r, "authz_epoch") {
-		return
-	}
-	incidentID := strings.TrimPrefix(r.URL.Path, opsIncidentsPath+"/")
-	epoch, validEpoch := opsEpoch(r.URL.Query().Get("authz_epoch"))
-	if !opsUUIDPatternHTTP(incidentID) || !validEpoch {
-		walletError(w, http.StatusNotFound, "NOT_FOUND")
-		return
-	}
-	detail, err := h.store.OpsIncidentDetail(r.Context(), actor, epoch, incidentID)
-	if err != nil {
-		writeOpsError(w, err)
-		return
-	}
-	sessionEnvelope(w, http.StatusOK, detail)
 }

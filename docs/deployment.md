@@ -227,3 +227,10 @@ POST `/platform/v1/ops/announcements` 直接接受 `announcement_id`、`action` 
 保留原 Poker 单桌 actor、手牌边界离桌/关桌、资金处理、恢复与聊天规则，内部签名 Unix RPC 仍承载独立 Poker 进程。只有 USER_TEXT 可以隐藏；牌桌、手牌和玩家的游戏版本/恢复状态仍是游戏业务数据，不是运营审批流程。每次成功管理员写入在同一事务锁本地角色，并写一条 ops.audit_log（前后桌面/玩家/目标禁言与消息状态）；原 poker.audit_events/admin_operations 历史保留，近期事件合并读取新审计。
 
 应用 `0061_local_poker_ops_actor.sql` 后，以 owner 执行 `deploy/sql/runtime-grants-0061-local-poker-ops.psql`，变量 `poker_runtime_role` 为现有 Poker domain writer。仅为该角色增加本地用户 id/role/status/deleted_at 的读取、id 列 UPDATE（供 FOR SHARE 锁使用）及 ops.audit_log SELECT/INSERT，不授予凭据/角色修改。本切片未发布网站，独立 dev 的无资金回退事务不代替在途手牌、观众断开及多进程联合验收。
+
+
+### 本地支持工单与事件运营
+
+应用 `0062_local_support_incidents.sql` 后，`/api/v1/ops/support-cases` 与 `/api/v1/ops/incidents` 使用本地 Redis 会话和管理员角色。POST 列表路径新建，PUT `/:id` 保存 `next_state`，POST 工单 `/:id/facts` / 事件 `/:id/events` 追加事实或处理记录；写入与 `ops.audit_log` 同事务。列表默认全局，每页 20 项，支持创建时间 `from`（含）/`to`（不含）、状态、关键词，以及工单账户/类别或事件程度。详情保留原核验事实和事件时间线。
+
+工单的核验/处理状态和事件的研判/解决状态仍是业务记录，不会触发账号变更；移除的是通用 Ops 预览审批、客户端版本、原因和回执。历史 operation 引用保留为可空列，旧行和不可变历史仍保留；新写入仅用本地用户外键及现有权限，无新增运行授权。Master 强制改名的旧绑定另待用户运营收口，不属于本次工单/事件迁移。
