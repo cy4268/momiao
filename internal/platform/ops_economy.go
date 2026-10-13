@@ -69,7 +69,7 @@ func (s *OpsEconomyService) User(ctx context.Context, actor, user int64) (OpsEco
 	if err := catalogAdmin(ctx, s.store.pool, actor, false); err != nil {
 		return result, err
 	}
-	if !validateQuotaUser(user) {
+	if user <= 0 {
 		return result, ErrOpsInvalid
 	}
 	err := s.store.pool.QueryRow(ctx, `SELECT a.migration_batch_id::text,a.created_at,a.first_seen_at,
@@ -150,6 +150,31 @@ func (s *OpsEconomyService) Ledger(ctx context.Context, actor int64, query OpsLe
 		page.NextBefore, page.NextBeforeID = &at, last.ID
 	}
 	return page, nil
+}
+
+// Historical quota transfers are read-only; no Native mutation path remains.
+type QuotaTransfer struct {
+	ID           string    `json:"id"`
+	UserID       int64     `json:"user_id,string"`
+	AmountUnits  int64     `json:"amount_units,string"`
+	Amount       string    `json:"amount"`
+	Status       string    `json:"status"`
+	Reason       string    `json:"reason"`
+	NativeBefore *int64    `json:"native_before,string"`
+	NativeAfter  *int64    `json:"native_after,string"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+const transferColumns = `transfer_id::text,newapi_user_id,amount_units,status,reason,native_before,native_after,created_at,updated_at`
+
+func scanTransfer(row pgx.Row) (QuotaTransfer, error) {
+	var v QuotaTransfer
+	err := row.Scan(&v.ID, &v.UserID, &v.AmountUnits, &v.Status, &v.Reason, &v.NativeBefore, &v.NativeAfter, &v.CreatedAt, &v.UpdatedAt)
+	v.Amount = FormatAmount(v.AmountUnits)
+	v.CreatedAt = v.CreatedAt.UTC()
+	v.UpdatedAt = v.UpdatedAt.UTC()
+	return v, err
 }
 
 type OpsTransferQuery struct {

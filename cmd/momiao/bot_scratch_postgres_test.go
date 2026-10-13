@@ -535,8 +535,7 @@ func TestBotScratchPostgres(t *testing.T) {
 	})
 	t.Run("current_odds_and_capped_raw_win", func(t *testing.T) {
 		installScratchT2Fixture(t, f)
-		f.exec(t, platform.NativeQuotaMigration)
-		f.exec(t, `UPDATE momiao_quota.settings SET enabled=true; UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
+		f.exec(t, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
 		defer f.exec(t, `UPDATE economy.policy_runtime SET active_version=NULL WHERE singleton`)
 		limitUser, limitSubject := f.player(t, true, 1000000000000)
 		p := f.prepareScratch(t, limitSubject, "11")

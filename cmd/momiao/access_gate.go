@@ -134,7 +134,7 @@ func gateRouteDomain(route string) string {
 		return "ACCOUNT"
 	case "/models", "/api/access", "/keys", "/logs":
 		return "API"
-	case "/wallet", "/wallet/activate", "/rewards":
+	case "/wallet", "/rewards":
 		return "ASSETS"
 	case "/ops/announcements", "/ops/models", "/admin/channels":
 		return "OPERATIONS"

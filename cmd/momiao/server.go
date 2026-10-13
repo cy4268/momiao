@@ -30,7 +30,6 @@ var browserRoutes = map[string]bool{
 	"/me":               true,
 	"/rewards":          true,
 	"/wallet":           true,
-	"/wallet/activate":  true,
 	"/master-profile":   true,
 	"/games/dice":       true,
 	"/keys":             true,
@@ -163,8 +162,12 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				walletError(w, 503, "PROFILE_UNAVAILABLE")
 				return
 			}
-			if strings.HasPrefix(r.URL.Path, "/platform/v1/") {
+			if r.URL.Path == "/platform/v1/wallet" || r.URL.Path == "/platform/v1/wallet/ledger" || r.URL.Path == "/platform/v1/wallet/initialize" {
 				walletError(w, 503, "WALLET_UNAVAILABLE")
+				return
+			}
+			if strings.HasPrefix(r.URL.Path, "/platform/v1/") {
+				walletError(w, 404, "NOT_FOUND")
 				return
 			}
 			if r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/") {
@@ -236,14 +239,14 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 			newAdmissionConfigHandler(cfg.AdmissionEnabled).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/admission" || strings.HasPrefix(r.URL.Path, "/platform/v1/admission/"):
 			domainHandler(cfg, newAdmissionHandler(cfg.PublicOrigin, cfg.admission, transport)).ServeHTTP(w, r)
-		case r.URL.Path == "/platform/v1/native-quota" || strings.HasPrefix(r.URL.Path, "/platform/v1/quota-transfers"):
-			domainHandler(cfg, newQuotaHandler(cfg.PublicOrigin, cfg.transfers, cfg.nativeQuota, transport)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/wallet/exchange" || strings.HasPrefix(r.URL.Path, "/platform/v1/rewards/") || strings.HasPrefix(r.URL.Path, "/platform/v1/transactions"):
 			domainHandler(cfg, newEconomyHandler(cfg.PublicOrigin, cfg.economy, transport)).ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/platform/v1/master-profile"):
 			domainHandler(cfg, newProfileHandler(cfg.PublicOrigin, cfg.profile, transport)).ServeHTTP(w, r)
-		case strings.HasPrefix(r.URL.Path, "/platform/v1/"):
+		case r.URL.Path == "/platform/v1/wallet" || r.URL.Path == "/platform/v1/wallet/ledger" || r.URL.Path == "/platform/v1/wallet/initialize":
 			domainHandler(cfg, newWalletHandler(cfg.PublicOrigin, cfg.wallet, transport)).ServeHTTP(w, r)
+		case strings.HasPrefix(r.URL.Path, "/platform/v1/"):
+			walletError(w, 404, "NOT_FOUND")
 		case r.URL.Path == "/healthz":
 			healthHandler().ServeHTTP(w, r)
 		case r.URL.Path == "/api/access":

@@ -79,7 +79,7 @@ it('uses a supplied in-memory proof for first set then clears it without replay'
  await waitFor(()=>expect(clear).toHaveBeenCalled());expect(f.mock.calls.filter(([p])=>p.includes('/password/set'))).toHaveLength(1);
 });
 it('stores only an expiring fixed route key and consumes it once',()=>{
- sessionStorage.clear();saveRouteIntent('/wallet/activate',1000);expect(consumeRouteIntent(1001)).toBe('/wallet/activate');expect(consumeRouteIntent(1001)).toBe('/dashboard');
+ sessionStorage.clear();saveRouteIntent('/wallet',1000);expect(consumeRouteIntent(1001)).toBe('/wallet');expect(consumeRouteIntent(1001)).toBe('/dashboard');
  saveRouteIntent('https://evil.example',1000);expect(consumeRouteIntent(1001)).toBe('/dashboard');
  saveRouteIntent('/keys',1000);expect(consumeRouteIntent(1000+30*60*1000+1)).toBe('/dashboard');
  saveRouteIntent('/wallet?amount=123',1000);expect(consumeRouteIntent(1001)).toBe('/dashboard');

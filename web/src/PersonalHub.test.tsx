@@ -54,7 +54,7 @@ it('shows verified Master identity separately from the native account and links 
     expect(await within(hub).findByText(profile.display_name)).toBeVisible();
     expect(screen.queryByText(/fixture-account/)).not.toBeInTheDocument();
     const main = screen.getByRole('main');
-    for (const path of ['/master-profile', '/rewards', '/wallet', '/wallet/activate', '/keys', '/logs']) {
+    for (const path of ['/master-profile', '/rewards', '/wallet', '/keys', '/logs']) {
         expect(main.querySelector('a[href="' + path + '"]')).not.toBeNull();
     }
     expect(main.querySelector('a[href="/admin/channels"]')).toBeNull();

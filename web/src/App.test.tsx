@@ -12,7 +12,7 @@ const bundle = { access_token: 'synthetic-token', access_expires_at: 9999999999,
 const list = { items: [], total: 0, page: 1, page_size: 10 };
 it.each([
     ['/dashboard', '/dashboard', []], ['/me', '/me', []],
-    ['/rewards', '/wallet', ['/wallet', '/rewards']], ['/wallet/activate', '/wallet', ['/wallet', '/rewards']],
+    ['/rewards', '/wallet', ['/wallet', '/rewards']],
     ['/keys', '/models', ['/models', '/api/access', '/keys', '/logs']],
 ])('R1 keeps five bottom destinations and only the current context on %s', async (path, selected, contextPaths) => {
     const { client } = fixtureClient();

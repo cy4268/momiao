@@ -54,13 +54,6 @@ type config struct {
 	announcements             announcementStore
 	AdmissionEnabled          bool
 	admission                 admissionStore
-	NativeQuotaDSNFile        string
-	NativeQuotaKeyFile        string
-	RefillSocket             string
-	RefillKeyFile            string
-	RefillPolicy             platform.ActiveQuotaRefillPolicy
-	transfers                 quotaTransferStore
-	nativeQuota               nativeQuotaReader
 	WalletDSNFile             string
 	PublicOrigin              string
 	wallet                    walletStore
@@ -166,19 +159,6 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 		}
 		cfg.GameFairnessKeyringFile = filepath.Clean(value)
 	}
-	if value, ok := lookup("MOMIAO_NATIVE_QUOTA_DSN_FILE"); ok {
-		if value == "" || !filepath.IsAbs(value) || cfg.WalletDSNFile == "" {
-			return config{}, errors.New("native quota DSN requires an absolute path and platform wallet configuration")
-		}
-		cfg.NativeQuotaDSNFile = filepath.Clean(value)
-	}
-	if value, ok := lookup("MOMIAO_NATIVE_QUOTA_KEY_FILE"); ok {
-		if value == "" || !filepath.IsAbs(value) || cfg.WalletDSNFile == "" || cfg.NewAPISocket == "" || cfg.NativeQuotaDSNFile != "" {
-			return config{}, errors.New("native quota port requires an absolute private key path, platform wallet and Native socket; legacy DSN cannot be combined")
-		}
-		cfg.NativeQuotaKeyFile = filepath.Clean(value)
-	}
-	if err := loadRefillConfig(&cfg, lookup); err != nil { return config{}, err }
 	if err := admissionConfig(&cfg, lookup); err != nil {
 		return config{}, err
 	}
@@ -226,7 +206,7 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 		return config{}, errHistoryConfig
 	}
 	cfg.History = history
-	if cfg.ProcessRole == "poker" && (cfg.Session.Enabled || cfg.History.Enabled || cfg.WebDir != "" || cfg.AssetCDNOrigin != "" || cfg.GameFairnessKeyringFile != "" || cfg.AdmissionEnabled || cfg.NativeQuotaKeyFile != "" || cfg.NativeQuotaDSNFile != "" || !cfg.Poker.Enabled) {
+	if cfg.ProcessRole == "poker" && (cfg.Session.Enabled || cfg.History.Enabled || cfg.WebDir != "" || cfg.AssetCDNOrigin != "" || cfg.GameFairnessKeyringFile != "" || cfg.AdmissionEnabled || !cfg.Poker.Enabled) {
 		return config{}, errors.New("Poker process must own only its Poker runtime")
 	}
 	if value, ok := lookup("MOMIAO_OPS_ENVIRONMENT"); ok {

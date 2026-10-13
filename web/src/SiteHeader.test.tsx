@@ -27,7 +27,7 @@ it('navDomain maps every route family', () => {
         '/dashboard': 'home', '/models': 'models', '/models/x': 'models', '/api/access': 'models', '/keys': 'models', '/logs': 'models',
         '/games': 'experience', '/entertainment': 'experience', '/games/dice': 'experience', '/poker': 'experience', '/poker/t/1': 'experience',
         '/roulette/devil': 'experience', '/history': 'experience', '/history/rounds/x': 'experience', '/rankings': 'rankings',
-        '/announcements': 'announcements', '/announcements/1': 'announcements', '/wallet': 'assets', '/wallet/activate': 'assets',
+        '/announcements': 'announcements', '/announcements/1': 'announcements', '/wallet': 'assets',
         '/wallet/transactions/x': 'assets', '/rewards': 'assets', '/me': 'my', '/account': 'my', '/account/security': 'my', '/master-profile': 'my', '/': null,
     };
     for (const [path, domain] of Object.entries(cases)) expect([path, navDomain(path)]).toEqual([path, domain]);

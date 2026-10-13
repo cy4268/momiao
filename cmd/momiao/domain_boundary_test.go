@@ -39,7 +39,7 @@ func TestDomainPortalWiring(t *testing.T) {
 	})
 	cfg := config{WebDir: t.TempDir(), Session: sessionConfig{Enabled: true}, poker: http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("unverified platform request reached Poker") })}
 	portal := newPortalHandler(cfg, transport)
-	for _, p := range []string{"/api/user/self", "/api/user/self/groups", "/api/user/models?group=default", "/api/token/?p=1&page_size=10", "/api/log/self?p=1&page_size=10", "/platform/v1/wallet", "/platform/v1/master-profile", "/platform/v1/access-gate", "/platform/v1/admission/ensure", "/platform/v1/native-quota", "/platform/v1/rewards/daily", "/api/v1/games/dice/bootstrap", "/api/v1/poker/tables", "/platform/v1/models/personal-price", "/platform/v1/announcements", "/platform/v1/ops/announcements"} {
+	for _, p := range []string{"/api/user/self", "/api/user/self/groups", "/api/user/models?group=default", "/api/token/?p=1&page_size=10", "/api/log/self?p=1&page_size=10", "/platform/v1/wallet", "/platform/v1/master-profile", "/platform/v1/access-gate", "/platform/v1/admission/ensure", "/platform/v1/rewards/daily", "/api/v1/games/dice/bootstrap", "/api/v1/poker/tables", "/platform/v1/models/personal-price", "/platform/v1/announcements", "/platform/v1/ops/announcements"} {
 		w := httptest.NewRecorder()
 		portal.ServeHTTP(w, httptest.NewRequest("GET", p, nil))
 		if w.Code != 503 {

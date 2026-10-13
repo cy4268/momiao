@@ -238,8 +238,6 @@ func newEconomyHandler(origin string, store economyStore, transport http.RoundTr
 				status, code = 409, "INSUFFICIENT_BALANCE"
 			case errors.Is(err, platform.ErrIdempotencyConflict):
 				status, code = 409, "IDEMPOTENCY_CONFLICT"
-			case errors.Is(err, platform.ErrTransferPending):
-				status, code = 409, "TRANSFER_PENDING"
 			case errors.Is(err, platform.ErrWalletNotFound):
 				status, code = 409, "WALLET_NOT_INITIALIZED"
 			case errors.Is(err, platform.ErrBalanceOverflow):

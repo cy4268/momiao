@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -84,7 +83,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		cfg.profile = store
 		cfg.accessGate = store
 		cfg.economy = store
-		cfg.transfers = store
 		cfg.announcements = store
 		cfg.catalog = store
 		cfg.catalogAssets, err = newCatalogAssetStore(cfg.CatalogAssets, nil)
@@ -104,56 +102,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		cfg.opsMaintenance=newOpsMaintenanceHandler(store,cfg.OpsEnvironment)
 		cfg.opsAudit=newOpsAuditHandler(store)
 
-		}
-		if cfg.NativeQuotaKeyFile != "" {
-			key, err := readPokerReaderKey(cfg.NativeQuotaKeyFile)
-			if err != nil {
-				return errors.New("native quota port startup failed")
-			}
-			transport := newNativeTransport(cfg.NewAPISocket)
-			defer transport.CloseIdleConnections()
-			native, err := platform.NewNativeQuotaPort(transport, key)
-			if err != nil {
-				return errors.New("native quota port startup failed")
-			}
-			cfg.nativeQuota = native
-
-			if cfg.RefillPolicy.Enabled {
-				refillKey, err := readPokerReaderKey(cfg.RefillKeyFile)
-				if err != nil { return errors.New("refill startup failed") }
-				service, err := platform.NewActiveQuotaRefillService(store, native, cfg.RefillPolicy)
-				if err != nil { return errors.New("refill startup failed") }
-				handler, err := newActiveQuotaRefillHandler(service, refillKey)
-				if err != nil { return errors.New("refill startup failed") }
-				listener, err := openListener(config{ListenSocket:cfg.RefillSocket})
-				if err != nil { return errors.New("refill startup failed") }
-				refillCtx, stopRefill := context.WithCancel(ctx)
-				refillDone := make(chan struct{})
-				server := &http.Server{Handler:handler,ReadHeaderTimeout:time.Second,ReadTimeout:2*time.Second,WriteTimeout:2*time.Second,IdleTimeout:10*time.Second,MaxHeaderBytes:4096}
-				go func(){defer close(refillDone);if err:=serve(refillCtx,server,listener,cfg.ShutdownTimeout);err!=nil{cancelRun(errors.New("refill listener failed"))}}()
-				defer func(){stopRefill();<-refillDone;_ = listener.Close()}()
-			}
-			workerCtx, cancel := context.WithCancel(ctx)
-			done := make(chan struct{})
-			go func() { defer close(done); runQuotaWorker(workerCtx, store, native) }()
-			defer func() { cancel(); <-done }()
-		}
-		if cfg.NativeQuotaDSNFile != "" {
-			dsn, err := readWalletDSN(cfg.NativeQuotaDSNFile)
-			if err != nil {
-				return errors.New("native quota startup failed")
-			}
-			native, err := platform.OpenNativeQuota(ctx, dsn)
-			if err != nil {
-				return errors.New("native quota startup failed")
-			}
-			defer native.Close()
-			cfg.nativeQuota = native
-
-			workerCtx, cancel := context.WithCancel(ctx)
-			done := make(chan struct{})
-			go func() { defer close(done); runQuotaWorker(workerCtx, store, native) }()
-			defer func() { cancel(); <-done }()
 		}
 		if cfg.GameFairnessKeyringFile != "" {
 			keyring, err := games.ReadKeyring(cfg.GameFairnessKeyringFile)

@@ -125,25 +125,13 @@ GRANT SELECT,INSERT ON rewards.daily_checkins TO momiao_wallet;
 ```
 Runtime still has no UPDATE/DELETE on transaction, ledger, key history or daily claims; immutable triggers remain. The prior portal remains compatible with schema 3, so application rollback retains new data without a destructive down migration. For verification use a private clone for positive claims/exchanges; production balances are not test fixtures.
 
-## Schema 4: one-way native quota activation
+## Schema 4: historical quota transfers
 
-See [quota-transfer-api.md](../contracts/quota-transfer-api.md) for source pins, unit conversion and recovery semantics. This is an optional deployment-specific bridge, not a generic native quota mutator.
+The quota-transfer/refill mutation code and Native quota SQL installer are removed. Keep migration 4 and the existing historical tables/grants; Ops still reads old receipts, but the new program does not create, settle or replay Native transfers. Do not reinstall the deleted Native adapter. Before integrated cutover, resolve historical pending transfers/exchanges and run the planned one-time remaining-quota merge; this source cleanup neither changes balances nor completes that step.
 
-1. Verify the pinned native image/source and actual `users` columns; back up both affected databases and native configuration once. Keep old service and domain separate.
-2. Use native's supported DB-only accounting: empty `REDIS_CONN_STRING` and `BATCH_UPDATE_ENABLED=false`. Preserve the Redis container/data, but do not reuse its cached quota after DB-only writes.
-3. Explicitly install `internal/platform/native_quota.sql` in **native** PostgreSQL. It is default-disabled. Use a non-login owner for this schema/tables/functions with only `SELECT(id,quota,status,deleted_at)` and `UPDATE(quota)` on `public.users`, plus public-schema USAGE. The login runtime gets only schema USAGE and EXECUTE on `read_quota(bigint)`, `query_operation(uuid,bigint)`, `credit(uuid,bigint,bigint)`. No owner membership or direct users/table/credential access. Do not grant arbitrary native administrative access to the portal.
-4. Protect the native transport. A Unix-to-namespace-loopback PostgreSQL proxy still needs SCRAM for **every** TCP role, not just the runtime role. Check actual HBA ordering: the image may have loopback `trust` before the catch-all SCRAM rule. Replace loopback trust with SCRAM, reload configuration, and test that a wrong password is rejected. Keep native SQL credentials valid; no database restart is required. Never expose the container's trust-authenticated Unix socket.
-5. Apply platform migration 4 explicitly and retain prior runtime grants. Add only:
+When deploying the new image, remove `MOMIAO_NATIVE_QUOTA_DSN_FILE`, `MOMIAO_NATIVE_QUOTA_KEY_FILE`, `MOMIAO_REFILL_SOCKET`, `MOMIAO_REFILL_KEY_FILE`, `MOMIAO_REFILL_LOW`, `MOMIAO_REFILL_TARGET`, `MOMIAO_REFILL_MAX` and their exclusive mounts. The new configuration ignores these variables and starts no refill listener or quota worker. Keep shared account-lock names, historical transactions and production Native containers/database; the still-running old dev image is not changed by deleting source code.
 
-```sql
-GRANT SELECT,INSERT ON economy.quota_transfers TO momiao_wallet;
-GRANT UPDATE(status,reason,native_before,native_after,updated_at) ON economy.quota_transfers TO momiao_wallet;
-```
-
-6. Complete an isolated native-image/cross-database flow with restricted roles. After verified accounting mode, enable native `momiao_quota.settings.enabled`. Set `MOMIAO_NATIVE_QUOTA_DSN_FILE` to a private regular file (max 8192 bytes), never a command-line secret. The portal uses a lazy native pool and background worker. No configuration means no worker; it does not auto-install or auto-enable SQL.
-7. Keep the native PostgreSQL proxy bound to the verified isolated network namespace. Stop it if namespace/image/accounting mode drifts. No host TCP listener or public database port is needed. On native upgrades, disable new requests and drain/reconcile outstanding original operations before changing mode or quota scale.
-
-Rollback the portal release while **retaining both journals and all balances**; migration 4 is additive. Keep native DB-only accounting during an application rollback. Do not restore a database snapshot or re-enable an old Redis cache after credits have been written: that could erase receipts or resurrect stale quota. Target disabled/unreachable leaves unknown transfers PENDING; re-enable only after the original operation IDs are reconciled. NEEDS_REVIEW requires explicit operator repair from both journals; no automatic manual-review resolution is provided in this slice.
+The activation SPA route and public Native quota/transfer APIs return 404. The wallet and reward pages link to local wallets/API keys instead; exchange availability is only the selected local balance. Old `API_CHIPS_EXCHANGE` receipt metadata remains readable. No schema or runtime grant changes are needed for this deletion.
 
 ## Schemas 5-9: incremental runtime grants
 
@@ -254,7 +242,7 @@ Enable local sessions with `MOMIAO_SESSION_ENABLED=true` and `MOMIAO_SESSION_RED
 
 When deploying the new image, remove the obsolete `MOMIAO_SESSION_DSN_FILE`, `MOMIAO_SESSION_READER_KEY_FILE`, `MOMIAO_SESSION_OPS_KEY_FILE`, `MOMIAO_SESSION_SEAL_KEY_FILE`, `MOMIAO_SESSION_CREDENTIAL_SEAL_KEY_FILE`, `MOMIAO_SESSION_OPS_SOCKET`, `MOMIAO_SESSION_ENVIRONMENT` and their exclusive mounts. Do not remove shared mounts or change the still-running old image's configuration. This cleanup has no migration or new grants; historical session bindings and production Native containers/database remain retained.
 
-Both routers return 404 for unregistered `/api/` paths instead of proxying to Native. Recovery-lock auth probes use the same local identity store/Redis client; the existing allowlist still denies credential writes and starts no workers. Old `internal/session`, `internal/bffauth` and Poker authbridge code is deleted. Remaining Native business readers and quota/refill workers still need cleanup. This source slice does not replace live dev-browser, recovery-process or in-flight Poker acceptance and has not published a website image.
+Both routers return 404 for unregistered `/api/` paths instead of proxying to Native. Recovery-lock auth probes use the same local identity store/Redis client; the existing allowlist still denies credential writes and starts no workers. Old `internal/session`, `internal/bffauth` and Poker authbridge code is deleted. Quota/refill startup is also removed; remaining Native business readers, transport/readiness and deployment dependencies still need cleanup. This source slice does not replace live dev-browser, recovery-process or in-flight Poker acceptance and has not published a website image.
 
 ### Local RP usage and rankings
 

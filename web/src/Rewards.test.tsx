@@ -7,7 +7,7 @@ import { bundle, daily, failed, fixtureClient, ok, profile, receipt, user, walle
 afterEach(() => sessionStorage.clear());
 function ProviderReturn() { const navigate = useNavigate(); return <button onClick={() => navigate('/welcome')}>test provider return</button>; }
 const nav = (name: string) => within(screen.getByRole('navigation', { name: '页面导航' })).getByRole('link', { name });
-it('claims fixed Shanghai-day rewards only on click, refreshes confirmed status, and links activation', async () => {
+it('claims fixed Shanghai-day rewards only on click, refreshes confirmed status, and links the local wallet', async () => {
     let claimed = false;
     const { client, fetcher } = fixtureClient((p, init) => {
         if (p.endsWith('/daily/claim') && init?.method === 'POST') { claimed = true; return ok(receipt); }
@@ -29,7 +29,7 @@ it('claims fixed Shanghai-day rewards only on click, refreshes confirmed status,
     expect(await screen.findByRole('button', { name: '今日已领取' })).toBeDisabled();
     expect(fetcher.mock.calls.filter(c => c[0].endsWith('/claim'))).toHaveLength(1);
     expect(Object.keys(JSON.parse(String(fetcher.mock.calls.find(c => c[0].endsWith('/claim'))![1]?.body)))).toEqual(['idempotency_key']);
-    expect(screen.getByRole('main').querySelector('a[href="/wallet/activate"]')).not.toBeNull();
+    expect(screen.getByRole('main').querySelector('a[href="/wallet"]')).not.toBeNull();
     fireEvent.click(nav('我的钱包'));
     expect(await screen.findByRole('button', { name: '今日已领取' })).toBeDisabled();
 });

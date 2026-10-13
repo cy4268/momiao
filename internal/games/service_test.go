@@ -50,16 +50,7 @@ func gameTestStores(t *testing.T, capped ...bool) (*platform.Store, *platform.St
 	}
 	if len(capped) > 0 && capped[0] {
 		err = owner.WithTx(ctx, func(tx pgx.Tx) error {
-			var installed bool
-			if e := tx.QueryRow(ctx, "SELECT to_regnamespace('momiao_quota') IS NOT NULL").Scan(&installed); e != nil {
-				return e
-			}
-			if !installed {
-				if _, e := tx.Exec(ctx, `CREATE TABLE public.users(id bigint PRIMARY KEY,quota bigint NOT NULL DEFAULT 0,status int NOT NULL DEFAULT 1,deleted_at timestamptz);`+platform.NativeQuotaMigration, pgx.QueryExecModeSimpleProtocol); e != nil {
-					return e
-				}
-			}
-			_, e := tx.Exec(ctx, `UPDATE momiao_quota.settings SET enabled=true; UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
+			_, e := tx.Exec(ctx, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
 			return e
 		})
 		if err != nil {
@@ -191,9 +182,6 @@ func TestWagerValidationBeforeAnyResult(t *testing.T) {
 	ctx := context.Background()
 	user := int64(823001)
 	if e := owner.EnsureAccount(ctx, user); e != nil {
-		t.Fatal(e)
-	}
-	if e := owner.WithTx(ctx, func(tx pgx.Tx) error { _, e := tx.Exec(ctx, `INSERT INTO public.users(id) VALUES($1)`, user); return e }); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := owner.Apply(ctx, platform.Mutation{UserID: user, Asset: platform.AvailableChips, DeltaUnits: platform.SinglePlayerMaxUnits * 4, BizType: "TEST_CAP", BizID: requestKey(t), EntryType: "TEST_GRANT", IdempotencyKey: requestKey(t)}); e != nil {
@@ -373,12 +361,6 @@ func TestDiceServiceIntegration(t *testing.T) {
 	capOwner, capRuntime := gameTestStores(t, true)
 	capUser := int64(823002)
 	if e := capOwner.EnsureAccount(ctx, capUser); e != nil {
-		t.Fatal(e)
-	}
-	if e := capOwner.WithTx(ctx, func(tx pgx.Tx) error {
-		_, e := tx.Exec(ctx, `INSERT INTO public.users(id) VALUES($1)`, capUser)
-		return e
-	}); e != nil {
 		t.Fatal(e)
 	}
 	if _, e := capOwner.Apply(ctx, platform.Mutation{UserID: capUser, Asset: platform.AvailableChips, DeltaUnits: 2000000000, BizType: "TEST_CAP", BizID: requestKey(t), EntryType: "TEST_GRANT", IdempotencyKey: requestKey(t)}); e != nil {

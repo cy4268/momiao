@@ -343,8 +343,7 @@ func TestBotSummonPostgres(t *testing.T) {
 	}
 	t.Run("deterministic_active_pool_and_economic_cap", func(t *testing.T) {
 		installSummonT2Fixture(t, f)
-		f.exec(t, platform.NativeQuotaMigration)
-		f.exec(t, `UPDATE momiao_quota.settings SET enabled=true; UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
+		f.exec(t, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
 		defer f.exec(t, `UPDATE economy.policy_runtime SET active_version=NULL WHERE singleton`)
 		for _, tc := range []struct{ mode, maximum, tooMuch, stake, gross string }{{"SINGLE", "500000000000", "1000001", "5500000", "11000000"}, {"TENFOLD", "50000000000", "100001", "55000000", "110000000"}} {
 			t.Run(tc.mode, func(t *testing.T) {

@@ -29,13 +29,13 @@ The artwork manifest uses relative, content-hashed keys; host matching files und
 
 ## 平台钱包一期
 
-`internal/platform` 提供独立 PostgreSQL 的身份锚点、双资产零值钱包、精确金额、幂等单钱包账变与追加式流水；包含显式版本迁移和真实数据库集成测试。钱包页面 `/wallet` 已接入可选的独立平台数据库：显式初始化、真实余额与流水查询。每日固定 500 API Credit 签到、本地 1:1 兑换和单向原生额度划转见下方契约；没有默认赠金，也不携带生产数据库凭据。完整经济系统仍未实现。
+`internal/platform` 提供独立 PostgreSQL 的身份锚点、双资产零值钱包、精确金额、幂等单钱包账变与追加式流水；包含显式版本迁移和真实数据库集成测试。钱包页面 `/wallet` 已接入可选的独立平台数据库：显式初始化、真实余额与流水查询。每日固定 500 Reserve 签到与本地 1:1 兑换见下方契约；没有默认赠金，也不携带生产数据库凭据。完整经济系统仍未实现。
 
 见 [账本基础与验证](docs/wallet-foundation.md)、[钱包接口契约](contracts/wallet-api.md)、[隔离与可用性决策](docs/decisions/0005-wallet-portal.md)。
 
-## 原生额度划转
+## 本地 Reserve
 
-/wallet/activate 支持主动将 Reserve 转入原生可用额度。后台持久化处理，同一请求不重复入账；结果未知时先按原编号核对。仅针对已验证的原生版本和数据库直接记账模式启用，见 [划转契约](contracts/quota-transfer-api.md)。
+模型调用直接消耗 Reserve；Reserve 与可用筹码 1:1 双向兑换。`/wallet/activate`、Native 额度读取/划转接口及自动 refill 已删除；旧划转/跨库兑换行只作历史查询，不再由新程序启动 worker。上线前仍须处理历史在途并按计划一次性合并 Native 剩余额度。
 
 ## Master 展示身份
 
@@ -115,7 +115,6 @@ MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 | `MOMIAO_SESSION_ENABLED` | `true` 启用本地登录，会话需要平台数据库、Public Origin 与 Redis |
 | `MOMIAO_SESSION_REDIS_CONFIG_FILE` | 现有 Redis TLS 配置文件绝对路径 |
 | `MOMIAO_WALLET_DSN_FILE` | 可选受限平台 DSN 文件绝对路径；钱包与 Master 共用，与 Public Origin 成对 |
-| `MOMIAO_NATIVE_QUOTA_DSN_FILE` | 可选原生额度适配器受限 DSN 绝对路径；需平台钱包配置和显式安装验证 |
 | `MOMIAO_PUBLIC_ORIGIN` | 与平台 DSN 成对的准确 HTTPS Origin，用于显式写入验证 |
 | `MOMIAO_SHUTDOWN_TIMEOUT` | `10s`，可设 `1s..30s`；超时后强制结束剩余连接 |
 
@@ -123,7 +122,7 @@ MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 
 ## 接口与范围
 
-SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/admin/channels`、`/wallet`、`/wallet/activate`、`/master-profile`、`/games/dice`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
+SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/admin/channels`、`/wallet`、`/master-profile`、`/games/dice`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
 
 `GET /v1/models` 使用本地 Key 认证和分组/模型限制，`/v1/*` 由已接线的本地中转处理。未注册的 `/api/` 路径直接返回 404，不再兜底代理到 Native；旧登录、渠道等路径没有兼容代理。门户文本测试与 `/pg/chat/completions` 转发已移除。历史 [原生接口契约](contracts/native-api.md) 不代表当前认证入口。
 
@@ -140,4 +139,4 @@ SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/log
 ### Daily rewards and local exchange
 The wallet page now supports an explicit daily 500 Reserve API Credit claim (Asia/Shanghai day), exact 1:1 Reserve/chips exchange, receipts and durable-key retry lookup. Native Active quota is unchanged. See [wallet action contract](contracts/wallet-actions-api.md). Initial grants, hourly/relief rewards, credit purchases and games are not enabled by this slice.
 
-运营台已删除通用预览/执行/二次验证管道、访问控制页和操作回执页；所有模块及账户菜单的入口使用本地角色。历史审计和旧任务行保留只读，健康快照 worker 独立启动。认证启动已删除旧 Native/BFF 会话、独立会话数据库和 Native 凭据配置，直接复用平台连接池与 Redis；未注册的 `/api/` 路径返回 404。RP 记录与榜单直接读取本地归因，不再启动 Native 同步或检查其水位；部署前应用 0066，历史重复逻辑请求只计一次，原始行保留。其余 Native 业务读取与 quota/refill 启动仍待清理；0066 仅应用独立 dev，本轮未发布镜像。
+运营台已删除通用预览/执行/二次验证管道、访问控制页和操作回执页；所有模块及账户菜单的入口使用本地角色。历史审计和旧任务行保留只读，健康快照 worker 独立启动。认证启动已删除旧 Native/BFF 会话、独立会话数据库和 Native 凭据配置，直接复用平台连接池与 Redis；未注册的 `/api/` 路径返回 404。RP 记录与榜单直接读取本地归因，不再启动 Native 同步或检查其水位；部署前应用 0066，历史重复逻辑请求只计一次，原始行保留。quota/refill 启动与配置已删除，钱包只按本地余额兑换；其余 Native 投影/helper、transport/readiness 和部署文件仍待清理。0066 仅应用独立 dev，本轮无新增迁移或镜像发布。

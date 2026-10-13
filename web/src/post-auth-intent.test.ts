@@ -52,9 +52,9 @@ it('retains only bounded model navigation across the existing provider round tri
 });
 
 it('persists a stable permitted route, expires it and consumes it once', () => {
-    saveRouteIntent('/wallet/activate', 1000);
-    expect(JSON.parse(sessionStorage.getItem('chaldea.post-auth.route.v2')!)).toEqual({ route: '/wallet/activate', expires: 1801000 });
-    expect(consumeRouteIntent(1001)).toBe('/wallet/activate');
+    saveRouteIntent('/wallet', 1000);
+    expect(JSON.parse(sessionStorage.getItem('chaldea.post-auth.route.v2')!)).toEqual({ route: '/wallet', expires: 1801000 });
+    expect(consumeRouteIntent(1001)).toBe('/wallet');
     expect(consumeRouteIntent(1002)).toBe('/dashboard');
     saveRouteIntent('/account', 1000);
     expect(consumeRouteIntent(1801000)).toBe('/dashboard');

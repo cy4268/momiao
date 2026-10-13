@@ -279,8 +279,7 @@ func TestBotSlotPostgres(t *testing.T) {
 		f.effects(t, u, 1)
 	})
 	t.Run("economic_limit_and_capped_net", func(t *testing.T) {
-		f.exec(t, platform.NativeQuotaMigration)
-		f.exec(t, `UPDATE momiao_quota.settings SET enabled=true; UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
+		f.exec(t, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
 		defer f.exec(t, `UPDATE economy.policy_runtime SET active_version=NULL WHERE singleton`)
 		limitUser, limitSubject := f.player(t, true, 1000000000000)
 		p := f.prepareSlot(t, limitSubject, "11")

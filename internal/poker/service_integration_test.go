@@ -229,12 +229,7 @@ func TestRealPGCashTableFundingAndRecovery(t *testing.T) {
 	defer cancel()
 	applyLocalPasswordProfileGrants(t, ctx, owner, pool)
 
-	// Real Native read port on the same isolated PG, with distinct runtime roles.
-	if _, err := owner.Exec(ctx, `CREATE TABLE public.users(id bigint PRIMARY KEY,quota bigint NOT NULL DEFAULT 0,status int NOT NULL DEFAULT 1,deleted_at timestamptz);`+platform.NativeQuotaMigration, pgx.QueryExecModeSimpleProtocol); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := owner.Exec(ctx, `UPDATE momiao_quota.settings SET enabled=true; INSERT INTO public.users(id) VALUES(910001),(910002);
- INSERT INTO economy.wallet_balances(newapi_user_id,asset_type,balance_units) SELECT u,'RESERVE_API_CREDIT',50000000000000000-1500000000 FROM unnest(ARRAY[910001,910002]::bigint[]) u;
+	if _, err := owner.Exec(ctx, `INSERT INTO economy.wallet_balances(newapi_user_id,asset_type,balance_units) SELECT u,'RESERVE_API_CREDIT',50000000000000000-1500000000 FROM unnest(ARRAY[910001,910002]::bigint[]) u;
  UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton;`, pgx.QueryExecModeSimpleProtocol); err != nil {
 		t.Fatal(err)
 	}

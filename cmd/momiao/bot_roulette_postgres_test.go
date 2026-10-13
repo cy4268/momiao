@@ -34,8 +34,6 @@ func TestBotRouletteCrossPlatformConservation(t *testing.T) {
 		roulette.Keyring{Active: "bot-fixture-v1", Keys: map[string][32]byte{"bot-fixture-v1": {9}}})
 	botGamesPGCheck(t, err, "cross engine")
 	f.base.exec(t, `UPDATE games.game_registry SET publication_state='PUBLISHED' WHERE game_slug='pressure-roulette'`)
-	f.base.exec(t, platform.NativeQuotaMigration)
-	f.base.exec(t, `UPDATE momiao_quota.settings SET enabled=true`)
 	f.base.exec(t, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`)
 	service, err := botroulette.NewService(f.engine,
 		botGamesResolver{platform: f.base.runtime, declaration: f.base.declaration}, [32]byte{2}, time.Now)

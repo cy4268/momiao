@@ -25,7 +25,6 @@ import { CriticalNotice } from './CriticalNotice';
 import type { CatalogLoginRequired } from './catalog-api';
 import { Channels, Groups } from './Channels';
 import { Wallet } from './Wallet';
-import { QuotaActivation } from './QuotaActivation';
 import { GamesCatalog, GamePage } from './Games';
 import {RouletteLobby} from './roulette/RouletteLobby';
 import {RouletteHistory} from './roulette/RouletteHistory';
@@ -131,7 +130,6 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="/history/sessions/:id" element={<HistorySession key={routedSession} client={client}/>} />
             <Route path="/history/hands/:id" element={<HistoryHand key={routedSession} client={client}/>} />
             <Route path="/wallet/transactions/:id" element={<HistoryTransaction key={routedSession} client={client}/>} />
-            <Route path="/wallet/activate" element={session.user && <QuotaActivation key={session.user.id + ':' + client.getSessionGeneration()} client={client} userID={String(session.user.id)} />} />
             <Route path="/wallet" element={<Wallet client={client} user={session.user!} />} />
             <Route path="/master-profile" element={<ProfileRoute client={client} user={session.user!} />} />
             <Route path="/admin/channels" element={<Navigate to="/ops/channels" replace/>} />
@@ -151,13 +149,13 @@ function ProfileRoute({ client, user }: { client: ApiClient; user: User }) {
 }
 const pageTitles: Record<string, string> = {
     '/dashboard': '指挥台', '/me': '个人中心', '/rewards': '奖励中心', '/games/dice': '命运骰盅', '/games/scratch':'星纹刮刮卡', '/games/summon':'圣晶召唤', '/games/slot':'月光回响', '/games/blackjack':'二十一点', '/history':'游戏记录',
-    '/master-profile': 'Master 资料', '/account': '账户与安全', '/account/security': '账户与安全', '/wallet/activate': '转入 API 额度', '/wallet': '我的钱包', '/poker':'Poker 大厅',
+    '/master-profile': 'Master 资料', '/account': '账户与安全', '/account/security': '账户与安全', '/wallet': '我的钱包', '/poker':'Poker 大厅',
     '/models': '模型目录', '/admin/channels': '渠道管理', '/keys': '密钥管理', '/logs': '调用记录',
 };
 function Shell({ client, user, children }: { client: ApiClient; user: User; children?:ReactNode }) {
     const location = useLocation();
     const domain = ['/models', '/keys', '/logs'].includes(location.pathname) ? 'models'
-        : ['/wallet', '/wallet/activate', '/rewards'].includes(location.pathname) || location.pathname.startsWith('/wallet/transactions/') ? 'assets'
+        : ['/wallet', '/rewards'].includes(location.pathname) || location.pathname.startsWith('/wallet/transactions/') ? 'assets'
         : ['/me', '/account', '/account/security', '/master-profile', '/admin/channels'].includes(location.pathname) ? 'my'
         : location.pathname==='/poker' || location.pathname.startsWith('/games/') || location.pathname.startsWith('/roulette/') || location.pathname.startsWith('/history') ? 'experience' : 'home';
     const main = useRef<HTMLElement>(null);
@@ -183,7 +181,7 @@ function Dashboard({ client, user }: { client: ApiClient; user: User }) {
     return <CommandChamber page="dashboard"><header className="page-heading"><div><p className="eyebrow">COMMAND CENTER</p><h1>指挥台</h1><p>欢迎回来，御主。</p></div><Link className="button primary" to="/models">选择模型并接入</Link></header>
         <MasterSummary master={master} />
         <div className="chamber-ledger"><section className="account-ledger" aria-label="账户使用概览"><div><p>Reserve 余额</p><strong>{current.reserve_amount ?? '—'}</strong></div><div><p>已用 API 额度</p><strong>{number(current.used_quota ?? undefined)}</strong></div><div><p>累计请求</p><strong>{number(current.request_count ?? undefined)}</strong><span>次调用</span></div><div><p>API 密钥</p><strong>{r.loading ? '…' : r.error ? '—' : number(r.data?.keys.total)}</strong><Link to="/keys">管理密钥</Link></div></section><p className="ledger-note"><Link className="text-link" to="/wallet">查看 Reserve 与筹码</Link></p></div>
-        <div className="dashboard-paths"><Link to="/me">个人中心</Link><Link to="/rewards">领取每日奖励</Link><Link to="/wallet/activate">激活 API 额度</Link></div>
+        <div className="dashboard-paths"><Link to="/me">个人中心</Link><Link to="/rewards">领取每日奖励</Link><Link to="/keys">管理 API 密钥</Link></div>
         <section className="panel recent"><div className="section-heading"><h2>最近调用与活动</h2><Link className="text-link" to="/logs">查看全部</Link></div><div className="chamber-activity" role="region" aria-label="最近调用内容" tabIndex={0}>{r.loading ? <Loading /> : r.error ? <><Alert>{r.error}</Alert><button onClick={r.reload}>重新加载</button></> : r.data && <>{r.data.keys.total === 0 && <div className="first-key"><div><strong>建立你的第一个连接</strong><p>创建一枚独立密钥，再将它添加到你信任的应用。</p></div><Link className="button" to="/keys">创建第一枚密钥</Link></div>}<LogTable items={r.data.logs.items} /></>}</div></section>
     </CommandChamber>;
 }

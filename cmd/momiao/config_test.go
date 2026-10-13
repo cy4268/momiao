@@ -9,40 +9,17 @@ import (
 )
 
 func TestConfigDefaults(t *testing.T) {
-	cfg, err := loadConfig(func(string) (string, bool) { return "", false })
+	cfg, err := loadConfig(func(key string) (string, bool) {
+		if strings.HasPrefix(key, "MOMIAO_NATIVE_QUOTA_") || strings.HasPrefix(key, "MOMIAO_REFILL_") {
+			t.Fatalf("obsolete quota config still read: %s", key)
+		}
+		return "", false
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.ListenAddr != "127.0.0.1:8080" || cfg.ShutdownTimeout != 10*time.Second {
 		t.Fatalf("unexpected defaults: %+v", cfg)
-	}
-}
-
-func TestNativeQuotaConfigRequiresExplicitWallet(t *testing.T) {
-	web := t.TempDir()
-	if err := os.WriteFile(filepath.Join(web, "index.html"), []byte("portal"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct {
-		path          string
-		wallet, valid bool
-	}{
-		{"", true, false}, {"relative.dsn", true, false},
-		{filepath.Join(t.TempDir(), "native.dsn"), false, false},
-		{filepath.Join(t.TempDir(), "native.dsn"), true, true},
-	} {
-		env := map[string]string{"MOMIAO_WEB_DIR": web, "MOMIAO_NEWAPI_SOCKET": filepath.Join(t.TempDir(), "native.sock"), "MOMIAO_NATIVE_QUOTA_DSN_FILE": tc.path}
-		if tc.wallet {
-			env["MOMIAO_WALLET_DSN_FILE"] = filepath.Join(t.TempDir(), "wallet.dsn")
-			env["MOMIAO_PUBLIC_ORIGIN"] = "https://wallet.example"
-		}
-		cfg, err := loadConfig(func(k string) (string, bool) { v, ok := env[k]; return v, ok })
-		if (err == nil) != tc.valid {
-			t.Fatalf("valid=%v error=%v", tc.valid, err)
-		}
-		if err == nil && cfg.NativeQuotaDSNFile != tc.path {
-			t.Fatal("native DSN not retained")
-		}
 	}
 }
 

@@ -90,7 +90,7 @@ func hourlyReward(now time.Time, user int64, id *string, claims int) HourlyRewar
 }
 
 func (s *Store) ReadHourlyReward(ctx context.Context, user int64) (HourlyReward, error) {
-	if !validateQuotaUser(user) {
+	if user <= 0 {
 		return HourlyReward{}, ErrInvalidMutation
 	}
 	var now time.Time
@@ -143,7 +143,7 @@ func (s *Store) hourlyClaimInTx(ctx context.Context, tx pgx.Tx, user int64, hour
 }
 
 func (s *Store) ClaimHourlyReward(ctx context.Context, user int64, key string) (Transaction, error) {
-	if !validateQuotaUser(user) || !ValidOperationKey(key) {
+	if user <= 0 || !ValidOperationKey(key) {
 		return Transaction{}, ErrInvalidMutation
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -213,7 +213,7 @@ func (s *Store) ClaimHourlyReward(ctx context.Context, user int64, key string) (
 }
 
 func (service *EconomyService) ReadReliefReward(ctx context.Context, user int64) (ReliefReward, error) {
-	if service == nil || service.Store == nil || service.assets == nil || !validateQuotaUser(user) {
+	if service == nil || service.Store == nil || service.assets == nil || user <= 0 {
 		return ReliefReward{}, ErrInvalidMutation
 	}
 	assets, err := service.assets.ReadUnifiedAssets(ctx, user)
@@ -260,7 +260,7 @@ func reliefCooldownInTx(ctx context.Context, tx pgx.Tx, user int64, now time.Tim
 }
 
 func (service *EconomyService) ClaimReliefReward(ctx context.Context, user int64, key string) (Transaction, error) {
-	if service == nil || service.Store == nil || service.assets == nil || !validateQuotaUser(user) || !ValidOperationKey(key) {
+	if service == nil || service.Store == nil || service.assets == nil || user <= 0 || !ValidOperationKey(key) {
 		return Transaction{}, ErrInvalidMutation
 	}
 	tx, err := service.pool.Begin(ctx)

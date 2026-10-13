@@ -523,8 +523,7 @@ func TestBotBlackjackPostgres(t *testing.T) {
 		f.blackjackEffects(t, user, r.RoundID, 1, 0, 0)
 	})
 	t.Run("economic_action_cap_and_raw_win_actual_break_even", func(t *testing.T) {
-		f.exec(t, platform.NativeQuotaMigration)
-		f.exec(t, `UPDATE momiao_quota.settings SET enabled=true; UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
+		f.exec(t, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
 		defer f.exec(t, `UPDATE economy.policy_runtime SET active_version=NULL WHERE singleton`)
 		user, subject := f.player(t, true, 1000000000000)
 		f.blackjackPrecommit(t, user, blackjackPair)

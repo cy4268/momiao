@@ -96,7 +96,7 @@ func TestUnownedPlatformAPINeverReachesNative(t *testing.T) {
 				calls++
 				return nil, errors.New("unowned Platform route reached Native")
 			}))
-			for _, route := range []string{"/api/user/login", "/api/momiao/auth/discord/login/start", "/api/unowned", "/api/v1", "/api/v1/not-owned", "/api/v1/not-owned?source=browser", "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup", "/internal/v1/bot-games/dice/%70repare", "/internal/v1/bot-games/dice/prepare?x=1", "/internal/v1/bot-games/slot/prepare", "/internal/v1/bot-games/slot/play", "/internal/v1/bot-games/slot/lookup", "/internal/v1/bot-games/slot/%70repare", "/internal/v1/bot-games/slot/prepare?x=1"} {
+			for _, route := range []string{"/platform/v1/native-quota", "/platform/v1/quota-transfers", "/platform/v1/quota-transfers/by-key", "/internal/momiao/active-quota/refill", "/api/user/login", "/api/momiao/auth/discord/login/start", "/api/unowned", "/api/v1", "/api/v1/not-owned", "/api/v1/not-owned?source=browser", "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup", "/internal/v1/bot-games/dice/%70repare", "/internal/v1/bot-games/dice/prepare?x=1", "/internal/v1/bot-games/slot/prepare", "/internal/v1/bot-games/slot/play", "/internal/v1/bot-games/slot/lookup", "/internal/v1/bot-games/slot/%70repare", "/internal/v1/bot-games/slot/prepare?x=1"} {
 				for _, method := range []string{http.MethodGet, http.MethodPost} {
 					response := httptest.NewRecorder()
 					handler.ServeHTTP(response, httptest.NewRequest(method, route, nil))
@@ -151,7 +151,7 @@ func TestPortalServesOnlyApprovedSPAAndCompiledFiles(t *testing.T) {
 	if csp := cdnResponse.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "img-src 'self' data: https://assets.example.test;") || !strings.Contains(csp, "connect-src 'self'") || strings.Count(csp, "assets.example.test") != 1 {
 		t.Fatalf("CDN must be allowed for images only: %q", csp)
 	}
-	for _, route := range []string{"/", "/login", "/register", "/dashboard", "/keys", "/logs", "/games/dice", "/wallet/activate", "/history/rounds/11111111-1111-4111-8111-111111111111", "/history/sessions/11111111-1111-4111-8111-111111111111", "/history/hands/11111111-1111-4111-8111-111111111111", "/wallet/transactions/11111111-1111-4111-8111-111111111111"} {
+	for _, route := range []string{"/", "/login", "/register", "/dashboard", "/keys", "/logs", "/games/dice", "/history/rounds/11111111-1111-4111-8111-111111111111", "/history/sessions/11111111-1111-4111-8111-111111111111", "/history/hands/11111111-1111-4111-8111-111111111111", "/wallet/transactions/11111111-1111-4111-8111-111111111111"} {
 		t.Run("shell "+route, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))
@@ -213,7 +213,7 @@ func TestPortalServesOnlyApprovedSPAAndCompiledFiles(t *testing.T) {
 		t.Fatalf("fingerprinted asset cache policy=%q", got)
 	}
 
-	for _, route := range []string{"/sign-in", "/sign-up", "/otp", "/native-auth/static/js/auth-12345678.js"} {
+	for _, route := range []string{"/wallet/activate", "/sign-in", "/sign-up", "/otp", "/native-auth/static/js/auth-12345678.js"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))
 		if response.Code != http.StatusNotFound {
