@@ -29,11 +29,9 @@ import (
 func TestBotRouletteCrossPlatformConservation(t *testing.T) {
 	f := newBotRoulettePGFixture(t)
 	ctx := context.Background()
-	observer, err := platform.OpenNativeQuota(ctx, f.base.connection.OwnerURL)
-	botGamesPGCheck(t, err, "cross native quota observer")
-	defer observer.Close()
-	f.engine, err = roulette.NewServiceWithEconomy(f.base.runtime,
-		roulette.Keyring{Active: "bot-fixture-v1", Keys: map[string][32]byte{"bot-fixture-v1": {9}}}, observer)
+	var err error
+	f.engine, err = roulette.NewService(f.base.runtime,
+		roulette.Keyring{Active: "bot-fixture-v1", Keys: map[string][32]byte{"bot-fixture-v1": {9}}})
 	botGamesPGCheck(t, err, "cross engine")
 	f.base.exec(t, `UPDATE games.game_registry SET publication_state='PUBLISHED' WHERE game_slug='pressure-roulette'`)
 	f.base.exec(t, platform.NativeQuotaMigration)

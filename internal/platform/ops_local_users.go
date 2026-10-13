@@ -254,7 +254,11 @@ func changeLocalOpsUser(ctx context.Context, tx pgx.Tx, sessions identity.Sessio
 		if err == nil {
 			err = sessions.RevokeUser(ctx, subject)
 		}
-	case "reserve":
+	case "reserve", "chips":
+		asset := ReserveAPICredit
+		if action == "chips" {
+			asset = AvailableChips
+		}
 		units, e := ParseAmount(strings.TrimPrefix(v.Amount, "-"))
 		if e != nil || strings.TrimSpace(v.Note) == "" || utf8.RuneCountInString(v.Note) > 1000 || strings.ContainsRune(v.Note, 0) || !ValidOperationKey(v.RequestID) {
 			return ErrOpsInvalid
@@ -271,15 +275,15 @@ func changeLocalOpsUser(ctx context.Context, tx pgx.Tx, sessions identity.Sessio
 		if replay && previousNote != v.Note {
 			return ErrIdempotencyConflict
 		}
-		entry, e := applyInTx(ctx, tx, Mutation{UserID: subject, Asset: ReserveAPICredit, DeltaUnits: units, BizType: "OPS_ADJUST", BizID: v.RequestID, EntryType: "OPS_ADJUST", IdempotencyKey: v.RequestID})
+		entry, e := applyInTx(ctx, tx, Mutation{UserID: subject, Asset: asset, DeltaUnits: units, BizType: "OPS_ADJUST", BizID: v.RequestID, EntryType: "OPS_ADJUST", IdempotencyKey: v.RequestID})
 		if e != nil {
 			return e
 		}
 		if replay {
 			return nil
 		}
-		beforeAudit = map[string]any{"user_id": subject, "balance": FormatAmount(entry.BalanceBeforeUnits)}
-		after = map[string]any{"entry_id": entry.ID, "user_id": subject, "delta": FormatAmount(units), "balance": FormatAmount(entry.BalanceAfterUnits), "note": v.Note}
+		beforeAudit = map[string]any{"user_id": subject, "asset": asset, "balance": FormatAmount(entry.BalanceBeforeUnits)}
+		after = map[string]any{"entry_id": entry.ID, "user_id": subject, "asset": asset, "delta": FormatAmount(units), "balance": FormatAmount(entry.BalanceAfterUnits), "note": v.Note}
 		auditAction, kind, target = "OPS_ADJUST", "WALLET_ADJUSTMENT", v.RequestID
 	case "disable-key", "delete-key":
 		var key APIKey

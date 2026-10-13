@@ -244,9 +244,6 @@ func (h gamblerOperation) Prepare(ctx context.Context, tx pgx.Tx, _ OpsPrincipal
 		facts = append(facts, "NATIVE_CHECKPOINT_CHANGED")
 	}
 	if (h.action == "GAMBLER_RESET_START" || h.action == "ECONOMY_POLICY_ACTIVATE") && ready && len(facts) == 0 {
-		if _, e := h.service.assets.native.ReadNativeQuota(ctx, c.actor); e != nil {
-			facts = append(facts, "NATIVE_OBSERVER_UNAVAILABLE")
-		}
 		if err = h.service.verifyReset(ctx, tx, c, h.action == "ECONOMY_POLICY_ACTIVATE"); err != nil {
 			if ctx.Err() != nil {
 				return m, ctx.Err()
@@ -319,7 +316,7 @@ func (h gamblerOperation) Execute(ctx context.Context, tx pgx.Tx, actor OpsPrinc
 	return OpsExecutionResult{BeforeSnapshot: m.Impact.Before, AfterSnapshot: rawOpsValue(after.GamblerCampaignView), Result: rawOpsValue(after.GamblerCampaignView), RelatedBusinessID: c.ID}, err
 }
 func sameGamblerAssets(a, b UnifiedAssets) bool {
-	return a.UserID == b.UserID && a.ActiveQuotaUnits == b.ActiveQuotaUnits && a.ReserveUnits == b.ReserveUnits && a.AvailableChipsUnits == b.AvailableChipsUnits && a.PokerStackUnits == b.PokerStackUnits && a.PokerPotUnits == b.PokerPotUnits && a.QuotaTransferInFlightUnits == b.QuotaTransferInFlightUnits && a.SinglePlayerInFlightUnits == b.SinglePlayerInFlightUnits && a.RouletteEscrowUnits == b.RouletteEscrowUnits && a.TotalUnits == b.TotalUnits
+	return a.UserID == b.UserID && a.ReserveUnits == b.ReserveUnits && a.AvailableChipsUnits == b.AvailableChipsUnits && a.PokerStackUnits == b.PokerStackUnits && a.PokerPotUnits == b.PokerPotUnits && a.SinglePlayerInFlightUnits == b.SinglePlayerInFlightUnits && a.RouletteEscrowUnits == b.RouletteEscrowUnits && a.TotalUnits == b.TotalUnits
 }
 
 // Each verification transaction observes at most limit frozen accounts. A
@@ -365,12 +362,9 @@ func (s *GamblerCampaignService) verifyCheckpointBatch(ctx context.Context, tx p
 		if json.Unmarshal(a.expected, &expected) != nil || json.Unmarshal(a.before, &before) != nil {
 			return false, ErrGamblerBlocked
 		}
-		current, e := ReadUnifiedAssetsInTx(ctx, tx, s.assets.native, a.user)
+		current, e := ReadUnifiedAssetsInTx(ctx, tx, a.user)
 		if e != nil {
 			return false, e
-		}
-		if current.ActiveQuotaUnits != before.ActiveQuotaUnits {
-			return false, errGamblerNativeChanged
 		}
 		if !sameGamblerAssets(expected, current) {
 			return false, ErrGamblerBlocked
@@ -386,12 +380,11 @@ func (s *GamblerCampaignService) verifyCheckpointBatch(ctx context.Context, tx p
 }
 
 func gamblerIdle(a UnifiedAssets) bool {
-	return a.PokerStackUnits == 0 && a.PokerPotUnits == 0 && a.QuotaTransferInFlightUnits == 0 && a.SinglePlayerInFlightUnits == 0 && a.RouletteEscrowUnits == 0
+	return a.PokerStackUnits == 0 && a.PokerPotUnits == 0 && a.SinglePlayerInFlightUnits == 0 && a.RouletteEscrowUnits == 0
 }
 
-// Native is checked in the resumable sealed pass and immediately before and
-// after each user's reset. Here only local frozen balances are checked in SQL;
-// no unbounded network scan is permitted on an Ops confirmation request.
+// The resumable sealed pass and each reset use local asset snapshots.
+// Here the frozen wallet balances are checked in SQL.
 func (s *GamblerCampaignService) verifyReset(ctx context.Context, tx pgx.Tx, c gamblerRow, completed bool) error {
 	if c.reverifyPending {
 		return ErrGamblerBlocked
@@ -681,7 +674,7 @@ func (s *GamblerCampaignService) processAccount(ctx context.Context, tx pgx.Tx, 
 	if _, err := tx.Exec(ctx, `INSERT INTO economy.wallet_balances(newapi_user_id,asset_type) VALUES($1,'RESERVE_API_CREDIT'),($1,'AVAILABLE_CHIPS') ON CONFLICT DO NOTHING`, user); err != nil {
 		return err
 	}
-	current, err := ReadUnifiedAssetsInTx(ctx, tx, s.assets.native, user)
+	current, err := ReadUnifiedAssetsInTx(ctx, tx, user)
 	if err != nil {
 		return err
 	}
@@ -704,9 +697,6 @@ func (s *GamblerCampaignService) processAccount(ctx context.Context, tx pgx.Tx, 
 		if json.Unmarshal(stored, &before) != nil {
 			return ErrGamblerBlocked
 		}
-		if before.ActiveQuotaUnits != current.ActiveQuotaUnits {
-			return errGamblerNativeChanged
-		}
 		if !sameGamblerAssets(before, current) {
 			return ErrGamblerBlocked
 		}
@@ -725,12 +715,9 @@ func (s *GamblerCampaignService) processAccount(ctx context.Context, tx pgx.Tx, 
 			}
 			entries = append(entries, entry)
 		}
-		after, e := ReadUnifiedAssetsInTx(ctx, tx, s.assets.native, user)
+		after, e := ReadUnifiedAssetsInTx(ctx, tx, user)
 		if e != nil {
 			return e
-		}
-		if after.ActiveQuotaUnits != before.ActiveQuotaUnits {
-			return errGamblerNativeChanged
 		}
 		if after.ReserveUnits != gamblerResetReserve || after.AvailableChipsUnits != 0 || !gamblerIdle(after) {
 			return ErrGamblerBlocked

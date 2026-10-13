@@ -63,10 +63,7 @@ func newBotGamesPGFixture(t *testing.T) *botGamesPGFixture {
 	// The reused browser fixture predates the current games row lock / maintenance guard.
 	f.exec(t, `GRANT EXECUTE ON FUNCTION ops.lock_write_scopes(text[]),ops.is_maintenance_scope_active(text) TO `+pgx.Identifier{f.connection.RuntimeRole}.Sanitize())
 	f.exec(t, `GRANT UPDATE(status) ON games.game_config_versions TO `+pgx.Identifier{f.connection.RuntimeRole}.Sanitize())
-	observer, e := platform.OpenNativeQuota(context.Background(), f.connection.OwnerURL)
-	botGamesPGCheck(t, e, "synthetic quota observer")
-	t.Cleanup(observer.Close)
-	f.engine, e = games.NewServiceWithEconomy(runtime, games.Keyring{Active: "bot-fixture-v1", Keys: map[string][32]byte{"bot-fixture-v1": {9}}}, observer)
+	f.engine, e = games.NewService(runtime, games.Keyring{Active: "bot-fixture-v1", Keys: map[string][32]byte{"bot-fixture-v1": {9}}})
 	botGamesPGCheck(t, e, "engine")
 	f.service, e = botgames.NewService(f.engine, botGamesResolver{platform: runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
 	botGamesPGCheck(t, e, "bot service")

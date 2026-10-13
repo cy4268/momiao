@@ -220,10 +220,12 @@ POST `/platform/v1/ops/announcements` 直接接受 `announcement_id`、`action` 
 
 ### 本地经济与奖励运营
 
-- `/ops/economy`、`/ops/rewards` 由本地 Redis 会话与角色（role >= 10）保护，不读取旧 Ops bootstrap。账变默认全局，支持账户、资产、业务类型与游标分页；账户钱包区展示 Reserve 和可用筹码，不把钱包余额当作含游戏在途资金的统一资产。
-- Reserve 调账复用 `/ops/users/:id` 的原入口、幂等业务号及审计，不保留第二套单位数/版本/预览/执行表单。旧额度划转保留只读凭据，删掉恢复旧 native 转账的操作。
+- `/ops/economy`、`/ops/rewards` 由本地 Redis 会话与角色（role >= 10）保护，不读取旧 Ops bootstrap。账变默认全局，支持账户、资产、业务类型与游标分页；账户区展示六项本地统一资产：Reserve、可用筹码、Poker 桌面、Poker 底池、单人游戏在途、轮盘托管，以及合计与观察时间；总览仍仅统计两类钱包余额。
+- Reserve 调账复用 `/ops/users/:id` 的原入口；筹码调账提交 `POST /api/v1/ops/users/:id/chips`（amount、note、request_id），复用同一 writer、业务号、角色层级与审计，只改可用筹码。负数保存前浏览器确认，保存后读取失败仅重查，不重放写入；不保留单位数/版本/预览/执行表单。旧额度划转保留只读凭据，删掉恢复旧 native 转账的操作。
 - `POST /api/v1/ops/rewards/claims/:id/retry` 仅将原注册奖励任务重新排队；保留已有领取与发放幂等逻辑。管理员角色、claim/job 行锁、更新与 `ops.audit_log` 在一个事务中；已完成的任务或领取拒绝重试。页面收到排队成功后，列表读取失败不自动重放 POST。实际发放金额读 registration_issuances（包括上限裁减为零）。
-- 赌怪一次性活动暂保留原组件与行为，独立放在 `/ops/gambler-campaign`，经济页有链接；该旧入口仍待随剩余运营模块迁移，不是新的资产重置操作，部署时不自动触发活动。
+- 统一资产/救济/奖励与游戏收益上限读取同库六项资产，不观察 Native 额度或旧跨库在途；兑换复用本地双钱包事务，Reserve 不足直接拒绝，旧 API→筹码回执只读。发布前应用 `0064_local_relief_assets.sql`：只放宽旧 relief_claims.native_observed_at 的 NOT NULL，新领取写 NULL、旧额度字段写 0，历史行原样保留，无新增 grant。应先处理完历史 Native 划转/兑换在途并按迁移计划完成额度合并；源码回退保留该兼容性 schema 变更。
+- 删除独立 Poker 的反向 Native 经济 RPC 和 `MOMIAO_ECONOMY_READ_SOCKET`；继续保留原平台→Poker 签名命令/票据及同库资产投影函数，游戏/Poker/轮盘算法和资金锁不变。当前 Native 启动、划转/refill 与旧 worker 的其余引用尚未清理，此批不代表整体已脱离 Native。
+- 赌怪一次性活动暂保留原运营框架，资产读取已改本地，独立放在 `/ops/gambler-campaign`，经济页有链接；该旧入口仍待随剩余运营模块迁移，不是新的资产重置操作，部署时不自动触发活动。
 
 ### Poker 运营直接操作
 

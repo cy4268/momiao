@@ -151,7 +151,7 @@ func (s *Service) prepareHand(user int64, key string) tableMutation {
 		}
 		if policy.Version != "" {
 			for _, u := range users {
-				if _, err = platform.ReadUnifiedAssetsInTx(ctx, tx, s.opts.EconomyObserver, u); err != nil {
+				if _, err = platform.ReadUnifiedAssetsInTx(ctx, tx, u); err != nil {
 					return Receipt{}, err
 				}
 			}

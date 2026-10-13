@@ -21,8 +21,6 @@ type config struct {
  pokerOps PokerOpsPort
 	Discord identity.Discord
 	BotGames botGamesConfig
- EconomyReadSocket string
- economicObserver platform.NativeQuotaObserver
 	RecoveryLock              bool
 	RecoveryAuthProbes        bool
 	ProcessRole               string

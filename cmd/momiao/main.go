@@ -102,6 +102,10 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		if err != nil { return errCatalogAssetConfig }
 		cfg.relay = store
 		cfg.rpUsage = store
+		unifiedAssets = platform.NewUnifiedAssetReader(store)
+		rankingAssets = unifiedAssets
+		cfg.economy, err = platform.NewEconomyService(store, unifiedAssets)
+		if err != nil { return err }
 		announcementCtx, stopAnnouncements := context.WithCancel(ctx)
 		announcementsDone := make(chan struct{})
 		go func() { defer close(announcementsDone); runAnnouncementWorker(announcementCtx, store) }()
@@ -124,13 +128,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 				return errors.New("native quota port startup failed")
 			}
 			cfg.nativeQuota = native
-            cfg.economicObserver=native
-            if err=store.ConfigureEconomicObserver(native);err!=nil{return errors.New("economy observer startup failed")}
-			unifiedAssets, err = platform.NewUnifiedAssetReader(store, native)
-			if err != nil { return errors.New("asset reader startup failed") }
-			rankingAssets = unifiedAssets
-			cfg.economy, err = platform.NewEconomyService(store, unifiedAssets)
-			if err != nil { return errors.New("economy startup failed") }
+
 			if cfg.RefillPolicy.Enabled {
 				refillKey, err := readPokerReaderKey(cfg.RefillKeyFile)
 				if err != nil { return errors.New("refill startup failed") }
@@ -171,14 +169,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			}
 			defer native.Close()
 			cfg.nativeQuota = native
-            cfg.economicObserver=native
-            if err=store.ConfigureEconomicObserver(native);err!=nil{return errors.New("economy observer startup failed")}
 
-            unifiedAssets,err=platform.NewUnifiedAssetReader(store,native)
-            if err!=nil{return errors.New("asset reader startup failed")}
-            rankingAssets=unifiedAssets
-            cfg.economy,err=platform.NewEconomyService(store,unifiedAssets)
-            if err!=nil{return errors.New("economy startup failed")}
 			workerCtx, cancel := context.WithCancel(ctx)
 			done := make(chan struct{})
 			go func() { defer close(done); runQuotaWorker(workerCtx, store, native) }()
@@ -189,11 +180,11 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			if err != nil {
 				return errors.New("game fairness startup failed")
 			}
-			cfg.games, err = games.NewServiceWithEconomy(store, keyring,cfg.economicObserver)
+			cfg.games, err = games.NewService(store, keyring)
 			if err != nil {
 				return errors.New("game fairness startup failed")
 			}
-			cfg.roulette, err = roulette.NewServiceWithEconomy(store, roulette.Keyring{Active:keyring.Active, Keys:keyring.Keys},cfg.economicObserver)
+			cfg.roulette, err = roulette.NewService(store, roulette.Keyring{Active:keyring.Active, Keys:keyring.Keys})
 			if err != nil { return errors.New("roulette startup failed") }
 			rouletteCtx, stopRoulette := context.WithCancel(ctx)
 			rouletteDone := make(chan struct{})
@@ -237,16 +228,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			go func() { defer close(done); runAdmissionWorker(workerCtx, store) }()
 			defer func() { cancel(); <-done }()
 		}
-
-        if cfg.EconomyReadSocket!="" {
-            if cfg.economicObserver==nil{return errPokerStartup}
-            keys,err:=readPokerPublicKeys(cfg.PokerPeerKeyringFile);if err!=nil{return errPokerStartup}
-            listener,err:=openListener(config{ListenSocket:cfg.EconomyReadSocket});if err!=nil{return errPokerStartup}
-            readCtx,stopRead:=context.WithCancel(ctx);readDone:=make(chan struct{})
-            server:=&http.Server{Handler:newEconomyQuotaReadHandler(cfg.economicObserver,keys),ReadHeaderTimeout:time.Second,ReadTimeout:2*time.Second,WriteTimeout:2*time.Second,IdleTimeout:10*time.Second,MaxHeaderBytes:8192}
-            go func(){defer close(readDone);if err:=serve(readCtx,server,listener,cfg.ShutdownTimeout);err!=nil{cancelRun(errors.New("economy read listener failed"))}}()
-            defer func(){stopRead();<-readDone;_=listener.Close()}()
-        }
 		cfg.rankings = rankings.NewService(store, rankings.Options{
 			Assets: rankingAssets,
 			ActivationTime: cfg.RankingActivationTime, SourceInstanceID: cfg.AttributionSourceInstanceID,

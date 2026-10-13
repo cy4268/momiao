@@ -13,7 +13,7 @@ func (s *Service) observeEconomy(ctx context.Context, tx pgx.Tx, p platform.Econ
 	if stake > p.SinglePlayerMaxUnits {
 		return platform.UnifiedAssets{}, ErrInvalidInput
 	}
-	return platform.ReadUnifiedAssetsInTx(ctx, tx, s.observer, user)
+	return platform.ReadUnifiedAssetsInTx(ctx, tx, user)
 }
 func capRound(ctx context.Context, tx pgx.Tx, p platform.EconomicPolicy, assets platform.UnifiedAssets, user int64, r *GameRound) error {
 	if p.Version == "" {

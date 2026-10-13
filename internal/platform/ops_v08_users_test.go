@@ -381,3 +381,154 @@ func TestLocalOpsMasterModeration(t *testing.T) {
 	}
 	t.Log("local role10: require/clear and normalized force rename; same-value saves; regular/peer/reserved/duplicate denied; 5 atomic audits, 0 legacy operations; user cooldown unchanged; all rows rolled back")
 }
+
+func TestLocalAssetsAndChips(t *testing.T) {
+	path := os.Getenv("MOMIAO_SESSION_DSN_FILE")
+	if path == "" {
+		t.Skip("requires existing isolated dev database")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("read dev DSN")
+	}
+	s, err := Open(t.Context(), strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal("open dev database")
+	}
+	defer s.Close()
+	ctx := t.Context()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	var admin, user int64
+	if err = tx.QueryRow(ctx, `SELECT min(id) FROM identity.users WHERE role>=10 AND status=1 AND deleted_at IS NULL`).Scan(&admin); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT u.id FROM identity.users u JOIN economy.wallet_balances w ON w.newapi_user_id=u.id AND w.asset_type='RESERVE_API_CREDIT' AND w.balance_units>2 CROSS JOIN LATERAL economy.unified_poker_assets_read(u.id) p CROSS JOIN LATERAL economy.cap_local_assets_read(u.id) g WHERE u.role=1 AND u.status=1 AND u.deleted_at IS NULL AND p.healthy AND g.healthy AND p.stack_units+p.pot_units+g.single_player_units+g.roulette_units=0 AND NOT EXISTS(SELECT 1 FROM rewards.relief_claims r WHERE r.newapi_user_id=u.id AND r.cooldown_until>clock_timestamp()) ORDER BY u.id DESC LIMIT 1`).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	before, err := ReadUnifiedAssetsInTx(ctx, tx, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.TotalUnits != before.ReserveUnits+before.AvailableChipsUnits+before.PokerStackUnits+before.PokerPotUnits+before.SinglePlayerInFlightUnits+before.RouletteEscrowUnits || before.TotalAmount != FormatAmount(before.TotalUnits) {
+		t.Fatal("local six-bucket total", before)
+	}
+	wire, _ := json.Marshal(before)
+	if strings.Contains(string(wire), "active_quota") || strings.Contains(string(wire), "native_observed") || strings.Contains(string(wire), "quota_transfer") {
+		t.Fatal("native fields", string(wire))
+	}
+	var audits, ledger int
+	if err = tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM ops.audit_log),(SELECT count(*) FROM economy.wallet_ledger)`).Scan(&audits, &ledger); err != nil {
+		t.Fatal(err)
+	}
+	add := OpsUserChange{Amount: "0.000004", Note: "dev chip adjustment", RequestID: announcementID(t)}
+	if err = changeLocalOpsUser(ctx, tx, identity.Sessions{}, user, admin, "chips", add); !errors.Is(err, ErrOpsForbidden) {
+		t.Fatal("regular role", err)
+	}
+	for range 2 {
+		if err = changeLocalOpsUser(ctx, tx, identity.Sessions{}, admin, user, "chips", add); err != nil {
+			t.Fatal("chips and retry", err)
+		}
+	}
+	debit := OpsUserChange{Amount: "-0.000002", Note: "dev chip debit", RequestID: announcementID(t)}
+	if err = changeLocalOpsUser(ctx, tx, identity.Sessions{}, admin, user, "chips", debit); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := ReadUnifiedAssetsInTx(ctx, tx, user)
+	if err != nil || changed.AvailableChipsUnits != before.AvailableChipsUnits+1 || changed.ReserveUnits != before.ReserveUnits || changed.TotalUnits != before.TotalUnits+1 {
+		t.Fatal("chip-only delta", changed, err)
+	}
+	if err = changeLocalOpsUser(ctx, tx, identity.Sessions{}, admin, user, "chips", OpsUserChange{Amount: "-" + FormatAmount(changed.AvailableChipsUnits+1), Note: "reject overdraft", RequestID: announcementID(t)}); !errors.Is(err, ErrInsufficientBalance) {
+		t.Fatal("chip overdraft", err)
+	}
+	var count, good int
+	if err = tx.QueryRow(ctx, `SELECT count(*),count(*) FILTER(WHERE before_state->>'asset'='AVAILABLE_CHIPS' AND after_state->>'asset'='AVAILABLE_CHIPS') FROM ops.audit_log WHERE action='OPS_ADJUST' AND target=ANY($1)`, []string{add.RequestID, debit.RequestID}).Scan(&count, &good); err != nil || count != 2 || good != 2 {
+		t.Fatal("chip audit", count, good, err)
+	}
+	exchangeKey := announcementID(t)
+	exchanged, err := exchangeInTx(ctx, tx, user, exchangeKey, ReserveAPICredit, 1)
+	if err != nil || exchanged.Status != "CONFIRMED" {
+		t.Fatal("local exchange", err, exchanged.Status)
+	}
+	replay, err := exchangeInTx(ctx, tx, user, exchangeKey, ReserveAPICredit, 1)
+	if err != nil || replay.ID != exchanged.ID {
+		t.Fatal("exchange retry", err)
+	}
+	afterExchange, err := ReadUnifiedAssetsInTx(ctx, tx, user)
+	if err != nil || afterExchange.TotalUnits != changed.TotalUnits || afterExchange.ReserveUnits != changed.ReserveUnits-1 || afterExchange.AvailableChipsUnits != changed.AvailableChipsUnits+1 {
+		t.Fatal("exchange conservation", err)
+	}
+	if _, err = exchangeInTx(ctx, tx, user, announcementID(t), ReserveAPICredit, afterExchange.ReserveUnits+1); !errors.Is(err, ErrInsufficientBalance) {
+		t.Fatal("Reserve cannot borrow Native quota", err)
+	}
+	mutate := func(asset Asset, delta int64) {
+		t.Helper()
+		if delta == 0 {
+			return
+		}
+		id := announcementID(t)
+		if _, e := applyInTx(ctx, tx, Mutation{UserID: user, Asset: asset, DeltaUnits: delta, BizType: "OPS_ADJUST", BizID: id, EntryType: "OPS_ADJUST", IdempotencyKey: id}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	mutate(ReserveAPICredit, AssetCapUnits-1-afterExchange.TotalUnits)
+	policy, err := ActiveEconomicPolicyInTx(ctx, tx)
+	if err != nil || policy.Version == "" {
+		t.Fatal("active dev policy", err)
+	}
+	cap, err := PrepareCapSettlementInTx(ctx, tx, policy, user, 0, 5, 1)
+	if err != nil || cap.CreditedPayoutUnits != 1 || cap.WithheldUnits != 4 {
+		t.Fatal("local cap", cap, err)
+	}
+	id := announcementID(t)
+	reward, err := s.applyRewardInTx(ctx, tx, Mutation{UserID: user, Asset: ReserveAPICredit, DeltaUnits: 5, BizType: "LOCAL_ASSET_CHECK", BizID: id, EntryType: "REWARD", IdempotencyKey: id})
+	if err != nil || reward.DeltaUnits != 1 {
+		t.Fatal("local capped reward", reward.DeltaUnits, err)
+	}
+	capped, err := ReadUnifiedAssetsInTx(ctx, tx, user)
+	if err != nil || capped.TotalUnits != AssetCapUnits {
+		t.Fatal("asset cap", err, capped.TotalUnits)
+	}
+	mutate(ReserveAPICredit, -capped.ReserveUnits)
+	mutate(AvailableChips, -capped.AvailableChipsUnits)
+	service, err := NewEconomyService(s, NewUnifiedAssetReader(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reliefKey := announcementID(t)
+	relief, err := service.claimReliefRewardInTx(ctx, tx, user, reliefKey)
+	if err != nil {
+		t.Fatal("local relief", err)
+	}
+	replay, err = service.claimReliefRewardInTx(ctx, tx, user, reliefKey)
+	if err != nil || replay.ID != relief.ID {
+		t.Fatal("relief retry", err)
+	}
+	if _, err = service.claimReliefRewardInTx(ctx, tx, user, announcementID(t)); !errors.Is(err, ErrReliefCooldown) {
+		t.Fatal("relief cooldown", err)
+	}
+	var localClaim bool
+	if err = tx.QueryRow(ctx, `SELECT total_assets_units=0 AND active_quota_units=0 AND quota_transfer_in_flight_units=0 AND native_observed_at IS NULL AND amount_units=$2 FROM rewards.relief_claims WHERE transaction_id=$1`, relief.ID, ReliefRewardAmount).Scan(&localClaim); err != nil || !localClaim {
+		t.Fatal("local relief receipt", err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM ops.audit_log`).Scan(&count); err != nil || count != audits+2 {
+		t.Fatal("one audit per chip change", count, err)
+	}
+	if _, err = tx.Exec(ctx, `SET CONSTRAINTS ALL IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := NewUnifiedAssetReader(s).ReadUnifiedAssets(ctx, user)
+	if err != nil || restored.TotalUnits != before.TotalUnits || restored.ReserveUnits != before.ReserveUnits || restored.AvailableChipsUnits != before.AvailableChipsUnits {
+		t.Fatal("wallet rollback", err)
+	}
+	if err = s.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM ops.audit_log),(SELECT count(*) FROM economy.wallet_ledger)`).Scan(&count, &good); err != nil || count != audits || good != ledger {
+		t.Fatal("audit/ledger rollback", err)
+	}
+	t.Log("local six-bucket assets; chips +2/replay/-1, two audits; local exchange conserved; overdrafts rejected; capped reward 1 of 5; relief 300/replay/cooldown with NULL Native observation; all writes rolled back")
+}

@@ -37,7 +37,6 @@ var (
 
 type Store struct {
 	pool             *pgxpool.Pool
-	economicObserver NativeQuotaObserver
 }
 
 // OpenLazy validates connection configuration without requiring an available database.

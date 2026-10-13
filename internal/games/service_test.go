@@ -136,17 +136,7 @@ func newTestService(t *testing.T, store *platform.Store) *Service {
 	for i := range key {
 		key[i] = byte(i + 17)
 	}
-	raw, e := os.ReadFile(os.Getenv("MOMIAO_GAMES_TEST_CONNECTION_FILE"))
-	var conn struct{ OwnerURL string }
-	if e != nil || json.Unmarshal(raw, &conn) != nil {
-		t.Fatal("local connection")
-	}
-	observer, e := platform.OpenNativeQuota(context.Background(), conn.OwnerURL)
-	if e != nil {
-		t.Fatal(e)
-	}
-	t.Cleanup(observer.Close)
-	s, err := NewServiceWithEconomy(store, Keyring{Active: "fixture-v1", Keys: map[string][32]byte{"fixture-v1": key}}, observer)
+	s, err := NewService(store, Keyring{Active: "fixture-v1", Keys: map[string][32]byte{"fixture-v1": key}})
 	if err != nil {
 		t.Fatal(err)
 	}

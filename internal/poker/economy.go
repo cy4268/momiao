@@ -52,7 +52,7 @@ func (s *Service) settleHandCap(ctx context.Context, tx pgx.Tx, id, version stri
 	}
 	paid, gross := handContributions(state)
 	for i, player := range state.Players {
-		c, err := platform.PrepareCapSettlementInTx(ctx, tx, s.opts.EconomyObserver, policy, users[i], paid[player.SeatNo], gross[player.SeatNo], engine.UnitsPerChip)
+		c, err := platform.PrepareCapSettlementInTx(ctx, tx, policy, users[i], paid[player.SeatNo], gross[player.SeatNo], engine.UnitsPerChip)
 		if err != nil {
 			return nil, err
 		}

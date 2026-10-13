@@ -111,7 +111,7 @@ func newLocalOpsUsersHandler(store *platform.Store, auth *identity.HTTP) http.Ha
 				result, err = store.ListAPIKeys(ctx, id, int(page), int(size))
 			case action == "master" && r.Method == "GET":
 				result, err = store.LocalOpsMaster(ctx, id)
-			case action == "" && r.Method == "PUT" || r.Method == "POST" && (action == "logout" || action == "reset-2fa" || action == "reserve" || action == "disable-key" || action == "delete-key" || action == "master-rename-required" || action == "master-force-rename"):
+			case action == "" && r.Method == "PUT" || r.Method == "POST" && (action == "logout" || action == "reset-2fa" || action == "reserve" || action == "chips" || action == "disable-key" || action == "delete-key" || action == "master-rename-required" || action == "master-force-rename"):
 				var v platform.OpsUserChange
 				if json.NewDecoder(r.Body).Decode(&v) != nil {
 					walletError(w, 400, "OPS_INPUT_INVALID")
@@ -138,7 +138,7 @@ func newLocalOpsUsersHandler(store *platform.Store, auth *identity.HTTP) http.Ha
 			case errors.Is(err, platform.ErrOpsLastSuperAdmin):
 				writeJSONError(w, 409, "至少保留一位启用的最高管理员")
 			case errors.Is(err, platform.ErrInsufficientBalance):
-				writeJSONError(w, 409, "Reserve 余额不足")
+				writeJSONError(w, 409, "钱包余额不足")
 			case errors.Is(err, platform.ErrBalanceOverflow):
 				writeJSONError(w, 400, "金额超出上限")
 			case errors.Is(err, platform.ErrIdempotencyConflict):

@@ -10,31 +10,24 @@ import (
 )
 
 type UnifiedAssets struct {
-	UserID                     int64     `json:"user_id,string"`
-	ActiveQuotaUnits           int64     `json:"active_quota_units,string"`
-	ReserveUnits               int64     `json:"reserve_units,string"`
-	AvailableChipsUnits        int64     `json:"available_chips_units,string"`
-	PokerStackUnits            int64     `json:"poker_stack_units,string"`
-	PokerPotUnits              int64     `json:"poker_pot_units,string"`
-	QuotaTransferInFlightUnits int64     `json:"quota_transfer_in_flight_units,string"`
-	SinglePlayerInFlightUnits  int64     `json:"single_player_in_flight_units,string"`
-	RouletteEscrowUnits        int64     `json:"roulette_escrow_units,string"`
-	TotalUnits                 int64     `json:"total_units,string"`
-	TotalAmount                string    `json:"total_amount"`
-	ObservedAt                 time.Time `json:"observed_at"`
-	NativeObservedAt           time.Time `json:"native_observed_at"`
+	UserID                    int64     `json:"user_id,string"`
+	ReserveUnits              int64     `json:"reserve_units,string"`
+	AvailableChipsUnits       int64     `json:"available_chips_units,string"`
+	PokerStackUnits           int64     `json:"poker_stack_units,string"`
+	PokerPotUnits             int64     `json:"poker_pot_units,string"`
+	SinglePlayerInFlightUnits int64     `json:"single_player_in_flight_units,string"`
+	RouletteEscrowUnits       int64     `json:"roulette_escrow_units,string"`
+	TotalUnits                int64     `json:"total_units,string"`
+	TotalAmount               string    `json:"total_amount"`
+	ObservedAt                time.Time `json:"observed_at"`
 }
 
 type UnifiedAssetReader struct {
-	store  *Store
-	native NativeQuotaObserver
+	store *Store
 }
 
-func NewUnifiedAssetReader(store *Store, native NativeQuotaObserver) (*UnifiedAssetReader, error) {
-	if store == nil || native == nil {
-		return nil, ErrInvalidMutation
-	}
-	return &UnifiedAssetReader{store: store, native: native}, nil
+func NewUnifiedAssetReader(store *Store) *UnifiedAssetReader {
+	return &UnifiedAssetReader{store: store}
 }
 
 func checkedAssetAdd(total *int64, value int64) error {
@@ -45,21 +38,15 @@ func checkedAssetAdd(total *int64, value int64) error {
 	return nil
 }
 
-// ReadUnifiedAssets serializes with every Platform Reserve-to-Active transfer.
-// A definitely absent Native effect is counted once as in-flight; an applied
-// effect is already in Active and is not counted again. Poker and wallet values
-// come from one repeatable-read snapshot. The runtime only executes a narrow
-// aggregate function and has no direct Poker table read privilege.
+// ReadUnifiedAssets reads the six local balances in one repeatable-read snapshot.
+// Existing wallet locks also serialize game funding and reward eligibility.
 func (reader *UnifiedAssetReader) ReadUnifiedAssets(ctx context.Context, user int64) (UnifiedAssets, error) {
-	if reader == nil || reader.store == nil || reader.native == nil || !validateQuotaUser(user) {
-		return UnifiedAssets{UserID: user}, ErrInvalidMutation
-	}
 	tx, err := reader.store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return UnifiedAssets{UserID: user}, err
 	}
 	defer rollback(tx)
-	result, err := reader.readUnifiedAssetsInTx(ctx, tx, user)
+	result, err := ReadUnifiedAssetsInTx(ctx, tx, user)
 	if err != nil {
 		return result, err
 	}
@@ -69,20 +56,11 @@ func (reader *UnifiedAssetReader) ReadUnifiedAssets(ctx context.Context, user in
 	return result, nil
 }
 
-// readUnifiedAssetsInTx lets eligibility checks and their local wallet effect
-// share one transaction. Callers must use READ COMMITTED when they also call
-// RequireNoMaintenance; the wallet row locks are the shared Poker funding
-// fence, while the Poker function returns stack and pot in one SQL snapshot.
-func (reader *UnifiedAssetReader) readUnifiedAssetsInTx(ctx context.Context, tx pgx.Tx, user int64) (UnifiedAssets, error) {
-	return ReadUnifiedAssetsInTx(ctx, tx, reader.native, user)
-}
-
-func ReadUnifiedAssetsInTx(ctx context.Context, tx pgx.Tx, native NativeQuotaObserver, user int64) (UnifiedAssets, error) {
+// Write callers use READ COMMITTED when also checking maintenance; wallet locks
+// serialize funding, and each game projection uses a single SQL snapshot.
+func ReadUnifiedAssetsInTx(ctx context.Context, tx pgx.Tx, user int64) (UnifiedAssets, error) {
 	result := UnifiedAssets{UserID: user}
 	var err error
-	if native == nil || tx == nil || !validateQuotaUser(user) {
-		return result, ErrInvalidMutation
-	}
 	if err = lockIdentity(ctx, tx, "quota-transfer-user", user); err != nil {
 		return result, err
 	}
@@ -122,94 +100,20 @@ func ReadUnifiedAssetsInTx(ctx context.Context, tx pgx.Tx, native NativeQuotaObs
 		return result, err
 	}
 	if !pokerHealthy {
-		return result, ErrNativeQuotaDependency
-	}
-	type transfer struct {
-		id     string
-		amount int64
-	}
-	transfers := []transfer{}
-	transferRows, err := tx.Query(ctx, `SELECT transfer_id::text,amount_units FROM economy.cap_pending_transfers_read($1)`, user)
-	if err != nil {
-		return result, err
-	}
-	for transferRows.Next() {
-		var item transfer
-		if err = transferRows.Scan(&item.id, &item.amount); err != nil {
-			transferRows.Close()
-			return result, err
-		}
-		transfers = append(transfers, item)
-	}
-	err = transferRows.Err()
-	transferRows.Close()
-	if err != nil {
-		return result, err
-	}
-	for _, item := range transfers {
-		receipt, err := native.QueryQuotaOperation(ctx, item.id, user)
-		if err != nil {
-			return result, err
-		}
-		if receipt.ID != item.id || receipt.UserID != user {
-			return result, ErrNativeQuotaDependency
-		}
-		switch receipt.Result {
-		case "APPLIED":
-			if receipt.DeltaRawQuota != item.amount || receipt.Before == nil || receipt.After == nil || *receipt.Before < 0 || *receipt.After < *receipt.Before || *receipt.After-*receipt.Before != item.amount {
-				return result, ErrNativeQuotaDependency
-			}
-			// Active contains the effect; adding a processing bucket would double count it.
-		case "NOT_APPLIED", "INSUFFICIENT", "ACCOUNT_RESTRICTED":
-			if receipt.Result == "NOT_APPLIED" {
-				if receipt.DeltaRawQuota != 0 || receipt.Before != nil || receipt.After != nil {
-					return result, ErrNativeQuotaDependency
-				}
-			} else if receipt.DeltaRawQuota != item.amount || (receipt.Before == nil) != (receipt.After == nil) || (receipt.Before != nil && *receipt.Before != *receipt.After) {
-				return result, ErrNativeQuotaDependency
-			}
-			if err = checkedAssetAdd(&result.QuotaTransferInFlightUnits, item.amount); err != nil {
-				return result, err
-			}
-		case "UNKNOWN", "SOURCE_INCOMPATIBLE":
-			// The Native effect may already exist but cannot be certified. Returning
-			// a total would risk counting it both in Active and in-flight.
-			return result, ErrNativeQuotaDependency
-		default:
-			return result, ErrNativeQuotaDependency
-		}
-	}
-	exchangeUnits, err := apiChipsInFlight(ctx, tx, native, user)
-	if err != nil {
-		return result, err
-	}
-	if err = checkedAssetAdd(&result.QuotaTransferInFlightUnits, exchangeUnits); err != nil {
-		return result, err
+		return result, ErrEconomicPolicy
 	}
 	var localHealthy bool
 	if err = tx.QueryRow(ctx, `SELECT single_player_units,roulette_units,healthy FROM economy.cap_local_assets_read($1)`, user).Scan(&result.SinglePlayerInFlightUnits, &result.RouletteEscrowUnits, &localHealthy); err != nil {
 		return result, err
 	}
 	if !localHealthy {
-		return result, ErrNativeQuotaDependency
+		return result, ErrEconomicPolicy
 	}
-	snapshot, err := native.ReadNativeQuota(ctx, user)
-	if err != nil || snapshot.UserID != user || !snapshot.Enabled || snapshot.Result != "APPLIED" || snapshot.RawQuota < 0 || snapshot.ObservedAt.IsZero() {
-		if err != nil {
-			return result, err
-		}
-		return result, ErrNativeQuotaDependency
-	}
-	result.ActiveQuotaUnits = snapshot.RawQuota
-	result.NativeObservedAt = snapshot.ObservedAt.UTC()
 	if err = tx.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&result.ObservedAt); err != nil {
 		return result, err
 	}
 	result.ObservedAt = result.ObservedAt.UTC()
-	if result.NativeObservedAt.Before(result.ObservedAt) {
-		result.ObservedAt = result.NativeObservedAt
-	}
-	for _, value := range []int64{result.ActiveQuotaUnits, result.ReserveUnits, result.AvailableChipsUnits, result.PokerStackUnits, result.PokerPotUnits, result.QuotaTransferInFlightUnits, result.SinglePlayerInFlightUnits, result.RouletteEscrowUnits} {
+	for _, value := range []int64{result.ReserveUnits, result.AvailableChipsUnits, result.PokerStackUnits, result.PokerPotUnits, result.SinglePlayerInFlightUnits, result.RouletteEscrowUnits} {
 		if err = checkedAssetAdd(&result.TotalUnits, value); err != nil {
 			return result, err
 		}

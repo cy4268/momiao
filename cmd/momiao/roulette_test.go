@@ -204,7 +204,7 @@ func TestRouletteEscrowReplayLifecycle(t *testing.T) {
 			return e
 		})
 	})
-	capped, e := roulette.NewServiceWithEconomy(runtime, keys, &quotaFixture{})
+	capped, e := roulette.NewService(runtime, keys)
 	if e != nil {
 		t.Fatal(e)
 	}

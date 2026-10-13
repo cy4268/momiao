@@ -76,6 +76,8 @@ Discord 配置使用 `MOMIAO_DISCORD_CONFIG_FILE` 指向私有 JSON，包含 `cl
 
 用户运营页的 Master 资料已接本地角色与直接保存：设置改名要求或强制改名，不改变登录显示名和用户改名冷却。复用已有 Master 表、昵称规则和审计，无新迁移或授权；旧 Master Ops 绑定已删除，整站仍待开发验收后发布。
 
+统一资产现只汇总本地 Reserve、可用筹码、Poker 桌面/底池、单人游戏在途和轮盘托管，救济与收益上限复用这套读取；本地兑换仅在 Reserve 与筹码间转移，不再向 Native 额度借支。经济运营页显示六项资产并直接调整可用筹码，复用原用户调账与审计。发布前应用 0064（新救济记录的历史 Native 时间戳允许为空），独立 Poker 无须 `MOMIAO_ECONOMY_READ_SOCKET`。赌怪旧运营和剩余 Native 启动依赖仍待清理，本批未发布网站。
+
 操作日志 `/ops/audit` 使用本地管理员权限，统一显示直接保存日志与保留的历史审计，支持分页、时间、操作人和对象筛选；详情在弹窗查看。发布前应用 0051 和 `deploy/sql/runtime-grants-0051-ops-audit.psql`。`/ops/operations` 列表入口合并到此页；旧写流程所需的单条回执暂随未迁移页面保留。
 
 API Key 管理已使用本地登录及 `relay.api_keys`，保留 `/api/token/` 的列表、创建、修改、查看与删除接口。用途随创建一起保存，修改用途不再经过 native 同步。发布前应用 0052 和 `deploy/sql/runtime-grants-0052-local-api-keys.psql`，再用 `momiao-import-native -stage keys` 单次导入未删除的旧 key；已导入的身份和余额不动。此阶段尚未接通本地模型中转与 Reserve 计费，须联合完成后发布。

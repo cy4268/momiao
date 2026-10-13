@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -13,8 +11,6 @@ import (
 	"github.com/cy4268/momiao/internal/rankings"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,90 +22,7 @@ import (
 // The one campaign regression grows with the snapshot/reset implementation;
 // reuse the existing quota fixture and real-PG harness, not a second framework.
 func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	keys := pokerTicketKeys{active: "economy-read-test", private: priv, public: map[string]ed25519.PublicKey{"economy-read-test": pub}}
-	f := &quotaFixture{}
-	h := newEconomyQuotaReadHandler(f, keys.public)
-	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		return w.Result(), nil
-	})
-	observer, err := newEconomyQuotaObserver(transport, keys)
-	if err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := observer.ReadNativeQuota(context.Background(), 701)
-	if err != nil || snapshot.UserID != 701 || snapshot.ObservedAt.IsZero() {
-		t.Fatal(snapshot, err)
-	}
-	id := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-	receipt, err := observer.QueryQuotaOperation(context.Background(), id, 701)
-	if err != nil || receipt.ID != id || receipt.UserID != 701 || receipt.Result != "NOT_APPLIED" {
-		t.Fatal(receipt, err)
-	}
-	for _, mode := range []string{"unsigned", "direction", "body", "path", "peer", "apply", "query", "cookie", "authorization"} {
-		path := "/internal/v1/economy/quota/read"
-		if mode == "apply" {
-			path = "/internal/v1/economy/quota/apply"
-		}
-		if mode == "query" {
-			path += "?user_id=702"
-		}
-		body := []byte(`{"user_id":"701"}`)
-		r := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
-		r.Header.Set("Content-Type", "application/json")
-		if mode == "direction" {
-			err = signPokerRequest(r, body, keys)
-		} else if mode != "unsigned" {
-			err = signServiceRequest(r, body, keys, "poker", "platform")
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		if mode == "path" {
-			r.URL.Path = "/internal/v1/economy/quota/query"
-		}
-		if mode == "peer" {
-			_, other, e := ed25519.GenerateKey(rand.Reader)
-			if e != nil {
-				t.Fatal(e)
-			}
-			bad := keys
-			bad.private = other
-			if e = signServiceRequest(r, body, bad, "poker", "platform"); e != nil {
-				t.Fatal(e)
-			}
-		}
-		if mode == "body" {
-			r.Body = http.NoBody
-		}
-		if mode == "cookie" {
-			r.Header.Set("Cookie", "session=synthetic")
-		}
-		if mode == "authorization" {
-			r.Header.Set("Authorization", "Bearer synthetic")
-		}
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		if w.Code < 400 {
-			t.Fatalf("%s accepted: %d", mode, w.Code)
-		}
-	}
-	forward := httptest.NewRequest(http.MethodPost, "/internal/v1/poker/ready", http.NoBody)
-	if signPokerRequest(forward, nil, keys) != nil || verifyPokerRequest(forward, nil, keys.public) != nil {
-		t.Fatal("existing forward assertion changed")
-	}
-	if verifyServiceRequest(forward, nil, keys.public, "poker", "platform") == nil {
-		t.Fatal("forward signer accepted on reverse port")
-	}
-	if f.calls != 0 {
-		t.Fatal("read RPC performed quota mutation")
-	}
-	// One real local lifecycle, with the original read-only RPC checks above.
+	var err error
 	owner, runtime := gameBrowserStores(t)
 	ctx := context.Background()
 	for _, u := range []int64{701, 702, 703} {
@@ -148,7 +61,7 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	}
 	defer authPool.Close()
 	pokerRole := connection.RuntimeRole + "_poker"
-	pokerPassword := fmt.Sprintf("%x", priv[:24])
+	pokerPassword := rand.Text()
 	if err = owner.WithTx(ctx, func(tx pgx.Tx) error {
 		_, e := tx.Exec(ctx, "CREATE ROLE "+pgx.Identifier{pokerRole}.Sanitize()+" LOGIN PASSWORD '"+pokerPassword+"' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; GRANT USAGE ON SCHEMA economy TO "+pgx.Identifier{pokerRole}.Sanitize()+"; GRANT SELECT ON economy.policy_versions,economy.policy_runtime TO "+pgx.Identifier{pokerRole}.Sanitize()+"; GRANT SELECT,INSERT ON economy.cap_settlements TO "+pgx.Identifier{pokerRole}.Sanitize()+"; GRANT EXECUTE ON FUNCTION economy.poker_buy_in_apply(uuid,bigint,uuid),economy.poker_top_up_apply(uuid,bigint,uuid),economy.poker_cash_out_apply(uuid,bigint,uuid) TO "+pgx.Identifier{pokerRole}.Sanitize()+";", pgx.QueryExecModeSimpleProtocol)
 		return e
@@ -200,8 +113,8 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	}
 	defer native.Close()
 	for _, m := range []platform.Mutation{
-		{UserID: 701, Asset: platform.ReserveAPICredit, DeltaUnits: 500000000000000 - 17, BizType: "CAMPAIGN_TEST", BizID: "threshold", EntryType: "GRANT", IdempotencyKey: "campaign-threshold"},
-		{UserID: 702, Asset: platform.AvailableChips, DeltaUnits: 500000000000001 - 19, BizType: "CAMPAIGN_TEST", BizID: "eligible", EntryType: "GRANT", IdempotencyKey: "campaign-eligible"},
+		{UserID: 701, Asset: platform.ReserveAPICredit, DeltaUnits: 500000000000000, BizType: "CAMPAIGN_TEST", BizID: "threshold", EntryType: "GRANT", IdempotencyKey: "campaign-threshold"},
+		{UserID: 702, Asset: platform.AvailableChips, DeltaUnits: 500000000000001, BizType: "CAMPAIGN_TEST", BizID: "eligible", EntryType: "GRANT", IdempotencyKey: "campaign-eligible"},
 	} {
 		if _, err = owner.Apply(ctx, m); err != nil {
 			t.Fatal(err)
@@ -236,21 +149,7 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	nativeReads := 0
-	nativeReadHandler := newEconomyQuotaReadHandler(native, keys.public)
-	counted, err := newEconomyQuotaObserver(roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		nativeReads++
-		w := httptest.NewRecorder()
-		nativeReadHandler.ServeHTTP(w, r)
-		return w.Result(), nil
-	}), keys)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assets, err := platform.NewUnifiedAssetReader(runtime, counted)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assets := platform.NewUnifiedAssetReader(runtime)
 	campaign, err := platform.NewGamblerCampaignService(runtime, assets)
 	if err != nil {
 		t.Fatal(err)
@@ -315,11 +214,7 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	}
 	perform("GAMBLER_SNAPSHOT_PREPARE", "GAMBLER_CAMPAIGN", cid, "1", "gambler.v1", input)
 	for i := 0; i < 20; i++ {
-		nativeReads = 0
 		more, err := campaign.RunBatch(ctx, cid, 1)
-		if nativeReads > 2 {
-			t.Fatalf("unbounded campaign batch: %d Native reads for limit 1", nativeReads)
-		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -346,11 +241,7 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 	v, _ = campaign.Read(ctx, 701, cid)
 	perform("GAMBLER_RESET_PREPARE", "GAMBLER_CAMPAIGN", cid, v.Version, "gambler.v1", input)
 	for i := 0; i < 20; i++ {
-		nativeReads = 0
 		more, err := campaign.RunBatch(ctx, cid, 1)
-		if nativeReads > 2 {
-			t.Fatalf("unbounded campaign batch: %d Native reads for limit 1", nativeReads)
-		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -367,9 +258,9 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 			t.Fatalf("campaign timestamp must use UTC for Ops UI: %s", stamp.Format(time.RFC3339Nano))
 		}
 	}
-	// Real pending-transfer / Poker funding / unavailable Native blockers in
+	// Real pending-transfer / Poker funding blockers in
 	// rolled-back local transactions. The same typed handler refuses execution.
-	for _, mode := range []string{"quota", "poker", "native"} {
+	for _, mode := range []string{"quota", "poker"} {
 		sentinel := errors.New("local blocker rollback")
 		e := owner.WithTx(ctx, func(tx pgx.Tx) error {
 			switch mode {
@@ -384,20 +275,11 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 				if err == nil {
 					_, err = tx.Exec(ctx, `INSERT INTO poker.sessions(session_id,newapi_user_id,table_id,seat_no,display_name_snapshot,initial_buyin_units,current_stack_units) VALUES($1,701,$2,1,'Synthetic',500000,500000)`, sid, tid)
 				}
-			case "native":
-				// A read-only RPC observer with an unavailable Native source.
-				// No Native row is overwritten, even inside this transaction.
 			}
 			if err != nil {
 				return err
 			}
-			service := campaign
-			if mode == "native" {
-				badObserver, _ := newEconomyQuotaObserver(roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("source unavailable") }), keys)
-				unavailable, _ := platform.NewUnifiedAssetReader(owner, badObserver)
-				service, _ = platform.NewGamblerCampaignService(owner, unavailable)
-			}
-			for _, binding := range service.OpsBindings() {
+			for _, binding := range campaign.OpsBindings() {
 				if binding.Descriptor.OperationType != "GAMBLER_RESET_START" {
 					continue
 				}
@@ -439,13 +321,13 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 		t.Fatal(e)
 	}
 	summary := string(preparedSummary.Operation.Impact.Delta)
-	for _, value := range []string{`"affected_users":"3"`, `"reserve_increase_units":"10000000000"`, `"reserve_decrease_units":"499994999999983"`, `"chips_decrease_units":"499999999999982"`} {
+	for _, value := range []string{`"affected_users":"3"`, `"reserve_increase_units":"10000000000"`, `"reserve_decrease_units":"499995000000000"`, `"chips_decrease_units":"500000000000001"`} {
 		if !strings.Contains(summary, value) {
 			t.Fatalf("missing exact reset impact %s: %s", value, summary)
 		}
 	}
 	perform("GAMBLER_RESET_START", "GAMBLER_CAMPAIGN", cid, v.Version, "gambler.v1", `{}`)
-	nativeReads = 0
+
 	if more, err := campaign.RunBatch(ctx, cid, 1); err != nil || !more {
 		t.Fatal("first durable batch", more, err)
 	}
@@ -476,11 +358,7 @@ func TestGamblerCampaignSnapshotResetLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 20; i++ {
-		nativeReads = 0
 		more, err := campaign.RunBatch(ctx, cid, 1)
-		if nativeReads > 2 {
-			t.Fatalf("unbounded campaign batch: %d Native reads for limit 1", nativeReads)
-		}
 		if err != nil {
 			t.Fatal(err)
 		}

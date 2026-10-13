@@ -60,7 +60,7 @@ type OpsEconomyMigration struct {
 
 type OpsEconomyUser struct {
 	ObservedAt time.Time           `json:"observed_at"`
-	Wallets    []Wallet            `json:"wallets"`
+	Assets     *UnifiedAssets      `json:"assets"`
 	Migration  OpsEconomyMigration `json:"migration"`
 }
 
@@ -88,9 +88,12 @@ func (s *OpsEconomyService) User(ctx context.Context, actor, user int64) (OpsEco
 	if err != nil {
 		return result, err
 	}
-	result.Wallets, err = s.store.ReadWallets(ctx, user)
-	if err != nil {
+	assets, err := NewUnifiedAssetReader(s.store).ReadUnifiedAssets(ctx, user)
+	if err != nil && !errors.Is(err, ErrWalletNotFound) {
 		return result, err
+	}
+	if err == nil {
+		result.Assets = &assets
 	}
 	result.ObservedAt = time.Now().UTC()
 	result.Migration.AccountCreatedAt = result.Migration.AccountCreatedAt.UTC()

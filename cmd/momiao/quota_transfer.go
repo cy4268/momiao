@@ -153,10 +153,7 @@ func runQuotaWorker(ctx context.Context, store *platform.Store, native platform.
 		call, cancel := context.WithTimeout(ctx, 5*time.Second)
 		worked, err := store.ProcessQuotaTransfer(call, native)
 		cancel()
-		call, cancel = context.WithTimeout(ctx, 5*time.Second)
-		exchanged, exchangeErr := store.ProcessAPIChipsExchange(call, native)
-		cancel()
-		if (worked || exchanged) && err == nil && exchangeErr == nil {
+		if worked && err == nil {
 			continue
 		}
 		timer := time.NewTimer(2 * time.Second)

@@ -167,9 +167,6 @@ func TestEconomyIntegration(t *testing.T) {
 	}
 	// Daily and hourly grants share the same remaining asset capacity. Zero
 	// effects still consume the claim and replay across request keys.
-	if err := s.ConfigureEconomicObserver(&exchangeNative{}); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := s.pool.Exec(ctx, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`); err != nil {
 		t.Fatal(err)
 	}

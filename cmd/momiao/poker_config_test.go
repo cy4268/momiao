@@ -80,16 +80,8 @@ func TestPokerApplicationConfigRequiresCompleteExplicitAuthority(t *testing.T) {
 	}
 	process := config{ProcessRole: "poker", ListenSocket: filepath.Join(dir, "poker.sock"), NewAPISocket: base.NewAPISocket}
 	processValues := map[string]string{"MOMIAO_POKER_SERVICE_KEYRING_FILE": filepath.Join(dir, "service.json"), "MOMIAO_POKER_PEER_KEYRING_FILE": filepath.Join(dir, "peer.json")}
-	if loadPokerProcessConfig(&process, lookup(processValues)) == nil {
-		t.Fatal("missing reverse read authority accepted")
-	}
-	processValues["MOMIAO_ECONOMY_READ_SOCKET"] = filepath.Join(dir, "economy-read.sock")
-	if err := loadPokerProcessConfig(&process, lookup(processValues)); err != nil || process.EconomyReadSocket == "" {
-		t.Fatal("explicit readonly authority", err)
-	}
-	processValues["MOMIAO_ECONOMY_READ_SOCKET"] = process.ListenSocket
-	if loadPokerProcessConfig(&process, lookup(processValues)) == nil {
-		t.Fatal("self-loop socket accepted")
+	if err := loadPokerProcessConfig(&process, lookup(processValues)); err != nil {
+		t.Fatal("local assets need no reverse Native read socket", err)
 	}
 
 }

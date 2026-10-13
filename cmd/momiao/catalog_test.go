@@ -481,6 +481,24 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 		})
 
 		t.Run("economy", func(t *testing.T) {
+			assetPath := "/api/v1/ops/economy/user?newapi_user_id=" + strconv.FormatInt(regular, 10)
+			assetResponse := request(admin, "GET", assetPath, "", false)
+			if assetResponse.Code != 200 || !strings.Contains(assetResponse.Body.String(), `"assets":`) || !strings.Contains(assetResponse.Body.String(), `"single_player_in_flight_units":`) {
+				t.Fatal("local assets missing", assetResponse.Code)
+			}
+			if strings.Contains(assetResponse.Body.String(), `"active_quota_units":`) || strings.Contains(assetResponse.Body.String(), `"native_observed_at":`) {
+				t.Fatal("native assets remain")
+			}
+			chipPath := "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/chips"
+			if w := request(admin, "POST", chipPath, `{}`, false); w.Code != 403 {
+				t.Fatal("chips CSRF", w.Code)
+			}
+			if w := request(regular, "POST", chipPath, `{}`, true); w.Code != 403 {
+				t.Fatal("chips role", w.Code)
+			}
+			if w := request(admin, "POST", chipPath, `{}`, true); w.Code != 400 {
+				t.Fatal("chips input", w.Code, w.Body.String())
+			}
 			user := strconv.FormatInt(regular, 10)
 			for _, path := range []string{"/api/v1/ops/economy/overview", "/api/v1/ops/economy/user?newapi_user_id=" + user, "/api/v1/ops/economy/ledger?limit=2", "/api/v1/ops/economy/transfers?limit=2", "/api/v1/ops/rewards/policies", "/api/v1/ops/rewards/claims?limit=2"} {
 				w := request(admin, "GET", path, "", false)

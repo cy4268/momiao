@@ -242,13 +242,18 @@ func (s *Store) ClaimDaily(ctx context.Context, user int64, key string) (Transac
 }
 
 func (s *Store) Exchange(ctx context.Context, user int64, key string, from Asset, amount int64) (Transaction, error) {
-	return s.exchange(ctx, nil, user, key, from, amount)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Transaction{}, err
+	}
+	defer rollback(tx)
+	result, err := exchangeInTx(ctx, tx, user, key, from, amount)
+	if err != nil {
+		return result, err
+	}
+	return result, tx.Commit(ctx)
 }
-func (service *EconomyService) Exchange(ctx context.Context, user int64, key string, from Asset, amount int64) (Transaction, error) {
-	native, _ := service.assets.native.(NativeQuotaOperator)
-	return service.Store.exchange(ctx, native, user, key, from, amount)
-}
-func (s *Store) exchange(ctx context.Context, native NativeQuotaOperator, user int64, key string, from Asset, amount int64) (Transaction, error) {
+func exchangeInTx(ctx context.Context, tx pgx.Tx, user int64, key string, from Asset, amount int64) (Transaction, error) {
 	if user <= 0 || !ValidOperationKey(key) || !validAsset(from) || amount <= 0 {
 		return Transaction{}, ErrInvalidMutation
 	}
@@ -259,11 +264,7 @@ func (s *Store) exchange(ctx context.Context, native NativeQuotaOperator, user i
 	raw, _ := json.Marshal([]any{"wallet.exchange.v1", user, from, amount})
 	semantic := sha256.Sum256(raw)
 	hash := sha256.Sum256([]byte(key))
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return Transaction{}, err
-	}
-	defer rollback(tx)
+	var err error
 	if err = lockIdentity(ctx, tx, "exchange", user, key); err != nil {
 		return Transaction{}, err
 	}
@@ -275,7 +276,7 @@ func (s *Store) exchange(ctx context.Context, native NativeQuotaOperator, user i
 		if prior.FromAsset != from || prior.AmountUnits != amount {
 			return Transaction{}, ErrIdempotencyConflict
 		}
-		return *prior, tx.Commit(ctx)
+		return *prior, nil
 	}
 	if err = RequireNoMaintenance(ctx, tx, "CHALDEA_USER_WRITES", "WALLET_EXCHANGE"); err != nil {
 		return Transaction{}, err
@@ -306,13 +307,6 @@ func (s *Store) exchange(ctx context.Context, native NativeQuotaOperator, user i
 		return Transaction{}, ErrWalletNotFound
 	}
 	if wallets[from].BalanceUnits < amount {
-		if from == ReserveAPICredit && native != nil {
-			result, err := acceptAPIChipsExchange(ctx, tx, native, user, key, amount, wallets)
-			if err != nil {
-				return Transaction{}, err
-			}
-			return result, tx.Commit(ctx)
-		}
 		return Transaction{}, ErrInsufficientBalance
 	}
 	if wallets[to].BalanceUnits > math.MaxInt64-amount {
@@ -368,5 +362,5 @@ func (s *Store) exchange(ctx context.Context, native NativeQuotaOperator, user i
 	if err != nil {
 		return Transaction{}, err
 	}
-	return result, tx.Commit(ctx)
+	return result, nil
 }

@@ -66,7 +66,7 @@ func TestBotGamesConfig(t *testing.T) {
 			})
 		}
 	}
-	for _, bad := range []string{"role", "wallet", "fairness", "declaration", "self_collision", "listen", "newapi", "refill", "economy", "session", "poker", "fairness_collision", "wallet_collision", "catalog_credentials_collision"} {
+	for _, bad := range []string{"role", "wallet", "fairness", "declaration", "self_collision", "listen", "newapi", "refill", "session", "poker", "fairness_collision", "wallet_collision", "catalog_credentials_collision"} {
 		t.Run(bad, func(t *testing.T) {
 			c, m := botGamesTestConfig(t)
 			p := m["MOMIAO_BOT_GAMES_SOCKET"]
@@ -87,8 +87,6 @@ func TestBotGamesConfig(t *testing.T) {
 				c.NewAPISocket = p
 			case "refill":
 				c.RefillSocket = p
-			case "economy":
-				c.EconomyReadSocket = p
 			case "session":
 				c.Session.OpsSocket = p
 			case "poker":

@@ -59,8 +59,7 @@ type ReliefReward struct {
 	Accumulation            bool       `json:"accumulation"`
 }
 
-// EconomyService adds Relief eligibility to Store without making ordinary
-// wallet and Hourly operations depend on Native quota availability.
+// EconomyService adds Relief eligibility using the same local assets as game caps.
 type EconomyService struct {
 	*Store
 	assets *UnifiedAssetReader
@@ -269,6 +268,14 @@ func (service *EconomyService) ClaimReliefReward(ctx context.Context, user int64
 		return Transaction{}, err
 	}
 	defer rollback(tx)
+	result, err := service.claimReliefRewardInTx(ctx, tx, user, key)
+	if err != nil {
+		return result, err
+	}
+	return result, tx.Commit(ctx)
+}
+func (service *EconomyService) claimReliefRewardInTx(ctx context.Context, tx pgx.Tx, user int64, key string) (Transaction, error) {
+	var err error
 	if err = lockIdentity(ctx, tx, "relief-request", user, key); err != nil {
 		return Transaction{}, err
 	}
@@ -277,7 +284,7 @@ func (service *EconomyService) ClaimReliefReward(ctx context.Context, user int64
 		return Transaction{}, err
 	}
 	if prior != nil {
-		return *prior, tx.Commit(ctx)
+		return *prior, nil
 	}
 	if err = lockIdentity(ctx, tx, "relief-reward-user", user); err != nil {
 		return Transaction{}, err
@@ -306,7 +313,7 @@ func (service *EconomyService) ClaimReliefReward(ctx context.Context, user int64
 	if err = LockEconomyUsersInTx(ctx, tx, user); err != nil {
 		return Transaction{}, err
 	}
-	// readUnifiedAssetsInTx locks both wallets. Take applyInTx's global lock
+	// ReadUnifiedAssetsInTx locks both wallets. Take applyInTx's global lock
 	// prefix first so a reused idempotency key cannot invert the lock order.
 	if err = lockIdentity(ctx, tx, "business", "RELIEF_REWARD_V1", biz); err != nil {
 		return Transaction{}, err
@@ -315,7 +322,7 @@ func (service *EconomyService) ClaimReliefReward(ctx context.Context, user int64
 	if err = lockIdentity(ctx, tx, "idempotency", user, fmt.Sprintf("%x", keyHash)); err != nil {
 		return Transaction{}, err
 	}
-	assets, err := service.assets.readUnifiedAssetsInTx(ctx, tx, user)
+	assets, err := ReadUnifiedAssetsInTx(ctx, tx, user)
 	if err != nil {
 		return Transaction{}, err
 	}
@@ -333,10 +340,10 @@ func (service *EconomyService) ClaimReliefReward(ctx context.Context, user int64
 	_, err = tx.Exec(ctx, `INSERT INTO rewards.relief_claims(relief_claim_id,newapi_user_id,policy_version,total_assets_units,
 	 active_quota_units,reserve_units,available_chips_units,poker_stack_units,poker_pot_units,quota_transfer_in_flight_units,
 	 assets_observed_at,native_observed_at,amount_units,asset_type,transaction_id,claimed_at,cooldown_until,single_player_in_flight_units,roulette_escrow_units)
-	 VALUES($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'RESERVE_API_CREDIT',$13,$14::timestamptz,$14::timestamptz+interval '4 hours',$15,$16)`,
-		claimID, user, assets.TotalUnits, assets.ActiveQuotaUnits, assets.ReserveUnits, assets.AvailableChipsUnits,
-		assets.PokerStackUnits, assets.PokerPotUnits, assets.QuotaTransferInFlightUnits, assets.ObservedAt,
-		assets.NativeObservedAt, entry.DeltaUnits, entry.TransactionID, now, assets.SinglePlayerInFlightUnits, assets.RouletteEscrowUnits)
+	 VALUES($1,$2,1,$3,0,$4,$5,$6,$7,0,$8,NULL,$9,'RESERVE_API_CREDIT',$10,$11::timestamptz,$11::timestamptz+interval '4 hours',$12,$13)`,
+		claimID, user, assets.TotalUnits, assets.ReserveUnits, assets.AvailableChipsUnits,
+		assets.PokerStackUnits, assets.PokerPotUnits, assets.ObservedAt,
+		entry.DeltaUnits, entry.TransactionID, now, assets.SinglePlayerInFlightUnits, assets.RouletteEscrowUnits)
 	if err != nil {
 		return Transaction{}, err
 	}
@@ -344,5 +351,5 @@ func (service *EconomyService) ClaimReliefReward(ctx context.Context, user int64
 	if err != nil {
 		return Transaction{}, err
 	}
-	return result, tx.Commit(ctx)
+	return result, nil
 }

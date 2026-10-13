@@ -23,13 +23,9 @@ import (
 type Service struct {
 	store    *platform.Store
 	keys     Keyring
-	observer platform.NativeQuotaObserver
 }
 
 func NewService(store *platform.Store, keys Keyring) (*Service, error) {
-	return NewServiceWithEconomy(store, keys, nil)
-}
-func NewServiceWithEconomy(store *platform.Store, keys Keyring, observer platform.NativeQuotaObserver) (*Service, error) {
 	if store == nil || keys.Active == "" {
 		return nil, ErrUnavailable
 	}
@@ -40,7 +36,7 @@ func NewServiceWithEconomy(store *platform.Store, keys Keyring, observer platfor
 	for name, key := range keys.Keys {
 		k.Keys[name] = key
 	}
-	return &Service{store: store, keys: k, observer: observer}, nil
+	return &Service{store: store, keys: k}, nil
 }
 func uniqueError(e error) error {
 	var pg *pgconn.PgError
@@ -100,7 +96,7 @@ func (s *Service) create(ctx context.Context, user int64, in CreateRequest, expi
 			return e
 		}
 		if economic.Version != "" {
-			if _, e = platform.ReadUnifiedAssetsInTx(ctx, tx, s.observer, user); e != nil {
+			if _, e = platform.ReadUnifiedAssetsInTx(ctx, tx, user); e != nil {
 				return e
 			}
 		}
@@ -339,7 +335,7 @@ func (s *Service) waiting(ctx context.Context, tx pgx.Tx, r *round, players []pa
 			return platform.ErrBalanceOverflow
 		}
 		if r.Economy.Version != "" {
-			if _, e := platform.ReadUnifiedAssetsInTx(ctx, tx, s.observer, user); e != nil {
+			if _, e := platform.ReadUnifiedAssetsInTx(ctx, tx, user); e != nil {
 				return e
 			}
 		}

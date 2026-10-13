@@ -253,7 +253,7 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  let u={id:2,username:'member',display_name:'测试用户',discord_id:'123456789',group:'default',role:1,status:1,two_fa_enabled:true,reserve:'2',wallet_initialized:true,created_at:'2026-10-12T10:00:00Z',last_login_at:null};
  let keys=[{id:7,name:'user key',key:'abcd**********wxyz',status:1,purpose:'GENERAL'}];
  const writes:{path:string;body:Record<string,unknown>}[]=[],ledger:unknown[]=[];
- let adjustment='';let readsFail=false;let rewardReadsFail=false,requeues=0;
+ let adjustment='';let readsFail=false;let rewardReadsFail=false,requeues=0;let assetReadsFail=false,chips='1000000';
  let master={newapi_user_id:'2',display_name:'原昵称',profile_version:'1',rename_required:false,nickname_changed_at:null};let masterReadsFail=false;
  const rewardID='10000000-0000-4000-8000-000000000061';
  vi.spyOn(window,'confirm').mockReturnValue(true);
@@ -263,7 +263,7 @@ it('manages local users and filtered relay logs without legacy operations', asyn
   if(path.startsWith('/platform/v1/access-gate?'))return ok({stage:'READY',user_id:'1',route:new URLSearchParams(path.split('?')[1]).get('route')});
   if(path==='/api/v1/maintenance/notices')return ok({items:[]});
   if(path==='/api/v1/ops/economy/overview')return ok({observed_at:'2026-10-13T06:00:00Z',wallet_accounts:'44',reserve_units:'500000',available_chips_units:'0',transactions:'100'});
-  if(path.startsWith('/api/v1/ops/economy/user?'))return ok({observed_at:'2026-10-13T06:00:00Z',wallets:[{user_id:'2',asset:'RESERVE_API_CREDIT',balance_units:'500000'}],migration:{registration_status:'CONFIRMED'}});
+  if(path.startsWith('/api/v1/ops/economy/user?'))return assetReadsFail?failed():ok({observed_at:'2026-10-13T06:00:00Z',assets:{reserve_units:'500000',available_chips_units:chips,poker_stack_units:'1500000',poker_pot_units:'2000000',single_player_in_flight_units:'2500000',roulette_escrow_units:'3000000',total_units:String(9500000+Number(chips)),observed_at:'2026-10-13T06:00:00Z'},migration:{registration_status:'CONFIRMED'}});
   if(path.startsWith('/api/v1/ops/economy/ledger?')){
    const q=new URLSearchParams(path.split('?')[1]);const second=q.has('before');
    return ok({items:[{id:second?'second-ledger':'first-ledger',user_id:q.get('newapi_user_id')||'3',asset:'RESERVE_API_CREDIT',delta_units:'-1',balance_before_units:'500000',balance_after_units:'499999',biz_type:'OPS_ADJUST',biz_id:second?'older-adjustment':'latest-adjustment',transaction_id:'00000000-0000-4000-8000-000000000002',entry_type:'OPS_ADJUST',created_at:'2026-10-13T06:00:00Z'}],...(!second?{next_before:'2026-10-13T06:00:00Z',next_before_id:'00000000-0000-4000-8000-000000000002'}:{})});
@@ -282,6 +282,7 @@ it('manages local users and filtered relay logs without legacy operations', asyn
    const body=JSON.parse(String(init?.body));writes.push({path,body});
    if(path==='/api/v1/ops/users/2'){u={...u,...body};readsFail=true}
    if(path.endsWith('/reset-2fa'))u.two_fa_enabled=false;
+   if(path.endsWith('/chips')){chips='999999';assetReadsFail=true}
    if(path.endsWith('/master-rename-required'))master={...master,rename_required:body.required};
    if(path.endsWith('/master-force-rename')){master={...master,display_name:body.display_name,rename_required:false};masterReadsFail=true}
    if(path.endsWith('/reserve')){
@@ -391,6 +392,19 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  fireEvent.change(screen.getByLabelText('账户编号（可选）'),{target:{value:'2'}});
  fireEvent.click(screen.getByRole('button',{name:'查询账户与账变'}));
  expect(await screen.findByRole('link',{name:'管理账户与调整 Reserve'})).toHaveAttribute('href','/ops/users/2');
+ expect(screen.getByText(/总资产：21 ·/)).toBeVisible();
+ for(const label of ['扑克桌面','扑克底池','单人游戏在途','轮盘托管'])expect(screen.getByText(label)).toBeVisible();
+ fireEvent.change(screen.getByLabelText('调整可用筹码（负数扣减）'),{target:{value:'-0.000002'}});
+ fireEvent.change(screen.getByLabelText('筹码调账备注'),{target:{value:'本地筹码调整'}});
+ fireEvent.click(screen.getByRole('button',{name:'保存筹码调账'}));
+ expect(await screen.findByText('调账已保存，资产读取失败，请重新查询账户。')).toBeVisible();
+ expect(screen.getByRole('status')).toHaveTextContent('筹码调账已保存');
+ expect(window.confirm).toHaveBeenCalledWith('确认扣减此账户的可用筹码？');
+ assetReadsFail=false;fireEvent.click(screen.getByRole('button',{name:'查询账户与账变'}));
+ expect(await screen.findByText(/总资产：20.999998 ·/)).toBeVisible();
+ const chipWrites=writes.filter(w=>w.path.endsWith('/chips'));
+ expect(chipWrites).toHaveLength(1);
+ expect(chipWrites[0].body).toEqual({amount:'-0.000002',note:'本地筹码调整',request_id:expect.any(String)});
  await screen.findByText('latest-adjustment');
  fireEvent.change(screen.getByLabelText('业务类型'),{target:{value:'OPS_ADJUST'}});
  fireEvent.click(screen.getByRole('button',{name:'筛选账变'}));
