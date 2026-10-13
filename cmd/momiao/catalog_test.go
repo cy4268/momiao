@@ -481,6 +481,43 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 		})
 
 		t.Run("economy", func(t *testing.T) {
+			gamblerPath := "/api/v1/ops/economy/gambler-campaigns/" + platform.GamblerCampaignID
+			if w := request(admin, "GET", gamblerPath+"?page=1", "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"page_size":20`) {
+				t.Fatal("local gambler", w.Code, w.Body.String())
+			}
+			for _, u := range []int64{regular, 0} {
+				want := 403
+				if u == 0 {
+					want = 401
+				}
+				if w := request(u, "GET", gamblerPath, "", false); w.Code != want {
+					t.Fatal("gambler role", w.Code)
+				}
+			}
+			if w := request(admin, "POST", gamblerPath, `{}`, false); w.Code != 403 {
+				t.Fatal("gambler CSRF", w.Code)
+			}
+			if w := request(regular, "POST", gamblerPath, `{}`, true); w.Code != 403 {
+				t.Fatal("gambler write role", w.Code)
+			}
+			if w := request(admin, "POST", gamblerPath, `{}`, true); w.Code != 400 {
+				t.Fatal("gambler input", w.Code, w.Body.String())
+			}
+			if w := request(admin, "GET", gamblerPath+"?page=0", "", false); w.Code != 400 {
+				t.Fatal("gambler page", w.Code)
+			}
+			if w := request(admin, "GET", gamblerPath+"?from=bad", "", false); w.Code != 400 {
+				t.Fatal("gambler date", w.Code)
+			}
+			if w := request(admin, "GET", gamblerPath+"?state=BAD", "", false); w.Code != 400 {
+				t.Fatal("gambler state", w.Code)
+			}
+			if w := request(admin, "GET", gamblerPath+"?eligible=true&from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z&page=2", "", false); w.Code != 200 {
+				t.Fatal("gambler filters", w.Code, w.Body.String())
+			}
+			if w := request(admin, "POST", gamblerPath, `{"action":"snapshot","requests_drained":true}`, true); w.Code != 409 {
+				t.Fatal("completed campaign restart", w.Code, w.Body.String())
+			}
 			assetPath := "/api/v1/ops/economy/user?newapi_user_id=" + strconv.FormatInt(regular, 10)
 			assetResponse := request(admin, "GET", assetPath, "", false)
 			if assetResponse.Code != 200 || !strings.Contains(assetResponse.Body.String(), `"assets":`) || !strings.Contains(assetResponse.Body.String(), `"single_player_in_flight_units":`) {

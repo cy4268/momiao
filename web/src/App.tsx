@@ -107,8 +107,8 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="jobs" element={<OpsJobs client={client}/>}/>
             <Route path="attention" element={<OpsAttention client={client}/>}/>
             <Route path="service-health" element={<OpsServiceHealth client={client}/>}/>
+            <Route path="gambler-campaign" element={<OpsGamblerCampaign client={client}/>}/>
             <Route element={<OpsLegacyBoundary/>}>
-            <Route path="gambler-campaign" element={<OpsGamblerCampaign/>}/>
             <Route path="operations/:operationID" element={<OpsOperationDetail/>}/>
             <Route path="access-control" element={<OpsAccessControl/>}/>
             </Route>

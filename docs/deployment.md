@@ -225,7 +225,7 @@ POST `/platform/v1/ops/announcements` 直接接受 `announcement_id`、`action` 
 - `POST /api/v1/ops/rewards/claims/:id/retry` 仅将原注册奖励任务重新排队；保留已有领取与发放幂等逻辑。管理员角色、claim/job 行锁、更新与 `ops.audit_log` 在一个事务中；已完成的任务或领取拒绝重试。页面收到排队成功后，列表读取失败不自动重放 POST。实际发放金额读 registration_issuances（包括上限裁减为零）。
 - 统一资产/救济/奖励与游戏收益上限读取同库六项资产，不观察 Native 额度或旧跨库在途；兑换复用本地双钱包事务，Reserve 不足直接拒绝，旧 API→筹码回执只读。发布前应用 `0064_local_relief_assets.sql`：只放宽旧 relief_claims.native_observed_at 的 NOT NULL，新领取写 NULL、旧额度字段写 0，历史行原样保留，无新增 grant。应先处理完历史 Native 划转/兑换在途并按迁移计划完成额度合并；源码回退保留该兼容性 schema 变更。
 - 删除独立 Poker 的反向 Native 经济 RPC 和 `MOMIAO_ECONOMY_READ_SOCKET`；继续保留原平台→Poker 签名命令/票据及同库资产投影函数，游戏/Poker/轮盘算法和资金锁不变。当前 Native 启动、划转/refill 与旧 worker 的其余引用尚未清理，此批不代表整体已脱离 Native。
-- 赌怪一次性活动暂保留原运营框架，资产读取已改本地，独立放在 `/ops/gambler-campaign`，经济页有链接；该旧入口仍待随剩余运营模块迁移，不是新的资产重置操作，部署时不自动触发活动。
+- 赌怪一次性活动 `/ops/gambler-campaign` 接本地会话、role >= 10、CSRF，GET/POST `/api/v1/ops/economy/gambler-campaigns/01995000-2026-7000-8000-000000000927` 直接读取/保存；不再走 OpsLegacyBoundary、通用审批或二次认证。发布前应用 0065（accepted_by 外键转 identity.users），不新增 grant、不改历史记录。后台任务按本地执行人当前角色、连续维护和冻结资产检查点推进；操作人确认已受理模型请求排空，不把该确认当自动计数。保留原固定活动、独立重置、永久勋章与持久游标；已完成活动不会随部署重复触发。generic Ops 启动及其他 Native 依赖仍待后续清理。
 
 ### Poker 运营直接操作
 

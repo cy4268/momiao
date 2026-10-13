@@ -35,7 +35,7 @@ export function OpsEconomy({client}:{client:ApiClient}){
  <section className="panel ops-business-account"><h2>账户筛选</h2><form className="filters" onSubmit={filter}><label>账户编号（可选）<input value={input} onChange={e=>setInput(e.target.value)} inputMode="numeric" pattern="[1-9][0-9]*" maxLength={10} placeholder="全部账户"/></label><button type="submit">查询账户与账变</button></form>
  {notice&&<p role="status">{notice}</p>}{error&&<Alert>{error}</Alert>}
  {user&&(account.loading?<Loading/>:account.error?<Alert>{notice?'调账已保存，资产读取失败，请重新查询账户。':account.error}</Alert>:account.data&&<><h3>账户 {user}</h3>{assets?<><p>总资产：{opsAmount(assets.total_units)} · 观察时间：{opsTime(assets.observed_at)}</p><dl className="ops-impact">{assetFields.map(([key,label])=><div key={key}><dt>{label}</dt><dd>{opsAmount(assets[key])}</dd></div>)}</dl><ChipAdjustment key={version} disabled={busy} save={adjust}/></>:<p>账户尚未初始化钱包。</p>}<Link to={'/ops/users/'+user}>管理账户与调整 Reserve</Link><details><summary>迁移与注册奖励</summary><OpsFacts value={account.data.migration}/></details></>)}
- </section><OpsLedger key={user+':'+version} client={client} user={user}/><details className="panel"><summary>历史额度划转（只读）</summary><OpsTransfers key={user} client={client} user={user}/></details><p><Link to="/ops/gambler-campaign">赌怪一次性活动（原管理入口）</Link></p></>;
+ </section><OpsLedger key={user+':'+version} client={client} user={user}/><details className="panel"><summary>历史额度划转（只读）</summary><OpsTransfers key={user} client={client} user={user}/></details><p><Link to="/ops/gambler-campaign">赌怪一次性活动</Link></p></>;
 }
 function ChipAdjustment({disabled,save}:{disabled:boolean;save:(body:unknown)=>Promise<void>}){
  const [amount,setAmount]=useState(''),[note,setNote]=useState(''),[requestID]=useState(()=>crypto.randomUUID());

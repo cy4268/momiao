@@ -240,9 +240,7 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			defer func() { stopRankings(); <-rankingDone }()
 		}
 		if cfg.OpsEnvironment != "" {
-			if sessionApp == nil { return errors.New("Ops startup requires opaque sessions") }
-			campaign,err=platform.NewGamblerCampaignService(store,unifiedAssets)
-			if err!=nil{return errors.New("campaign startup failed")}
+			campaign=platform.NewGamblerCampaignService(store,cfg.OpsEnvironment)
 		backgroundCtx, stopBackground := context.WithCancel(ctx)
 		backgroundDone := make(chan struct{})
 		backgroundHealth := &opsBackgroundHealth{}
@@ -279,12 +277,10 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 			pokerControl.poker = application
 		}
 	}
-	if cfg.OpsEnvironment!=""&&runtimeStore!=nil {
-		bindings := campaign.OpsBindings()
-		opsService, err := platform.NewOpsService(runtimeStore, cfg.OpsEnvironment, bindings...)
+	if cfg.OpsEnvironment!=""&&runtimeStore!=nil && sessionApp!=nil {
+		opsService, err := platform.NewOpsService(runtimeStore, cfg.OpsEnvironment)
 		if err != nil { return errors.New("Ops startup failed") }
-		opsReads:=newOpsGamblerHandler(cfg.sessions,campaign,http.NotFoundHandler())
-		cfg.ops = newOpsHandler(cfg.sessions, opsService, opsFactorAdapter{auth:sessionApp.auth}, "UNKNOWN", opsReads)
+		cfg.ops = newOpsHandler(cfg.sessions, opsService, opsFactorAdapter{auth:sessionApp.auth}, "UNKNOWN", http.NotFoundHandler())
 		remoteCtx,stopRemote:=context.WithCancel(ctx);remoteDone:=make(chan struct{})
 		remoteHealth:=&opsRemoteWorkerHealth{}
 		cfg.readiness["ops_remote_worker"]=remoteHealth.check

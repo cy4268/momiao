@@ -254,6 +254,8 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  let keys=[{id:7,name:'user key',key:'abcd**********wxyz',status:1,purpose:'GENERAL'}];
  const writes:{path:string;body:Record<string,unknown>}[]=[],ledger:unknown[]=[];
  let adjustment='';let readsFail=false;let rewardReadsFail=false,requeues=0;let assetReadsFail=false,chips='1000000';
+ let gamblerPhase='SNAPSHOT_READY',gamblerReadsFail=false;const gamblerWrites:unknown[]=[];
+ const gamblerRoot='/api/v1/ops/economy/gambler-campaigns/01995000-2026-7000-8000-000000000927';
  let master={newapi_user_id:'2',display_name:'原昵称',profile_version:'1',rename_required:false,nickname_changed_at:null};let masterReadsFail=false;
  const rewardID='10000000-0000-4000-8000-000000000061';
  vi.spyOn(window,'confirm').mockReturnValue(true);
@@ -262,6 +264,13 @@ it('manages local users and filtered relay logs without legacy operations', asyn
   if(path==='/api/user/self')return ok({id:1,username:'operator',role:100});
   if(path.startsWith('/platform/v1/access-gate?'))return ok({stage:'READY',user_id:'1',route:new URLSearchParams(path.split('?')[1]).get('route')});
   if(path==='/api/v1/maintenance/notices')return ok({items:[]});
+  if(path===gamblerRoot&&init?.method==='POST'){
+   gamblerWrites.push(JSON.parse(String(init.body)));gamblerPhase='GRANTED';gamblerReadsFail=true;return ok({phase:gamblerPhase});
+  }
+  if(path.startsWith(gamblerRoot+'?')){
+   const q=new URLSearchParams(path.split('?')[1]);const user=q.get('user')||(q.get('page')==='2'?'25':'2');
+   return gamblerReadsFail?failed():ok({id:'01995000-2026-7000-8000-000000000927',phase:gamblerPhase,cutoff_at:u.created_at,reset_cutoff_at:null,target_count:'25',completed_count:'0',eligible_count:'4',blocking_facts:[],policy_activated_at:null,rankings_published_at:null,total:q.has('user')?1:25,accounts:[{user_id:user,eligible:true,qualification_units:'500000000000001',reset_state:'PENDING',reset_before:{reserve_units:'500000'},reset_after:null,reset_receipt:{record:'historical-checkpoint'}}]});
+  }
   if(path==='/api/v1/ops/economy/overview')return ok({observed_at:'2026-10-13T06:00:00Z',wallet_accounts:'44',reserve_units:'500000',available_chips_units:'0',transactions:'100'});
   if(path.startsWith('/api/v1/ops/economy/user?'))return assetReadsFail?failed():ok({observed_at:'2026-10-13T06:00:00Z',assets:{reserve_units:'500000',available_chips_units:chips,poker_stack_units:'1500000',poker_pot_units:'2000000',single_player_in_flight_units:'2500000',roulette_escrow_units:'3000000',total_units:String(9500000+Number(chips)),observed_at:'2026-10-13T06:00:00Z'},migration:{registration_status:'CONFIRMED'}});
   if(path.startsWith('/api/v1/ops/economy/ledger?')){
@@ -409,6 +418,30 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  fireEvent.change(screen.getByLabelText('业务类型'),{target:{value:'OPS_ADJUST'}});
  fireEvent.click(screen.getByRole('button',{name:'筛选账变'}));
  await waitFor(()=>expect(fetcher.mock.calls.some(([p])=>p.includes('/economy/ledger?')&&p.includes('newapi_user_id=2')&&p.includes('biz_type=OPS_ADJUST'))).toBe(true));
+ fireEvent.click(screen.getByRole('link',{name:'赌怪一次性活动'}));
+ expect(await screen.findByRole('heading',{name:'资格已封存'})).toBeVisible();
+ expect(screen.queryByLabelText('维护窗口编号')).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'查看活动账户'}));
+ const campaignDialog=await screen.findByRole('dialog',{name:'活动账户详情'});
+ expect(within(campaignDialog).getByText('historical-checkpoint')).toBeVisible();
+ fireEvent.click(within(campaignDialog).getByRole('button',{name:'关闭对话框'}));
+ fireEvent.click(screen.getByRole('button',{name:'下一页'}));
+ expect(await screen.findByText('25',{selector:'td'})).toBeVisible();
+ fireEvent.change(screen.getByLabelText('活动用户 ID'),{target:{value:'2'}});
+ fireEvent.change(screen.getByLabelText('勋章资格'),{target:{value:'true'}});
+ fireEvent.change(screen.getByLabelText('重置状态'),{target:{value:'PENDING'}});
+ fireEvent.change(screen.getByLabelText('快照时间从'),{target:{value:'2026-09-01T00:00'}});
+ fireEvent.change(screen.getByLabelText('快照时间至（不含）'),{target:{value:'2026-10-01T00:00'}});
+ fireEvent.click(screen.getByRole('button',{name:'筛选活动账户'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([p])=>p.startsWith(gamblerRoot+'?')&&p.includes('page=1')&&p.includes('user=2')&&p.includes('eligible=true')&&p.includes('state=PENDING')&&p.includes('from=')&&p.includes('to='))).toBe(true));
+ fireEvent.click(await screen.findByRole('button',{name:'授予永久勋章'}));
+ expect(window.confirm).toHaveBeenCalledWith('确认授予永久勋章？');
+ expect(await screen.findByText('活动操作已保存')).toBeVisible();await screen.findByRole('alert');
+ gamblerReadsFail=false;fireEvent.click(screen.getByRole('button',{name:'刷新活动'}));
+ expect(await screen.findByRole('heading',{name:'勋章已授予'})).toBeVisible();
+ expect(gamblerWrites).toEqual([{action:'grant',requests_drained:false}]);
+ const campaignCall=fetcher.mock.calls.find(([p,i])=>p===gamblerRoot&&i?.method==='POST')!;
+ expect(new Headers(campaignCall[1]?.headers).get('X-CSRF-Token')).toBe('local-csrf');
  fireEvent.click(within(screen.getByRole('navigation',{name:'运营导航'})).getByRole('link',{name:'奖励'}));
  const retry=await screen.findByRole('button',{name:'重试注册奖励'});
  rewardReadsFail=true;fireEvent.click(retry);
