@@ -285,6 +285,11 @@ func serveSessionRoute(handler http.Handler, w http.ResponseWriter, r *http.Requ
 }
 
 func serveOpsRoute(cfg config, w http.ResponseWriter, r *http.Request) {
+ if opsRankingsRoute(r.URL.Path) {
+  domainHandler(cfg,newOpsRankingsHandler(cfg.rankings)).ServeHTTP(w,r)
+  return
+ }
+
  if opsEconomyRuntimeRoute(r.URL.Path) {
   domainHandler(cfg, newOpsEconomyRuntimeHandler(cfg.relay)).ServeHTTP(w, r)
   return

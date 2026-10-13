@@ -79,3 +79,11 @@ func readOpsAudit(ctx context.Context, q opsAuditReader, filter OpsAuditFilter) 
 	}
 	return page, rows.Err()
 }
+
+// Cross-domain Ops use the same live-role lock and audit row as local catalog/relay writes.
+func RequireLocalOpsAdmin(ctx context.Context, tx pgx.Tx, user int64) error {
+	return catalogAdmin(ctx, tx, user, true)
+}
+func RecordOpsChange(ctx context.Context, tx pgx.Tx, user int64, action, kind, target string, before, after any) error {
+	return relayOpsAudit(ctx, tx, user, action, kind, target, before, after)
+}

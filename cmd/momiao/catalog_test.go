@@ -20,9 +20,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
+	"github.com/cy4268/momiao/internal/rankings"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -195,6 +197,7 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 		cfg.Session.Enabled = true
 		cfg.localIdentity = auth
 		cfg.relay = store
+		cfg.rankings = rankings.NewService(store, rankings.Options{ActivationTime: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)})
 		h := newPortalHandler(cfg, catalogRoundTrip(func(*http.Request) (*http.Response, error) {
 			t.Error("Ops catalog reached native")
 			return nil, errors.New("unexpected native call")
@@ -215,6 +218,53 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 			h.ServeHTTP(w, r)
 			return w
 		}
+
+		t.Run("rankings", func(t *testing.T) {
+			w := request(admin, "GET", "/api/v1/ops/rankings", "", false)
+			if w.Code != 200 {
+				t.Fatal("local rankings", w.Code, w.Body.String())
+			}
+
+			if w := request(admin, "GET", "/api/v1/ops/rankings?domain=GAMES&page=2&from=2026-09-01T00:00:00Z&to=2026-10-14T00:00:00Z", "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"page":2`) {
+				t.Fatal("rankings paging", w.Code, w.Body.String())
+			}
+			for _, query := range []string{"?domain=bad", "?page=-1", "?from=bad", "?from=2026-10-14T00:00:00Z&to=2026-09-01T00:00:00Z"} {
+				if w := request(admin, "GET", "/api/v1/ops/rankings"+query, "", false); w.Code != 400 {
+					t.Fatal("ranking filter", w.Code)
+				}
+			}
+			var snapshotID string
+			if err := store.Pool().QueryRow(t.Context(), `SELECT snapshot_id::text FROM rankings.published_pointers WHERE domain='GAMES' ORDER BY published_at DESC LIMIT 1`).Scan(&snapshotID); err != nil {
+				t.Fatal(err)
+			}
+			if w := request(admin, "GET", "/api/v1/ops/rankings/snapshots/"+snapshotID, "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"diff"`) {
+				t.Fatal("ranking snapshot detail", w.Code, w.Body.String())
+			}
+			for _, user := range []int64{regular, 0} {
+				code := 403
+				if user == 0 {
+					code = 401
+				}
+				if w := request(user, "GET", "/api/v1/ops/rankings", "", false); w.Code != code {
+					t.Fatal("rankings role", w.Code, w.Body.String())
+				}
+			}
+			for _, path := range []string{"/api/v1/ops/rankings/rebuilds", "/api/v1/ops/rankings/snapshots/00000000-0000-4000-8000-000000000001/publish"} {
+				if w := request(admin, "POST", path, `{}`, false); w.Code != 403 {
+					t.Fatal("rankings CSRF", w.Code, w.Body.String())
+				}
+				if w := request(regular, "POST", path, `{}`, true); w.Code != 403 {
+					t.Fatal("rankings write role", w.Code, w.Body.String())
+				}
+			}
+			if w := request(admin, "POST", "/api/v1/ops/rankings/rebuilds", `{"domain":"invalid"}`, true); w.Code != 400 {
+				t.Fatal("rankings invalid rebuild", w.Code, w.Body.String())
+			}
+			if w := request(admin, "POST", "/api/v1/ops/rankings/snapshots/00000000-0000-4000-8000-000000000001/publish", `{}`, true); w.Code != 404 {
+				t.Fatal("rankings missing candidate", w.Code, w.Body.String())
+			}
+		})
+
 		t.Run("economy", func(t *testing.T) {
 			user := strconv.FormatInt(regular, 10)
 			for _, path := range []string{"/api/v1/ops/economy/overview", "/api/v1/ops/economy/user?newapi_user_id=" + user, "/api/v1/ops/economy/ledger?limit=2", "/api/v1/ops/economy/transfers?limit=2", "/api/v1/ops/rewards/policies", "/api/v1/ops/rewards/claims?limit=2"} {

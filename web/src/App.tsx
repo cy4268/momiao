@@ -99,6 +99,7 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="announcements" element={<OpsAnnouncements client={client} embedded/>}/>
             <Route path="economy" element={<OpsEconomy client={client}/>}/>
             <Route path="rewards" element={<OpsRewards client={client}/>}/>
+            <Route path="rankings" element={<OpsRankings client={client}/>}/>
             <Route element={<OpsLegacyBoundary/>}>
             <Route path="gambler-campaign" element={<OpsGamblerCampaign/>}/>
             <Route path="jobs" element={<OpsJobs/>}/>
@@ -109,7 +110,6 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="incidents" element={<OpsIncidents/>}/>
             <Route path="games" element={<OpsGames/>}/>
             <Route path="poker" element={<OpsPoker/>}/>
-            <Route path="rankings" element={<OpsRankings/>}/>
             <Route path="service-health" element={<OpsServiceHealth/>}/>
             </Route>
             <Route path="maintenance" element={<OpsMaintenance/>}/>

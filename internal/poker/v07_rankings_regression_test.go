@@ -181,7 +181,7 @@ func TestV07RankingsPublicationAndRecovery(t *testing.T) {
 	if page.State != "READY" || page.Total != 2 || page.Items[0].Value != "9007199254740993" {
 		t.Fatal("six-minute-old hourly snapshot was incorrectly stale")
 	}
-	overview, err := service.ReadOpsOverview(ctx)
+	overview, err := service.ReadOpsOverview(ctx, rankings.OpsFilter{Page: 1})
 	v07Must(t, err)
 	assetStatusSeen := false
 	for _, status := range overview.AggregationStatus {
@@ -208,7 +208,7 @@ func TestV07RankingsPublicationAndRecovery(t *testing.T) {
 	if page.State != "STALE" || page.Total != 2 {
 		t.Fatal("expired active-period snapshot was not served as STALE")
 	}
-	overview, err = service.ReadOpsOverview(ctx)
+	overview, err = service.ReadOpsOverview(ctx, rankings.OpsFilter{Page: 1})
 	v07Must(t, err)
 	assetStatusSeen = false
 	for _, status := range overview.AggregationStatus {

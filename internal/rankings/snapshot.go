@@ -274,7 +274,7 @@ func pointerLockKey(domain, metric, period string, start, activation time.Time) 
 }
 
 func publishPointer(ctx context.Context, tx pgx.Tx, meta snapshotMeta, metric string,
-	expectedVersion *int64, operationID string, actor *int64, source string) (int64, string, error) {
+	operationID string, actor *int64, source string) (int64, string, error) {
 	if len(meta.hash) != sha256.Size || metricDomain(metric) != meta.domain {
 		return 0, "", platform.ErrOpsConflict
 	}
@@ -288,15 +288,10 @@ func publishPointer(ctx context.Context, tx pgx.Tx, meta snapshotMeta, metric st
 		WHERE domain=$1 AND metric=$2 AND period=$3 AND period_start=$4 AND activation_at=$5 FOR UPDATE`,
 		meta.domain, metric, meta.period, meta.start, meta.activation).Scan(&previous, &currentVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
-		if expectedVersion != nil && *expectedVersion != 0 {
-			return 0, "", platform.ErrOpsPreviewStale
-		}
 		currentVersion = 0
 		previous = ""
 	} else if err != nil {
 		return 0, "", err
-	} else if expectedVersion != nil && *expectedVersion != currentVersion {
-		return 0, "", platform.ErrOpsPreviewStale
 	}
 	if previous == meta.id {
 		if source == "REPAIR" {
@@ -342,7 +337,7 @@ func (s *Service) publishRoutine(ctx context.Context, id string) error {
 		}
 		sort.Strings(metrics)
 		for _, metric := range metrics {
-			if _, _, err = publishPointer(ctx, tx, meta, metric, nil, "", nil, "ROUTINE"); err != nil {
+			if _, _, err = publishPointer(ctx, tx, meta, metric, "", nil, "ROUTINE"); err != nil {
 				return err
 			}
 		}

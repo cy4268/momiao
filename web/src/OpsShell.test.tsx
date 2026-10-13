@@ -8,6 +8,12 @@ import { ok, failed } from './m1-test-fixtures';
 it('saves maintenance directly with a local admin and shows all operations without legacy bootstrap', async () => {
  let state={enabled:false,message:'',scopes:[] as string[]};
  let failRead=true;
+ let rebuilt=false,published=false,rankingReadsFail=false;
+ const rankingWrites:{path:string;body:unknown}[]=[];
+ const snapshotID='10000000-0000-4000-8000-000000000072';
+ const sliceID='GAMES:GAME_PROFIT:DAY:1791820800';
+ const snapshot=()=>({snapshot_id:snapshotID,slice_target_id:sliceID,domain:'GAMES',period:'DAY',period_start:'2026-10-12T16:00:00Z',period_end:null,build_kind:'REPAIR',source_checked_at:'2026-10-13T06:00:00Z',built_at:'2026-10-13T06:00:00Z',entry_count:'2',aggregate_hash:'abc',published,pointer_version:published?'2':'0',current_pointer_version:published?'2':'1'});
+ vi.spyOn(window,'confirm').mockReturnValue(true);
  const fetcher=vi.fn(async(path:string,init?:RequestInit)=>{
   if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'AUTHENTICATED',csrf_token:'local-csrf'});
   if(path==='/api/user/self')return ok({id:1,username:'operator',role:10});
@@ -16,6 +22,18 @@ it('saves maintenance directly with a local admin and shows all operations witho
   if(path.startsWith('/api/v1/ops/audit?')){
    const query=new URLSearchParams(path.split('?')[1]);const page=Number(query.get('page')||1);
    return ok({items:[{audit_id:'10000000-0000-4000-8000-000000000001',actor_newapi_user_id:'1',actor_name:'operator',action:page===1?'MAINTENANCE_SAVE':'USER_UPDATE',target_type:'MAINTENANCE',target_id:'DEVELOPMENT',before_snapshot:{enabled:false},after_snapshot:{enabled:true},occurred_at:'2026-10-12T23:00:00Z'}],total:21,page,page_size:20});
+  }
+  if(path==='/api/v1/ops/rankings/rebuilds'){
+   rankingWrites.push({path,body:JSON.parse(String(init?.body))});rebuilt=true;return ok({job_id:'10000000-0000-4000-8000-000000000073'});
+  }
+  if(path===`/api/v1/ops/rankings/snapshots/${snapshotID}/publish`){
+   rankingWrites.push({path,body:JSON.parse(String(init?.body))});published=true;rankingReadsFail=true;return ok({snapshot_id:snapshotID,state:'PUBLISHED'});
+  }
+  if(path===`/api/v1/ops/rankings/snapshots/${snapshotID}`)return ok({snapshot:snapshot(),current:null,diff:{old_count:'1',new_count:'2',added:'1',removed:'0',changed:'0',old_hash:null,new_hash:'abc'}});
+  if(path.startsWith('/api/v1/ops/rankings?')){
+   if(rankingReadsFail)return failed();
+   const page=Number(new URLSearchParams(path.split('?')[1]).get('page'));
+   return ok({page,page_size:20,job_total:21,shadow_total:rebuilt&&!published?1:0,generated_at:'2026-10-13T06:00:00Z',aggregation_status:[{slice_target_id:sliceID,domain:'GAMES',metric:'GAME_PROFIT',period:'DAY',date:'2026-10-13',state:'READY',last_source_checked_at:null,lag_seconds:null}],published:published?[snapshot()]:[],shadow_rebuilds:rebuilt&&!published?[snapshot()]:[],rebuild_jobs:rebuilt?[{job_id:'10000000-0000-4000-8000-000000000073',metric:'GAME_PROFIT',period:'DAY',status:published?'PUBLISHED':'SHADOW',attempts:'1',shadow_snapshot_id:snapshotID,updated_at:'2026-10-13T06:00:00Z'}]:[]});
   }
   if(path==='/api/v1/ops/maintenance'){
    if(init?.method==='PUT'){state=JSON.parse(String(init.body));return ok(state)}
@@ -61,6 +79,26 @@ it('saves maintenance directly with a local admin and shows all operations witho
  fireEvent.change(screen.getByRole('textbox',{name:'对象类型'}),{target:{value:'MAINTENANCE'}});
  fireEvent.click(screen.getByRole('button',{name:'筛选'}));
  await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('actor_user_id=1')&&path.includes('target_type=MAINTENANCE')&&path.includes('page=1'))).toBe(true));
+ fireEvent.click(within(screen.getByRole('navigation',{name:'运营导航'})).getByRole('link',{name:'排行榜'}));
+ expect(await screen.findByRole('heading',{name:'排行榜管理'})).toBeVisible();
+ fireEvent.click(await screen.findByRole('button',{name:'重建'}));
+ fireEvent.click(screen.getByRole('button',{name:'创建重建任务'}));
+ expect(await screen.findByRole('status')).toHaveTextContent('已创建重建任务');
+ expect(rankingWrites[0].body).toEqual({domain:'GAMES',metric:'GAME_PROFIT',period:'DAY',date:'2026-10-13',model_scope:'ALL'});
+ fireEvent.click(await screen.findByRole('button',{name:'查看生成的快照'}));
+ const candidate=await screen.findByRole('dialog',{name:'快照与差异'});
+ fireEvent.click(await within(candidate).findByRole('button',{name:'发布候选'}));
+ expect(await screen.findByRole('status')).toHaveTextContent('候选已发布');
+ expect(await screen.findByRole('alert')).toBeVisible();
+ expect(rankingWrites).toHaveLength(2);expect(rankingWrites[1].body).toEqual({});
+ rankingReadsFail=false;fireEvent.click(screen.getByRole('button',{name:'刷新状态'}));
+ expect(await screen.findByRole('region',{name:'已发布快照'})).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'下一页'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/rankings?')&&path.includes('page=2'))).toBe(true));
+ fireEvent.change(screen.getByRole('combobox',{name:'排行榜范围'}),{target:{value:'GAMES'}});
+ fireEvent.click(screen.getByRole('button',{name:'筛选排行榜'}));
+ await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/rankings?')&&path.includes('domain=GAMES')&&path.includes('page=1'))).toBe(true));
+ expect(rankingWrites).toHaveLength(2);
  expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/bootstrap')||path.includes('/ops/operations')||path.includes('/ops/fresh')||path.includes('/native-runtime')||path.includes('authz_epoch'))).toBe(false);
 });
 

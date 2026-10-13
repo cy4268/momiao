@@ -13,37 +13,37 @@ import (
 )
 
 type OpsAggregationStatus struct {
-	SliceTargetID          string     `json:"slice_target_id"`
-	Domain                 string     `json:"domain"`
-	Metric                 string     `json:"metric"`
-	Period                 string     `json:"period"`
-	Date                   *string    `json:"date"`
-	PublishedPointerVersion int64     `json:"published_pointer_version,string"`
-	PublishedSnapshotID    *string    `json:"published_snapshot_id"`
-	LastSourceCheckedAt    *time.Time `json:"last_source_checked_at"`
-	LastBuiltAt            *time.Time `json:"last_built_at"`
-	LagSeconds             *int64     `json:"lag_seconds,string"`
+	SliceTargetID           string     `json:"slice_target_id"`
+	Domain                  string     `json:"domain"`
+	Metric                  string     `json:"metric"`
+	Period                  string     `json:"period"`
+	Date                    *string    `json:"date"`
+	PublishedPointerVersion int64      `json:"published_pointer_version,string"`
+	PublishedSnapshotID     *string    `json:"published_snapshot_id"`
+	LastSourceCheckedAt     *time.Time `json:"last_source_checked_at"`
+	LastBuiltAt             *time.Time `json:"last_built_at"`
+	LagSeconds              *int64     `json:"lag_seconds,string"`
 	State                   string     `json:"state"`
 	ModelScope              string     `json:"model_scope,omitempty"`
 	ModelID                 string     `json:"model_id,omitempty"`
 }
 
 type OpsSnapshot struct {
-	SnapshotID             string     `json:"snapshot_id"`
-	SliceTargetID          string     `json:"slice_target_id"`
-	Domain                 string     `json:"domain"`
-	Period                 string     `json:"period"`
-	PeriodStart            time.Time  `json:"period_start"`
-	PeriodEnd              *time.Time `json:"period_end"`
-	BuildKind              string     `json:"build_kind"`
-	SourceCheckedAt        time.Time  `json:"source_checked_at"`
-	BuiltAt                time.Time  `json:"built_at"`
-	EntryCount             int64      `json:"entry_count,string"`
-	AggregateHash          string     `json:"aggregate_hash"`
-	Published              bool       `json:"published"`
-	OperationID            *string    `json:"operation_id"`
-	PointerVersion         int64      `json:"pointer_version,string"`
-	CurrentPointerVersion  int64      `json:"current_pointer_version,string"`
+	SnapshotID            string     `json:"snapshot_id"`
+	SliceTargetID         string     `json:"slice_target_id"`
+	Domain                string     `json:"domain"`
+	Period                string     `json:"period"`
+	PeriodStart           time.Time  `json:"period_start"`
+	PeriodEnd             *time.Time `json:"period_end"`
+	BuildKind             string     `json:"build_kind"`
+	SourceCheckedAt       time.Time  `json:"source_checked_at"`
+	BuiltAt               time.Time  `json:"built_at"`
+	EntryCount            int64      `json:"entry_count,string"`
+	AggregateHash         string     `json:"aggregate_hash"`
+	Published             bool       `json:"published"`
+	RebuildJobID          *string    `json:"job_id"`
+	PointerVersion        int64      `json:"pointer_version,string"`
+	CurrentPointerVersion int64      `json:"current_pointer_version,string"`
 }
 
 type OpsDiff struct {
@@ -57,29 +57,38 @@ type OpsDiff struct {
 }
 
 type OpsRebuildJob struct {
-	OperationID            string     `json:"operation_id"`
-	SliceTargetID          string     `json:"slice_target_id"`
-	Domain                 string     `json:"domain"`
-	Metric                 string     `json:"metric"`
-	Period                 string     `json:"period"`
-	Date                   string     `json:"date,omitempty"`
-	ModelScope             string     `json:"model_scope"`
-	ModelID                string     `json:"model_id,omitempty"`
-	ExpectedPointerVersion int64      `json:"expected_pointer_version,string"`
-	Status                  string     `json:"status"`
-	ShadowSnapshotID       *string    `json:"shadow_snapshot_id,omitempty"`
-	Attempts                int64      `json:"attempts,string"`
-	FailureCode             *string    `json:"failure_code,omitempty"`
-	CreatedAt               time.Time  `json:"created_at"`
-	UpdatedAt               time.Time  `json:"updated_at"`
+	JobID            string    `json:"job_id"`
+	SliceTargetID    string    `json:"slice_target_id"`
+	Domain           string    `json:"domain"`
+	Metric           string    `json:"metric"`
+	Period           string    `json:"period"`
+	Date             string    `json:"date,omitempty"`
+	ModelScope       string    `json:"model_scope"`
+	ModelID          string    `json:"model_id,omitempty"`
+	Status           string    `json:"status"`
+	ShadowSnapshotID *string   `json:"shadow_snapshot_id,omitempty"`
+	Attempts         int64     `json:"attempts,string"`
+	FailureCode      *string   `json:"failure_code,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type OpsFilter struct {
+	Domain   string
+	From, To *time.Time
+	Page     int
 }
 
 type OpsOverview struct {
-	GeneratedAt      time.Time              `json:"generated_at"`
+	Page              int                    `json:"page"`
+	PageSize          int                    `json:"page_size"`
+	JobTotal          int64                  `json:"job_total"`
+	ShadowTotal       int64                  `json:"shadow_total"`
+	GeneratedAt       time.Time              `json:"generated_at"`
 	AggregationStatus []OpsAggregationStatus `json:"aggregation_status"`
-	Published        []OpsSnapshot           `json:"published"`
-	ShadowRebuilds   []OpsSnapshot           `json:"shadow_rebuilds"`
-	RebuildJobs      []OpsRebuildJob         `json:"rebuild_jobs"`
+	Published         []OpsSnapshot          `json:"published"`
+	ShadowRebuilds    []OpsSnapshot          `json:"shadow_rebuilds"`
+	RebuildJobs       []OpsRebuildJob        `json:"rebuild_jobs"`
 }
 
 type OpsSnapshotDetail struct {
@@ -167,7 +176,7 @@ func opsSnapshot(ctx context.Context, tx pgx.Tx, id string, focus opsSliceFocus)
 	result.BuiltAt = meta.built.UTC()
 	result.AggregateHash = hash
 	result.Published = currentID == meta.id
-	result.OperationID = operationID
+	result.RebuildJobID = operationID
 	result.PointerVersion = pointerVersion
 	result.CurrentPointerVersion = currentVersion
 	return result, nil
@@ -219,8 +228,8 @@ func rankingDiff(ctx context.Context, tx pgx.Tx, oldID, newID, metric string) (O
 	return result, nil
 }
 
-func (s *Service) ReadOpsOverview(ctx context.Context) (OpsOverview, error) {
-	result := OpsOverview{AggregationStatus: []OpsAggregationStatus{}, Published: []OpsSnapshot{},
+func (s *Service) ReadOpsOverview(ctx context.Context, filter OpsFilter) (OpsOverview, error) {
+	result := OpsOverview{Page: filter.Page, PageSize: 20, AggregationStatus: []OpsAggregationStatus{}, Published: []OpsSnapshot{},
 		ShadowRebuilds: []OpsSnapshot{}, RebuildJobs: []OpsRebuildJob{}}
 	if !s.enabled(time.Now().UTC()) {
 		return result, platform.ErrOpsUnavailable
@@ -234,6 +243,9 @@ func (s *Service) ReadOpsOverview(ctx context.Context) (OpsOverview, error) {
 		}
 		published := map[string]opsSliceFocus{}
 		for _, domain := range []string{"ASSETS", "GAMES", "RP"} {
+			if filter.Domain != "" && domain != filter.Domain {
+				continue
+			}
 			metrics, _ := metricsForDomain(domain)
 			periods := []string{"DAY", "WEEK", "ALL_TIME"}
 			if domain == "ASSETS" {
@@ -312,11 +324,18 @@ func (s *Service) ReadOpsOverview(ctx context.Context) (OpsOverview, error) {
 			}
 			return result.Published[i].BuiltAt.After(result.Published[j].BuiltAt)
 		})
-		shadowRows, err := tx.Query(ctx, `SELECT shadow_snapshot_id::text,metric,model_scope,model_id
-			FROM rankings.rebuild_jobs j WHERE status='SHADOW' AND NOT EXISTS(
-			 SELECT 1 FROM rankings.publication_events e WHERE e.snapshot_id=j.shadow_snapshot_id
-			  AND e.metric=j.metric AND e.source='REPAIR')
-			ORDER BY updated_at DESC,operation_id DESC LIMIT 100`)
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM rankings.rebuild_jobs j WHERE status='SHADOW' AND NOT EXISTS(
+ SELECT 1 FROM rankings.publication_events e WHERE e.snapshot_id=j.shadow_snapshot_id AND e.metric=j.metric AND e.source='REPAIR')
+ AND ($1='' OR j.domain=$1) AND ($2::timestamptz IS NULL OR j.created_at>=$2) AND ($3::timestamptz IS NULL OR j.created_at<$3)`, filter.Domain, filter.From, filter.To).Scan(&result.ShadowTotal); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM rankings.rebuild_jobs WHERE ($1='' OR domain=$1) AND ($2::timestamptz IS NULL OR created_at>=$2) AND ($3::timestamptz IS NULL OR created_at<$3)`, filter.Domain, filter.From, filter.To).Scan(&result.JobTotal); err != nil {
+			return err
+		}
+		shadowRows, err := tx.Query(ctx, `SELECT shadow_snapshot_id::text,metric,model_scope,model_id FROM rankings.rebuild_jobs j WHERE status='SHADOW' AND NOT EXISTS(
+ SELECT 1 FROM rankings.publication_events e WHERE e.snapshot_id=j.shadow_snapshot_id AND e.metric=j.metric AND e.source='REPAIR')
+ AND ($1='' OR j.domain=$1) AND ($2::timestamptz IS NULL OR j.created_at>=$2) AND ($3::timestamptz IS NULL OR j.created_at<$3)
+ ORDER BY updated_at DESC,operation_id DESC LIMIT 20 OFFSET $4`, filter.Domain, filter.From, filter.To, (filter.Page-1)*20)
 		if err != nil {
 			return err
 		}
@@ -346,20 +365,20 @@ func (s *Service) ReadOpsOverview(ctx context.Context) (OpsOverview, error) {
 			result.ShadowRebuilds = append(result.ShadowRebuilds, snapshot)
 		}
 		jobRows, err := tx.Query(ctx, `SELECT operation_id::text,domain,metric,period,requested_date,
-			model_scope,model_id,expected_pointer_version,
+			model_scope,model_id,
 			CASE WHEN status='SHADOW' AND EXISTS(SELECT 1 FROM rankings.publication_events e
 			 WHERE e.snapshot_id=rebuild_jobs.shadow_snapshot_id AND e.metric=rebuild_jobs.metric
 			  AND e.source='REPAIR') THEN 'PUBLISHED' ELSE status END,
 			shadow_snapshot_id::text,attempts,
-			failure_code,created_at,updated_at FROM rankings.rebuild_jobs
-			ORDER BY created_at DESC,operation_id DESC LIMIT 100`)
+			failure_code,created_at,updated_at FROM rankings.rebuild_jobs WHERE ($1='' OR domain=$1) AND ($2::timestamptz IS NULL OR created_at>=$2) AND ($3::timestamptz IS NULL OR created_at<$3)
+ ORDER BY created_at DESC,operation_id DESC LIMIT 20 OFFSET $4`, filter.Domain, filter.From, filter.To, (filter.Page-1)*20)
 		if err != nil {
 			return err
 		}
 		for jobRows.Next() {
 			var job OpsRebuildJob
-			if err = jobRows.Scan(&job.OperationID, &job.Domain, &job.Metric, &job.Period, &job.Date,
-				&job.ModelScope, &job.ModelID, &job.ExpectedPointerVersion, &job.Status, &job.ShadowSnapshotID,
+			if err = jobRows.Scan(&job.JobID, &job.Domain, &job.Metric, &job.Period, &job.Date,
+				&job.ModelScope, &job.ModelID, &job.Status, &job.ShadowSnapshotID,
 				&job.Attempts, &job.FailureCode, &job.CreatedAt, &job.UpdatedAt); err != nil {
 				jobRows.Close()
 				return err
