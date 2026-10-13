@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -20,17 +19,29 @@ func (s *Store) CatalogAuthority(ctx context.Context, userID int64) (Announcemen
 	return catalogAuthority(ctx, s.pool, userID, false)
 }
 
+// Channels are live configuration; editorial metadata never needs a sync to exist.
 const catalogModelColumns = `m.model_id,m.display_name,m.family,COALESCE(m.summary,''),m.context_length,m.metadata,m.metadata_version,
- p.publication_state,p.recommended,p.sort_order,p.version,p.published_at,p.retired_at,greatest(m.updated_at,p.updated_at),
- a.availability_state,a.observed_at,a.last_seen_at,a.source_facts`
-const catalogModelTables = ` FROM catalog.model_catalog_metadata m JOIN catalog.model_catalog_publication p USING(model_id) JOIN catalog.model_availability_mappings a USING(model_id) `
+ COALESCE(p.publication_state,'PENDING_METADATA'),COALESCE(p.recommended,false),COALESCE(p.sort_order,0),COALESCE(p.version,0),p.published_at,p.retired_at,greatest(m.updated_at,p.updated_at,a.observed_at),
+ a.availability_state,a.observed_at,a.observed_at,a.supported,` + catalogLocalPriceJSON
+const catalogModelTables = ` FROM (
+ SELECT coalesce(meta.model_id,channels.model_id) model_id,coalesce(meta.display_name,'') display_name,coalesce(meta.family,'') family,
+ meta.summary,meta.context_length,coalesce(meta.metadata,'{}'::jsonb) metadata,coalesce(meta.metadata_version,0) metadata_version,coalesce(meta.updated_at,now()) updated_at
+ FROM catalog.model_catalog_metadata meta FULL JOIN (SELECT DISTINCT unnest(models) model_id FROM relay.channels) channels USING(model_id)
+ ) m LEFT JOIN catalog.model_catalog_publication p USING(model_id)
+ LEFT JOIN LATERAL (
+  SELECT CASE WHEN count(*)=0 THEN 'NO_CHANNEL' WHEN bool_or(c.enabled) THEN 'CONFIGURED' ELSE 'DISABLED' END availability_state,
+  coalesce(max(c.updated_at),m.updated_at) observed_at,coalesce(bool_or(c.enabled AND c.type IN (1,14,24,41,43)),false) supported
+  FROM relay.channels c WHERE m.model_id=ANY(c.models)
+ ) a ON true
+ LEFT JOIN relay.prices rp ON rp.model=m.model_id LEFT JOIN relay.groups g ON g.name='default' `
 
-func scanCatalogModel(row pgx.Row, fresh CatalogFreshness) (CatalogModel, error) {
+func scanCatalogModel(row pgx.Row, _ CatalogFreshness) (CatalogModel, error) {
 	var m CatalogModel
-	var metadata, facts []byte
+	var metadata, price []byte
+	var supported bool
 	m.Metadata.Tags = []string{}
 	m.Metadata.UseCases = []string{}
-	err := row.Scan(&m.ModelID, &m.Metadata.DisplayName, &m.Metadata.Family, &m.Metadata.Summary, &m.Metadata.ContextLength, &metadata, &m.MetadataVersion, &m.PublicationState, &m.Recommended, &m.SortOrder, &m.Version, &m.PublishedAt, &m.RetiredAt, &m.UpdatedAt, &m.AvailabilityState, &m.SourceObservedAt, &m.LastSeenAt, &facts)
+	err := row.Scan(&m.ModelID, &m.Metadata.DisplayName, &m.Metadata.Family, &m.Metadata.Summary, &m.Metadata.ContextLength, &metadata, &m.MetadataVersion, &m.PublicationState, &m.Recommended, &m.SortOrder, &m.Version, &m.PublishedAt, &m.RetiredAt, &m.UpdatedAt, &m.AvailabilityState, &m.SourceObservedAt, &m.LastSeenAt, &supported, &price)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return m, ErrCatalogNotFound
 	}
@@ -46,14 +57,18 @@ func scanCatalogModel(row pgx.Row, fresh CatalogFreshness) (CatalogModel, error)
 	m.Metadata.UseCases = extras.UseCases
 	m.Metadata.SpecialPricingNote = extras.SpecialPricingNote
 	m.Metadata.AssetID = extras.AssetID
-	var source NativeCatalogModel
-	if !decodeCatalogJSON(facts, &source) || source.ModelID != m.ModelID || !validNativeCatalogModel(source) {
-		return m, ErrCatalogSource
+	m.Price, err = catalogLocalPrice(price)
+	if err != nil {
+		return m, err
 	}
-	m.EndpointStatus = source.EndpointStatus
-	m.Endpoints = source.Endpoints
-	m.Price = catalogPublicPrice(source.Price)
-	m.Freshness = fresh
+	m.EndpointStatus = "unverified"
+	m.Endpoints = []CatalogEndpoint{}
+	if supported {
+		m.EndpointStatus = "configured_subset_not_health"
+		m.Endpoints = []CatalogEndpoint{{Kind: "anthropic", Path: "/v1/messages", Method: "POST"}, {Kind: "openai", Path: "/v1/chat/completions", Method: "POST"}, {Kind: "openai-response", Path: "/v1/responses", Method: "POST"}}
+	}
+	m.Freshness = localCatalogFreshness()
+	m.SourceObservedAt, m.LastSeenAt = *m.Freshness.LastVerifiedAt, *m.Freshness.LastVerifiedAt
 	m.CanUse = catalogCanUse(m)
 	return m, nil
 }
@@ -71,20 +86,13 @@ func loadCatalogModel(ctx context.Context, q announcementQuerier, id string, pub
 	}
 	return m, err
 }
-func (s *Store) PublicCatalogModel(ctx context.Context, id string, policy CatalogPolicy) (CatalogModel, error) {
-	if !policy.valid() {
-		return CatalogModel{}, ErrCatalogInvalid
-	}
+func (s *Store) PublicCatalogModel(ctx context.Context, id string, _ CatalogPolicy) (CatalogModel, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return CatalogModel{}, err
 	}
 	defer rollback(tx)
-	status, err := catalogSyncStatus(ctx, tx)
-	if err != nil {
-		return CatalogModel{}, err
-	}
-	m, err := loadCatalogModel(ctx, tx, id, true, catalogFreshness(status, policy, time.Now()))
+	m, err := loadCatalogModel(ctx, tx, id, true, localCatalogFreshness())
 	if err != nil {
 		return m, err
 	}
@@ -94,12 +102,9 @@ func (s *Store) PublicCatalogModel(ctx context.Context, id string, policy Catalo
 	}
 	return models[0], tx.Commit(ctx)
 }
-func (s *Store) OpsCatalogModel(ctx context.Context, userID int64, id string, policy CatalogPolicy) (AnnouncementPrincipal, CatalogModel, error) {
+func (s *Store) OpsCatalogModel(ctx context.Context, userID int64, id string, _ CatalogPolicy) (AnnouncementPrincipal, CatalogModel, error) {
 	var p AnnouncementPrincipal
 	var m CatalogModel
-	if !policy.valid() {
-		return p, m, ErrCatalogInvalid
-	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return p, m, err
@@ -109,11 +114,7 @@ func (s *Store) OpsCatalogModel(ctx context.Context, userID int64, id string, po
 	if err != nil {
 		return p, m, err
 	}
-	status, err := catalogSyncStatus(ctx, tx)
-	if err != nil {
-		return p, m, err
-	}
-	m, err = loadCatalogModel(ctx, tx, id, false, catalogFreshness(status, policy, time.Now()))
+	m, err = loadCatalogModel(ctx, tx, id, false, localCatalogFreshness())
 	if err != nil {
 		return p, m, err
 	}

@@ -32,7 +32,7 @@ export interface CatalogAsset {asset_id:string;src:string;fallback:string;focal_
 export interface CatalogVocabulary {families:CatalogChoice[];tags:CatalogChoice[];use_cases:CatalogChoice[];assets:CatalogAsset[]}
 export interface CatalogMetadata {display_name:string;family:string;summary:string;context_length:string|null;subtitle:string;tags:string[];use_cases:string[];special_pricing_note:string;asset_id:string}
 export interface CatalogDimension {kind:string;unit:string;amount:string|null;condition:string;source:string;support:string}
-export interface CatalogPrice {mode:string;configured:boolean;status:string;reason?:string;dimensions:CatalogDimension[];unquoted_dimensions:string[]}
+export interface CatalogPrice {default_seconds?:number;mode:string;configured:boolean;status:string;reason?:string;dimensions:CatalogDimension[];unquoted_dimensions:string[]}
 export interface CatalogEndpoint {kind:string;path:string;method:string}
 export interface CatalogFreshness {state:string;last_observed_at:string|null;last_verified_at:string|null;stale_after_seconds:number;disable_after_seconds:number}
 export interface CatalogModel {family_cover?:CatalogFamilyCover;model_id:string;metadata:CatalogMetadata;publication_state:string;recommended:boolean;sort_order:number;version:string;metadata_version:string;published_at:string|null;retired_at:string|null;updated_at:string;availability_state:string;source_observed_at:string;last_seen_at:string;endpoint_status:string;endpoints:CatalogEndpoint[];price:CatalogPrice;can_use:boolean;freshness:CatalogFreshness}
@@ -40,13 +40,13 @@ export interface CatalogPage {items:CatalogModel[];total:number;offset:number;li
 export interface CatalogSync {version:string;observed_count:number;last_attempt_at:string|null;last_attempt_status:string;failure_code?:string;last_observed_at:string|null;last_verified_at:string|null}
 export interface CatalogOpsPage extends Omit<CatalogPage,'price_dimension'|'price_unit'> {principal:AnnouncementPrincipal;sync:CatalogSync}
 export interface CatalogDetail {item:CatalogModel;vocabulary:CatalogVocabulary;api_base_url:string}
-export interface CatalogPersonal {model_id:string;observed_at:string;basis:string;quotes:{candidate:number;enabled_configuration:boolean;native_catalog_visible:boolean;price:CatalogPrice|null;reason?:string}[]}
+export interface CatalogPersonal {model_id:string;observed_at:string;basis:string;quotes:{candidate:number;enabled_configuration:boolean;price:CatalogPrice|null;reason?:string}[]}
 export interface CatalogCommand {operation_id:string;authz_epoch:number;action:string;model_id?:string;expected_version:string;expected_catalog_version:string;metadata?:CatalogMetadata;recommended:boolean;sort_order:number;reason:string}
 export interface CatalogPreview {preview_id:string;expires_at:string;impact:{action:string;before?:CatalogModel;after?:CatalogModel;catalog_version:string;source_hash?:string;observed_count:number;new_models:number;missing_published:number;effect:string}}
 export interface CatalogResult {operation_id:string;model_id?:string;version:string;metadata_version:string;publication_state?:string;sync?:{attempt_id:string;status:string;changed:boolean;failure_code?:string;observed_count:number}}
 export type CatalogLoginRequired=(returnPath:string)=>void;
-export const dimensionLabels:Record<string,string>={input:'输入',output:'输出',cache_read:'缓存读取',cache_write:'缓存写入',cache_write_5m:'缓存写入 · 5 分钟',cache_write_1h:'缓存写入 · 1 小时',text_request_base:'文本请求基础价'};
-export const availabilityLabels:Record<string,string>={CONFIGURED:'已配置接入',NATIVE_HIDDEN:'原生目录已隐藏',NOT_OBSERVED:'本次来源未观察到'};
+export const dimensionLabels:Record<string,string>={input:'输入',output:'输出',cache_read:'缓存读取',cache_write:'缓存写入',cache_write_5m:'缓存写入 · 5 分钟',cache_write_1h:'缓存写入 · 1 小时',text_request_base:'按次价格',second:'按秒价格'};
+export const availabilityLabels:Record<string,string>={CONFIGURED:'已配置接入',DISABLED:'渠道已停用',NO_CHANNEL:'无渠道'};
 export const publicationLabels:Record<string,string>={PENDING_METADATA:'待完善',PUBLISHED:'已公开',HIDDEN:'已隐藏',RETIRED:'已退役'};
 export const endpointLabels:Record<string,string>={openai:'Chat Completions','openai-response':'Responses',anthropic:'Messages','image-generation':'Images'};
 export const catalogTime=(value:string|null)=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'尚无记录';

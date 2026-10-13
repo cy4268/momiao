@@ -3,18 +3,18 @@ package main
 import (
 	"context"
 	"errors"
-	"io"
 	"mime"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
 type catalogStore interface {
+	PersonalCatalog(context.Context, int64, string) (platform.CatalogPersonalPrice, error)
 	CatalogCoverUploadReceipt(context.Context, int64, platform.CatalogCoverUploadCommand, platform.CatalogCoverUploadImage) (*platform.CatalogCoverUploadResult, error)
 	CatalogFamilyCovers(context.Context, int64) (platform.CatalogFamilyCoverPage, error)
 	RegisterCatalogCoverUpload(context.Context, int64, platform.CatalogCoverUploadCommand, platform.CatalogCoverUploadImage) (platform.CatalogCoverUploadResult, error)
@@ -49,6 +49,10 @@ func catalogBrowserRoute(escaped string) bool {
 	return platform.ValidCatalogModelID(id)
 }
 
+func catalogAPIRoute(path string) bool {
+	return path == "/platform/v1/models" || strings.HasPrefix(path, "/platform/v1/models/") || path == "/platform/v1/ops/models" || strings.HasPrefix(path, "/platform/v1/ops/models/")
+}
+
 func newCatalogHandler(cfg config, transport http.RoundTripper) http.Handler {
 	policy := platform.CatalogPolicy{StaleAfter: cfg.CatalogStaleAfter, DisableAfter: cfg.CatalogDisableAfter}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +68,15 @@ func newCatalogHandler(cfg config, transport http.RoundTripper) http.Handler {
 		tail := strings.TrimPrefix(r.URL.Path, base)
 		personal := !ops && tail == "/personal-price"
 		var user int64
-		if ops || personal {
+		if personal {
+			account, ok := identity.UserFromContext(ctx)
+			if !ok {
+				walletError(w, 401, "AUTH_UNAUTHORIZED")
+				return
+			}
+			user = account.ID
+		}
+		if ops {
 			if !announcementSessionCredential(r) {
 				walletError(w, 401, "AUTH_UNAUTHORIZED")
 				return
@@ -190,15 +202,12 @@ func newCatalogHandler(cfg config, transport http.RoundTripper) http.Handler {
 					var item platform.CatalogModel
 					p, item, err = cfg.catalog.OpsCatalogModel(ctx, user, id, policy)
 					data = map[string]any{"principal": p, "item": item}
+				} else if personal {
+					data, err = cfg.catalog.PersonalCatalog(ctx, user, id)
 				} else {
 					var item platform.CatalogModel
 					item, err = cfg.catalog.PublicCatalogModel(ctx, id, policy)
-					if err == nil && personal {
-						data, err = readPersonalCatalog(r, transport, id)
-						if err == nil {
-							_, err = cfg.catalog.PublicCatalogModel(ctx, id, policy)
-						}
-					} else if err == nil {
+					if err == nil {
 						var vocabulary platform.CatalogVocabulary
 						vocabulary, err = platform.CatalogChoices()
 						data = map[string]any{"item": item, "vocabulary": vocabulary, "api_base_url": cfg.APIBaseURL}
@@ -311,79 +320,7 @@ func catalogPublicFilter(q url.Values) (platform.CatalogFilter, error) {
 	return f, nil
 }
 
-var errCatalogPersonal = errors.New("PERSONAL_PRICE_UNAVAILABLE")
-
-type catalogPersonalQuote struct {
-	Candidate int                          `json:"candidate"`
-	Enabled   bool                         `json:"enabled_configuration"`
-	Visible   bool                         `json:"native_catalog_visible"`
-	Price     *platform.CatalogPublicPrice `json:"price"`
-	Reason    string                       `json:"reason,omitempty"`
-}
-type catalogPersonalPrice struct {
-	ModelID    string                 `json:"model_id"`
-	ObservedAt string                 `json:"observed_at"`
-	Basis      string                 `json:"basis"`
-	Quotes     []catalogPersonalQuote `json:"quotes"`
-}
-
-func readPersonalCatalog(r *http.Request, transport http.RoundTripper, id string) (catalogPersonalPrice, error) {
-	var result catalogPersonalPrice
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", "http://unix/api/momiao/catalog/prices?"+url.Values{"model_id": []string{id}}.Encode(), nil)
-	req.Host = "localhost"
-	for _, key := range []string{"Authorization", "New-Api-User", "X-Auth-Session"} {
-		if value := r.Header.Get(key); value != "" {
-			req.Header.Set(key, value)
-		}
-	}
-	req.Header.Set("Accept", "application/json")
-	response, err := transport.RoundTrip(req)
-	if err != nil {
-		return result, errCatalogPersonal
-	}
-	defer response.Body.Close()
-	if response.StatusCode == 401 || response.StatusCode == 403 {
-		return result, &catalogAuthError{status: response.StatusCode}
-	}
-	media, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	if response.StatusCode != 200 || err != nil || media != "application/json" {
-		return result, errCatalogPersonal
-	}
-	raw, err := io.ReadAll(io.LimitReader(response.Body, platform.NativeCatalogMaxBytes+1))
-	if err != nil {
-		return result, errCatalogPersonal
-	}
-	parsed, err := platform.ParseNativePersonalCatalog(raw, id, time.Now())
-	if err != nil {
-		return result, errCatalogPersonal
-	}
-	result = catalogPersonalPrice{ModelID: parsed.ModelID, ObservedAt: parsed.ObservedAt, Basis: parsed.Basis, Quotes: []catalogPersonalQuote{}}
-	for _, q := range parsed.Quotes {
-		item := catalogPersonalQuote{Candidate: q.Candidate, Enabled: q.EnabledConfiguration, Visible: q.NativeCatalogVisible, Reason: q.Reason}
-		if q.Price != nil {
-			p := q.Price
-			item.Price = &platform.CatalogPublicPrice{Mode: p.Mode, Configured: p.Configured, Status: p.Status, Reason: p.Reason, Dimensions: append([]platform.CatalogDimension{}, p.Dimensions...), Unquoted: append([]string{}, p.Unquoted...)}
-		}
-		result.Quotes = append(result.Quotes, item)
-	}
-	return result, nil
-}
-
-type catalogAuthError struct{ status int }
-
-func (e *catalogAuthError) Error() string { return "AUTH_UNAVAILABLE_" + strconv.Itoa(e.status) }
 func writeCatalogError(w http.ResponseWriter, err error) {
-	var auth *catalogAuthError
-	if errors.As(err, &auth) {
-		code := "AUTH_UNAUTHORIZED"
-		if auth.status == 403 {
-			code = "AUTH_FORBIDDEN"
-		}
-		walletError(w, auth.status, code)
-		return
-	}
 	status, code := 503, "CATALOG_UNAVAILABLE"
 	switch {
 	case errors.Is(err, platform.ErrCatalogInvalid):
@@ -404,8 +341,6 @@ func writeCatalogError(w http.ResponseWriter, err error) {
 		status, code = 409, platform.ErrCatalogSourceChanged.Error()
 	case errors.Is(err, platform.ErrAnnouncementStale):
 		status, code = 409, platform.ErrAnnouncementStale.Error()
-	case errors.Is(err, errCatalogPersonal):
-		code = errCatalogPersonal.Error()
 	}
 	walletError(w, status, code)
 }

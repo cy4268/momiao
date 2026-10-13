@@ -135,6 +135,10 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				domainHandler(cfg, newLocalKeysHandler(cfg.relay)).ServeHTTP(w, r)
 				return
 			}
+			if catalogAPIRoute(r.URL.Path) {
+				domainHandler(cfg, newCatalogHandler(cfg, transport)).ServeHTTP(w, r)
+				return
+			}
 			if sessionAPIRoute(r.URL.Path) {
 				serveSessionRoute(cfg.sessionAuth, w, r)
 				return
@@ -217,7 +221,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 			domainHandler(cfg, newRouletteHandler(cfg.PublicOrigin, cfg.roulette, cfg.games, transport)).ServeHTTP(w, r)
 		case path.Clean(r.URL.Path) == "/internal" || strings.HasPrefix(path.Clean(r.URL.Path), "/internal/"):
 			walletError(w, 404, "NOT_FOUND")
-		case r.URL.Path == "/platform/v1/models" || strings.HasPrefix(r.URL.Path, "/platform/v1/models/") || r.URL.Path == "/platform/v1/ops/models" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/models/"):
+		case catalogAPIRoute(r.URL.Path):
 			domainHandler(cfg, newCatalogHandler(cfg, transport)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/announcements/") || r.URL.Path == "/platform/v1/ops/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/announcements/"):
 			domainHandler(cfg, newAnnouncementHandler(cfg.PublicOrigin, cfg.announcements, transport)).ServeHTTP(w, r)

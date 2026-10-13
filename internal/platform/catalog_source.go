@@ -2,6 +2,7 @@ package platform
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const NativeCatalogMaxBytes = 2 << 20
@@ -394,4 +397,107 @@ func catalogJSONShape(d *json.Decoder, t reflect.Type, depth int) bool {
 		return e == nil && end == json.Delim(']')
 	}
 	return false
+}
+
+// Display final local prices in API Credit, using the same one-time group factor
+// as relayCostSQL. PostgreSQL numeric keeps zero and fractional prices exact.
+const catalogLocalPriceJSON = `jsonb_build_object(
+ 'configured',rp.model IS NOT NULL AND g.name IS NOT NULL,
+ 'input',(rp.input*g.ratio/500000)::text,'output',(rp.output*g.ratio/500000)::text,
+ 'cache_read',(rp.cache_read*g.ratio/500000)::text,'cache_write_5m',(rp.cache_write*g.ratio/500000)::text,
+ 'cache_write_1h',(rp.cache_write_1h*g.ratio/500000)::text,
+ 'text_request_base',(rp.per_request*g.ratio/500000)::text,'second',(rp.per_second*g.ratio/500000)::text,
+ 'default_seconds',coalesce(rp.default_seconds,0))`
+
+func localCatalogFreshness() CatalogFreshness {
+	now := time.Now().UTC()
+	return CatalogFreshness{State: "CURRENT", LastObservedAt: &now, LastVerifiedAt: &now}
+}
+
+func catalogLocalPrice(raw []byte) (CatalogPublicPrice, error) {
+	var prices struct {
+		Configured     bool    `json:"configured"`
+		Input          *string `json:"input"`
+		Output         *string `json:"output"`
+		CacheRead      *string `json:"cache_read"`
+		CacheWrite     *string `json:"cache_write_5m"`
+		CacheWrite1h   *string `json:"cache_write_1h"`
+		Request        *string `json:"text_request_base"`
+		Second         *string `json:"second"`
+		DefaultSeconds int     `json:"default_seconds"`
+	}
+	if err := json.Unmarshal(raw, &prices); err != nil {
+		return CatalogPublicPrice{}, err
+	}
+	p := CatalogPublicPrice{Mode: "unknown", Status: "unquotable", Reason: "price_not_configured", Dimensions: []CatalogDimension{}, Unquoted: []string{}}
+	if !prices.Configured {
+		return p, nil
+	}
+	p.Configured, p.Mode, p.Status, p.Reason = true, "ratio", "reference", ""
+	add := func(kind, unit, condition string, amount *string) {
+		p.Dimensions = append(p.Dimensions, CatalogDimension{Kind: kind, Unit: unit, Condition: condition, Amount: amount, Source: "local_price", Support: "configured"})
+	}
+	switch {
+	case prices.Request != nil:
+		p.Mode, p.Status = "per_request", "conditional"
+		add("text_request_base", "API_Credit_per_request", "per_request", prices.Request)
+	case prices.Second != nil:
+		p.Mode, p.Status, p.DefaultSeconds = "per_second", "conditional", prices.DefaultSeconds
+		add("second", "API_Credit_per_second", "request_duration_seconds", prices.Second)
+	default:
+		add("input", "API_Credit_per_1M_tokens", "uncached_plain_text_tokens", prices.Input)
+		add("output", "API_Credit_per_1M_tokens", "plain_text_output_tokens", prices.Output)
+		add("cache_read", "API_Credit_per_1M_tokens", "reported_cache_read_tokens", prices.CacheRead)
+		add("cache_write_5m", "API_Credit_per_1M_tokens", "reported_cache_write_5m_tokens", prices.CacheWrite)
+		add("cache_write_1h", "API_Credit_per_1M_tokens", "reported_cache_write_1h_tokens", prices.CacheWrite1h)
+	}
+	return p, nil
+}
+
+type CatalogPersonalQuote struct {
+	Candidate int                 `json:"candidate"`
+	Enabled   bool                `json:"enabled_configuration"`
+	Price     *CatalogPublicPrice `json:"price"`
+	Reason    string              `json:"reason,omitempty"`
+}
+type CatalogPersonalPrice struct {
+	ModelID    string                 `json:"model_id"`
+	ObservedAt time.Time              `json:"observed_at"`
+	Basis      string                 `json:"basis"`
+	Quotes     []CatalogPersonalQuote `json:"quotes"`
+}
+
+func (s *Store) PersonalCatalog(ctx context.Context, userID int64, model string) (CatalogPersonalPrice, error) {
+	result := CatalogPersonalPrice{ModelID: model, ObservedAt: time.Now().UTC(), Basis: "current_user_group_reference_not_token_selection", Quotes: []CatalogPersonalQuote{}}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return result, err
+	}
+	defer rollback(tx)
+	if _, err = loadCatalogModel(ctx, tx, model, true, localCatalogFreshness()); err != nil {
+		return result, err
+	}
+	var group string
+	if err = tx.QueryRow(ctx, `SELECT group_name FROM identity.users WHERE id=$1 AND status=1 AND deleted_at IS NULL`, userID).Scan(&group); err != nil {
+		return result, err
+	}
+	quote := CatalogPersonalQuote{Candidate: 1}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM relay.channels WHERE enabled AND $1=ANY(models) AND $2=ANY(groups))`, model, group).Scan(&quote.Enabled); err != nil {
+		return result, err
+	}
+	if quote.Enabled {
+		var raw []byte
+		if err = tx.QueryRow(ctx, `SELECT `+catalogLocalPriceJSON+` FROM (SELECT $1::text model_id) m LEFT JOIN relay.prices rp ON rp.model=m.model_id LEFT JOIN relay.groups g ON g.name=$2`, model, group).Scan(&raw); err != nil {
+			return result, err
+		}
+		price, err := catalogLocalPrice(raw)
+		if err != nil {
+			return result, err
+		}
+		quote.Price = &price
+	} else {
+		quote.Reason = "model_not_enabled_in_candidate"
+	}
+	result.Quotes = append(result.Quotes, quote)
+	return result, tx.Commit(ctx)
 }

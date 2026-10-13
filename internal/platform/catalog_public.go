@@ -4,7 +4,6 @@ import (
 	"context"
 	"slices"
 	"strings"
-	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -48,6 +47,9 @@ func catalogSearchValid(search string) bool {
 	return utf8.ValidString(search) && len(search) <= 512 && !strings.ContainsFunc(search, unicode.IsControl)
 }
 func catalogPriceUnit(dimension string) string {
+	if dimension == "second" {
+		return "API_Credit_per_second"
+	}
 	if dimension == "text_request_base" {
 		return "API_Credit_per_request"
 	}
@@ -67,7 +69,7 @@ func validateCatalogFilter(f *CatalogFilter) bool {
 	if f.GroupBy != "" && f.GroupBy != "family" {
 		return false
 	}
-	if !catalogSearchValid(f.Search) || f.Limit < 1 || f.Limit > 100 || f.Offset < 0 || f.Offset > 1000000 || !slices.Contains([]string{"recommended", "name", "context", "price"}, f.Sort) || !slices.Contains([]string{"", "CONFIGURED", "NATIVE_HIDDEN", "NOT_OBSERVED"}, f.Availability) {
+	if !catalogSearchValid(f.Search) || f.Limit < 1 || f.Limit > 100 || f.Offset < 0 || f.Offset > 1000000 || !slices.Contains([]string{"recommended", "name", "context", "price"}, f.Sort) || !slices.Contains([]string{"", "CONFIGURED", "DISABLED", "NO_CHANNEL"}, f.Availability) {
 		return false
 	}
 	if f.Family != "" && !catalogChoice(catalogFamilies, f.Family) || f.Tag != "" && !catalogChoice(catalogTags, f.Tag) || f.UseCase != "" && !catalogChoice(catalogUseCases, f.UseCase) {
@@ -90,8 +92,12 @@ func validateCatalogFilter(f *CatalogFilter) bool {
 
 const catalogPublicSelection = catalogModelTables + `
  LEFT JOIN LATERAL (
-  SELECT (dimension->>'amount')::numeric amount FROM jsonb_array_elements(a.source_facts->'price'->'dimensions') d(dimension)
-  WHERE dimension->>'kind'=$1 AND dimension->>'unit'=$2 AND jsonb_typeof(dimension->'amount')='string'
+  SELECT CASE WHEN $1='text_request_base' THEN rp.per_request WHEN $1='second' THEN rp.per_second
+  WHEN rp.per_request IS NULL AND rp.per_second IS NULL THEN CASE $1
+   WHEN 'input' THEN rp.input WHEN 'output' THEN rp.output WHEN 'cache_read' THEN rp.cache_read
+   WHEN 'cache_write' THEN rp.cache_write WHEN 'cache_write_5m' THEN rp.cache_write WHEN 'cache_write_1h' THEN rp.cache_write_1h END
+  END*g.ratio/500000 amount
+  WHERE $2=CASE WHEN $1='text_request_base' THEN 'API_Credit_per_request' WHEN $1='second' THEN 'API_Credit_per_second' ELSE 'API_Credit_per_1M_tokens' END
  ) price ON true
  WHERE p.publication_state='PUBLISHED'
  AND ($3='' OR strpos(lower(m.display_name),lower($3))>0 OR strpos(lower(m.model_id),lower($3))>0)
@@ -105,9 +111,9 @@ const catalogPublicSelection = catalogModelTables + `
  AND ($11::text IS NULL OR price.amount>=$11::numeric)
  AND ($12::text IS NULL OR price.amount<=$12::numeric) `
 
-func (s *Store) PublicCatalog(ctx context.Context, filter CatalogFilter, policy CatalogPolicy) (CatalogPage, error) {
+func (s *Store) PublicCatalog(ctx context.Context, filter CatalogFilter, _ CatalogPolicy) (CatalogPage, error) {
 	page := CatalogPage{Items: []CatalogModel{}}
-	if !policy.valid() || !validateCatalogFilter(&filter) {
+	if !validateCatalogFilter(&filter) {
 		return page, ErrCatalogInvalid
 	}
 	var err error
@@ -125,11 +131,7 @@ func (s *Store) PublicCatalog(ctx context.Context, filter CatalogFilter, policy 
 		return page, err
 	}
 	defer rollback(tx)
-	status, err := catalogSyncStatus(ctx, tx)
-	if err != nil {
-		return page, err
-	}
-	page.Freshness = catalogFreshness(status, policy, time.Now())
+	page.Freshness = localCatalogFreshness()
 	args := []any{filter.PriceDimension, page.PriceUnit, filter.Search, filter.Availability, filter.RecommendedOnly, filter.Family, filter.Tag, filter.UseCase, filter.MinContext, filter.UnknownContext, filter.MinPrice, filter.MaxPrice}
 	count := "count(*)"
 	if filter.GroupBy == "family" {
@@ -169,13 +171,13 @@ func (s *Store) PublicCatalog(ctx context.Context, filter CatalogFilter, policy 
 	}
 	return page, tx.Commit(ctx)
 }
-func (s *Store) OpsCatalog(ctx context.Context, userID int64, filter CatalogOpsFilter, policy CatalogPolicy) (CatalogOpsPage, error) {
+func (s *Store) OpsCatalog(ctx context.Context, userID int64, filter CatalogOpsFilter, _ CatalogPolicy) (CatalogOpsPage, error) {
 	page := CatalogOpsPage{Items: []CatalogModel{}}
 	if filter.Limit == 0 {
 		filter.Limit = 50
 	}
 	filter.Search = strings.TrimSpace(filter.Search)
-	if !policy.valid() || !catalogSearchValid(filter.Search) || filter.Limit < 1 || filter.Limit > 100 || filter.Offset < 0 || filter.Offset > 1000000 || !slices.Contains([]string{"", "PENDING_METADATA", "PUBLISHED", "HIDDEN", "RETIRED"}, filter.State) {
+	if !catalogSearchValid(filter.Search) || filter.Limit < 1 || filter.Limit > 100 || filter.Offset < 0 || filter.Offset > 1000000 || !slices.Contains([]string{"", "PENDING_METADATA", "PUBLISHED", "HIDDEN", "RETIRED"}, filter.State) {
 		return page, ErrCatalogInvalid
 	}
 	var err error
@@ -198,8 +200,8 @@ func (s *Store) OpsCatalog(ctx context.Context, userID int64, filter CatalogOpsF
 	if err != nil {
 		return page, err
 	}
-	page.Freshness = catalogFreshness(page.Sync, policy, time.Now())
-	selection := catalogModelTables + ` WHERE ($1='' OR p.publication_state=$1) AND ($2='' OR strpos(lower(m.display_name),lower($2))>0 OR strpos(lower(m.model_id),lower($2))>0)`
+	page.Freshness = localCatalogFreshness()
+	selection := catalogModelTables + ` WHERE ($1='' OR coalesce(p.publication_state,'PENDING_METADATA')=$1) AND ($2='' OR strpos(lower(m.display_name),lower($2))>0 OR strpos(lower(m.model_id),lower($2))>0)`
 	if err = tx.QueryRow(ctx, "SELECT count(*)"+selection, filter.State, filter.Search).Scan(&page.Total); err != nil {
 		return page, err
 	}

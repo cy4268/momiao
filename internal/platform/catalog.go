@@ -63,12 +63,13 @@ type CatalogMetadata struct {
 	AssetID            string   `json:"asset_id"`
 }
 type CatalogPublicPrice struct {
-	Mode       string             `json:"mode"`
-	Configured bool               `json:"configured"`
-	Status     string             `json:"status"`
-	Reason     string             `json:"reason,omitempty"`
-	Dimensions []CatalogDimension `json:"dimensions"`
-	Unquoted   []string           `json:"unquoted_dimensions"`
+	DefaultSeconds int                `json:"default_seconds,omitempty"`
+	Mode           string             `json:"mode"`
+	Configured     bool               `json:"configured"`
+	Status         string             `json:"status"`
+	Reason         string             `json:"reason,omitempty"`
+	Dimensions     []CatalogDimension `json:"dimensions"`
+	Unquoted       []string           `json:"unquoted_dimensions"`
 }
 
 func catalogPublicPrice(p CatalogPrice) CatalogPublicPrice {
@@ -208,5 +209,5 @@ func catalogPublishable(model CatalogModel) bool {
 	return model.Price.Status == "reference" || len([]rune(m.SpecialPricingNote)) >= 10
 }
 func catalogCanUse(model CatalogModel) bool {
-	return model.PublicationState == "PUBLISHED" && model.AvailabilityState == "CONFIGURED" && len(model.Endpoints) > 0 && (model.Freshness.State == "CURRENT" || model.Freshness.State == "STALE") && catalogPublishable(model)
+	return model.Price.Configured && model.PublicationState == "PUBLISHED" && model.AvailabilityState == "CONFIGURED" && len(model.Endpoints) > 0 && (model.Freshness.State == "CURRENT" || model.Freshness.State == "STALE") && catalogPublishable(model)
 }

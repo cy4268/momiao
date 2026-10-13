@@ -24,7 +24,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
+	"github.com/redis/go-redis/v9"
 )
 
 type catalogHTTPStore struct {
@@ -433,47 +435,96 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 	}
 }
 func TestCatalogHTTPPersonalPriceBoundaryAndWithdrawal(t *testing.T) {
-	id := "组织/a%2F'"
-	s := &catalogHTTPStore{}
-	nativeCalls := 0
-	withdraw := false
-	native := catalogRoundTrip(func(r *http.Request) (*http.Response, error) {
-		nativeCalls++
-		if r.URL.Path == "/api/user/self" {
-			return profileTransport().RoundTrip(r)
+	path := os.Getenv("MOMIAO_SESSION_DSN_FILE")
+	if path == "" {
+		t.Skip("requires the existing dev database and Redis")
+	}
+	dsn, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("read dev DSN")
+	}
+	store, err := platform.Open(t.Context(), strings.TrimSpace(string(dsn)))
+	if err != nil {
+		t.Fatal("open dev database")
+	}
+	defer store.Close()
+	options, err := readSessionRedisConfig(os.Getenv("MOMIAO_SESSION_REDIS_CONFIG_FILE"))
+	if err != nil {
+		t.Fatal("read dev session Redis config")
+	}
+	client := redis.NewClient(options)
+	defer client.Close()
+	auth := &identity.HTTP{Store: &identity.Store{Pool: store.Pool()}, Sessions: identity.Sessions{Redis: client}, Origin: "https://dev.momiao.win"}
+	var user int64
+	var model, hidden string
+	tx, err := store.Pool().Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	if err = tx.QueryRow(t.Context(), `SELECT id FROM identity.users WHERE status=1 AND deleted_at IS NULL AND group_name='default' ORDER BY id LIMIT 1 FOR UPDATE`).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	session, err := auth.Sessions.Create(t.Context(), user)
+	if err != nil {
+		t.Fatal("create isolated dev test session")
+	}
+	defer func() {
+		if err := auth.Sessions.Revoke(context.Background(), session); err != nil {
+			t.Error("revoke dev test session", err)
 		}
-		if r.Method != "GET" || r.URL.Scheme != "http" || r.URL.Host != "unix" || r.URL.Path != "/api/momiao/catalog/prices" || r.URL.Query().Get("model_id") != id || len(r.URL.Query()) != 1 {
-			t.Fatal("personal request broadened", r.URL)
+	}()
+	if err = tx.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Pool().QueryRow(t.Context(), `SELECT model_id FROM catalog.model_catalog_publication WHERE publication_state='PUBLISHED' AND EXISTS(SELECT 1 FROM relay.channels WHERE enabled AND model_id=ANY(models) AND 'default'=ANY(groups)) ORDER BY model_id LIMIT 1`).Scan(&model); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Pool().QueryRow(t.Context(), `SELECT model_id FROM catalog.model_catalog_publication WHERE publication_state<>'PUBLISHED' ORDER BY model_id LIMIT 1`).Scan(&hidden); err != nil {
+		t.Fatal(err)
+	}
+	for _, webDir := range []string{"", "/unused-catalog-web"} {
+		cfg := catalogHTTPConfig(store)
+		cfg.PublicOrigin, cfg.WebDir = auth.Origin, webDir
+		cfg.Session.Enabled = true
+		cfg.localIdentity = auth
+		h := newPortalHandler(cfg, catalogRoundTrip(func(*http.Request) (*http.Response, error) {
+			t.Error("local catalog reached native transport")
+			return nil, errors.New("unexpected native call")
+		}))
+		request := func(id, extra string, authenticated bool) *httptest.ResponseRecorder {
+			t.Helper()
+			r := httptest.NewRequest("GET", "/platform/v1/models/personal-price?"+url.Values{"model_id": []string{id}}.Encode()+extra, nil)
+			// Only the local cookie may select the user and hence the group.
+			r.Header.Set("New-Api-User", "999999")
+			r.Header.Set("X-Auth-Session", "forged-native-session")
+			if authenticated {
+				r.AddCookie(&http.Cookie{Name: identity.SessionCookieName, Value: session.Token})
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			return w
 		}
-		for k := range r.Header {
-			if k != "Authorization" && k != "New-Api-User" && k != "X-Auth-Session" && k != "Accept" {
-				t.Fatal("forwarded private header", k)
+		w := request(model, "", true)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"source":"local_price"`) {
+			t.Fatal("local personal price", w.Code, w.Body.String())
+		}
+		for _, secret := range []string{"group_multiplier", "native_catalog_visible", "forged-native-session", "api_key", "base_url"} {
+			if strings.Contains(w.Body.String(), secret) {
+				t.Fatal("personal price leaked internal data", secret)
 			}
 		}
-		if r.Header.Get("X-Auth-Session") != "fixture-session" || r.Header.Get("New-Api-User") != "9007199254740993" {
-			t.Fatal("unbound subject")
+		if w = request(model, "&group=工作", true); w.Code != 400 {
+			t.Fatal("group query override", w.Code)
 		}
-		if withdraw {
-			s.withdrawn = true
+		if w = request(hidden, "", true); w.Code != 404 {
+			t.Fatal("unpublished personal price", w.Code)
 		}
-		body, _ := json.Marshal(platform.NativePersonalCatalog{Success: true, Schema: platform.NativeCatalogSchema, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano), ModelID: id, Basis: "current_user_group_reference_not_token_selection", BillingAuthority: "native_settlement", Quotes: []platform.NativePersonalQuote{{Candidate: 1, Reason: "model_not_enabled_in_candidate"}}})
-		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(string(body)))}, nil
-	})
-	h := newCatalogHandler(catalogHTTPConfig(s), native)
-	for _, want := range []int{200, 404} {
-		w := httptest.NewRecorder()
-		r := announcementReq("GET", "/platform/v1/models/personal-price?model_id="+url.QueryEscape(id), "")
-		r.Header.Set("Cookie", "do-not-forward")
-		r.Header.Set("X-Private", "do-not-forward")
-		h.ServeHTTP(w, r)
-		if w.Code != want || strings.Contains(w.Body.String(), "group_multiplier") || strings.Contains(w.Body.String(), "do-not-forward") {
-			t.Fatal(w.Code, w.Body)
+		if w = request(model, "", false); w.Code != 401 {
+			t.Fatal("native headers authorized personal price", w.Code)
 		}
-		withdraw = true
 	}
-	if nativeCalls != 4 || s.publicCalls != 4 {
-		t.Fatal("missing native validation or withdrawal fence", nativeCalls, s.publicCalls)
-	}
+	t.Log("personal price uses existing local Redis session and account group; both routers 200/400/404/401; native transport unused; test session revoked")
 }
 func TestCatalogBrowserOpaqueRoutesAndExactAccessProxy(t *testing.T) {
 	dir := t.TempDir()
