@@ -80,6 +80,7 @@ type relayChannelInfo struct {
 type RelayRoute struct {
 	Identity RelayIdentity
 	Channel  RelayChannel
+	Price    json.RawMessage
 }
 
 func (s *Store) PrepareRelay(ctx context.Context, key, model string, excluded []int64) (RelayRoute, error) {
@@ -115,15 +116,11 @@ func prepareRelay(ctx context.Context, tx pgx.Tx, key, model string, excluded []
 	if err != nil {
 		return route, err
 	}
-	var priced bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM relay.prices p,relay.groups g WHERE p.model=$1 AND g.name=$2)`, model, identity.Group).Scan(&priced)
-	if err != nil {
-		return route, err
-	}
-	if !priced {
+	route.Price, err = readRelayPrice(ctx, tx, model, identity.Group)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return route, ErrRelayPrice
 	}
-	return route, nil
+	return route, err
 }
 
 func selectRelayChannel(ctx context.Context, tx pgx.Tx, group, model string, excluded []int64) (RelayChannel, error) {

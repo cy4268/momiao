@@ -64,6 +64,7 @@ func Handler(store *platform.Store) http.Handler {
 			return
 		}
 		identity := route.Identity
+		price := route.Price // One quote for this logical request, including retries.
 		settlement := platform.RelaySettlement{
 			RequestID: uuid.NewString(), UserID: identity.UserID, KeyID: identity.KeyID, KeyName: identity.KeyName,
 			Purpose: identity.Purpose, Group: identity.Group, Model: request.Model, RequestKind: string(format),
@@ -80,7 +81,7 @@ func Handler(store *platform.Store) http.Handler {
 			settlement.CompletedAt = time.Now().UTC()
 			settlement.DurationMS = settlement.CompletedAt.Sub(settlement.RequestedAt).Milliseconds()
 			if settlement.FinalStatus == "SUCCESS" || usageReported {
-				settlement.CostUnits, err = store.RelayCost(billing, request.Model, settlement.Group, settlement.Usage, request.Duration)
+				settlement.CostUnits, err = store.RelayCost(billing, price, settlement.Usage, request.Duration)
 				if err != nil {
 					slog.Error("relay price failed", "request_id", settlement.RequestID, "channel_id", settlement.ChannelID)
 					return
@@ -97,7 +98,7 @@ func Handler(store *platform.Store) http.Handler {
 		for attempt := 1; attempt <= 3; attempt++ {
 			attemptStarted := time.Now().UTC()
 			channel := route.Channel
-			settlement.ChannelID, settlement.Group = channel.ID, route.Identity.Group
+			settlement.ChannelID = channel.ID
 			used = append(used, channel.ID)
 			upstream, upstreamFormat, meta, err := upstreamRequest(ctx, r, body, format, request.Model, request.Stream, channel)
 			if err != nil {

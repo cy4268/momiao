@@ -2,7 +2,7 @@
 
 ## Current source
 
-The current source includes local authentication adapted from official NewAPI, Redis sessions, the model portal, wallet and game services, operations UI, and illustrated homepage. The old Native/BFF authentication bridge, Native source/adapter/deployment packages and legacy SUPER_ADMIN bootstrap tool are removed. Official NewAPI attribution is retained in [ATTRIBUTION.md](ATTRIBUTION.md). The one-time importer and historical schema remain for migration; the integrated dev release and end-to-end acceptance are still pending. Runtime configuration and operational records are deliberately not stored here. Earlier feature notes below describe historical milestones, not the current deployment status or a claim that every acceptance case passed.
+The current source includes local authentication adapted from official NewAPI, Redis sessions, the model portal, wallet and game services, operations UI, and illustrated homepage. The old Native/BFF authentication bridge, Native source/adapter/deployment packages and legacy SUPER_ADMIN bootstrap tool are removed. Official NewAPI attribution is retained in [ATTRIBUTION.md](ATTRIBUTION.md). The one-time importer and historical schema remain for migration; the restricted dev release is deployed, while full acceptance and production cutover remain pending. Runtime configuration and operational records are deliberately not stored here. Earlier feature notes below describe historical milestones, not the current deployment status or a claim that every acceptance case passed.
 
 Build the Platform with `go build ./cmd/momiao`. In `web`, install from `package-lock.json` and run `npm run build`; login uses the local Cookie/Redis entry point, not a Native credential bridge. See [deployment configuration](docs/deployment.md#local-session-startup) for the remaining session settings. No compiled binaries, images, data or credentials are included. Public illustrations under `web/public` are application assets, not runtime records.
 
@@ -17,15 +17,15 @@ The artwork manifest uses relative, content-hashed keys; host matching files und
 
 ## 当前功能
 
-- **登录**：原生密码与二步验证流程、刷新后续期、退出登录；访问令牌只保存在内存中。
-- **指挥台**：真实账户身份、原生可用/已用额度、请求数、密钥数量及最近个人记录。
+- **登录**：本地密码、二步验证与 Discord 登录；HttpOnly Cookie 对应 Redis 会话，支持续期与退出。
+- **指挥台**：本地账户身份、Reserve、请求数、密钥数量及最近个人记录。
 - **密钥管理**：分页、创建、明确查看/复制、启停、确认删除；列表默认脱敏，离开弹窗清除页面中的明文。
 - **调用记录**：个人记录分页、类型/模型/日期筛选，只展示调用元数据。
 - **模型**：按已发布家族展示模型，支持搜索、详情中选择具体模型 ID 与 API 接入；不虚构价格或能力参数。
-- **渠道管理**：管理员查看与启停；超级管理员新建、编辑基本 OpenAI 兼容渠道。已有密钥和未编辑的高级设置保持不变。
+- **渠道管理**：本地管理员直接新建、编辑和测试渠道及分组，保存与审计同事务；已有密钥留空不修改。
 - **交付层**：React + TypeScript 界面；单个 Go 服务提供 SPA、固定 Unix Socket 上游代理及存活探针。
 
-原生额度与 Reserve 分开记账，按显式单位换算。每日签到、本地兑换以及 Reserve → 原生可用额度的单向划转已接入；反向划转、自动补充、正式游戏结算与旧数据迁移尚未上线，V1 不做额度购买商城。旧服务与旧数据独立保留，迁移不再阻塞改造。见 [门户优先决策](docs/decisions/0002-usable-portal-first.md) 和 [模型闭环范围](docs/decisions/0003-model-workspace.md)。
+模型调用直接扣 Reserve；签到、本地筹码兑换与服务端游戏结算保留。Native 额度划转和 refill 已删除。开发站已完成旧数据导入，生产旧服务与数据保留用于最终切换后的回退。见 [门户优先决策](docs/decisions/0002-usable-portal-first.md) 和 [模型闭环范围](docs/decisions/0003-model-workspace.md)。
 
 ## 平台钱包一期
 
@@ -66,29 +66,17 @@ npm run build
 
 ## 运行
 
-### 去 NewAPI：本地身份迁移（开发中，尚未部署）
+### 去 NewAPI：开发站已部署，生产待验收后切换
 
-`internal/identity` 复用官方 `QuantumNous/new-api@f1164142` 的 bcrypt、TOTP/备用码和 Discord OAuth 逻辑，仅适配 pgx 与显式配置，不使用 VPS 的定制认证补丁。密码登录、五分钟 2FA 挑战、CSRF、退出与本地请求身份已接入源码中的主入口；复用平台 PG 连接池和现有 Redis，不再为这些请求签发 native 凭据。已用独立开发库的真实账号验证密码主流程。新增迁移 0048 和 `go build ./cmd/momiao-import-native`；默认 `-stage identity` 只导入用户与 2FA，保留 ID/密码哈希/备用码状态；Key 由独立 `-stage keys` 导入，分组/渠道/日志由 `-stage workspace` 导入；最终的 `-stage quota` 在旧服务停止并排空后按 1:1 units 合并剩余额度，复用原钱包账本与稳定业务号；不迁移旧会话。dev 目前只完成事务回退演练，尚未实际入账。使用方式见 [部署说明](docs/deployment.md#local-identity-migration-in-progress)。源码已接好本地 Discord 登录/注册、账号密码/2FA、前端与 self/Reserve 读取；网站镜像仍未切换，History、Bot、Poker 与各 Ops 模块已改为本地身份；Native 源码与启动依赖已清理，外部 Bot 接入及开发站整体验收仍待完成。
+`internal/identity` 复用官方 `QuantumNous/new-api@f1164142` 的 bcrypt、TOTP/备用码和 Discord OAuth，只适配本地 PG 与 Redis，不使用 VPS 定制登录补丁。History、Bot 身份查询、Poker 和运营台均使用本地身份；旧 Native 源码、桥接和启动依赖已移除。
 
-Discord 配置使用 `MOMIAO_DISCORD_CONFIG_FILE` 指向私有 JSON，包含 `client_id`、`client_secret`；开启 `MOMIAO_ADMISSION_ENABLED=true` 的注册还需要 `guild_id`、`role_id`、`policy_version`。回调地址固定为 `MOMIAO_PUBLIC_ORIGIN` + `/oauth/discord`。新用户验证服务器身份组后，在同一事务创建账号和本地注册回执，复用赠额 worker；已有绑定账号直接登录，不重复发赠额。0049 将回执读取迁入本地，不再读取 `MOMIAO_REGISTRATION_READER_KEY_FILE`。 Bot 也复用平台连接池查询 `identity.users`，不再读取 `MOMIAO_BOT_GAMES_NATIVE_DSN_FILE`；只保留 socket、token、quote key 三项私有监听配置。History 走同一本地 Cookie 鉴权，专用记录读写角色保持不变。Poker 复用现有连接票据，签发、接入和后续命令读取同一 Redis 本地会话与本地用户状态；删除 `MOMIAO_POKER_SESSION_READER_KEY_FILE`。独立 Poker 进程新增 `MOMIAO_POKER_SESSION_REDIS_CONFIG_FILE`，使用同一 Redis 的只读会话账号，配置与授权见部署说明。
+一次性导入器按 `identity` → `keys` → `workspace` → `prices` → `quota` 执行，各阶段独立事务，不是跨阶段事务。前四阶段要求目标表为空；最终额度按 1:1 units 合并到 Reserve，旧会话不迁移。开发站已完成导入与镜像切换，勿重跑。冻结、迁移、授权和运行配置见 [部署说明](docs/deployment.md#local-identity-migration-in-progress)。
 
-运营维护页已改为本地管理员（role ≥ 10）的开关、可选提示语和范围直接保存；每次保存与一行 `ops.audit_log` 同事务提交。发布前应用 0050 及 `deploy/sql/runtime-grants-0050-local-ops.psql`。维护不再使用预约、预览或 fresh，已有业务准入锁继续复用。其他运营页面仍在迁移，整套开发验收前不切生产。 排行榜运营也已使用本地角色：直接创建重建任务、比较影子快照并确认发布；发布前应用 0059，将操作人外键改接本地用户，保留原聚合与发布历史。
+Discord 通过 `MOMIAO_DISCORD_CONFIG_FILE` 提供私有 `client_id`、`client_secret`；注册还需 `guild_id`、`role_id`、`policy_version` 和 `MOMIAO_ADMISSION_ENABLED=true`。回调为 `MOMIAO_PUBLIC_ORIGIN` + `/oauth/discord`。新注册验证身份组后原子创建账号与准入回执；已有绑定账号不重复发赠额。独立 Poker 通过 `MOMIAO_POKER_SESSION_REDIS_CONFIG_FILE` 只读同一 Redis 会话。
 
-用户运营页的 Master 资料已接本地角色与直接保存：设置改名要求或强制改名，不改变登录显示名和用户改名冷却。复用已有 Master 表、昵称规则和审计，无新迁移或授权；旧 Master Ops 绑定已删除，整站仍待开发验收后发布。
+运营台按本地角色直接保存，写入与审计同事务；删除、封禁、扣余额等操作有确认。模型中转使用本地 Key/分组/价格与官方协议适配，结束后扣 Reserve、更新 Key 用量、日志和归因；不预扣，余额不足扣到零。旧预览/fresh/操作回执与 Native 划转/refill 均已删除，历史记录保留。
 
-统一资产现只汇总本地 Reserve、可用筹码、Poker 桌面/底池、单人游戏在途和轮盘托管，救济与收益上限复用这套读取；本地兑换仅在 Reserve 与筹码间转移，不再向 Native 额度借支。经济运营页显示六项资产并直接调整可用筹码，复用原用户调账与审计。发布前应用 0064（新救济记录的历史 Native 时间戳允许为空），独立 Poker 无须 `MOMIAO_ECONOMY_READ_SOCKET`。
-
-赌怪运营与批处理现使用本地 role >= 10，不依赖旧 Ops 预览、二次验证、epoch 或操作回执。0065 将活动执行人关联到 identity.users；历史资格、勋章和重置记录保持不可变，页面提供全局分页、时间/账户/资格/状态筛选与详情。重置仍单独确认，维护与游戏/资金在途检查保留；已受理的模型请求需由操作人先确认排空（没有新增自动请求计数器）。历史 Native 总额只供原资格展示，恢复只核对六项本地资产，不重算历史或强行接续变化的检查点。部署不会重新发奖或重置已完成活动；本批未发布网站，其余 Native 启动清理仍待完成。
-
-操作日志 `/ops/audit` 使用本地管理员权限，统一显示直接保存日志与保留的历史审计，支持分页、时间、操作人和对象筛选；详情在弹窗查看。发布前应用 0051 和 `deploy/sql/runtime-grants-0051-ops-audit.psql`。`/ops/operations` 列表入口合并到此页；旧写流程所需的单条回执暂随未迁移页面保留。
-
-API Key 管理已使用本地登录及 `relay.api_keys`，保留 `/api/token/` 的列表、创建、修改、查看与删除接口。用途随创建一起保存，修改用途不再经过 native 同步。发布前应用 0052 和 `deploy/sql/runtime-grants-0052-local-api-keys.psql`，再用 `momiao-import-native -stage keys` 单次导入未删除的旧 key；已导入的身份和余额不动。此阶段尚未接通本地模型中转与 Reserve 计费，须联合完成后发布。
-
-调用日志、用户分组和可用模型接口已直接读取本地 `relay.logs/groups/channels`，self 的用量与请求数也由本地日志汇总；分组只返回账号所属组。发布前应用 0053 和 `deploy/sql/runtime-grants-0053-local-relay-workspace.psql`，用 `momiao-import-native -stage workspace` 向空的三张表单次导入全部日志元数据、分组和渠道配置。独立 dev 已导入 4 组、17 渠道、29279 条日志，保留模型映射、请求/头覆盖和多 Key 配置；不复制日志正文或 IP，不合并余额，不更换运行镜像。`/v1` 协议转发仍待接入。
-
-定价与 Reserve 结算底层已接好：应用 0054 和 `deploy/sql/runtime-grants-0054-local-relay-billing.psql` 后，`momiao-import-native -stage prices` 单次把旧倍率转成 `relay.prices` 的最终单价。dev 已导入297条，其中32条按次、1条按视频时长；没有有效定价的模型不填免费价格。结算复用钱包事务，扣款不超过现有 Reserve，完整费用记入日志与Key用量，实际扣款写入归因；RP记录和排行榜同时读取历史与本地来源。协议适配和 `/v1` 路由尚未接线，本轮不发布网站镜像，也不进行余额合并。
-
-本地中转前置现已提供 `PrepareRelay`：检查 Key/用户状态、期限、额度、模型限制、Reserve 与维护，再按所属组选择最高优先级渠道，同层按权重抽取；保留官方多 Key 状态/轮询语义、模型映射及覆盖配置。`GET /v1/models` 在 API-only 和 Web 路由中都只读本地数据，不接受浏览器身份或请求中的分组覆盖。小站暂逐次查库，不加 Key 缓存，停用立即生效。模型发现不扣费、不要求余额；实际转发必须先通过准入和定价检查。没有新迁移或重复导入；开发站仍运行旧镜像，待官方 relaykit 与扣费链路联合接通后发布。
+开发验收尚待 2FA 登录、新 Discord 注册、改密/封禁会话失效、Poker 完整一局及可独立接入 dev 的 Bot。已通过的密码/Discord老账户登录退出、中转扣费、Key/Ops、排行榜、骰子/21点不重复执行。生产尚未切换，原 Native 容器和数据库保留用于回退。
 
 **只运行存活探针**：不设置额外环境变量，执行构建出的 `momiao`（Windows 为 `momiao.exe`），默认监听 `127.0.0.1:8080`。`GET/HEAD /healthz` 返回 `{"status":"ok"}`；无后端配置时业务接口未就绪。存活不代表上游或业务就绪。
 
@@ -104,7 +92,7 @@ MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 ./momiao
 ```
 
-打开 `/login`，HTTPS 入口使用本地 `__Host-chaldea_session` Cookie 与准确的 Public Origin。也可用 `MOMIAO_LISTEN_SOCKET` 替换 TCP 监听，供支持 Unix Socket 的入口直接连接，见 [部署说明](docs/deployment.md)。没有随仓库提供的账户、默认密码或数据库。门户已删除 Native Socket、身份投影与就绪探测；其余 Native 源码/工具与部署文件仍在清理，完整开发验收前不切生产。
+打开 `/login`，HTTPS 入口使用本地 `__Host-chaldea_session` Cookie 与准确的 Public Origin。也可用 `MOMIAO_LISTEN_SOCKET` 替换 TCP 监听，供支持 Unix Socket 的入口直接连接，见 [部署说明](docs/deployment.md)。没有随仓库提供的账户、默认密码或数据库。门户已删除 Native Socket、身份投影与就绪探测；旧 Native 服务源码/工具与部署文件已清理，完整开发验收前不切生产。
 
 | 环境变量 | 缺省 / 含义 |
 |---|---|
@@ -123,9 +111,9 @@ MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 
 SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/admin/channels`、`/wallet`、`/master-profile`、`/games/dice`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
 
-`GET /v1/models` 使用本地 Key 认证和分组/模型限制，`/v1/*` 由已接线的本地中转处理。未注册的 `/api/` 路径直接返回 404，不再兜底代理到 Native；旧登录、渠道等路径没有兼容代理。门户文本测试与 `/pg/chat/completions` 转发已移除。历史 [原生接口契约](contracts/native-api.md) 不代表当前认证入口。
+`GET /v1/models` 使用本地 Key 认证和分组/模型限制，`/v1/*` 由已接线的本地中转处理。未注册的 `/api/` 路径直接返回 404，不再兜底代理到 Native；旧登录、渠道等路径没有兼容代理。门户文本测试与 `/pg/chat/completions` 转发已移除。旧原生接口契约随已移除的服务一起删除。
 
-密码、2FA、Discord 登录及注册准入使用本地身份模块；来源固定为官方 f1164142。开发站真实浏览器、第三方 OAuth、在途游戏等验收仍待完成，源码测试通过不等于网站已发布。
+密码、2FA、Discord 登录及注册准入使用本地身份模块；来源固定为官方 f1164142。开发站已部署并完成部分实际验收；待验收项见运行节，源码测试不替代真实流程验收。
 
 ## 设计与贡献
 
@@ -138,7 +126,7 @@ SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/log
 ### Daily rewards and local exchange
 The wallet page now supports an explicit daily 500 Reserve API Credit claim (Asia/Shanghai day), exact 1:1 Reserve/chips exchange, receipts and durable-key retry lookup. Native Active quota is unchanged. See [wallet action contract](contracts/wallet-actions-api.md). Initial grants, hourly/relief rewards, credit purchases and games are not enabled by this slice.
 
-运营台已删除通用预览/执行/二次验证管道、访问控制页和操作回执页；所有模块及账户菜单的入口使用本地角色。历史审计和旧任务行保留只读，健康快照 worker 独立启动。认证启动已删除旧 Native/BFF 会话、独立会话数据库和 Native 凭据配置，直接复用平台连接池与 Redis；未注册的 `/api/` 路径返回 404。RP 记录与榜单直接读取本地归因，不再启动 Native 同步或检查其水位；部署前应用 0066，历史重复逻辑请求只计一次，原始行保留。quota/refill 启动与配置已删除，钱包只按本地余额兑换；其余 Native 投影/helper、transport/readiness 和部署文件仍待清理。0066 仅应用独立 dev，本轮无新增迁移或镜像发布。
+运营台已删除通用预览/执行/二次验证管道、访问控制页和操作回执页；所有模块及账户菜单的入口使用本地角色。历史审计和旧任务行保留只读，健康快照 worker 独立启动。认证启动已删除旧 Native/BFF 会话、独立会话数据库和 Native 凭据配置，直接复用平台连接池与 Redis；未注册的 `/api/` 路径返回 404。RP 记录与榜单直接读取本地归因，不再启动 Native 同步或检查其水位；部署前应用 0066，历史重复逻辑请求只计一次，原始行保留。quota/refill 启动与配置已删除，钱包只按本地余额兑换；旧 Native 投影/helper、transport/readiness 和部署文件已清理；开发站已使用本地镜像，生产保持原状。
 
 ### Local-only runtime image
 

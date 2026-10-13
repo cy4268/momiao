@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -18,14 +19,25 @@ type RelayUsage struct{ Prompt, Completion, CacheRead, CacheWrite, CacheWrite1h 
 // Price SQL follows official text_quota.go's disjoint input/cache accounting,
 // with final unit prices and PostgreSQL numeric instead of float arithmetic.
 const relayCostSQL = `SELECT CASE WHEN amount>0 THEN greatest(1,round(amount))::bigint ELSE 0 END FROM (
- SELECT coalesce(p.per_request,p.per_second*coalesce($8::bigint,p.default_seconds),
- (greatest($3::numeric-$5::numeric-$6::numeric,0)*p.input+$4::numeric*p.output+$5::numeric*p.cache_read+
- greatest($6::numeric-$7::numeric,0)*p.cache_write+$7::numeric*p.cache_write_1h)/1000000)*g.ratio AS amount
- FROM relay.prices p CROSS JOIN relay.groups g WHERE p.model=$1 AND g.name=$2) quote`
+ SELECT coalesce(p.per_request,p.per_second*coalesce($7::bigint,p.default_seconds),
+ (greatest($2::numeric-$4::numeric-$5::numeric,0)*p.input+$3::numeric*p.output+$4::numeric*p.cache_read+
+ greatest($5::numeric-$6::numeric,0)*p.cache_write+$6::numeric*p.cache_write_1h)/1000000)*p.ratio AS amount
+ FROM jsonb_to_record($1::jsonb) AS p(input numeric,output numeric,cache_read numeric,cache_write numeric,
+ cache_write_1h numeric,per_request numeric,per_second numeric,default_seconds bigint,ratio numeric)) quote`
 
-func (s *Store) RelayCost(ctx context.Context, model, group string, usage RelayUsage, seconds *int64) (int64, error) {
+// Keep PostgreSQL numeric values exact without converting the accepted quote to floats.
+func readRelayPrice(ctx context.Context, db interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, model, group string) (json.RawMessage, error) {
+	var price json.RawMessage
+	err := db.QueryRow(ctx, `SELECT to_jsonb(p)||jsonb_build_object('ratio',g.ratio)
+ FROM relay.prices p CROSS JOIN relay.groups g WHERE p.model=$1 AND g.name=$2`, model, group).Scan(&price)
+	return price, err
+}
+
+func (s *Store) RelayCost(ctx context.Context, price json.RawMessage, usage RelayUsage, seconds *int64) (int64, error) {
 	var cost int64
-	err := s.pool.QueryRow(ctx, relayCostSQL, model, group, usage.Prompt, usage.Completion, usage.CacheRead, usage.CacheWrite, usage.CacheWrite1h, seconds).Scan(&cost)
+	err := s.pool.QueryRow(ctx, relayCostSQL, price, usage.Prompt, usage.Completion, usage.CacheRead, usage.CacheWrite, usage.CacheWrite1h, seconds).Scan(&cost)
 	return cost, err
 }
 

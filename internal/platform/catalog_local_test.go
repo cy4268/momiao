@@ -29,6 +29,14 @@ func TestLocalCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(context.Background())
+	price := func(model string) json.RawMessage {
+		t.Helper()
+		value, err := readRelayPrice(ctx, tx, model, "default")
+		if err != nil {
+			t.Fatal("read current price", err)
+		}
+		return value
+	}
 	if _, err = tx.Exec(ctx, `UPDATE relay.prices SET input=250000,output=0 WHERE model='gpt-5.6-sol'`); err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +69,7 @@ func TestLocalCatalog(t *testing.T) {
 		t.Fatal("local channel configuration", m.AvailabilityState, len(m.Endpoints), m.Freshness.State)
 	}
 	var cost int64
-	if err = tx.QueryRow(ctx, relayCostSQL, "gpt-5.6-sol", "default", 1000000, 0, 0, 0, 0, nil).Scan(&cost); err != nil || cost != UnitsPerCredit {
+	if err = tx.QueryRow(ctx, relayCostSQL, price("gpt-5.6-sol"), 1000000, 0, 0, 0, 0, nil).Scan(&cost); err != nil || cost != UnitsPerCredit {
 		t.Fatal("display/settlement units diverged", cost, err)
 	}
 	image := read("grok-imagine-image-2.0")
@@ -135,7 +143,7 @@ func TestLocalCatalog(t *testing.T) {
 	if saved.Item.PublicationState != "PUBLISHED" || saved.Item.MetadataVersion != 1 || !saved.Item.Recommended || saved.Item.SortOrder != 7 || CompareCatalogDecimal(saved.Price.Input, "0.5") != 0 || CompareCatalogDecimal(amount(saved.Item, "input"), "1") != 0 {
 		t.Fatal("direct save did not preserve base/group price", saved)
 	}
-	if err = tx.QueryRow(ctx, relayCostSQL, unseen, "default", 1000000, 0, 0, 0, 0, nil).Scan(&cost); err != nil || cost != 500000 {
+	if err = tx.QueryRow(ctx, relayCostSQL, price(unseen), 1000000, 0, 0, 0, 0, nil).Scan(&cost); err != nil || cost != 500000 {
 		t.Fatal("new price not used by next calculation", cost, err)
 	}
 	if _, err = loadCatalogModel(ctx, tx, unseen, true); err != nil {
@@ -152,7 +160,7 @@ func TestLocalCatalog(t *testing.T) {
 	if CompareCatalogDecimal(saved.Price.Input, v.Price.Input) != 0 || saved.Item.Price.Mode != "per_request" {
 		t.Fatal("exact tiny price/request mode lost")
 	}
-	if err = tx.QueryRow(ctx, relayCostSQL, unseen, "default", 1, 0, 0, 0, 0, nil).Scan(&cost); err != nil || cost != 250000 {
+	if err = tx.QueryRow(ctx, relayCostSQL, price(unseen), 1, 0, 0, 0, 0, nil).Scan(&cost); err != nil || cost != 250000 {
 		t.Fatal("request price not used", cost, err)
 	}
 	v.Price.PerRequest = nil
@@ -166,7 +174,7 @@ func TestLocalCatalog(t *testing.T) {
 	if saved.Item.Price.Mode != "per_second" || saved.Item.Price.DefaultSeconds != 8 {
 		t.Fatal("duration settings lost")
 	}
-	if err = tx.QueryRow(ctx, relayCostSQL, unseen, "default", 1, 0, 0, 0, 0, nil).Scan(&cost); err != nil || cost != 800000 {
+	if err = tx.QueryRow(ctx, relayCostSQL, price(unseen), 1, 0, 0, 0, 0, nil).Scan(&cost); err != nil || cost != 800000 {
 		t.Fatal("duration price not used", cost, err)
 	}
 	var history int

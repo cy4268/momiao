@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -26,20 +27,28 @@ func TestLocalRelayBilling(t *testing.T) {
 	}
 	defer s.Close()
 	ctx := t.Context()
+	price := func(model string) json.RawMessage {
+		t.Helper()
+		value, err := readRelayPrice(ctx, s.pool, model, "default")
+		if err != nil {
+			t.Fatal("read current price", err)
+		}
+		return value
+	}
 	usage := RelayUsage{Prompt: 1000, Completion: 100, CacheRead: 200, CacheWrite: 100, CacheWrite1h: 40}
-	cost, err := s.RelayCost(ctx, "gpt-5.6-sol", "default", usage, nil)
+	cost, err := s.RelayCost(ctx, price("gpt-5.6-sol"), usage, nil)
 	if err != nil || cost != 2750 {
 		t.Fatal("final token/cache prices", cost, err)
 	}
-	image, err := s.RelayCost(ctx, "grok-imagine-image-2.0", "default", RelayUsage{}, nil)
+	image, err := s.RelayCost(ctx, price("grok-imagine-image-2.0"), RelayUsage{}, nil)
 	if err != nil || image != 20000 {
 		t.Fatal("per-request price", image, err)
 	}
-	video, err := s.RelayCost(ctx, "grok-imagine-video", "default", RelayUsage{}, nil)
+	video, err := s.RelayCost(ctx, price("grok-imagine-video"), RelayUsage{}, nil)
 	if err != nil || video != 280000 {
 		t.Fatal("duration price/default", video, err)
 	}
-	zero, err := s.RelayCost(ctx, "gpt-5.6-sol", "default", RelayUsage{}, nil)
+	zero, err := s.RelayCost(ctx, price("gpt-5.6-sol"), RelayUsage{}, nil)
 	if err != nil || zero != 0 {
 		t.Fatal("missing usage estimated tokens", zero, err)
 	}
@@ -64,6 +73,30 @@ func TestLocalRelayBilling(t *testing.T) {
 	route, err := prepareRelay(ctx, tx, key, "gpt-5.6-sol", nil)
 	if err != nil || route.Identity.UserID != input.UserID || route.Identity.KeyID != input.KeyID || route.Channel.ID != 20 {
 		t.Fatal("local relay admission/routing", err)
+	}
+	// An accepted request keeps its price even when Ops renames/reprices its group.
+	priceEdits, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = priceEdits.Exec(ctx, `UPDATE relay.groups SET name='relay-inflight-review',ratio=ratio*3 WHERE name='default';
+ UPDATE relay.prices SET input=input*2,output=output*2,cache_read=cache_read*2,cache_write=cache_write*2,cache_write_1h=cache_write_1h*2 WHERE model='gpt-5.6-sol'`); err != nil {
+		t.Fatal(err)
+	}
+	var inflight int64
+	if err = priceEdits.QueryRow(ctx, relayCostSQL, route.Price, usage.Prompt, usage.Completion, usage.CacheRead, usage.CacheWrite, usage.CacheWrite1h, nil).Scan(&inflight); err != nil || inflight != cost {
+		t.Fatal("accepted request lost its original price after group rename", inflight, err)
+	}
+	nextPrice, err := readRelayPrice(ctx, priceEdits, "gpt-5.6-sol", "relay-inflight-review")
+	if err != nil {
+		t.Fatal("new request price", err)
+	}
+	var nextCost int64
+	if err = priceEdits.QueryRow(ctx, relayCostSQL, nextPrice, usage.Prompt, usage.Completion, usage.CacheRead, usage.CacheWrite, usage.CacheWrite1h, nil).Scan(&nextCost); err != nil || nextCost != cost*6 {
+		t.Fatal("new request missed the new price/ratio", nextCost, err)
+	}
+	if err = priceEdits.Rollback(ctx); err != nil {
+		t.Fatal(err)
 	}
 	if _, err = prepareRelay(ctx, tx, key, "gpt-5.6-sol", []int64{20}); !errors.Is(err, ErrRelayChannel) {
 		t.Fatal("retry reused excluded channel", err)
