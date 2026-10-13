@@ -182,6 +182,11 @@ func (h *HTTP) serve(w http.ResponseWriter, r *http.Request) error {
 	if err := h.checkWrite(r, value); err != nil {
 		return err
 	}
+	if r.URL.Path == "/api/v1/auth/password/login" || r.URL.Path == "/api/v1/auth/password/2fa" {
+		if err := h.limitPasswordLogin(w, r); err != nil {
+			return err
+		}
+	}
 	switch r.URL.Path {
 	case "/api/v1/account/password/change", "/api/v1/account/password/set", "/api/v1/account/password/reset", "/api/v1/account/2fa/setup", "/api/v1/account/2fa/enable", "/api/v1/account/2fa/disable":
 		return h.accountWrite(w, r, value)

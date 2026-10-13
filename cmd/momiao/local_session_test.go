@@ -135,3 +135,77 @@ func TestLocalSessionLifecycle(t *testing.T) {
 		})
 	}
 }
+
+func TestLocalPasswordRateLimit(t *testing.T) {
+	path := os.Getenv("MOMIAO_SESSION_REDIS_CONFIG_FILE")
+	if path == "" {
+		t.Skip("requires the existing dev session Redis configuration")
+	}
+	client, err := openSessionRedis(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	sessions := identity.Sessions{Redis: client}
+	browser, err := sessions.CreateAnonymous(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sessions.Revoke(context.Background(), browser)
+	const prefix = "chaldea:session:rate:CT:"
+	const firstIP, secondIP, directIP = "2001:db8::241", "2001:db8::242", "192.0.2.243"
+	defer client.Del(context.Background(), prefix+firstIP, prefix+secondIP, prefix+directIP)
+	h := identity.HTTP{Sessions: sessions, Origin: "https://dev.momiao.win"}
+	attempt := func(path, peer, forwarded string) *httptest.ResponseRecorder {
+		t.Helper()
+		// Malformed input reaches the credential boundary without touching an account.
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{`))
+		r.RemoteAddr = peer
+		r.Header.Set("Origin", h.Origin)
+		r.Header.Set("X-CSRF-Token", browser.CSRFToken)
+		r.Header.Set("CF-Connecting-IP", forwarded)
+		r.Header.Set("X-Forwarded-For", forwarded)
+		r.AddCookie(&http.Cookie{Name: identity.SessionCookieName, Value: browser.Token})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	const login, factor = "/api/v1/auth/password/login", "/api/v1/auth/password/2fa"
+	for i := 0; i < 20; i++ {
+		if w := attempt(login, "127.0.0.1:1234", firstIP); w.Code != 400 {
+			t.Fatal("attempt rejected before the official limit", i, w.Code)
+		}
+	}
+	w := attempt(login, "127.0.0.1:1234", firstIP)
+	if w.Code != 429 {
+		t.Fatal("21st password attempt must be limited before credential processing", w.Code)
+	}
+	retry, err := strconv.Atoi(w.Header().Get("Retry-After"))
+	if err != nil || retry < 1190 || retry > 1200 {
+		t.Fatal("official 20-minute window/Retry-After", retry, err)
+	}
+	if w := attempt(factor, "127.0.0.1:1234", firstIP); w.Code != 429 {
+		t.Fatal("password and factor endpoints must share the critical limit", w.Code)
+	}
+	if w := attempt(login, "127.0.0.1:1234", secondIP); w.Code != 400 {
+		t.Fatal("trusted edge visitors share a loopback bucket", w.Code)
+	}
+	if err = client.PExpire(t.Context(), prefix+firstIP, time.Millisecond).Err(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if w := attempt(login, "127.0.0.1:1234", firstIP); w.Code != 400 {
+		t.Fatal("expired window did not allow the next attempt", w.Code)
+	}
+	for i := 0; i < 21; i++ {
+		w := attempt(login, directIP+":1234", "198.51.100."+strconv.Itoa(i+1))
+		want := 400
+		if i == 20 {
+			want = 429
+		}
+		if w.Code != want {
+			t.Fatal("untrusted forwarded headers changed the source bucket", i, w.Code)
+		}
+	}
+	t.Log("OFFICIAL_LOGIN_LIMIT_20_PER_1200S_PROXY_IP_AND_EXPIRY_VERIFIED")
+}
