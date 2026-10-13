@@ -33,14 +33,12 @@ type CatalogOpsFilter struct {
 	Offset, Limit int
 }
 type CatalogOpsPage struct {
-	Principal  AnnouncementPrincipal `json:"principal"`
-	Items      []CatalogModel        `json:"items"`
-	Total      int                   `json:"total"`
-	Offset     int                   `json:"offset"`
-	Limit      int                   `json:"limit"`
-	Sync       CatalogSyncStatus     `json:"sync"`
-	Freshness  CatalogFreshness      `json:"freshness"`
-	Vocabulary CatalogVocabulary     `json:"vocabulary"`
+	Items      []CatalogModel    `json:"items"`
+	Total      int               `json:"total"`
+	Offset     int               `json:"offset"`
+	Limit      int               `json:"limit"`
+	Freshness  CatalogFreshness  `json:"freshness"`
+	Vocabulary CatalogVocabulary `json:"vocabulary"`
 }
 
 func catalogSearchValid(search string) bool {
@@ -111,7 +109,7 @@ const catalogPublicSelection = catalogModelTables + `
  AND ($11::text IS NULL OR price.amount>=$11::numeric)
  AND ($12::text IS NULL OR price.amount<=$12::numeric) `
 
-func (s *Store) PublicCatalog(ctx context.Context, filter CatalogFilter, _ CatalogPolicy) (CatalogPage, error) {
+func (s *Store) PublicCatalog(ctx context.Context, filter CatalogFilter) (CatalogPage, error) {
 	page := CatalogPage{Items: []CatalogModel{}}
 	if !validateCatalogFilter(&filter) {
 		return page, ErrCatalogInvalid
@@ -151,7 +149,7 @@ func (s *Store) PublicCatalog(ctx context.Context, filter CatalogFilter, _ Catal
 		return page, err
 	}
 	for rows.Next() {
-		model, e := scanCatalogModel(rows, page.Freshness)
+		model, e := scanCatalogModel(rows)
 		if e != nil {
 			rows.Close()
 			return page, e
@@ -171,7 +169,7 @@ func (s *Store) PublicCatalog(ctx context.Context, filter CatalogFilter, _ Catal
 	}
 	return page, tx.Commit(ctx)
 }
-func (s *Store) OpsCatalog(ctx context.Context, userID int64, filter CatalogOpsFilter, _ CatalogPolicy) (CatalogOpsPage, error) {
+func (s *Store) OpsCatalog(ctx context.Context, userID int64, filter CatalogOpsFilter) (CatalogOpsPage, error) {
 	page := CatalogOpsPage{Items: []CatalogModel{}}
 	if filter.Limit == 0 {
 		filter.Limit = 50
@@ -192,12 +190,7 @@ func (s *Store) OpsCatalog(ctx context.Context, userID int64, filter CatalogOpsF
 		return page, err
 	}
 	defer rollback(tx)
-	page.Principal, err = catalogAuthority(ctx, tx, userID, false)
-	if err != nil {
-		return page, err
-	}
-	page.Sync, err = catalogSyncStatus(ctx, tx)
-	if err != nil {
+	if err = catalogAdmin(ctx, tx, userID, false); err != nil {
 		return page, err
 	}
 	page.Freshness = localCatalogFreshness()
@@ -205,12 +198,12 @@ func (s *Store) OpsCatalog(ctx context.Context, userID int64, filter CatalogOpsF
 	if err = tx.QueryRow(ctx, "SELECT count(*)"+selection, filter.State, filter.Search).Scan(&page.Total); err != nil {
 		return page, err
 	}
-	rows, err := tx.Query(ctx, "SELECT "+catalogModelColumns+selection+` ORDER BY (p.publication_state='PENDING_METADATA') DESC,greatest(m.updated_at,p.updated_at) DESC,m.model_id COLLATE "C" LIMIT $3 OFFSET $4`, filter.State, filter.Search, filter.Limit, filter.Offset)
+	rows, err := tx.Query(ctx, "SELECT "+catalogModelColumns+selection+` ORDER BY (coalesce(p.publication_state,'PENDING_METADATA')='PENDING_METADATA') DESC,greatest(m.updated_at,p.updated_at) DESC,m.model_id COLLATE "C" LIMIT $3 OFFSET $4`, filter.State, filter.Search, filter.Limit, filter.Offset)
 	if err != nil {
 		return page, err
 	}
 	for rows.Next() {
-		model, e := scanCatalogModel(rows, page.Freshness)
+		model, e := scanCatalogModel(rows)
 		if e != nil {
 			rows.Close()
 			return page, e

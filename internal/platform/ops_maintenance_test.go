@@ -39,7 +39,7 @@ func TestLocalMaintenanceSave(t *testing.T) {
 	}
 	defer tx.Rollback(context.Background())
 	var user int64
-	if err = tx.QueryRow(ctx, `SELECT u.id FROM identity.users u JOIN identity.account_refs a ON a.newapi_user_id=u.id WHERE role>=10 AND status=1 AND deleted_at IS NULL ORDER BY id LIMIT 1`).Scan(&user); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT id FROM identity.users WHERE role>=10 AND status=1 AND deleted_at IS NULL ORDER BY id LIMIT 1`).Scan(&user); err != nil {
 		t.Fatal(err)
 	}
 	value := MaintenanceSettings{Enabled: true, Message: "维护主流程验证"}

@@ -15,18 +15,15 @@ import (
 
 type catalogStore interface {
 	PersonalCatalog(context.Context, int64, string) (platform.CatalogPersonalPrice, error)
-	CatalogCoverUploadReceipt(context.Context, int64, platform.CatalogCoverUploadCommand, platform.CatalogCoverUploadImage) (*platform.CatalogCoverUploadResult, error)
 	CatalogFamilyCovers(context.Context, int64) (platform.CatalogFamilyCoverPage, error)
 	RegisterCatalogCoverUpload(context.Context, int64, platform.CatalogCoverUploadCommand, platform.CatalogCoverUploadImage) (platform.CatalogCoverUploadResult, error)
-	PrepareCatalogFamilyCover(context.Context, int64, platform.CatalogFamilyCoverCommand) (platform.CatalogFamilyCoverPreview, error)
-	ExecuteCatalogFamilyCover(context.Context, int64, platform.CatalogFamilyCoverCommand, string, bool) (platform.CatalogFamilyCoverResult, error)
-	CatalogAuthority(context.Context, int64) (platform.AnnouncementPrincipal, error)
-	PublicCatalog(context.Context, platform.CatalogFilter, platform.CatalogPolicy) (platform.CatalogPage, error)
-	PublicCatalogModel(context.Context, string, platform.CatalogPolicy) (platform.CatalogModel, error)
-	OpsCatalog(context.Context, int64, platform.CatalogOpsFilter, platform.CatalogPolicy) (platform.CatalogOpsPage, error)
-	OpsCatalogModel(context.Context, int64, string, platform.CatalogPolicy) (platform.AnnouncementPrincipal, platform.CatalogModel, error)
-	PrepareCatalog(context.Context, int64, platform.CatalogCommand, platform.CatalogSource, platform.CatalogPolicy) (platform.CatalogPreview, error)
-	ExecuteCatalog(context.Context, int64, platform.CatalogCommand, string, bool, platform.CatalogSource, platform.CatalogPolicy) (platform.CatalogResult, error)
+	SaveCatalogFamilyCover(context.Context, int64, platform.CatalogFamilyCoverSettings) (platform.CatalogFamilyCover, error)
+	PublicCatalog(context.Context, platform.CatalogFilter) (platform.CatalogPage, error)
+	PublicCatalogModel(context.Context, string) (platform.CatalogModel, error)
+	OpsCatalog(context.Context, int64, platform.CatalogOpsFilter) (platform.CatalogOpsPage, error)
+	OpsCatalogModel(context.Context, int64, string) (platform.CatalogOpsDetail, error)
+	SaveCatalog(context.Context, int64, platform.CatalogSettings) (platform.CatalogOpsDetail, error)
+	SaveCatalogPublication(context.Context, int64, platform.CatalogPublicationSettings) error
 }
 
 func catalogBrowserRoute(escaped string) bool {
@@ -53,8 +50,7 @@ func catalogAPIRoute(path string) bool {
 	return path == "/platform/v1/models" || strings.HasPrefix(path, "/platform/v1/models/") || path == "/platform/v1/ops/models" || strings.HasPrefix(path, "/platform/v1/ops/models/")
 }
 
-func newCatalogHandler(cfg config, transport http.RoundTripper) http.Handler {
-	policy := platform.CatalogPolicy{StaleAfter: cfg.CatalogStaleAfter, DisableAfter: cfg.CatalogDisableAfter}
+func newCatalogHandler(cfg config) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parent := r.Context()
 		ctx, cancel := context.WithTimeout(parent, 8*time.Second)
@@ -68,7 +64,7 @@ func newCatalogHandler(cfg config, transport http.RoundTripper) http.Handler {
 		tail := strings.TrimPrefix(r.URL.Path, base)
 		personal := !ops && tail == "/personal-price"
 		var user int64
-		if personal {
+		if personal || ops {
 			account, ok := identity.UserFromContext(ctx)
 			if !ok {
 				walletError(w, 401, "AUTH_UNAUTHORIZED")
@@ -77,29 +73,14 @@ func newCatalogHandler(cfg config, transport http.RoundTripper) http.Handler {
 			user = account.ID
 		}
 		if ops {
-			if !announcementSessionCredential(r) {
-				walletError(w, 401, "AUTH_UNAUTHORIZED")
+			account, _ := identity.UserFromContext(ctx)
+			if account.Role < 10 {
+				walletError(w, 403, "MODELS_FORBIDDEN")
 				return
 			}
-			id, status := verifyWalletUser(r, transport)
-			if status != 0 {
-				code := "AUTH_UNAVAILABLE"
-				if status == 401 {
-					code = "AUTH_UNAUTHORIZED"
-				}
-				if status == 403 {
-					code = "AUTH_FORBIDDEN"
-				}
-				walletError(w, status, code)
-				return
-			}
-			user = id
 		}
-		if r.Method != "GET" && !(ops && r.Method == "POST") {
+		if !ops && r.Method != "GET" {
 			w.Header().Set("Allow", "GET")
-			if ops {
-				w.Header().Set("Allow", "GET, POST")
-			}
 			walletError(w, 405, "METHOD_NOT_ALLOWED")
 			return
 		}
@@ -115,12 +96,6 @@ func newCatalogHandler(cfg config, transport http.RoundTripper) http.Handler {
 			walletError(w, 503, "CATALOG_UNAVAILABLE")
 			return
 		}
-		if ops {
-			if _, err := cfg.catalog.CatalogAuthority(ctx, user); err != nil {
-				writeCatalogError(w, err)
-				return
-			}
-		}
 		if ops && (tail == "/family-covers" || strings.HasPrefix(tail, "/family-covers/")) {
 			if tail == "/family-covers/upload" && r.Method == "POST" {
 				r = r.WithContext(parent)
@@ -130,7 +105,7 @@ func newCatalogHandler(cfg config, transport http.RoundTripper) http.Handler {
 		}
 		var data any
 		var err error
-		if r.Method == "POST" {
+		if r.Method == "PUT" && ops {
 			if origins := r.Header.Values("Origin"); len(origins) != 1 || origins[0] != cfg.PublicOrigin {
 				walletError(w, 403, "ORIGIN_REJECTED")
 				return
@@ -145,31 +120,30 @@ func newCatalogHandler(cfg config, transport http.RoundTripper) http.Handler {
 				return
 			}
 			switch tail {
-			case "/prepare":
-				var body struct {
-					Command platform.CatalogCommand `json:"command"`
-				}
+			case "":
+				var body platform.CatalogSettings
 				if !decodeAnnouncementBody(r.Body, &body) {
 					walletError(w, 400, "INVALID_REQUEST")
 					return
 				}
-				data, err = cfg.catalog.PrepareCatalog(ctx, user, body.Command, cfg.catalogSource, policy)
-			case "/execute":
-				var body struct {
-					Command   platform.CatalogCommand `json:"command"`
-					PreviewID string                  `json:"preview_id"`
-					Confirmed bool                    `json:"confirmed"`
-				}
+				data, err = cfg.catalog.SaveCatalog(ctx, user, body)
+			case "/publication":
+				var body platform.CatalogPublicationSettings
 				if !decodeAnnouncementBody(r.Body, &body) {
 					walletError(w, 400, "INVALID_REQUEST")
 					return
 				}
-				data, err = cfg.catalog.ExecuteCatalog(ctx, user, body.Command, body.PreviewID, body.Confirmed, cfg.catalogSource, policy)
+				err = cfg.catalog.SaveCatalogPublication(ctx, user, body)
+				data = map[string]bool{"saved": err == nil}
 			default:
 				walletError(w, 404, "NOT_FOUND")
 				return
 			}
 		} else {
+			if r.Method != "GET" {
+				walletError(w, 404, "NOT_FOUND")
+				return
+			}
 			var q url.Values
 			q, err = catalogQuery(r.URL)
 			if err != nil {
@@ -182,13 +156,13 @@ func newCatalogHandler(cfg config, transport http.RoundTripper) http.Handler {
 					var f platform.CatalogOpsFilter
 					f, err = catalogOpsFilter(q)
 					if err == nil {
-						data, err = cfg.catalog.OpsCatalog(ctx, user, f, policy)
+						data, err = cfg.catalog.OpsCatalog(ctx, user, f)
 					}
 				} else {
 					var f platform.CatalogFilter
 					f, err = catalogPublicFilter(q)
 					if err == nil {
-						data, err = cfg.catalog.PublicCatalog(ctx, f, policy)
+						data, err = cfg.catalog.PublicCatalog(ctx, f)
 					}
 				}
 			case tail == "/detail" || personal:
@@ -198,15 +172,12 @@ func newCatalogHandler(cfg config, transport http.RoundTripper) http.Handler {
 				}
 				id := q.Get("model_id")
 				if ops {
-					var p platform.AnnouncementPrincipal
-					var item platform.CatalogModel
-					p, item, err = cfg.catalog.OpsCatalogModel(ctx, user, id, policy)
-					data = map[string]any{"principal": p, "item": item}
+					data, err = cfg.catalog.OpsCatalogModel(ctx, user, id)
 				} else if personal {
 					data, err = cfg.catalog.PersonalCatalog(ctx, user, id)
 				} else {
 					var item platform.CatalogModel
-					item, err = cfg.catalog.PublicCatalogModel(ctx, id, policy)
+					item, err = cfg.catalog.PublicCatalogModel(ctx, id)
 					if err == nil {
 						var vocabulary platform.CatalogVocabulary
 						vocabulary, err = platform.CatalogChoices()
@@ -327,40 +298,10 @@ func writeCatalogError(w http.ResponseWriter, err error) {
 		status, code = 400, platform.ErrCatalogInvalid.Error()
 	case errors.Is(err, platform.ErrCatalogIncomplete):
 		status, code = 400, platform.ErrCatalogIncomplete.Error()
-	case errors.Is(err, platform.ErrCatalogConfirmation):
-		status, code = 400, platform.ErrCatalogConfirmation.Error()
 	case errors.Is(err, platform.ErrCatalogForbidden):
 		status, code = 403, platform.ErrCatalogForbidden.Error()
 	case errors.Is(err, platform.ErrCatalogNotFound):
 		status, code = 404, platform.ErrCatalogNotFound.Error()
-	case errors.Is(err, platform.ErrCatalogConflict):
-		status, code = 409, platform.ErrCatalogConflict.Error()
-	case errors.Is(err, platform.ErrCatalogOperation):
-		status, code = 409, platform.ErrCatalogOperation.Error()
-	case errors.Is(err, platform.ErrCatalogSourceChanged):
-		status, code = 409, platform.ErrCatalogSourceChanged.Error()
-	case errors.Is(err, platform.ErrAnnouncementStale):
-		status, code = 409, platform.ErrAnnouncementStale.Error()
 	}
 	walletError(w, status, code)
-}
-
-// One serial store path is used by both scheduled recovery and explicit Ops sync.
-func runCatalogWorker(ctx context.Context, interval time.Duration, sync func(context.Context) (platform.CatalogSyncResult, error)) {
-	if interval <= 0 {
-		return
-	}
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		_, _ = sync(ctx)
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
-	}
 }

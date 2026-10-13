@@ -3,9 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"hash/crc32"
@@ -19,10 +17,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
@@ -31,145 +27,29 @@ import (
 
 type catalogHTTPStore struct {
 	*platform.Store
-	publicCalls, authorityCalls, writes int
-	denied, withdrawn                   bool
-	readOnly                            bool
-	uploads                             int
-	uploadReceipt                       *platform.CatalogCoverUploadResult
-	uploadCommand                       platform.CatalogCoverUploadCommand
-	uploadImage                         platform.CatalogCoverUploadImage
-	filter                              platform.CatalogFilter
+	publicCalls int
+	withdrawn   bool
+	filter      platform.CatalogFilter
 }
 
-func (s *catalogHTTPStore) CatalogAuthority(_ context.Context, user int64) (platform.AnnouncementPrincipal, error) {
-	s.authorityCalls++
-	if s.denied {
-		return platform.AnnouncementPrincipal{}, platform.ErrCatalogForbidden
-	}
-	if s.readOnly {
-		return platform.AnnouncementPrincipal{UserID: user, Epoch: 2, Permissions: []string{"models.read"}}, nil
-	}
-	return platform.AnnouncementPrincipal{UserID: user, Role: "OPERATOR", Epoch: 2, Permissions: []string{"models.read", "models.write", "models.publish"}}, nil
-}
-func (s *catalogHTTPStore) PublicCatalog(_ context.Context, f platform.CatalogFilter, _ platform.CatalogPolicy) (platform.CatalogPage, error) {
+func (s *catalogHTTPStore) PublicCatalog(_ context.Context, f platform.CatalogFilter) (platform.CatalogPage, error) {
 	s.publicCalls++
 	s.filter = f
 	return platform.CatalogPage{Items: []platform.CatalogModel{}}, nil
 }
-func (s *catalogHTTPStore) PublicCatalogModel(_ context.Context, id string, _ platform.CatalogPolicy) (platform.CatalogModel, error) {
+func (s *catalogHTTPStore) PublicCatalogModel(_ context.Context, id string) (platform.CatalogModel, error) {
 	s.publicCalls++
 	if s.withdrawn {
 		return platform.CatalogModel{}, platform.ErrCatalogNotFound
 	}
 	return platform.CatalogModel{ModelID: id, PublicationState: "PUBLISHED", CanUse: true}, nil
 }
-func (s *catalogHTTPStore) OpsCatalog(ctx context.Context, user int64, _ platform.CatalogOpsFilter, _ platform.CatalogPolicy) (platform.CatalogOpsPage, error) {
-	p, e := s.CatalogAuthority(ctx, user)
-	return platform.CatalogOpsPage{Principal: p, Items: []platform.CatalogModel{}}, e
-}
-func (s *catalogHTTPStore) PrepareCatalog(_ context.Context, _ int64, c platform.CatalogCommand, _ platform.CatalogSource, _ platform.CatalogPolicy) (platform.CatalogPreview, error) {
-	s.writes++
-	return platform.CatalogPreview{ID: c.OperationID}, nil
-}
-func (s *catalogHTTPStore) ExecuteCatalog(_ context.Context, _ int64, c platform.CatalogCommand, id string, confirmed bool, _ platform.CatalogSource, _ platform.CatalogPolicy) (platform.CatalogResult, error) {
-	s.writes++
-	if !confirmed || id == "" {
-		return platform.CatalogResult{}, platform.ErrCatalogConfirmation
-	}
-	return platform.CatalogResult{OperationID: c.OperationID}, nil
-}
 func catalogHTTPConfig(s catalogStore) config {
-	return config{catalog: s, PublicOrigin: "https://wallet.example", CatalogStaleAfter: 10 * time.Minute, CatalogDisableAfter: 30 * time.Minute, APIBaseURL: "https://api.example/v1"}
-}
-
-func (s *catalogHTTPStore) CatalogFamilyCovers(ctx context.Context, user int64) (platform.CatalogFamilyCoverPage, error) {
-	p, e := s.CatalogAuthority(ctx, user)
-	return platform.CatalogFamilyCoverPage{Principal: p, Items: []platform.CatalogFamilyCover{}}, e
-}
-func (s *catalogHTTPStore) CatalogCoverUploadReceipt(ctx context.Context, user int64, c platform.CatalogCoverUploadCommand, f platform.CatalogCoverUploadImage) (*platform.CatalogCoverUploadResult, error) {
-	if _, err := s.CatalogAuthority(ctx, user); err != nil {
-		return nil, err
-	}
-	if s.uploadReceipt == nil {
-		return nil, nil
-	}
-	if c != s.uploadCommand || f != s.uploadImage {
-		return nil, platform.ErrCatalogOperation
-	}
-	return s.uploadReceipt, nil
-}
-func (s *catalogHTTPStore) RegisterCatalogCoverUpload(ctx context.Context, user int64, c platform.CatalogCoverUploadCommand, f platform.CatalogCoverUploadImage) (platform.CatalogCoverUploadResult, error) {
-	if _, err := s.CatalogAuthority(ctx, user); err != nil {
-		return platform.CatalogCoverUploadResult{}, err
-	}
-	if c.Epoch != 2 {
-		return platform.CatalogCoverUploadResult{}, platform.ErrAnnouncementStale
-	}
-	s.uploads++
-	key, _ := platform.CatalogCoverObjectKey(c.Family, f.SHA256, f.Extension)
-	result := platform.CatalogCoverUploadResult{OperationID: c.OperationID, AssetID: "00000000-0000-4000-8000-000000000002", Image: platform.CatalogCoverImage{Src: "/" + key, Alt: c.Alt, Width: f.Width, Height: f.Height}}
-	s.uploadReceipt = &result
-	s.uploadCommand = c
-	s.uploadImage = f
-	return result, nil
-}
-func (s *catalogHTTPStore) PrepareCatalogFamilyCover(_ context.Context, _ int64, c platform.CatalogFamilyCoverCommand) (platform.CatalogFamilyCoverPreview, error) {
-	s.writes++
-	return platform.CatalogFamilyCoverPreview{ID: c.OperationID}, nil
-}
-func (s *catalogHTTPStore) ExecuteCatalogFamilyCover(_ context.Context, _ int64, c platform.CatalogFamilyCoverCommand, id string, confirmed bool) (platform.CatalogFamilyCoverResult, error) {
-	s.writes++
-	if !confirmed || id == "" {
-		return platform.CatalogFamilyCoverResult{}, platform.ErrCatalogConfirmation
-	}
-	return platform.CatalogFamilyCoverResult{OperationID: c.OperationID}, nil
+	return config{catalog: s, PublicOrigin: "https://wallet.example", APIBaseURL: "https://api.example/v1"}
 }
 
 func TestCatalogCoverUploadLifecycle(t *testing.T) {
-	s := &catalogHTTPStore{}
-	cfg := catalogHTTPConfig(s)
-	keyFile := filepath.Join(t.TempDir(), "r2.json")
-	if err := os.WriteFile(keyFile, []byte(`{"access_key_id":"test-access","secret_access_key":"test-secret"}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	puts := 0
-	fail, revoke, delayed := false, false, false
-	var expected []byte
-	var expectedType, expectedExt string
-	client := &http.Client{Transport: catalogRoundTrip(func(r *http.Request) (*http.Response, error) {
-		puts++
-		if s.uploads != 0 {
-			t.Fatal("object registered before PUT acknowledgement")
-		}
-		if delayed {
-			time.Sleep(100 * time.Millisecond)
-		}
-		got, e := io.ReadAll(r.Body)
-		if e != nil {
-			t.Fatal(e)
-		}
-		sum := sha256.Sum256(expected)
-		if r.Method != "PUT" || !strings.HasSuffix(r.URL.Path, "/assets/models/uploads/gpt/"+hex.EncodeToString(sum[:])+"."+expectedExt) || !bytes.Equal(got, expected) || r.Header.Get("Content-Type") != expectedType || r.Header.Get("Cache-Control") != "public, max-age=31536000, immutable" {
-			t.Fatal("PUT content/key/cache contract changed", r.Method, r.URL.Path, r.Header.Get("Content-Type"))
-		}
-		if revoke {
-			s.denied = true
-		}
-		status := 200
-		body := ""
-		if fail {
-			status = 400
-			body = "<Error><Code>AccessDenied</Code><Message>SECRET_R2_DETAIL</Message></Error>"
-		}
-		return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
-	})}
-	var err error
-	cfg.catalogAssets, err = newCatalogAssetStore(catalogAssetConfig{AccountID: strings.Repeat("a", 32), Bucket: "test-assets", CredentialsFile: keyFile}, client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := newCatalogHandler(cfg, profileTransport())
-	command := platform.CatalogCoverUploadCommand{OperationID: "00000000-0000-4000-8000-000000000001", Epoch: 2, Family: "gpt", Alt: "Acceptance cover", RightsStatus: "ORIGINAL_GENERATED", RightsNote: "Generated", Reason: "Acceptance"}
+	command := platform.CatalogCoverUploadCommand{Family: "gpt", Alt: "Acceptance cover", RightsStatus: "ORIGINAL_GENERATED", RightsNote: "Generated"}
 	metadata, _ := json.Marshal(command)
 	request := func(data []byte, mimeType, extra string) *http.Request {
 		var body bytes.Buffer
@@ -217,98 +97,25 @@ func TestCatalogCoverUploadLifecycle(t *testing.T) {
 	}{
 		{[]byte("<svg></svg>"), "image/png", ""}, {make([]byte, 8*1024*1024+1), "image/png", ""}, {mutatePNG(9000, 1), "image/png", ""}, {mutatePNG(5000, 5000), "image/png", ""}, {apng, "image/png", ""}, {animated, "image/webp", ""}, {png[:100], "image/png", ""}, {webp[:40], "image/webp", ""}, {png, "image/jpeg", ""}, {png, "image/png", "file"}, {png, "image/png", "metadata"}, {png, "image/png", "unexpected"},
 	} {
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, request(v.data, v.kind, v.extra))
-		if w.Code != 400 {
-			t.Fatal("invalid upload accepted", w.Code, w.Body)
+
+		if _, _, err := parseCatalogCoverUpload(httptest.NewRecorder(), request(v.data, v.kind, v.extra)); err == nil {
+			t.Fatal("invalid upload accepted")
 		}
-	}
-	if puts != 0 || s.uploads != 0 || s.writes != 0 {
-		t.Fatal("invalid upload reached storage")
 	}
 	for _, v := range []struct {
 		data              []byte
 		mime, actual, ext string
 	}{{png, "image/png", "image/png", "png"}, {webp, "application/octet-stream", "image/webp", "webp"}, {jpg.Bytes(), "", "image/jpeg", "jpg"}} {
-		s.uploadReceipt = nil
-		expected = v.data
-		expectedType = v.actual
-		expectedExt = v.ext
-		s.uploads = 0
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, request(v.data, v.mime, ""))
-		if w.Code != 200 || s.uploads != 1 || s.writes != 0 {
-			t.Fatal("valid upload lifecycle failed", w.Code, w.Body)
+		c, f, err := parseCatalogCoverUpload(httptest.NewRecorder(), request(v.data, v.mime, ""))
+		if err != nil || c.Family != "gpt" || !bytes.Equal(f.Bytes, v.data) || f.Image.ContentType != v.actual || f.Image.Extension != v.ext {
+			t.Fatal("original raster upload changed", err)
 		}
-		first := w.Body.String()
-		beforePuts := puts
-		fail = true
-		s.uploads = 0
-		w = httptest.NewRecorder()
-		h.ServeHTTP(w, request(v.data, v.mime, ""))
-		if w.Code != 200 || first != w.Body.String() || puts != beforePuts || s.uploads != 0 {
-			t.Fatal("committed receipt retry depended on R2 or changed identity", w.Body)
-		}
-		before := s.uploadReceipt
-		w = httptest.NewRecorder()
-		// Keep the operation ID but change metadata: no new public PUT is allowed.
-		command.Reason = "Different command"
-		metadata, _ = json.Marshal(command)
-		h.ServeHTTP(w, request(v.data, v.mime, ""))
-		if w.Code != 409 || puts != beforePuts || !reflect.DeepEqual(before, s.uploadReceipt) {
-			t.Fatal("conflicting operation reached R2", w.Code)
-		}
-		command.Reason = "Acceptance"
-		metadata, _ = json.Marshal(command)
-		fail = false
-	}
-	s.uploadReceipt = nil
-	expected = png
-	expectedType = "image/png"
-	expectedExt = "png"
-	s.uploads = 0
-	fail = true
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, request(png, "image/png", ""))
-	if w.Code != 503 || s.uploads != 0 || strings.Contains(w.Body.String(), "SECRET") {
-		t.Fatal("storage failure registered or leaked", w.Body)
-	}
-	fail = false
-	revoke = true
-	w = httptest.NewRecorder()
-	h.ServeHTTP(w, request(png, "image/png", ""))
-	if w.Code != 403 || s.uploads != 0 || s.writes != 0 {
-		t.Fatal("revocation crossed publication boundary", w.Body)
-	}
-	s.denied = false
-	revoke = false
-	delayed = true
-	server := httptest.NewUnstartedServer(h)
-	server.Config.ReadTimeout = 20 * time.Millisecond
-	server.Config.WriteTimeout = 20 * time.Millisecond
-	server.Start()
-	defer server.Close()
-	r := request(png, "image/png", "")
-	u, _ := url.Parse(server.URL + r.URL.Path)
-	r.URL = u
-	r.RequestURI = ""
-	response, err := http.DefaultClient.Do(r)
-	if err != nil {
-		t.Fatal("authorized upload retained short server deadline", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != 200 || s.uploads != 1 || server.Config.ReadTimeout != 20*time.Millisecond || server.Config.WriteTimeout != 20*time.Millisecond {
-		t.Fatal("upload deadline changed global configuration", response.StatusCode)
 	}
 }
 
 func TestCatalogHTTPPublicAndStrictQueries(t *testing.T) {
 	s := &catalogHTTPStore{}
-	native := catalogRoundTrip(func(*http.Request) (*http.Response, error) {
-		t.Fatal("public read reached native identity")
-		return nil, nil
-	})
-	h := newCatalogHandler(catalogHTTPConfig(s), native)
+	h := newCatalogHandler(catalogHTTPConfig(s))
 	for _, path := range []string{"/platform/v1/models", "/platform/v1/models/detail?model_id=" + url.QueryEscape("组织/x%2F'"), "/platform/v1/models/access-config"} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("GET", path, nil)
@@ -339,100 +146,107 @@ func TestCatalogHTTPPublicAndStrictQueries(t *testing.T) {
 	}
 }
 func TestCatalogHTTPProtectedWrites(t *testing.T) {
-	s := &catalogHTTPStore{denied: true}
-	h := newCatalogHandler(catalogHTTPConfig(s), profileTransport())
-	for _, tail := range []string{"", "/upload", "/prepare", "/execute"} {
-		method := "POST"
-		if tail == "" {
-			method = "GET"
+	path := os.Getenv("MOMIAO_SESSION_DSN_FILE")
+	if path == "" {
+		t.Skip("requires the existing dev database and Redis")
+	}
+	dsn, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("read dev DSN")
+	}
+	store, err := platform.Open(t.Context(), strings.TrimSpace(string(dsn)))
+	if err != nil {
+		t.Fatal("open dev database")
+	}
+	defer store.Close()
+	options, err := readSessionRedisConfig(os.Getenv("MOMIAO_SESSION_REDIS_CONFIG_FILE"))
+	if err != nil {
+		t.Fatal("read dev session Redis config")
+	}
+	client := redis.NewClient(options)
+	defer client.Close()
+	auth := &identity.HTTP{Store: &identity.Store{Pool: store.Pool()}, Sessions: identity.Sessions{Redis: client}, Origin: "https://dev.momiao.win"}
+
+	var admin, regular int64
+	if err = store.Pool().QueryRow(t.Context(), `SELECT min(id) FILTER(WHERE role>=10),min(id) FILTER(WHERE role<10) FROM identity.users WHERE status=1 AND deleted_at IS NULL`).Scan(&admin, &regular); err != nil {
+		t.Fatal(err)
+	}
+	var model string
+	if err = store.Pool().QueryRow(t.Context(), `SELECT model_id FROM catalog.model_catalog_publication WHERE publication_state='PUBLISHED' ORDER BY model_id LIMIT 1`).Scan(&model); err != nil {
+		t.Fatal(err)
+	}
+	sessions := map[int64]identity.Session{}
+	for _, user := range []int64{admin, regular} {
+		value, e := auth.Sessions.Create(t.Context(), user)
+		if e != nil {
+			t.Fatal(e)
 		}
-		for _, mode := range []string{"anonymous", "scope", "query", "origin", "permission"} {
-			r := announcementReq(method, "/platform/v1/ops/models/family-covers"+tail, `{"command":{}}`)
-			s.denied = mode == "scope"
-			s.readOnly = mode == "permission"
-			want := 403
-			if mode == "anonymous" {
-				r = httptest.NewRequest(method, r.URL.String(), nil)
-				want = 401
+		sessions[user] = value
+		defer func() {
+			if e := auth.Sessions.Revoke(context.Background(), value); e != nil {
+				t.Error(e)
 			}
-			if mode == "query" {
-				r.URL.RawQuery = "x=1"
-				want = 400
-			}
-			if mode == "origin" {
-				r.Header.Set("Origin", "https://evil.example")
-				if method == "GET" {
-					want = 200
+		}()
+	}
+	for _, webDir := range []string{"", "/unused-catalog-web"} {
+		cfg := catalogHTTPConfig(store)
+		cfg.PublicOrigin, cfg.WebDir = auth.Origin, webDir
+		cfg.Session.Enabled = true
+		cfg.localIdentity = auth
+		h := newPortalHandler(cfg, catalogRoundTrip(func(*http.Request) (*http.Response, error) {
+			t.Error("Ops catalog reached native")
+			return nil, errors.New("unexpected native call")
+		}))
+		request := func(user int64, method, path, body string, csrf bool) *httptest.ResponseRecorder {
+			r := httptest.NewRequest(method, path, strings.NewReader(body))
+			r.Header.Set("New-Api-User", "1")
+			r.Header.Set("X-Auth-Session", "forged")
+			r.Header.Set("Origin", auth.Origin)
+			r.Header.Set("Content-Type", "application/json")
+			if value, ok := sessions[user]; ok {
+				r.AddCookie(&http.Cookie{Name: identity.SessionCookieName, Value: value.Token})
+				if csrf {
+					r.Header.Set("X-CSRF-Token", value.CSRFToken)
 				}
-			}
-			if mode == "permission" && method == "GET" {
-				want = 200
 			}
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, r)
-			if w.Code != want {
-				t.Fatal("cover HTTP boundary", tail, mode, w.Code, w.Body)
+			return w
+		}
+		w := request(admin, "GET", "/platform/v1/ops/models", "", false)
+		if w.Code != 200 {
+			t.Fatal("local Ops catalog", w.Code, w.Body.String())
+		}
+		if strings.Contains(w.Body.String(), `"principal"`) || strings.Contains(w.Body.String(), `"sync"`) {
+			t.Fatal("legacy catalog authority or sync in response")
+		}
+		w = request(admin, "GET", "/platform/v1/ops/models/detail?"+url.Values{"model_id": []string{model}}.Encode(), "", false)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"price_settings"`) {
+			t.Fatal("editable local catalog price", w.Code, w.Body.String())
+		}
+		if w = request(admin, "GET", catalogCoversPath, "", false); w.Code != 200 {
+			t.Fatal("local family covers", w.Code, w.Body.String())
+		}
+		for _, user := range []int64{0, regular} {
+			want := 403
+			if user == 0 {
+				want = 401
+			}
+			if w = request(user, "GET", "/platform/v1/ops/models", "", false); w.Code != want {
+				t.Fatal("local Ops role", user, w.Code)
 			}
 		}
-	}
-	s.denied = false
-	s.readOnly = false
-	for _, body := range []string{`null`, `{"command":{},"unknown":1}`, `{"command":{"family":"gpt","family":"other"}}`} {
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, announcementReq("POST", "/platform/v1/ops/models/family-covers/prepare", body))
-		if w.Code != 400 {
-			t.Fatal("cover JSON boundary", w.Code)
+		if w = request(admin, "PUT", "/platform/v1/ops/models", `{}`, false); w.Code != 403 {
+			t.Fatal("missing CSRF accepted", w.Code)
+		}
+		if w = request(admin, "PUT", "/platform/v1/ops/models", `{}`, true); w.Code != 400 {
+			t.Fatal("invalid save accepted", w.Code, w.Body.String())
+		}
+		if w = request(admin, "POST", "/platform/v1/ops/models/prepare", `{}`, true); w.Code != 404 {
+			t.Fatal("legacy prepare remains", w.Code)
 		}
 	}
-	wc := httptest.NewRecorder()
-	h.ServeHTTP(wc, announcementReq("POST", "/platform/v1/ops/models/family-covers/execute", `{"command":{},"confirmed":false}`))
-	if wc.Code != 400 {
-		t.Fatal("cover confirmation missing", wc.Code)
-	}
-	s.writes = 0
-	s.denied = true
-	for _, path := range []string{"/platform/v1/ops/models", "/platform/v1/models/personal-price?model_id=x"} {
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
-		if w.Code != 401 {
-			t.Fatal(path, w.Code)
-		}
-	}
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, announcementReq("GET", "/platform/v1/ops/models", ""))
-	if w.Code != 403 {
-		t.Fatal("native admin gained scope", w.Code)
-	}
-	s.denied = false
-	for _, body := range []string{`null`, `[]`, `{"command":{},"command":{}}`, `{"command":{"action":"SAVE","action":"SYNC"}}`, `{"command":{},"other":1}`, strings.Repeat(" ", 66000)} {
-		w = httptest.NewRecorder()
-		h.ServeHTTP(w, announcementReq("POST", "/platform/v1/ops/models/prepare", body))
-		if w.Code != 400 {
-			t.Fatal(body[:min(len(body), 80)], w.Code)
-		}
-	}
-	for _, kind := range []string{"origin", "content", "query"} {
-		r := announcementReq("POST", "/platform/v1/ops/models/prepare", `{"command":{}}`)
-		if kind == "origin" {
-			r.Header.Set("Origin", "https://evil.example")
-		}
-		if kind == "content" {
-			r.Header.Set("Content-Type", "text/plain")
-		}
-		if kind == "query" {
-			r.URL.RawQuery = "x=1"
-		}
-		w = httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		if w.Code < 400 || s.writes != 0 {
-			t.Fatal(kind, w.Code, s.writes)
-		}
-	}
-	w = httptest.NewRecorder()
-	h.ServeHTTP(w, announcementReq("POST", "/platform/v1/ops/models/prepare", `{"command":{"operation_id":"fixture"}}`))
-	if w.Code != 200 || s.writes != 1 {
-		t.Fatal(w.Code, w.Body)
-	}
+	t.Log("local admin read and editable prices; regular403/anonymous401/CSRF403/invalid400/legacy404; both routers; no native transport")
 }
 func TestCatalogHTTPPersonalPriceBoundaryAndWithdrawal(t *testing.T) {
 	path := os.Getenv("MOMIAO_SESSION_DSN_FILE")
@@ -559,37 +373,5 @@ func TestCatalogBrowserOpaqueRoutesAndExactAccessProxy(t *testing.T) {
 	h.ServeHTTP(w, httptest.NewRequest("POST", "/api/access", nil))
 	if w.Code != 405 || calls != 2 {
 		t.Fatal("access method boundary", w.Code, calls)
-	}
-}
-
-func TestCatalogWorkerRecoversAndStops(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	calls := make(chan int, 4)
-	done := make(chan struct{})
-	n := 0
-	go func() {
-		defer close(done)
-		runCatalogWorker(ctx, 5*time.Millisecond, func(context.Context) (platform.CatalogSyncResult, error) {
-			n++
-			calls <- n
-			return platform.CatalogSyncResult{}, errors.New("synthetic failure")
-		})
-	}()
-	for i := 1; i <= 2; i++ {
-		select {
-		case got := <-calls:
-			if got != i {
-				t.Fatal(got)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("worker failed to recover")
-		}
-	}
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("worker ignored cancellation")
 	}
 }

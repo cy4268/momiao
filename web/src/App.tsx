@@ -86,8 +86,8 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
         <Route path="/models/*" element={<CatalogDetailPage key={routedSession} client={client} onLoginRequired={onCatalogLoginRequired} />} />
         <Route path="/api/access" element={<APIAccess key={routedSession} client={client} onLoginRequired={onCatalogLoginRequired} />} />
         <Route path="/ops" element={!session.ready?loading:session.user?<AccessGate key={routedSession} client={client} user={session.user} route={location.pathname}><OpsShell client={client} user={session.user}/></AccessGate>:<LoginRequired/>}>
-            <Route element={<OpsLegacyBoundary/>}>
             <Route path="models" element={<OpsCatalog client={client} embedded/>}/>
+            <Route element={<OpsLegacyBoundary/>}>
             <Route path="announcements" element={<OpsAnnouncements client={client} embedded/>}/>
             <Route path="jobs" element={<OpsJobs/>}/>
             <Route path="attention" element={<OpsAttention/>}/>

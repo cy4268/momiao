@@ -55,11 +55,6 @@ type config struct {
 	catalog                   catalogStore
 	CatalogAssets             catalogAssetConfig
 	catalogAssets             *catalogAssetStore
-	catalogSource             platform.CatalogSource
-	CatalogReaderKeyFile      string
-	CatalogSyncInterval       time.Duration
-	CatalogStaleAfter         time.Duration
-	CatalogDisableAfter       time.Duration
 	APIBaseURL                string
 	accessGate                accessGateStore
 	accessDeclaration         *accessDeclaration
@@ -247,7 +242,7 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 		return config{}, errHistoryConfig
 	}
 	cfg.History = history
-	if cfg.ProcessRole == "poker" && (cfg.Session.Enabled || cfg.History.Enabled || cfg.WebDir != "" || cfg.AssetCDNOrigin != "" || cfg.GameFairnessKeyringFile != "" || cfg.AdmissionEnabled || cfg.NativeQuotaKeyFile != "" || cfg.NativeQuotaDSNFile != "" || cfg.CatalogReaderKeyFile != "" || !cfg.Poker.Enabled) {
+	if cfg.ProcessRole == "poker" && (cfg.Session.Enabled || cfg.History.Enabled || cfg.WebDir != "" || cfg.AssetCDNOrigin != "" || cfg.GameFairnessKeyringFile != "" || cfg.AdmissionEnabled || cfg.NativeQuotaKeyFile != "" || cfg.NativeQuotaDSNFile != "" || !cfg.Poker.Enabled) {
 		return config{}, errors.New("Poker process must own only its Poker runtime")
 	}
 	if value, ok := lookup("MOMIAO_OPS_ENVIRONMENT"); ok {

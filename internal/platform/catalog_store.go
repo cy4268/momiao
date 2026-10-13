@@ -8,15 +8,17 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func catalogAuthority(ctx context.Context, q announcementQuerier, userID int64, lock bool) (AnnouncementPrincipal, error) {
-	p, err := opsDomainAuthority(ctx, q, userID, lock, "MODELS", "models")
-	if errors.Is(err, ErrAnnouncementForbidden) {
-		err = ErrCatalogForbidden
+func catalogAdmin(ctx context.Context, q announcementQuerier, user int64, lock bool) error {
+	query := `SELECT role FROM identity.users WHERE id=$1 AND status=1 AND deleted_at IS NULL`
+	if lock {
+		query += " FOR SHARE"
 	}
-	return p, err
-}
-func (s *Store) CatalogAuthority(ctx context.Context, userID int64) (AnnouncementPrincipal, error) {
-	return catalogAuthority(ctx, s.pool, userID, false)
+	var role int
+	err := q.QueryRow(ctx, query, user).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && role < 10 {
+		return ErrCatalogForbidden
+	}
+	return err
 }
 
 // Channels are live configuration; editorial metadata never needs a sync to exist.
@@ -35,7 +37,7 @@ const catalogModelTables = ` FROM (
  ) a ON true
  LEFT JOIN relay.prices rp ON rp.model=m.model_id LEFT JOIN relay.groups g ON g.name='default' `
 
-func scanCatalogModel(row pgx.Row, _ CatalogFreshness) (CatalogModel, error) {
+func scanCatalogModel(row pgx.Row) (CatalogModel, error) {
 	var m CatalogModel
 	var metadata, price []byte
 	var supported bool
@@ -72,7 +74,7 @@ func scanCatalogModel(row pgx.Row, _ CatalogFreshness) (CatalogModel, error) {
 	m.CanUse = catalogCanUse(m)
 	return m, nil
 }
-func loadCatalogModel(ctx context.Context, q announcementQuerier, id string, public bool, fresh CatalogFreshness) (CatalogModel, error) {
+func loadCatalogModel(ctx context.Context, q announcementQuerier, id string, public bool) (CatalogModel, error) {
 	if !ValidCatalogModelID(id) {
 		return CatalogModel{}, ErrCatalogNotFound
 	}
@@ -80,19 +82,19 @@ func loadCatalogModel(ctx context.Context, q announcementQuerier, id string, pub
 	if public {
 		query += " AND p.publication_state='PUBLISHED'"
 	}
-	m, err := scanCatalogModel(q.QueryRow(ctx, query, id), fresh)
+	m, err := scanCatalogModel(q.QueryRow(ctx, query, id))
 	if err == nil && public && (!validCatalogMetadata(m.Metadata) || m.Metadata.DisplayName == "" || m.Metadata.Family == "" || m.Metadata.Summary == "") {
 		return CatalogModel{}, ErrCatalogIncomplete
 	}
 	return m, err
 }
-func (s *Store) PublicCatalogModel(ctx context.Context, id string, _ CatalogPolicy) (CatalogModel, error) {
+func (s *Store) PublicCatalogModel(ctx context.Context, id string) (CatalogModel, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return CatalogModel{}, err
 	}
 	defer rollback(tx)
-	m, err := loadCatalogModel(ctx, tx, id, true, localCatalogFreshness())
+	m, err := loadCatalogModel(ctx, tx, id, true)
 	if err != nil {
 		return m, err
 	}
@@ -102,25 +104,28 @@ func (s *Store) PublicCatalogModel(ctx context.Context, id string, _ CatalogPoli
 	}
 	return models[0], tx.Commit(ctx)
 }
-func (s *Store) OpsCatalogModel(ctx context.Context, userID int64, id string, _ CatalogPolicy) (AnnouncementPrincipal, CatalogModel, error) {
-	var p AnnouncementPrincipal
-	var m CatalogModel
+func (s *Store) OpsCatalogModel(ctx context.Context, userID int64, id string) (CatalogOpsDetail, error) {
+	var result CatalogOpsDetail
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return p, m, err
+		return result, err
 	}
 	defer rollback(tx)
-	p, err = catalogAuthority(ctx, tx, userID, false)
-	if err != nil {
-		return p, m, err
+	if err = catalogAdmin(ctx, tx, userID, false); err != nil {
+		return result, err
 	}
-	m, err = loadCatalogModel(ctx, tx, id, false, localCatalogFreshness())
+	result.Item, err = loadCatalogModel(ctx, tx, id, false)
 	if err != nil {
-		return p, m, err
+		return result, err
 	}
-	models := []CatalogModel{m}
+	result.Price, err = readCatalogPrice(ctx, tx, id)
+	if err != nil {
+		return result, err
+	}
+	models := []CatalogModel{result.Item}
 	if err = attachCatalogCovers(ctx, tx, models); err != nil {
-		return p, m, err
+		return result, err
 	}
-	return p, models[0], tx.Commit(ctx)
+	result.Item = models[0]
+	return result, tx.Commit(ctx)
 }

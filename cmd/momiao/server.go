@@ -136,7 +136,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				return
 			}
 			if catalogAPIRoute(r.URL.Path) {
-				domainHandler(cfg, newCatalogHandler(cfg, transport)).ServeHTTP(w, r)
+				domainHandler(cfg, newCatalogHandler(cfg)).ServeHTTP(w, r)
 				return
 			}
 			if sessionAPIRoute(r.URL.Path) {
@@ -222,7 +222,7 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		case path.Clean(r.URL.Path) == "/internal" || strings.HasPrefix(path.Clean(r.URL.Path), "/internal/"):
 			walletError(w, 404, "NOT_FOUND")
 		case catalogAPIRoute(r.URL.Path):
-			domainHandler(cfg, newCatalogHandler(cfg, transport)).ServeHTTP(w, r)
+			domainHandler(cfg, newCatalogHandler(cfg)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/announcements/") || r.URL.Path == "/platform/v1/ops/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/announcements/"):
 			domainHandler(cfg, newAnnouncementHandler(cfg.PublicOrigin, cfg.announcements, transport)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/access-gate" || strings.HasPrefix(r.URL.Path, "/platform/v1/migration-notice"):

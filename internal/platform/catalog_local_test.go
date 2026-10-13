@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 )
 
 // Uses imported dev data. Price/group/channel edits stay in one rolled-back transaction.
@@ -36,11 +35,9 @@ func TestLocalCatalog(t *testing.T) {
 	if _, err = tx.Exec(ctx, `UPDATE relay.groups SET ratio=2 WHERE name='default'`); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now().UTC()
-	fresh := CatalogFreshness{State: "CURRENT", LastObservedAt: &now, LastVerifiedAt: &now}
 	read := func(id string) CatalogModel {
 		t.Helper()
-		m, err := loadCatalogModel(ctx, tx, id, false, fresh)
+		m, err := loadCatalogModel(ctx, tx, id, false)
 		if err != nil {
 			t.Fatal("local catalog read", id, err)
 		}
@@ -84,7 +81,7 @@ func TestLocalCatalog(t *testing.T) {
 	if unreviewed.PublicationState != "PENDING_METADATA" || unreviewed.CanUse {
 		t.Fatal("channel-only model was published automatically")
 	}
-	if _, err = loadCatalogModel(ctx, tx, unseen, true, fresh); err != ErrCatalogNotFound {
+	if _, err = loadCatalogModel(ctx, tx, unseen, true); err != ErrCatalogNotFound {
 		t.Fatal("channel-only model exposed publicly", err)
 	}
 	unpriced := read("workbuddy/glm-5.3")
@@ -115,10 +112,125 @@ func TestLocalCatalog(t *testing.T) {
 			t.Fatal("catalog leaked channel/internal price field", secret)
 		}
 	}
+
+	// Reuse the imported channel-only model, existing users and existing cover asset.
+	// No new account or synthetic data fixture is needed for direct Ops writes.
+	var admin, regular int64
+	if err = tx.QueryRow(ctx, `SELECT min(id) FILTER(WHERE role>=10),min(id) FILTER(WHERE role<10) FROM identity.users WHERE status=1 AND deleted_at IS NULL`).Scan(&admin, &regular); err != nil {
+		t.Fatal(err)
+	}
+	var audits int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM ops.audit_log`).Scan(&audits); err != nil {
+		t.Fatal(err)
+	}
+	v := CatalogSettings{ModelID: unseen, Metadata: CatalogMetadata{DisplayName: unseen, Family: "other", Summary: "本地渠道模型", Tags: []string{}, UseCases: []string{}}, Public: true, Recommended: true, SortOrder: 7,
+		Price: &CatalogPriceSettings{Input: "0.5", Output: "0", CacheRead: "0", CacheWrite: "0", CacheWrite1h: "0"}}
+	if _, err = saveCatalog(ctx, tx, regular, v); err != ErrCatalogForbidden {
+		t.Fatal("ordinary user saved catalog", err)
+	}
+	saved, err := saveCatalog(ctx, tx, admin, v)
+	if err != nil {
+		t.Fatal("direct model save", err)
+	}
+	if saved.Item.PublicationState != "PUBLISHED" || saved.Item.MetadataVersion != 1 || !saved.Item.Recommended || saved.Item.SortOrder != 7 || CompareCatalogDecimal(saved.Price.Input, "0.5") != 0 || CompareCatalogDecimal(amount(saved.Item, "input"), "1") != 0 {
+		t.Fatal("direct save did not preserve base/group price", saved)
+	}
+	if err = tx.QueryRow(ctx, relayCostSQL, unseen, "default", 1000000, 0, 0, 0, 0, nil).Scan(&cost); err != nil || cost != 500000 {
+		t.Fatal("new price not used by next calculation", cost, err)
+	}
+	if _, err = loadCatalogModel(ctx, tx, unseen, true); err != nil {
+		t.Fatal("direct publication not visible", err)
+	}
+	v.Metadata.DisplayName = "已更新本地模型"
+	v.Price.Input = "0.000000000000000002"
+	requestPrice := "0.25"
+	v.Price.PerRequest = &requestPrice
+	saved, err = saveCatalog(ctx, tx, admin, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if CompareCatalogDecimal(saved.Price.Input, v.Price.Input) != 0 || saved.Item.Price.Mode != "per_request" {
+		t.Fatal("exact tiny price/request mode lost")
+	}
+	if err = tx.QueryRow(ctx, relayCostSQL, unseen, "default", 1, 0, 0, 0, 0, nil).Scan(&cost); err != nil || cost != 250000 {
+		t.Fatal("request price not used", cost, err)
+	}
+	v.Price.PerRequest = nil
+	second := "0.1"
+	v.Price.PerSecond = &second
+	v.Price.DefaultSeconds = 8
+	saved, err = saveCatalog(ctx, tx, admin, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Item.Price.Mode != "per_second" || saved.Item.Price.DefaultSeconds != 8 {
+		t.Fatal("duration settings lost")
+	}
+	if err = tx.QueryRow(ctx, relayCostSQL, unseen, "default", 1, 0, 0, 0, 0, nil).Scan(&cost); err != nil || cost != 800000 {
+		t.Fatal("duration price not used", cost, err)
+	}
+	var history int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM catalog.historical_model_identity WHERE model_id=$1`, unseen).Scan(&history); err != nil || history != 2 || saved.Item.MetadataVersion != 2 {
+		t.Fatal("metadata history not preserved", history, saved.Item.MetadataVersion, err)
+	}
+	var publishedID string
+	if err = tx.QueryRow(ctx, `SELECT model_id FROM catalog.model_catalog_publication WHERE publication_state='PUBLISHED' AND model_id<>$1 ORDER BY model_id LIMIT 1`, unseen).Scan(&publishedID); err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{unseen, publishedID}
+	if err = saveCatalogPublicationBatch(ctx, tx, admin, CatalogPublicationSettings{ModelIDs: ids}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if _, err = loadCatalogModel(ctx, tx, id, true); err != ErrCatalogNotFound {
+			t.Fatal("bulk hide not immediate", id, err)
+		}
+	}
+	if err = saveCatalogPublicationBatch(ctx, tx, admin, CatalogPublicationSettings{ModelIDs: ids, Public: true}); err != nil {
+		t.Fatal(err)
+	}
+	// An invalid member rolls back the whole batch, including earlier valid members.
+	nested, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = saveCatalogPublicationBatch(ctx, nested, admin, CatalogPublicationSettings{ModelIDs: []string{unseen, "zzzz/absent-model"}}); err != ErrCatalogNotFound {
+		t.Fatal("invalid batch target", err)
+	}
+	if err = nested.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = loadCatalogModel(ctx, tx, unseen, true); err != nil {
+		t.Fatal("batch left partial visibility", err)
+	}
+	var c CatalogCoverUploadCommand
+	var file CatalogCoverUploadImage
+	var assetID string
+	if err = tx.QueryRow(ctx, `SELECT asset_id::text,family,alt,rights_status,rights_note,sha256,content_type,size_bytes,width,height FROM catalog.family_cover_assets ORDER BY created_at LIMIT 1`).Scan(&assetID, &c.Family, &c.Alt, &c.RightsStatus, &c.RightsNote, &file.SHA256, &file.ContentType, &file.Size, &file.Width, &file.Height); err != nil {
+		t.Fatal("existing cover", err)
+	}
+	file.Extension = map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[file.ContentType]
+	reused, err := registerCatalogCoverUpload(ctx, tx, admin, c, file)
+	if err != nil || !reused.Reused || reused.AssetID != assetID {
+		t.Fatal("cover content hash reuse", err)
+	}
+	cover, err := saveCatalogFamilyCover(ctx, tx, admin, CatalogFamilyCoverSettings{Family: c.Family, AssetID: assetID})
+	if err != nil || cover.Image.AssetID != assetID {
+		t.Fatal("direct cover binding", err)
+	}
+	cover, err = saveCatalogFamilyCover(ctx, tx, admin, CatalogFamilyCoverSettings{Family: c.Family})
+	if err != nil || cover.Image.AssetID != cover.DefaultImage.AssetID {
+		t.Fatal("cover default restore", err)
+	}
+	var count int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM ops.audit_log`).Scan(&count); err != nil || count != audits+7 {
+		t.Fatal("one audit per direct save; reused upload/no failed batch audit", count-audits, err)
+	}
+	t.Log("direct saves: base 0.5/group2 -> cost500000; request250000; 8-second800000; exact tiny decimal; new metadata/history; batch hide/publish; failed batch atomic; existing cover reuse/bind/reset; 7 audits in rollback transaction")
 	if err = tx.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}
-	page, err := s.PublicCatalog(ctx, CatalogFilter{PriceDimension: "input", Sort: "price", Limit: 100}, CatalogPolicy{StaleAfter: 10 * time.Minute, DisableAfter: 30 * time.Minute})
+	page, err := s.PublicCatalog(ctx, CatalogFilter{PriceDimension: "input", Sort: "price", Limit: 100})
 	if err != nil || page.Total != 9 || len(page.Items) != 9 || page.Freshness.State != "CURRENT" {
 		t.Fatal("local published catalog", page.Total, page.Freshness.State, err)
 	}

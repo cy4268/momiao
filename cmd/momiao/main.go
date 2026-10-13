@@ -104,24 +104,6 @@ func run(ctx context.Context, cfg config, logger *log.Logger) error {
 		if err != nil { return errCatalogAssetConfig }
 		cfg.relay = store
 		cfg.rpUsage = store
-		if cfg.CatalogReaderKeyFile != "" {
-			key, err := readCatalogKey(cfg.CatalogReaderKeyFile)
-			if err != nil {
-				return errors.New("catalog startup failed")
-			}
-			transport := newNativeTransport(cfg.NewAPISocket)
-			defer transport.CloseIdleConnections()
-			cfg.catalogSource = nativeCatalogReader{transport: transport, key: key}.Read
-			catalogCtx, stopCatalog := context.WithCancel(ctx)
-			catalogDone := make(chan struct{})
-			go func() {
-				defer close(catalogDone)
-				runCatalogWorker(catalogCtx, cfg.CatalogSyncInterval, func(ctx context.Context) (platform.CatalogSyncResult, error) {
-					return store.SyncCatalog(ctx, cfg.catalogSource)
-				})
-			}()
-			defer func() { stopCatalog(); <-catalogDone }()
-		}
 		announcementCtx, stopAnnouncements := context.WithCancel(ctx)
 		announcementsDone := make(chan struct{})
 		go func() { defer close(announcementsDone); runAnnouncementWorker(announcementCtx, store) }()

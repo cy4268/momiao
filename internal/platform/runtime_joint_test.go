@@ -209,32 +209,6 @@ func TestRuntimeJointAcceptance(t *testing.T) {
 			t.Fatal("announcement job", count, err)
 		}
 	})
-	t.Run("catalog", func(t *testing.T) {
-		source := catalogStoreSnapshot(t, "synthetic/joint")
-		read := func(context.Context) (NativeCatalog, error) { return source, nil }
-		if _, err := runtime.SyncCatalog(ctx, read); err != nil {
-			t.Fatal("catalog sync", err)
-		}
-		p, model, err := runtime.OpsCatalogModel(ctx, user, "synthetic/joint", catalogTestPolicy)
-		if err != nil {
-			t.Fatal(err)
-		}
-		metadata := catalogEditableMetadata()
-		save := catalogCommand(t, runtime, p, model, "SAVE")
-		save.Metadata = &metadata
-		catalogConfirm(t, runtime, p, save)
-		_, model, err = runtime.OpsCatalogModel(ctx, user, model.ModelID, catalogTestPolicy)
-		if err != nil {
-			t.Fatal(err)
-		}
-		catalogConfirm(t, runtime, p, catalogCommand(t, runtime, p, model, "PUBLISH"))
-		if model, err = runtime.PublicCatalogModel(ctx, model.ModelID, catalogTestPolicy); err != nil || model.PublicationState != "PUBLISHED" {
-			t.Fatal("catalog published read", err)
-		}
-		if _, err = runtime.SyncCatalog(ctx, read); err != nil {
-			t.Fatal("catalog sync upsert", err)
-		}
-	})
 	t.Run("admission", func(t *testing.T) {
 		page := RegistrationPage{Receipts: []RegistrationReceipt{{Ordinal: 1, OperationID: "550e8400-e29b-41d4-a716-446655440000", NativeUserID: 4202, DiscordSubject: "12345678901234567", Source: "NEW_DISCORD_REGISTRATION", PolicyVersion: "joint-synthetic-v1", CreatedAt: time.Now().UTC().Add(-time.Minute)}}, NextCursor: 1}
 		if err := runtime.IngestRegistrationPage(ctx, 0, page); err != nil {

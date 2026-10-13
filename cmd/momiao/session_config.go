@@ -46,7 +46,7 @@ func loadSessionConfig(cfg *config, lookup func(string) (string, bool)) error {
 		{"MOMIAO_SESSION_ENVIRONMENT", &s.Environment, false},
 	}
 	seen := map[string]bool{}
-	for _, value := range []string{cfg.WalletDSNFile, cfg.CatalogReaderKeyFile, cfg.Poker.DSNFile, cfg.Poker.StateKeyringFile, cfg.Poker.TicketKeyringFile, cfg.Poker.RedisConfigFile} {
+	for _, value := range []string{cfg.WalletDSNFile, cfg.Poker.DSNFile, cfg.Poker.StateKeyringFile, cfg.Poker.TicketKeyringFile, cfg.Poker.RedisConfigFile} {
 		if value != "" {
 			seen[pokerPathKey(value)] = true
 		}

@@ -1,183 +1,61 @@
-# Models catalog and API Access — M3c
+# 本地模型目录与运营
 
-Status: implemented local review candidate; integration and release gates below remain open. Source baseline is M3a
-`744000ee37d5ee2583345a1f05c194a3811e50b4`, with the approved M2b schema-only
-`eea192e7bc7417a8325d4e59d4281106164d423f` imported as `3339506`.
-0001–0006 are immutable; this batch owns 0007. Six original specifications are read-only.
+目录直接读取 `relay.channels`、`relay.prices`、`relay.groups`，与现有元数据做并集。
+新增渠道模型立即出现在运营列表，默认未公开；仅剩元数据标为“无渠道”，渠道全停用标为“渠道已停用”。
+配置支持不等于上游健康，不宣称所有非文本调用均可用。
 
-## Implementation and verification order
+## 身份与写入
 
-1. Strict native reader, exact decimal DTO and failure tests; no new dependencies.
-2. 0007 catalog metadata/publication/snapshots/availability/identity, atomic sync and
-   recovery; independent real PostgreSQL and least-privilege role acceptance.
-3. Models-scoped Ops edit/preview/confirm/publish/hide/retire and audit/epoch/concurrency tests.
-4. Shared public catalog/detail/home selection, private personal quotes, public API
-   Access and selection-only return intent; responsive, keyboard and error states.
-5. Go/vet/web/build regression, real local browser + synthetic native evidence and a
-   separate approved native integration read. Local commits and review report; no deploy.
+- 个人报价使用本地 Redis 会话和 `identity.users` 中的实际分组，不接受请求指定分组。
+- 运营使用本地 `role >= 10`；写请求经过现有 Origin / CSRF 校验。
+- 一个事务保存数据及 `ops.audit_log`。没有操作编号、原因、预览、确认或版本比对。
+- 批量公开/隐藏最多 100 个模型，任意一项失败则整批回退。
+- 公开仍要求展示名称、家族、简介，沿用原纯文本、受控标签和素材字段校验。
+  已明确按次/按秒定价的模型不再强制额外填写特殊计价说明。
+- 未配置价格不视为免费；可以保存展示信息，但接入仍不可用。
+- 元数据版本、身份历史和旧发布记录保留作历史读取，不作为保存前置条件。
 
-## Native boundary
+## HTTP
 
-Pinned provider candidate `26604b681af246f0d98223f543e52d5b36c0f70c`, native revision
-`f116414284162ad15d8925f7bca494c109b83e93`, patch SHA256
-`289bb441d2249a745b38a2400f02ed9b7166dcd5819a9fefd13d437de992b108`.
-Only the fixed Unix transport can read `GET /internal/momiao/catalog`, using an
-independent 64-hex reader key from a private file. No URL input, root token, PAT,
-client credential forwarding, redirect following, raw error logging or internal proxy route.
+统一使用现有 JSON envelope 和 no-store 响应。
 
-The complete response is bounded at 2 MiB / 1000 models / 5 seconds. Require exact
-schema `momiao.native-catalog.v1`, `public_default_reference`, `native_settlement`,
-unique valid opaque textual model IDs (1–255 UTF-8 bytes, trimmed, no controls),
-sorted models/endpoints and known complete price shapes. Unknown or missing fields,
-duplicates, incomplete bodies, invalid decimals, bad hashes and clock violations
-reject the whole batch. SHA256 covers the exact compact `data` bytes; it is not a signature.
-Source observation must be UTC and no more than 1 minute ahead / 5 minutes behind
-the receive time. Last successful verification and source observation remain distinct.
+| 方法 / 路径 | 作用 |
+|---|---|
+| GET `/platform/v1/models` | 公开列表、筛选、分页、同维度价格排序 |
+| GET `/platform/v1/models/detail?model_id=...` | 公开详情、词表、API Base URL |
+| GET `/platform/v1/models/access-config` | 显式部署的 API Base URL |
+| GET `/platform/v1/models/personal-price?model_id=...` | 当前用户分组报价 |
+| GET `/platform/v1/ops/models` | 全部本地模型；q / state / offset / limit |
+| GET `/platform/v1/ops/models/detail?model_id=...` | `{item,price_settings}`，可编辑基础价格不含分组倍率 |
+| PUT `/platform/v1/ops/models` | `{model_id,metadata,public,recommended,sort_order,price_settings}` |
+| PUT `/platform/v1/ops/models/publication` | `{model_ids,public}`，批量公开/隐藏 |
+| GET `/platform/v1/ops/models/family-covers` | 家族封面和上传配置状态 |
+| POST `/platform/v1/ops/models/family-covers/upload` | multipart metadata + file，返回候选资产 |
+| PUT `/platform/v1/ops/models/family-covers` | `{family,asset_id}`，空 asset_id 恢复默认 |
 
-Decimals remain strings, including explicit zero and tiny positives; missing is never
-zero. Prices use API Credit per 1M tokens or per request independently. Conditional
-and expression-based prices retain their source semantics. Reference tariffs do not
-include all adjustments, tool fees or integer quota rounding and do not guarantee
-personal settlement. Endpoints describe configured support, never call health.
+`price_settings: null` 保持原价格，缺失仍为未配置。`input`、`output`、`cache_read`、
+`cache_write`、`cache_write_1h` 是十进制字符串，单位 Credit / 百万 token。
+`per_request`、`per_second` 是可空十进制字符串且互斥；`default_seconds` 为非负整数。
+SQL 写入精确乘 500000，读取精确除 500000，不经浮点数。
+公开参考价乘 default 分组倍率；本人报价与结算只乘实际分组倍率一次。
 
-Sync uses one database-serialized path for worker and Ops, 5-minute default interval,
-10-minute stale warning, 30-minute usage CTA expiry, all explicit bounded config.
-Verified complete batches replace current source facts atomically. Failure retains
-last-good data and stores only a code-owned reason. Empty success marks prior models
-not observed; it does not delete, hide or retire them. Same hash refreshes verification
-without inventing metadata/identity versions. New identities begin pending metadata.
+公开查询保留 q、availability、family、tag、use_case、recommended、unknown_context、
+min_context、price_dimension、min_price、max_price、sort、offset、limit、group_by=family。
+价格条件必须明确维度，缺失价格不参与数值范围。默认公开分页24项，Ops50项，最大100项。
+模型 ID 沿用不透明文本编码；`.` / `..` 的浏览器后缀为 `~Lg` / `~Li4`。
 
-## Public, personal and editorial authority
+## 封面、配置与历史
 
-All public discovery consumers use the same published-only projection. Pending,
-hidden and retired IDs are indistinguishable from unknown IDs. Published models
-retain detail and price history while unavailable. Publication, configuration
-availability, freshness and price trust are separate facts.
+复用 R2 上传与图片校验：静态 PNG/JPEG/WebP，8 MiB，每边8192，总像素16,777,216。
+对象键由家族、内容 SHA256、真实扩展名组成；重复图片沿用已登记说明。
+上传后素材地址公开，保存后绑定家族；保留来源归属字段和默认素材。
 
-Metadata is plain text with bounded controlled tags/use cases, nullable context,
-explicit special-pricing explanation and managed asset IDs. Publication requires
-reviewed identity, family, summary and a truthful price explanation. Native role does
-not grant platform authority; Models scope, security epoch and operation version
-are rechecked under locks. Writes use server previews, explicit confirmation,
-global operation IDs, durable receipts and append-only audit.
+保留 `MOMIAO_API_BASE_URL`、`MOMIAO_ASSET_CDN_ORIGIN` 和既有 R2 配置。
+删除目录 reader key、同步间隔、陈旧阈值、worker 与 native 目录解析器。
+旧同步表及历史数据保留，不删除或重新导入。
+0056/0057 把审计与维护操作者外键接到本地 `identity.users`，不要求先初始化 Master。
 
-Personal quotes use only native browser session credentials, current user group,
-and `/api/momiao/catalog/prices?model_id=...`; no user_id or group input is exposed.
-Responses are no-store, filtered again to the public identity, and discarded across
-session epochs. Auto candidates remain ordered alternatives, never a selected group.
+## 验收边界
 
-## UI and media
-
-Anonymous and signed-in users share `/models` and encoded opaque `/models/:model`.
-Cards: identity, summary, attributes/pricing, 2:3 persona slot, action rail; >1100px
-three columns, 421–1100px two, <=420px one. Detail information/persona is about 7/5
-on desktop; information leads on mobile. Search covers name and ID. Availability,
-recommended, tag/use case, context and same-dimension price filtering/sorting are
-required; unknown prices/context are not silently zero.
-
-There are no approved production persona assets in this candidate. A code-owned
-manifest accepts only PRODUCTION_READY managed local entries with source, rights,
-fallback, focal point and safe-area metadata. Family geometry/glyph preserves the
-slot and operation on missing/failed assets. Nine selected persona masters, media
-upload/rights consent and production visual QA remain explicit later acceptance work.
-
-`/api/access` is an exact SPA exception before native `/api/*`; other API routes
-remain proxied. API Base URL must be explicitly configured. Known native endpoints
-must also match the verified portal `/v1/` proxy paths. cURL uses JSON encoding and
-POSIX single-quote escaping, always `<YOUR_API_KEY>`, and never makes a model call.
-Use This Model produces `/api/access?model_id=<encoded opaque ID>&intent=use` for the
-existing login gate. Signed-in users with no key enter Keys, otherwise Access. A
-post-login Access continuation only reads key existence; it never creates a key or
-makes an inference request. The unintegrated fallback keeps that destination in
-React navigation state, while the current baseline login still finishes at dashboard.
-Guest selection restoration is therefore an explicit integration gate, not a passed
-end-to-end claim in this candidate.
-
-## HTTP and configuration contract
-
-All responses use the existing `{success,data}` or `{success:false,code,message}`
-envelope, JSON, `Cache-Control: no-store`, and `X-Content-Type-Options: nosniff`.
-Every read is bounded. Public reads do not require credentials. Personal and Ops
-reads require the shared dashboard-session classifier plus a current native self
-verification; token/PAT/native-role values cannot grant platform permissions.
-
-| Method/path | Purpose |
-| --- | --- |
-| GET `/platform/v1/models` | Published-only list and count in one repeatable-read snapshot |
-| GET `/platform/v1/models/detail?model_id=...` | Published detail, approved vocabulary and explicit API Base URL |
-| GET `/platform/v1/models/access-config` | Explicit API Base URL only |
-| GET `/platform/v1/models/personal-price?model_id=...` | Current session quote; public identity is checked before and after native read |
-| GET `/platform/v1/ops/models` | Authorized catalog, sync state, principal and vocabulary |
-| GET `/platform/v1/ops/models/detail?model_id=...` | Authorized unpublished or published metadata |
-| POST `/platform/v1/ops/models/prepare` | Server preview for SAVE/PUBLISH/HIDE/RETIRE/SYNC |
-| POST `/platform/v1/ops/models/execute` | Confirmed, epoch/version/actor-bound, idempotent transaction |
-
-Public query keys: `q`, `availability`, `family`, `tag`, `use_case`, `recommended=true`,
-`unknown_context=true`, `min_context`, `price_dimension`, `min_price`, `max_price`,
-`sort`, `offset`, `limit`. Sort values: `recommended`, `name`, `context`, `price`.
-Price sort/range requires one explicit supported dimension and its fixed unit.
-Missing prices sort last and never satisfy numeric ranges. Unknown context is
-nullable and sorts last. Default public page size is 24; maximum is 100. Ops accepts
-only `q`, `state`, `offset`, `limit`, with default size 50. Duplicate, empty, malformed,
-or unsupported query values fail closed. Detail accepts exactly one `model_id`.
-
-An operation body is `{command}` for prepare and `{command,preview_id,confirmed}`
-for execute. The command contains a UUID `operation_id`, integer `authz_epoch`,
-`action`, opaque `model_id`, decimal-string `expected_version` and
-`expected_catalog_version`, and a required plain-text `reason`. SAVE additionally
-contains `metadata`, boolean `recommended`, integer `sort_order`. SYNC targets no
-model. Preview lasts ten minutes; success receipts remain durable when the following
-GET fails. An uncertain transport outcome keeps the same original command and
-operation ID for explicit reconciliation. A source change between preview and
-confirmation invalidates SYNC instead of silently approving new content.
-
-| Configuration | Meaning |
-| --- | --- |
-| `MOMIAO_CATALOG_READER_KEY_FILE` | Optional absolute regular file containing an independent 64-hex secret; POSIX mode must exclude group/other access |
-| `MOMIAO_CATALOG_SYNC_INTERVAL` | Default `5m`; bounded `1m`–`24h` |
-| `MOMIAO_CATALOG_STALE_AFTER` | Default `10m`; at least the sync interval |
-| `MOMIAO_CATALOG_DISABLE_AFTER` | Default `30m`; greater than stale threshold, at most `24h` |
-| `MOMIAO_API_BASE_URL` | Optional explicit HTTPS URL whose path is exactly `/v1`, without credentials/query/fragment |
-
-Reader configuration requires the existing platform DSN, WebDir and fixed native
-Unix socket. Explicit timing configuration requires a reader key. Startup schedules
-one immediate sync followed by the interval; shutdown cancels and joins the worker
-before closing the store. The application does not run migrations or bootstrap roles.
-With the reader disabled, retained published information remains readable and ages
-into the configured CTA cutoff; manual SYNC has no source to read. With no Base URL,
-the UI explains that examples are unavailable instead of guessing the portal origin.
-
-Opaque route IDs use one percent-encoded suffix, including encoded slashes and
-Unicode. The complete IDs `.` and `..` use reserved raw `~Lg` and `~Li4` suffixes to
-avoid browser dot normalization. Literal tildes are percent-encoded, so those model
-names remain distinct. API query parameters always carry the original textual ID.
-`source_observed_at` records the latest availability observation; `last_seen_at`
-records the last observation containing that model's retained price/endpoints. The
-detail page labels retained price provenance with `last_seen_at`.
-
-## Least-privilege runtime
-
-0007 is frozen at `60add8b4b876ba030871051425ea830f8ea3cba5`, SQL SHA256
-`728b47053eb5ae1745cb076991c0efb60ff9f16d4d530b0a161558d953126eb1`.
-Apply through the migration runner with the separate migration owner. Runtime needs
-schema USAGE on catalog/ops; SELECT principals/scopes; column-only UPDATE(updated_at)
-on principals for row locks; SELECT/INSERT on ops operations/previews; SELECT/INSERT/
-UPDATE on current metadata/publication/availability; SELECT/UPDATE on sync state;
-SELECT/INSERT on snapshots/attempts/metadata revisions/identity; and only
-UPDATE(effective_until) on historical identity. The exact executable grant matrix is
-in `internal/platform/catalog_grants_test.go`.
-
-The independent LOGIN-role tests prove sync, publication and detail reads, and deny
-DDL, role changes, scope self-grants, audit/snapshot mutation, history deletion and
-private profile reads. These are local grant proofs; production roles still require
-their deployment owner's verification. Removing application code retains 0001–0007,
-all publication/source/identity/audit history and existing grants for later recovery.
-
-## Integration and release limits
-
-M2b application/auth return-intent changes are not yet imported; integrate its exact
-candidate and retain the same auth epoch rather than add another identity machine.
-Global PostAuth Master/migration/critical-state orchestration still needs joint
-acceptance. Synthetic fixtures do not close native session integration or production
-grants/media/release gates. Rollback disables reader/worker and reverts application
-code while retaining every schema, snapshot, identity and audit row; no down migration.
+源码与独立开发数据库验证不等于网站已发布。联合发布、浏览器、真实素材上传、游戏及中转验收
+仍按迁移计划进行；完整开发验收前不切生产。源码回退不降库，保留已应用迁移及历史数据。

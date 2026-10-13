@@ -13,21 +13,11 @@ import (
 )
 
 var (
-	ErrCatalogInvalid       = errors.New("CATALOG_INVALID_REQUEST")
-	ErrCatalogForbidden     = errors.New("MODELS_FORBIDDEN")
-	ErrCatalogNotFound      = errors.New("MODEL_NOT_FOUND")
-	ErrCatalogConflict      = errors.New("MODEL_VERSION_CONFLICT")
-	ErrCatalogConfirmation  = errors.New("MODEL_CONFIRMATION_REQUIRED")
-	ErrCatalogOperation     = errors.New("MODEL_OPERATION_CONFLICT")
-	ErrCatalogIncomplete    = errors.New("MODEL_METADATA_INCOMPLETE")
-	ErrCatalogSourceChanged = errors.New("CATALOG_SOURCE_CHANGED")
+	ErrCatalogInvalid    = errors.New("CATALOG_INVALID_REQUEST")
+	ErrCatalogForbidden  = errors.New("MODELS_FORBIDDEN")
+	ErrCatalogNotFound   = errors.New("MODEL_NOT_FOUND")
+	ErrCatalogIncomplete = errors.New("MODEL_METADATA_INCOMPLETE")
 )
-
-type CatalogPolicy struct{ StaleAfter, DisableAfter time.Duration }
-
-func (p CatalogPolicy) valid() bool {
-	return p.StaleAfter >= time.Minute && p.DisableAfter > p.StaleAfter && p.DisableAfter <= 24*time.Hour
-}
 
 type CatalogFreshness struct {
 	State               string     `json:"state"`
@@ -35,20 +25,6 @@ type CatalogFreshness struct {
 	LastVerifiedAt      *time.Time `json:"last_verified_at"`
 	StaleAfterSeconds   int64      `json:"stale_after_seconds"`
 	DisableAfterSeconds int64      `json:"disable_after_seconds"`
-}
-
-func catalogFreshness(status CatalogSyncStatus, policy CatalogPolicy, now time.Time) CatalogFreshness {
-	result := CatalogFreshness{State: "NEVER_SYNCED", LastObservedAt: status.LastObservedAt, LastVerifiedAt: status.LastVerifiedAt, StaleAfterSeconds: int64(policy.StaleAfter / time.Second), DisableAfterSeconds: int64(policy.DisableAfter / time.Second)}
-	if status.LastVerifiedAt != nil {
-		result.State = "CURRENT"
-		age := now.Sub(*status.LastVerifiedAt)
-		if age >= policy.DisableAfter {
-			result.State = "EXPIRED"
-		} else if age >= policy.StaleAfter {
-			result.State = "STALE"
-		}
-	}
-	return result
 }
 
 type CatalogMetadata struct {
@@ -70,10 +46,6 @@ type CatalogPublicPrice struct {
 	Reason         string             `json:"reason,omitempty"`
 	Dimensions     []CatalogDimension `json:"dimensions"`
 	Unquoted       []string           `json:"unquoted_dimensions"`
-}
-
-func catalogPublicPrice(p CatalogPrice) CatalogPublicPrice {
-	return CatalogPublicPrice{Mode: p.Mode, Configured: p.Configured, Status: p.Status, Reason: p.Reason, Dimensions: append([]CatalogDimension{}, p.Dimensions...), Unquoted: append([]string{}, p.Unquoted...)}
 }
 
 type CatalogModel struct {
@@ -206,7 +178,7 @@ func catalogPublishable(model CatalogModel) bool {
 	if !validCatalogMetadata(m) || m.DisplayName == "" || m.Summary == "" || m.Family == "" {
 		return false
 	}
-	return model.Price.Status == "reference" || len([]rune(m.SpecialPricingNote)) >= 10
+	return true
 }
 func catalogCanUse(model CatalogModel) bool {
 	return model.Price.Configured && model.PublicationState == "PUBLISHED" && model.AvailabilityState == "CONFIGURED" && len(model.Endpoints) > 0 && (model.Freshness.State == "CURRENT" || model.Freshness.State == "STALE") && catalogPublishable(model)
