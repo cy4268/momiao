@@ -82,7 +82,9 @@ API Key 管理已使用本地登录及 `relay.api_keys`，保留 `/api/token/` �
 
 定价与 Reserve 结算底层已接好：应用 0054 和 `deploy/sql/runtime-grants-0054-local-relay-billing.psql` 后，`momiao-import-native -stage prices` 单次把旧倍率转成 `relay.prices` 的最终单价。dev 已导入297条，其中32条按次、1条按视频时长；没有有效定价的模型不填免费价格。结算复用钱包事务，扣款不超过现有 Reserve，完整费用记入日志与Key用量，实际扣款写入归因；RP记录和排行榜同时读取历史与本地来源。协议适配和 `/v1` 路由尚未接线，本轮不发布网站镜像，也不进行余额合并。
 
-**只运行存活探针**：不设置额外环境变量，执行构建出的 `momiao`（Windows 为 `momiao.exe`），默认监听 `127.0.0.1:8080`。`GET/HEAD /healthz` 返回 `{"status":"ok"}`；该模式其他路径为 404。存活不代表上游或业务就绪。
+本地中转前置现已提供 `PrepareRelay`：检查 Key/用户状态、期限、额度、模型限制、Reserve 与维护，再按所属组选择最高优先级渠道，同层按权重抽取；保留官方多 Key 状态/轮询语义、模型映射及覆盖配置。`GET /v1/models` 在 API-only 和 Web 路由中都只读本地数据，不接受浏览器身份或请求中的分组覆盖。小站暂逐次查库，不加 Key 缓存，停用立即生效。模型发现不扣费、不要求余额；实际转发必须先通过准入和定价检查。没有新迁移或重复导入；开发站仍运行旧镜像，待官方 relaykit 与扣费链路联合接通后发布。
+
+**只运行存活探针**：不设置额外环境变量，执行构建出的 `momiao`（Windows 为 `momiao.exe`），默认监听 `127.0.0.1:8080`。`GET/HEAD /healthz` 返回 `{"status":"ok"}`；无后端配置时业务接口未就绪。存活不代表上游或业务就绪。
 
 **完整界面**：需要一个运行中的兼容 NewAPI，以及指向它的私有 Unix HTTP Socket。Linux 示例：
 
@@ -112,7 +114,7 @@ MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 
 SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/admin/channels`、`/wallet`、`/wallet/activate`、`/master-profile`、`/games/dice`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
 
-未由门户处理的 `/api/` 与 `/v1/` 请求转发到固定原生服务；门户文本测试与 `/pg/chat/completions` 转发已移除，前端不复制认证规则。适配版本和真实请求载荷见 [原生接口契约](contracts/native-api.md)。[OpenAPI](contracts/openapi.json) 声明 momiao 自有的 `/healthz` 、`/platform/v1/wallet` 与 `/platform/v1/master-profile` 接口，不把原生 API 冒充为自有实现。
+`GET /v1/models` 已使用本地 Key 认证和分组/模型限制；其余未由门户处理的 `/api/` 与 `/v1/` 请求暂仍转发到固定原生服务，待本地协议中转接通后删除。门户文本测试与 `/pg/chat/completions` 转发已移除，前端不复制认证规则。适配版本和真实请求载荷见 [原生接口契约](contracts/native-api.md)。[OpenAPI](contracts/openapi.json) 声明 momiao 自有的 `/healthz` 、`/platform/v1/wallet` 与 `/platform/v1/master-profile` 接口。
 
 代理 `/api/` 总上限 30 秒、`/v1/` 总上限 5 分钟。它们是明确的工程上限，**不是并发容量或压测结论**；WebSocket 升级尚不支持。本版主动移除转发身份头，原生端看到的是内部代理地址，未宣称按真实客户端 IP 审计或限流。
 

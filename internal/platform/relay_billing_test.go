@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -55,6 +56,61 @@ func TestLocalRelayBilling(t *testing.T) {
  WHERE k.status=1 AND k.purpose='ROLEPLAY' AND u.status=1 AND u.deleted_at IS NULL AND u.group_name='default' AND b.balance_units>10000 ORDER BY k.id LIMIT 1`).Scan(&input.UserID, &input.KeyID, &input.KeyName, &input.Purpose, &input.Group, &before, &usedBefore)
 	if err != nil {
 		t.Fatal("existing dev RP account/key", err)
+	}
+	var key string
+	if err = tx.QueryRow(ctx, `SELECT key FROM relay.api_keys WHERE id=$1`, input.KeyID).Scan(&key); err != nil {
+		t.Fatal("read existing key")
+	}
+	route, err := prepareRelay(ctx, tx, key, "gpt-5.6-sol", nil)
+	if err != nil || route.Identity.UserID != input.UserID || route.Identity.KeyID != input.KeyID || route.Channel.ID != 20 {
+		t.Fatal("local relay admission/routing", err)
+	}
+	if _, err = prepareRelay(ctx, tx, key, "gpt-5.6-sol", []int64{20}); !errors.Is(err, ErrRelayChannel) {
+		t.Fatal("retry reused excluded channel", err)
+	}
+	if _, err = prepareRelay(ctx, tx, key, "gproxy/claude-opus-4-6", nil); !errors.Is(err, ErrRelayChannel) {
+		t.Fatal("channel escaped account group", err)
+	}
+	if _, err = prepareRelay(ctx, tx, key, "workbuddy/glm-5.3", nil); !errors.Is(err, ErrRelayPrice) {
+		t.Fatal("unpriced alias admitted", err)
+	}
+	mapped, err := prepareRelay(ctx, tx, key, "NVIDIA/kimi-k3", nil)
+	if err != nil || mapped.Channel.ID != 8 || mapped.Channel.UpstreamModel != "moonshotai/kimi-k3" || strings.Contains(mapped.Channel.Key, "\n") {
+		t.Fatal("official mapping/multi-key selection", err)
+	}
+	// Exercise live edits on imported rows, then roll back this savepoint.
+	edits, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = edits.Exec(ctx, `UPDATE relay.channels SET priority=1,models=array_append(models,'gpt-5.6-sol') WHERE id=8`); err != nil {
+		t.Fatal(err)
+	}
+	route, err = prepareRelay(ctx, edits, key, "gpt-5.6-sol", nil)
+	if err != nil || route.Channel.ID != 8 {
+		t.Fatal("highest priority selection", err)
+	}
+	if _, err = edits.Exec(ctx, `UPDATE relay.channels SET priority=0,weight=100 WHERE id=8`); err != nil {
+		t.Fatal(err)
+	}
+	route, err = prepareRelay(ctx, edits, key, "gpt-5.6-sol", nil)
+	if err != nil || route.Channel.ID != 8 {
+		t.Fatal("same-priority positive weight selection", err)
+	}
+	if _, err = edits.Exec(ctx, `UPDATE relay.api_keys SET models=ARRAY['NVIDIA/kimi-k3'] WHERE id=$1`, input.KeyID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = prepareRelay(ctx, edits, key, "gpt-5.6-sol", nil); !errors.Is(err, ErrRelayModel) {
+		t.Fatal("key model restriction", err)
+	}
+	if _, err = edits.Exec(ctx, `UPDATE relay.api_keys SET status=2 WHERE id=$1`, input.KeyID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = prepareRelay(ctx, edits, key, "NVIDIA/kimi-k3", nil); !errors.Is(err, ErrRelayKey) {
+		t.Fatal("disabled key admitted", err)
+	}
+	if err = edits.Rollback(ctx); err != nil {
+		t.Fatal(err)
 	}
 	input.RequestID, _ = uuidV7()
 	input.Model = "gpt-5.6-sol"
@@ -123,6 +179,9 @@ func TestLocalRelayBilling(t *testing.T) {
 	}
 	if err = tx.QueryRow(ctx, `SELECT balance_units FROM economy.wallet_balances WHERE newapi_user_id=$1 AND asset_type='RESERVE_API_CREDIT'`, input.UserID).Scan(&balance); err != nil || balance != 0 {
 		t.Fatal("Reserve became negative", err)
+	}
+	if _, err = prepareRelay(ctx, tx, key, "gpt-5.6-sol", nil); !errors.Is(err, ErrInsufficientBalance) {
+		t.Fatal("empty Reserve admitted new relay", err)
 	}
 	var source string
 	if err = tx.QueryRow(ctx, `SELECT source_instance_id::text FROM platform_meta.attribution_checkpoints ORDER BY source_instance_id LIMIT 1`).Scan(&source); err != nil {

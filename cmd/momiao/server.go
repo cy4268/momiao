@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/cy4268/momiao/internal/bffauth"
 	"github.com/cy4268/momiao/internal/nativeself"
+	"github.com/cy4268/momiao/internal/relay"
 	"io"
 	"log"
 	"mime"
@@ -89,8 +90,13 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	if cfg.maintenanceNotices == nil {
 		cfg.maintenanceNotices = newMaintenanceNoticesHandler(nil, "")
 	}
+	models := relay.ModelsHandler(cfg.relay)
 	if cfg.WebDir == "" {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/v1/models" {
+				models.ServeHTTP(w, r)
+				return
+			}
 			if r.URL.Path == "/api/v1/maintenance/notices" {
 				cfg.maintenanceNotices.ServeHTTP(w, r)
 				return
@@ -168,6 +174,8 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		isRelay := strings.HasPrefix(r.URL.Path, "/v1/")
 		switch {
+		case r.URL.Path == "/v1/models":
+			models.ServeHTTP(w, r)
 		case opsAPIRoute(r.URL.Path):
 			serveOpsRoute(cfg, w, r)
 		case r.URL.Path == "/api/v1/maintenance/notices":
