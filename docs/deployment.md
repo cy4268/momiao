@@ -1,8 +1,8 @@
 # Portal deployment
 
-## Local identity migration (in progress)
+## Local identity migration
 
-Development runtime is deployed; end-to-end acceptance is not complete. Dev has committed all five imports, including Reserve: do not rerun them. Production remains unchanged; retain its Native containers and database through the final cutover and agreed rollback period.
+Development acceptance is complete. Production cutover finished on 2026-10-14 at 12:50 CST: platform `local-75f6fce-20261014`, Poker `local-35af2de-20261013`, schema 0066. Both environments have committed all five imports, including Reserve: do not rerun them. Production Native containers are stopped and their databases retained for the agreed one-week rollback period; deletion requires user confirmation. The cutover evidence and frozen backups are in the production release's `production-local-cutover-20261014/` directory.
 
 For a fresh target only, freeze registrations, drain receipt/wallet work and stop the old platform, Poker, Native and external wallet writers before importing. Set private `MOMIAO_MIGRATION_DSN_FILE` (target owner) and `MOMIAO_IMPORT_NATIVE_DSN_FILE` (source reader). Apply all committed migrations, then run the importer stages in order:
 
@@ -12,6 +12,19 @@ for stage in identity keys workspace prices quota; do
   ./momiao-import-native -stage "$stage" || exit 1
 done
 ```
+
+For an existing platform database at 0047 with historical Ops records, **import identity before migrations 0057 and 0062 replace the actor foreign keys**. The fresh-target sequence above would fail against empty `identity.users`; its transaction rolls back. The production cutover reused the archived 0048-only migration executable (SHA256 `f3e4cf75fadc75f9d6f82d587faa711f3438790fbe134cee295e0f20eab2332f`), followed by the current importer and migration executable:
+
+```sh
+./momiao-migrate-v48
+./momiao-import-native -stage identity
+./momiao-migrate
+for stage in keys workspace prices quota; do
+  ./momiao-import-native -stage "$stage" || exit 1
+done
+```
+
+Keep that archived executable with the cutover artifacts. Do not skip or rewrite historical migration checksums, disable foreign keys, or replay the identity import after it has committed. Production used a temporary maintenance response at the existing ingress socket while its application processes were stopped; the original TLS ingress was restored after the private production smoke checks.
 
 Each stage is an independent transaction; the first four require empty target tables, while quota uses the existing wallet idempotency. On failure, keep services stopped and resume only after resolving the failed stage; do not replay completed stages. Registration receipts come from the caught-up platform inbox in migration 0049, not another import stage. Before startup, apply the `deploy/sql/` runtime-grant templates 0048 (after 0048/0049), 0050, 0051, 0052, 0053, 0054, 0058, 0061 and 0063 with their existing role variables; preserve older grants. Configure Redis ACL, Poker reader and outbound relay networking as described below.
 
