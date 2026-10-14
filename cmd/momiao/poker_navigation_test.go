@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -107,7 +108,6 @@ func TestPokerNavigationApplicationGateOrder(t *testing.T) {
 		{"maintenance unchanged", pokerNavigationTable, "", "MAINTENANCE", true, true, 1, 200, "MAINTENANCE", "master,migration"},
 		{"unwired maintenance", pokerNavigationTable, "", "MAINTENANCE", false, false, 1, 200, "RESOURCE_UNAVAILABLE", "master,migration"},
 		{"resource absent", "/poker", "", "", true, true, 1, 200, "RESOURCE_UNVERIFIED", "master,migration"},
-		{"native failure", "/poker", "native-error", "AVAILABLE", true, true, 1, 502, "", ""},
 		{"missing auth", "/poker", "no-auth", "AVAILABLE", true, true, 1, 401, "", ""},
 		{"other route unchanged", "/wallet", "", "AVAILABLE", false, false, 1, 200, "READY", "master,migration"},
 	} {
@@ -121,7 +121,11 @@ func TestPokerNavigationApplicationGateOrder(t *testing.T) {
 			w := httptest.NewRecorder()
 			request := announcementReq("GET", "/platform/v1/access-gate?route="+url.QueryEscape(tc.route), "")
 			if tc.stage == "no-auth" {
-				request.Header.Del("Authorization")
+				request = request.WithContext(context.Background())
+			} else {
+				user, _ := identity.UserFromContext(request.Context())
+				user.Status = tc.account
+				request = request.WithContext(identity.WithUser(request.Context(), user, identity.SessionIDFromContext(request.Context())))
 			}
 			newPortalHandler(cfg).ServeHTTP(w, request)
 			var body struct {
@@ -139,6 +143,6 @@ func TestPokerNavigationApplicationGateOrder(t *testing.T) {
 		})
 	}
 	if !t.Failed() {
-		t.Log("POKER_NAV_GATE SYNTHETIC Native; wired requires enabled AND handler; account/master/migration order unchanged; maintenance retained; no runtime or acknowledgement effects")
+		t.Log("POKER_NAV_GATE local identity; wired requires enabled AND handler; account/master/migration order unchanged; maintenance retained; no runtime or acknowledgement effects")
 	}
 }

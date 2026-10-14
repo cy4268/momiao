@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -14,9 +15,16 @@ import (
 )
 
 func TestPokerHTTPAuthRequiresLocalContext(t *testing.T) {
-	req := announcementReq("POST", "/api/v1/poker/connect-tickets", "")
+	req := httptest.NewRequest("POST", "/api/v1/poker/connect-tickets", nil)
+	req.Header.Set("Authorization", "Bearer forged")
+	req.Header.Set("New-Api-User", "9007199254740993")
+	req.Header.Set("X-Auth-Session", "session")
 	if _, err := pokerHTTPAuth(req); err == nil {
 		t.Fatal("native headers established a local Poker identity")
+	}
+	principal, err := pokerHTTPAuth(announcementReq("POST", "/api/v1/poker/connect-tickets", ""))
+	if err != nil || principal.UserID != 9007199254740993 || principal.SessionIDHash != strings.Repeat("a", 64) {
+		t.Fatal("local user/session context not preserved", principal, err)
 	}
 }
 

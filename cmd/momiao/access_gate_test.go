@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -18,7 +19,6 @@ type gateFixture struct {
 	calls               []string
 	ackUser, ackVersion int64
 }
-
 
 func TestAccessGateCatalogRoutesAndScope(t *testing.T) {
 	for _, route := range []string{"/api/access", "/api/access?model_id=%E7%BB%84%2Fmodel&intent=use", "/keys?model_id=a%3Fb%23c"} {
@@ -35,8 +35,14 @@ func TestAccessGateCatalogRoutesAndScope(t *testing.T) {
 	for _, tc := range []struct{ stage, want string }{{"models-denied", "ROLE_DENIED"}, {"allowed", "READY"}} {
 		store := &gateFixture{stage: tc.stage}
 		w := httptest.NewRecorder()
-		newAccessGateHandler("https://example.test", store, &accessDeclaration{Resources: map[string]string{"OPERATIONS": "AVAILABLE"}}, false).ServeHTTP(w, announcementReq("GET", "/platform/v1/access-gate?route="+url.QueryEscape("/ops/models"), ""))
-		if w.Code != 200 || !strings.Contains(w.Body.String(), `"stage":"`+tc.want+`"`) || strings.Join(store.calls, ",") != "master,migration,models-role" {
+		r := announcementReq("GET", "/platform/v1/access-gate?route="+url.QueryEscape("/ops/models"), "")
+		if tc.stage == "models-denied" {
+			user, _ := identity.UserFromContext(r.Context())
+			user.Role = 1
+			r = r.WithContext(identity.WithUser(r.Context(), user, identity.SessionIDFromContext(r.Context())))
+		}
+		newAccessGateHandler("https://example.test", store, &accessDeclaration{Resources: map[string]string{"OPERATIONS": "AVAILABLE"}}, false).ServeHTTP(w, r)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"stage":"`+tc.want+`"`) || strings.Join(store.calls, ",") != "master,migration" {
 			t.Errorf("models scope/order lost: %d %s %v", w.Code, w.Body.String(), store.calls)
 		}
 	}
@@ -137,11 +143,17 @@ func TestAccessGateOrderAndMissingDeclaration(t *testing.T) {
 		stage       string
 		status      int
 		want, calls string
-	}{{"account", 2, "ACCOUNT_RESTRICTED", ""}, {"master", 1, "MASTER_REQUIRED", "master"}, {"migration", 1, "MIGRATION_REQUIRED", "master,migration"}, {"role", 1, "ROLE_DENIED", "master,migration,role"}, {"resource", 1, "RESOURCE_UNVERIFIED", "master,migration,role"}, {"AVAILABLE", 1, "READY", "master,migration,role"}, {"MAINTENANCE", 1, "MAINTENANCE", "master,migration,role"}} {
+	}{{"account", 2, "ACCOUNT_RESTRICTED", ""}, {"master", 1, "MASTER_REQUIRED", "master"}, {"migration", 1, "MIGRATION_REQUIRED", "master,migration"}, {"role", 1, "ROLE_DENIED", "master,migration"}, {"resource", 1, "RESOURCE_UNVERIFIED", "master,migration"}, {"AVAILABLE", 1, "READY", "master,migration"}, {"MAINTENANCE", 1, "MAINTENANCE", "master,migration"}} {
 		t.Run(tc.stage, func(t *testing.T) {
 			store := &gateFixture{stage: tc.stage}
 
 			r := announcementReq("GET", "/platform/v1/access-gate?route=%2Fops%2Fannouncements", "")
+			user, _ := identity.UserFromContext(r.Context())
+			user.Status = tc.status
+			if tc.stage == "role" {
+				user.Role = 1
+			}
+			r = r.WithContext(identity.WithUser(r.Context(), user, identity.SessionIDFromContext(r.Context())))
 			w := httptest.NewRecorder()
 			var declaration *accessDeclaration
 			if tc.stage == "AVAILABLE" || tc.stage == "MAINTENANCE" {

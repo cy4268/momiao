@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,19 +15,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func announcementSessionToken(patch map[string]any) string {
-	claims := map[string]any{"iss": "new-api", "aud": []string{"new-api-dashboard"}, "token_use": "access", "sub": "9007199254740993", "sid": "fixture-session", "uv": 1, "sv": 1, "exp": 9999999999, "iat": 1788634800, "nbf": 1788634795, "jti": "fixture-id"}
-	for key, value := range patch {
-		claims[key] = value
-	}
-	b, _ := json.Marshal(claims)
-	return base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`)) + "." + base64.RawURLEncoding.EncodeToString(b) + "." + base64.RawURLEncoding.EncodeToString([]byte("synthetic-signature"))
-}
 func announcementReq(method, path, body string) *http.Request {
-	r := walletReq(method, path, body)
-	r.Header.Set("Authorization", "Bearer "+announcementSessionToken(nil))
-	r.Header.Set("X-Auth-Session", "fixture-session")
-	return r
+	return walletReq(method, path, body)
 }
 
 // The existing authority regression now uses local dev accounts and Redis cookies.

@@ -14,7 +14,6 @@ func TestM1DirectRoutesAndNativePrefix(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<html>M1 candidate</html>"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	var forwarded string
 	handler := newPortalHandler(config{WebDir: root})
 	for _, path := range []string{"/", "/me", "/rewards"} {
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
@@ -32,8 +31,8 @@ func TestM1DirectRoutesAndNativePrefix(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/keys", nil))
-	if forwarded != "/api/keys" || w.Code != http.StatusNotFound || strings.Contains(w.Body.String(), "M1 candidate") {
-		t.Fatal("native /api prefix was captured by SPA routing")
+	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), `"code":"NOT_FOUND"`) || strings.Contains(w.Body.String(), "M1 candidate") {
+		t.Fatal("removed API route was captured by SPA routing")
 	}
 }
 

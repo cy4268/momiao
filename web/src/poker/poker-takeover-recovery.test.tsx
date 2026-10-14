@@ -26,8 +26,8 @@ function full(s:Socket,version=7,controller=false,epoch='1'){
 }
 function authenticated(s:Socket,version=7,controller=false){s.open();s.message(frame('auth.accepted',{request_id:JSON.parse(s.sent[0]).request_id,connection_id:s.id}));full(s,version,controller);}
 async function setup(controller=true){
-  const fetcher=vi.fn().mockResolvedValueOnce(ok({access_token:'synthetic',access_expires_at:4102444800,user:{id:910002,username:'synthetic',role:1},session:{sid:'synthetic'}}));
-  const api=new ApiClient(fetcher);await api.login('synthetic','synthetic');const sockets:Socket[]=[];
+  const fetcher=vi.fn().mockResolvedValueOnce(ok({authentication_state:'AUTHENTICATED',csrf_token:'synthetic'})).mockResolvedValueOnce(ok({id:910002,username:'synthetic',role:1}));
+  const api=new ApiClient(fetcher);await api.bootstrap();const sockets:Socket[]=[];
   const client=new PokerTableClient(api,{socketFactory:()=>{const s=new Socket(String(sockets.length+1).repeat(32));sockets.push(s);return s as unknown as WebSocket;}});clients.push(client);
   fetcher.mockResolvedValueOnce(ok({poker_connect_ticket:ticket}));await client.connect(self.table_id,'PLAYER_SELF','CLAIM_CONTROL');authenticated(sockets[0],7,controller);return{client,api,fetcher,sockets};
 }
@@ -115,9 +115,9 @@ describe('R2 reentrant teardown and the documented R3 boundary',()=>{
   it('teardown and owner/table changes clear auxiliary private references and drop late invalid queries',async()=>{
     for(const mode of ['logout','dispose','account','session','table']){const r=await auxiliaryUnknown();let reply!:(v:Response)=>void;r.fetcher.mockReturnValueOnce(new Promise<Response>(resolve=>reply=resolve));
       const read=r.client.recheckTakeover();await Promise.resolve();
-      if(mode==='logout'){r.fetcher.mockResolvedValueOnce(ok({}));await r.api.logout();}else if(mode==='dispose')r.client.dispose();
+      if(mode==='logout'){r.fetcher.mockResolvedValueOnce(ok({authentication_state:'AUTHENTICATED',csrf_token:'synthetic-csrf'})).mockResolvedValueOnce(ok({authentication_state:'ANONYMOUS',csrf_token:'logged-out'}));await r.api.logout();}else if(mode==='dispose')r.client.dispose();
       else if(mode==='table'){r.fetcher.mockResolvedValueOnce(ok({poker_connect_ticket:ticket}));await r.client.connect(self.hand.hand_id,'PLAYER_SELF','CLAIM_CONTROL');}
-      else{r.fetcher.mockResolvedValueOnce(ok({access_token:'synthetic changed',access_expires_at:4102444800,user:{id:mode==='account'?910003:910002,username:'synthetic',role:1},session:{sid:'synthetic changed'}}));await r.api.login('synthetic','synthetic');}
+      else{r.fetcher.mockResolvedValueOnce(ok({authentication_state:'AUTHENTICATED',csrf_token:'synthetic changed'})).mockResolvedValueOnce(ok({id:mode==='account'?910003:910002,username:'synthetic',role:1}));await r.api.login('synthetic','synthetic');}
       reply(ok({private_secret:'stale auxiliary result'}));await read;expect(r.client.getSnapshot()?.control_recovery).toBeUndefined();expect(r.client.getSnapshot()?.pending).toBeUndefined();expect(JSON.stringify(r.client)).toBe('{}');}
   });
   it('a query-resolved old HTTP attempt is ignored before decode even when another auxiliary starts in the same scope',async()=>{
@@ -190,9 +190,9 @@ describe('R3 previous-connection query-only locators',()=>{
     for(const mode of ['logout','dispose','account','session','table','viewer']){
       const r=await auxiliaryUnknown();await reconnect(r);expect(r.client.getSnapshot()?.control_history?.count).toBe(1);let reply!:(v:Response)=>void;
       r.fetcher.mockReturnValueOnce(new Promise<Response>(resolve=>reply=resolve));const read=r.client.recheckTakeover(true);await Promise.resolve();await Promise.resolve();
-      if(mode==='logout'){r.fetcher.mockResolvedValueOnce(ok({}));await r.api.logout();}else if(mode==='dispose')r.client.dispose();
+      if(mode==='logout'){r.fetcher.mockResolvedValueOnce(ok({authentication_state:'AUTHENTICATED',csrf_token:'synthetic-csrf'})).mockResolvedValueOnce(ok({authentication_state:'ANONYMOUS',csrf_token:'logged-out'}));await r.api.logout();}else if(mode==='dispose')r.client.dispose();
       else if(mode==='table'||mode==='viewer'){r.fetcher.mockResolvedValueOnce(ok({poker_connect_ticket:ticket}));await r.client.connect(mode==='table'?self.hand.hand_id:self.table_id,mode==='viewer'?'SPECTATOR':'PLAYER_SELF','READ_ONLY');}
-      else{r.fetcher.mockResolvedValueOnce(ok({access_token:'changed',access_expires_at:4102444800,user:{id:mode==='account'?910003:910002,username:'changed',role:1},session:{sid:'changed'}}));await r.api.login('changed','changed');}
+      else{r.fetcher.mockResolvedValueOnce(ok({authentication_state:'AUTHENTICATED',csrf_token:'changed'})).mockResolvedValueOnce(ok({id:mode==='account'?910003:910002,username:'changed',role:1}));await r.api.login('changed','changed');}
       reply(ok({private_secret:'late historical result'}));await read;const calls=r.fetcher.mock.calls.length;await r.client.recheckTakeover(true);
       expect(r.client.getSnapshot()?.control_history).toBeUndefined();expect(r.client.getSnapshot()?.pending).toBeUndefined();expect(r.fetcher.mock.calls).toHaveLength(calls);
       expect(JSON.stringify(r.client)).toBe('{}');expect(localStorage.length+sessionStorage.length).toBe(0);

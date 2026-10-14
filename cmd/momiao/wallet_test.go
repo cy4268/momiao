@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 	"net/http"
 	"net/http/httptest"
@@ -37,12 +38,10 @@ type walletTransport func(*http.Request) (*http.Response, error)
 func (f walletTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 func walletReq(method, path, body string) *http.Request {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
-	r.Header.Set("Authorization", "Bearer secret")
-	r.Header.Set("New-Api-User", "9007199254740993")
-	r.Header.Set("X-Auth-Session", "session")
 	r.Header.Set("Origin", "https://wallet.example")
 	r.Header.Set("Content-Type", "application/json")
-	return r
+	// Business-handler tests start after the local cookie/CSRF middleware.
+	return r.WithContext(identity.WithUser(r.Context(), identity.User{ID: 9007199254740993, Username: "local-user", Status: 1, Role: 10}, strings.Repeat("a", 64)))
 }
 func TestWalletValidationAndData(t *testing.T) {
 
@@ -123,8 +122,11 @@ func TestWalletDTOAndPagination(t *testing.T) {
 }
 func TestWalletRequiresLocalIdentity(t *testing.T) {
 
-	for _, edit := range []func(*http.Request){func(r *http.Request) { r.Header.Del("Authorization") }, func(r *http.Request) { r.Header.Set("Authorization", "secret") }, func(r *http.Request) { r.Header.Add("Authorization", "Bearer other") }, func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+strings.Repeat("x", 8192)) }, func(r *http.Request) { r.Header.Add("New-Api-User", "1") }, func(r *http.Request) { r.Header.Set("New-Api-User", "-1") }, func(r *http.Request) { r.Header.Set("X-Auth-Session", strings.Repeat("x", 513)) }} {
-		r := walletReq("GET", "/platform/v1/wallet", "")
+	for _, edit := range []func(*http.Request){func(*http.Request) {}, func(r *http.Request) { r.Header.Del("Authorization") }, func(r *http.Request) { r.Header.Set("Authorization", "secret") }, func(r *http.Request) { r.Header.Add("Authorization", "Bearer other") }, func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+strings.Repeat("x", 8192)) }, func(r *http.Request) { r.Header.Add("New-Api-User", "1") }, func(r *http.Request) { r.Header.Set("New-Api-User", "-1") }, func(r *http.Request) { r.Header.Set("X-Auth-Session", strings.Repeat("x", 513)) }} {
+		r := httptest.NewRequest("GET", "/platform/v1/wallet", nil)
+		r.Header.Set("Authorization", "Bearer secret")
+		r.Header.Set("New-Api-User", "9007199254740993")
+		r.Header.Set("X-Auth-Session", "session")
 		edit(r)
 		w := httptest.NewRecorder()
 		newWalletHandler("https://wallet.example", &walletTestStore{}).ServeHTTP(w, r)
@@ -152,10 +154,11 @@ func TestUnavailableLazyWalletIs503AfterLocalIdentity(t *testing.T) {
 	}
 	defer s.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	r := walletReq("GET", "/platform/v1/wallet", "")
+	ctx, cancel := context.WithCancel(r.Context())
 	cancel()
 	w := httptest.NewRecorder()
-	newWalletHandler("https://wallet.example", s).ServeHTTP(w, walletReq("GET", "/platform/v1/wallet", "").WithContext(ctx))
+	newWalletHandler("https://wallet.example", s).ServeHTTP(w, r.WithContext(ctx))
 	if w.Code != 503 || !strings.Contains(w.Body.String(), `"code":"WALLET_UNAVAILABLE"`) {
 		t.Fatal(w.Code, w.Body)
 	}

@@ -22,6 +22,7 @@ it('keeps the account form through local credential rotations and resets it on u
   if(path.startsWith('/platform/v1/access-gate?'))return ok({user_id:String(currentUser.id),route:new URLSearchParams(path.split('?')[1]).get('route'),stage:restricted?'ACCOUNT_RESTRICTED':'READY'});
   if(path==='/api/v1/account')return ok({id:currentUser.id,username:currentUser.username,has_password:true,discord_linked:true,two_fa_enabled:enabled});
   if(path==='/api/v1/account/2fa/setup')return ok({secret:'TEST-SECRET',qr_code_data:'otpauth://totp/momiao:test',backup_codes:['AAAA-BBBB','CCCC-DDDD','EEEE-FFFF','GGGG-HHHH']});
+  if(path==='/api/v1/maintenance/notices')return ok({items:[]});
   return ok(path.includes('master-profile')?{...profile,user_id:String(currentUser.id),short_account_id:currentUser.id===12?profile.short_account_id:'CA-00000000000D'}:status);
  });
  const c=new ApiClient(f);await c.bootstrap();render(<MemoryRouter initialEntries={['/account/security']}><App client={c}/></MemoryRouter>);
@@ -58,7 +59,7 @@ it('keeps the account form through local credential rotations and resets it on u
 
 });
 it('shows actual read-only login identifier and first set requires a fresh proof',async()=>{
- const f=vi.fn(async(path:string)=>ok(path==='/api/v1/session/bootstrap'?{authentication_state:'AUTHENTICATED',csrf_token:'local-csrf'}:path==='/api/user/self'?user:path==='/api/v1/account'?{id:12,username:'native-readonly',has_password:false,discord_linked:true,two_fa_enabled:true}:path.includes('master-profile')?profile:status));const c=new ApiClient(withReadyAccessGate(f));await c.bootstrap();
+ const f=vi.fn(async(path:string)=>ok(path==='/api/v1/session/bootstrap'?{authentication_state:'AUTHENTICATED',csrf_token:'local-csrf'}:path==='/api/user/self'?user:path==='/api/v1/account'?{id:12,username:'native-readonly',has_password:false,discord_linked:true,two_fa_enabled:true}:path==='/api/v1/maintenance/notices'?{items:[]}:path.includes('master-profile')?profile:status));const c=new ApiClient(withReadyAccessGate(f));await c.bootstrap();
  render(<MemoryRouter><Account client={c}/></MemoryRouter>);
  expect(await screen.findByText('native-readonly')).toBeVisible();expect(screen.queryByLabelText('用户名')).not.toBeInTheDocument();
  // The account page is the one place that keeps the login name and account number, labelled plainly.
@@ -73,7 +74,7 @@ it('shows actual read-only login identifier and first set requires a fresh proof
  expect(f.mock.calls.some(([path])=>path.includes('/password/'))).toBe(false);
 });
 it('uses a supplied in-memory proof for first set then clears it without replay',async()=>{
- const f=vi.fn(async(path:string)=>ok(path==='/api/v1/session/bootstrap'?session:path==='/api/user/self'?user:path==='/api/v1/account'?{id:12,username:'native-readonly',has_password:false,discord_linked:true,two_fa_enabled:false}:path.includes('master-profile')?profile:path.includes('/password/set')?session:status));const c=new ApiClient(withReadyAccessGate(f));await c.bootstrap();const clear=vi.fn();
+ const f=vi.fn(async(path:string)=>ok(path==='/api/v1/session/bootstrap'?session:path==='/api/user/self'?user:path==='/api/v1/account'?{id:12,username:'native-readonly',has_password:false,discord_linked:true,two_fa_enabled:false}:path==='/api/v1/maintenance/notices'?{items:[]}:path.includes('master-profile')?profile:path.includes('/password/set')?session:status));const c=new ApiClient(withReadyAccessGate(f));await c.bootstrap();const clear=vi.fn();
  render(<MemoryRouter><Account client={c} proof={{proof:'synthetic-proof',purpose:'PASSWORD_SET',expires_at:4102444800}} clearProof={clear}/></MemoryRouter>);
  fireEvent.change(await screen.findByLabelText('新密码'),{target:{value:'synthetic-pass'}});fireEvent.change(screen.getByLabelText('确认新密码'),{target:{value:'synthetic-pass'}});fireEvent.click(screen.getByRole('button',{name:'设置密码'}));
  await waitFor(()=>expect(clear).toHaveBeenCalled());expect(f.mock.calls.filter(([p])=>p.includes('/password/set'))).toHaveLength(1);
@@ -86,7 +87,7 @@ it('stores only an expiring fixed route key and consumes it once',()=>{
 });
 
 it('hands the sensitive callback proof to the account form and clears it on leaving that page',async()=>{
- const f=vi.fn(async(path:string)=>ok(path==='/api/v1/session/bootstrap'?session:path==='/api/user/self'?user:path==='/api/v1/auth/discord/callback'?{proof:'synthetic-callback-proof',purpose:'PASSWORD_SET',expires_at:4102444800}:path==='/api/v1/account'?{id:12,username:user.username,has_password:false,discord_linked:true,two_fa_enabled:false}:path.startsWith('/platform/v1/access-gate?')?{user_id:'12',route:new URLSearchParams(path.split('?')[1]).get('route'),stage:'READY'}:path.includes('master-profile')?profile:status));
+ const f=vi.fn(async(path:string)=>ok(path==='/api/v1/session/bootstrap'?session:path==='/api/user/self'?user:path==='/api/v1/auth/discord/callback'?{proof:'synthetic-callback-proof',purpose:'PASSWORD_SET',expires_at:4102444800}:path==='/api/v1/account'?{id:12,username:user.username,has_password:false,discord_linked:true,two_fa_enabled:false}:path.startsWith('/platform/v1/access-gate?')?{user_id:'12',route:new URLSearchParams(path.split('?')[1]).get('route'),stage:'READY'}:path==='/api/v1/maintenance/notices'?{items:[]}:path.includes('master-profile')?profile:status));
  const c=new ApiClient(f);await c.bootstrap();const generation=c.getSessionGeneration();
  function ReturnToAccount(){const navigate=useNavigate();return <button onClick={()=>navigate('/account')}>Test return to account</button>;}
  render(<MemoryRouter initialEntries={['/oauth/discord']}><App client={c} capturedCallback={{input:{code:'synthetic-code',state:'synthetic-state'}}}/><ReturnToAccount/></MemoryRouter>);

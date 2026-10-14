@@ -19,8 +19,8 @@ const active:PokerTableClient[]=[];
 afterEach(()=>{active.splice(0).forEach(c=>c.dispose());vi.restoreAllMocks();vi.useRealTimers();});
 async function setup(intent:'READ_ONLY'|'CLAIM_CONTROL'='READ_ONLY') {
   vi.useFakeTimers();vi.spyOn(Math,'random').mockReturnValue(.5);
-  const fetcher=vi.fn().mockResolvedValueOnce(ok({access_token:'synthetic',access_expires_at:4102444800,user:{id:910002,username:'synthetic',role:1},session:{sid:'synthetic'}})).mockImplementation(()=>Promise.resolve(ok({poker_connect_ticket:ticket})));
-  const api=new ApiClient(fetcher);await api.login('synthetic','synthetic');const sockets:Socket[]=[];
+  const fetcher=vi.fn().mockResolvedValueOnce(ok({authentication_state:'AUTHENTICATED',csrf_token:'synthetic'})).mockResolvedValueOnce(ok({id:910002,username:'synthetic',role:1})).mockImplementation(()=>Promise.resolve(ok({poker_connect_ticket:ticket})));
+  const api=new ApiClient(fetcher);await api.bootstrap();const sockets:Socket[]=[];
   const client=new PokerTableClient(api,{socketFactory:()=>{const s=new Socket();sockets.push(s);return s as unknown as WebSocket;}});active.push(client);
   await client.connect(self.table_id,'PLAYER_SELF',intent);return{client,sockets,fetcher,api};
 }
@@ -37,7 +37,7 @@ it('initial opaque 1006 retries with fresh mint, original READ_ONLY intent and a
   expect(r.client.getSnapshot()).toMatchObject({connection_state:'RECONNECTING',last_error:'POKER_CONNECTION_UNKNOWN'});
   await vi.advanceTimersByTimeAsync(499);expect(r.sockets).toHaveLength(1);await vi.advanceTimersByTimeAsync(1);expect(r.sockets).toHaveLength(2);
   expect(r.client.getSnapshot()!.scope.request_generation).toBeGreaterThan(first.request_generation);
-  expect(r.fetcher.mock.calls.slice(1).map(c=>JSON.parse(c[1]!.body as string))).toEqual(Array(2).fill({target_table_id:self.table_id,control_intent:'READ_ONLY'}));
+  expect(r.fetcher.mock.calls.slice(2).map(c=>JSON.parse(c[1]!.body as string))).toEqual(Array(2).fill({target_table_id:self.table_id,control_intent:'READ_ONLY'}));
   ack(r.sockets[1],'b'.repeat(32));expect(r.client.getSnapshot()?.connection_state).toBe('SYNCING');await expect(r.client.submit(action,pokerStreamContext(r.client.getSnapshot()!))).rejects.toThrow();
   snapshot(r.sockets[1],'b'.repeat(32));expect(r.client.getSnapshot()?.connection_state).toBe('LIVE');expect(pokerStreamAuthority(r.client.getSnapshot()!).can_control).toBe(false);
   expect(r.sockets.flatMap(s=>s.sent.map(x=>JSON.parse(x).type))).toEqual(['auth.connect']);
@@ -66,12 +66,12 @@ it('same-auth last snapshot stays read-only through retry; old socket frames and
 it('explicit disconnect stops retries; explicit connect replaces old retry plan and logout/dispose clear private state and timers',async()=>{
   const r=await setup();r.sockets[0].remoteClose(1006);expect(r.client.getSnapshot()?.connection_state).toBe('RECONNECTING');r.client.disconnect();await vi.advanceTimersByTimeAsync(5000);expect(r.sockets).toHaveLength(1);
   await r.client.connect(self.table_id,'PLAYER_SELF','READ_ONLY');r.sockets[1].remoteClose(1006);await r.client.connect(self.table_id,'PLAYER_SELF','CLAIM_CONTROL');await vi.advanceTimersByTimeAsync(5000);expect(r.sockets).toHaveLength(3);expect(r.client.getSnapshot()?.ticket_intent).toBe('CLAIM_CONTROL');
-  ack(r.sockets[2],'c'.repeat(32));snapshot(r.sockets[2],'c'.repeat(32),'CONTROLLER');r.sockets[2].remoteClose(1006);r.fetcher.mockResolvedValueOnce(ok({}));await r.api.logout();expect(r.client.getSnapshot()).toBeNull();await vi.advanceTimersByTimeAsync(10000);expect(r.sockets).toHaveLength(3);expect(vi.getTimerCount()).toBe(0);
+  ack(r.sockets[2],'c'.repeat(32));snapshot(r.sockets[2],'c'.repeat(32),'CONTROLLER');r.sockets[2].remoteClose(1006);r.fetcher.mockResolvedValueOnce(ok({authentication_state:'AUTHENTICATED',csrf_token:'synthetic-csrf'})).mockResolvedValueOnce(ok({authentication_state:'ANONYMOUS',csrf_token:'logged-out'}));await r.api.logout();expect(r.client.getSnapshot()).toBeNull();await vi.advanceTimersByTimeAsync(10000);expect(r.sockets).toHaveLength(3);expect(vi.getTimerCount()).toBe(0);
   const other=await setup();other.sockets[0].remoteClose(1006);other.client.dispose();await vi.advanceTimersByTimeAsync(10000);expect(other.sockets).toHaveLength(1);expect(other.client.getSnapshot()).toBeNull();
 });
 it('account/session replacement clears retained private data and rejects an in-flight old retry mint before opening a socket',async()=>{
   const r=await setup();ack(r.sockets[0],'a'.repeat(32));snapshot(r.sockets[0],'a'.repeat(32));let reply!:(r:Response)=>void;r.fetcher.mockImplementationOnce(()=>new Promise<Response>(resolve=>reply=resolve));r.sockets[0].remoteClose(1006);await vi.advanceTimersByTimeAsync(500);expect(r.client.getSnapshot()?.table).toBeDefined();
-  r.fetcher.mockResolvedValueOnce(ok({access_token:'other',access_expires_at:4102444800,user:{id:910003,username:'other',role:1},session:{sid:'other-session'}}));await r.api.login('other','synthetic');expect(r.client.getSnapshot()).toBeNull();reply(ok({poker_connect_ticket:ticket}));await vi.advanceTimersByTimeAsync(10000);expect(r.sockets).toHaveLength(1);expect(vi.getTimerCount()).toBe(0);
+  r.fetcher.mockResolvedValueOnce(ok({authentication_state:'AUTHENTICATED',csrf_token:'other-session'})).mockResolvedValueOnce(ok({id:910003,username:'other',role:1}));await r.api.login('other','synthetic');expect(r.client.getSnapshot()).toBeNull();reply(ok({poker_connect_ticket:ticket}));await vi.advanceTimersByTimeAsync(10000);expect(r.sockets).toHaveLength(1);expect(vi.getTimerCount()).toBe(0);
 });
 it('reentrant disconnect at retry publication cancels its timer without stale callbacks reviving the connection',async()=>{
   const r=await setup();r.client.subscribe(()=>{if(r.client.getSnapshot()?.connection_state==='RECONNECTING')r.client.disconnect();});r.sockets[0].remoteClose(1006);await vi.advanceTimersByTimeAsync(10000);expect(r.client.getSnapshot()?.connection_state).toBe('DISCONNECTED');expect(r.sockets).toHaveLength(1);expect(vi.getTimerCount()).toBe(0);

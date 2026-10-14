@@ -9,13 +9,17 @@ export const daily = { user_id: '1', business_date: '2026-09-06', timezone: 'Asi
 export const wallet = { initialized: true, user_id: '1', scope: 'LOCAL_WALLETS_ONLY', total_assets: null, wallets: [{ asset: 'RESERVE_API_CREDIT', amount: '500', balance_units: '250000000', ledger_seq: '1', version: '2' }, { asset: 'AVAILABLE_CHIPS', amount: '0', balance_units: '0', ledger_seq: '0', version: '1' }] };
 export const ok = (data?: unknown) => new Response(JSON.stringify({ success: true, data }));
 export const failed = () => new Response(JSON.stringify({ success: false, message: 'fixture unavailable' }), { status: 503 });
-export const bundle = { access_token: 'fixture-only', access_expires_at: 9999999999, user, session: { sid: 'fixture-session' } };
+export const bundle = { authentication_state: 'AUTHENTICATED', csrf_token: 'fixture-csrf', user };
 // Older feature tests start AFTER a synthetic approved Gate. Actual gate
 // ordering/failure tests use an unwrapped ApiClient in PostAuthGate.test.tsx.
 export function withReadyAccessGate(fetcher:(path:string,init?:RequestInit)=>Promise<Response>){
- return async(path:string,init?:RequestInit)=>path.startsWith('/platform/v1/access-gate?')
-  ?ok({user_id:new Headers(init?.headers).get('New-Api-User'),route:new URLSearchParams(path.split('?')[1]).get('route'),stage:'READY'})
-  :fetcher(path,init);
+ let userID:string|undefined;
+ return async(path:string,init?:RequestInit)=>{
+  if(path.startsWith('/platform/v1/access-gate?'))return ok({user_id:userID,route:new URLSearchParams(path.split('?')[1]).get('route'),stage:'READY'});
+  const response=await fetcher(path,init);
+  if(path==='/api/user/self'&&response.ok)userID=String((await response.clone().json()).data.id);
+  return response;
+ };
 }
 export function fixtureClient(respond?: (path: string, init?: RequestInit) => Response | Promise<Response> | undefined) {
     const fetcher = vi.fn(async (path: string, init?: RequestInit) => {
@@ -24,8 +28,10 @@ export function fixtureClient(respond?: (path: string, init?: RequestInit) => Re
         // M1 regressions run with admission explicitly disabled. M2b fixtures
         // exercise enabled admission and its initialization contracts separately.
         if (path === '/platform/v1/admission/config') return ok({enabled:false,registration_enabled:false,eligibility:'注册暂未开放'});
-        if (path.includes('/auth/refresh') || path === '/api/user/login') return ok(bundle);
+        if (path === '/api/v1/session/bootstrap' || path === '/api/v1/auth/password/login') return ok(bundle);
+        if (path === '/api/v1/session/logout') return ok({ authentication_state: 'ANONYMOUS', csrf_token: 'anonymous-csrf' });
         if (path === '/api/user/self') return ok(user);
+        if (path.startsWith('/platform/v1/models?')) return ok({ items: [], total: 0, offset: 0, limit: 24, freshness: { state: 'CURRENT', last_observed_at: null, last_verified_at: null, stale_after_seconds: 600, disable_after_seconds: 1800 }, vocabulary: { families: [], tags: [], use_cases: [], assets: [] }, price_dimension: '', price_unit: '' });
         if (path === '/platform/v1/master-profile') return ok(profile);
         if (path === '/platform/v1/wallet') return ok(wallet);
         if (path === '/platform/v1/rewards/daily') return ok(daily);

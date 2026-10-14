@@ -1,4 +1,4 @@
-import { withReadyAccessGate } from './m1-test-fixtures';
+import { fixtureClient } from './m1-test-fixtures';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { it, expect, vi } from 'vitest';
@@ -7,8 +7,8 @@ import { ApiClient } from './api';
 const user = { id: 1, username: 'test', display_name: 'Test', role: 100, group: 'team' };
 const ok = (data?: unknown) => new Response(JSON.stringify({ success: true, data }));
 function setup(path: string, role = 100, respond?: (path: string, init?: RequestInit) => Response | Promise<Response> | undefined) {
- const f = vi.fn(async (p: string, init?: RequestInit) => { const custom = respond?.(p, init); if (custom) return custom; if (p.includes('/refresh')) return ok({ access_token: 'memory', access_expires_at: 9999999999, session: { sid: 'sid' }, user: { ...user, role } }); if (p === '/api/user/self') return ok({ ...user, role }); if (p.endsWith('/groups')) return ok({ team: { ratio: 1, desc: 'Team' }, another: { ratio: 2, desc: 'Another' } }); if (p.includes('/models?group=team')) return ok(['alpha', 'beta']); if (p.includes('/models?group=another')) return ok(['gamma']); return ok({ items: [], total: 0, page: 1, page_size: 10 }); });
- const c = new ApiClient(withReadyAccessGate(f)); const view = render(<MemoryRouter initialEntries={[path]}><App client={c}/></MemoryRouter>); return { f, c, ...view };
+ const { fetcher: f, client: c } = fixtureClient((p, init) => { const custom = respond?.(p, init); if (custom) return custom; if (p === '/api/user/self') return ok({ ...user, role }); if (p.endsWith('/groups')) return ok({ team: { ratio: 1, desc: 'Team' }, another: { ratio: 2, desc: 'Another' } }); if (p.includes('/models?group=team')) return ok(['alpha', 'beta']); if (p.includes('/models?group=another')) return ok(['gamma']); });
+ const view = render(<MemoryRouter initialEntries={[path]}><App client={c}/></MemoryRouter>); return { f, c, ...view };
 }
 it('keeps public discovery independent from the private native group reader', async () => { const {f,c}=setup('/models'); await waitFor(()=>expect(c.getSnapshot().ready).toBe(true)); expect(screen.getByRole('heading',{level:1})).toHaveTextContent('模型工房'); expect(screen.queryByLabelText('分组')).not.toBeInTheDocument(); expect(screen.queryByRole('link',{name:'文本测试'})).not.toBeInTheDocument(); expect(f.mock.calls.some(c=>c[0].endsWith('/groups')||c[0].includes('/models?group='))).toBe(false); });
 it('retires the text playground without native model calls', async () => {

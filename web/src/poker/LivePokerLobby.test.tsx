@@ -14,12 +14,12 @@ vi.mock('./PokerLobby',async original=>{const actual=await original<typeof impor
 afterEach(()=>{cleanup();vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();observed.current=null;});
 const table=lobby.tables[0].table_id,reservation='019a0000-0000-7000-8000-000000000031',session='019a0000-0000-7000-8000-000000000041';
 const ok=(data:unknown)=>new Response(JSON.stringify({success:true,data}),{headers:{'Content-Type':'application/json'}});
-const bundle=(sid='native-a',user=910001)=>({access_token:'synthetic-native',access_expires_at:4102444800,user:{id:user,username:'synthetic',role:1},session:{sid}});
+const bundle={authentication_state:'AUTHENTICATED',csrf_token:'synthetic-csrf'};
 function deferred<T>(){let resolve!:(value:T)=>void;return{promise:new Promise<T>(r=>resolve=r),resolve};}
 const whole=()=>parsePokerLobbySnapshot(lobby,'910001');
 async function setup(){
-  const fetcher=vi.fn<(path:string,init?:RequestInit)=>Promise<Response>>().mockResolvedValueOnce(ok(bundle()));
-  const api=new ApiClient(fetcher);await api.login('synthetic','synthetic');fetcher.mockImplementation(()=>Promise.resolve(ok(whole())));
+  const fetcher=vi.fn<(path:string,init?:RequestInit)=>Promise<Response>>().mockResolvedValueOnce(ok(bundle)).mockResolvedValueOnce(ok({id:910001,username:'synthetic',role:1}));
+  const api=new ApiClient(fetcher);await api.bootstrap();fetcher.mockImplementation(()=>Promise.resolve(ok(whole())));
   const p:LivePokerLobbyProps={client:api,policy:{stage:'READY',recovery_only:false,mutation_blocked:false},onEnter:vi.fn(),onNavigate:vi.fn(),onPendingChange:vi.fn()};
   return{api,fetcher,p};
 }
@@ -95,7 +95,7 @@ describe('Live Lobby original entry pipeline',()=>{
     await act(async()=>reservationRead.resolve(ok(lease())));expect(screen.getByRole('button',{name:'确认买入并等待大盲'})).toBeEnabled();
     expect(screen.getByText('2026-09-06T12:00:30Z')).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'确认买入并等待大盲'}));
     expect(writes(r)).toHaveLength(3);expect(JSON.parse(writes(r)[2][1]!.body as string)).toEqual({request_id:'00000000-0000-4000-8000-000000000003',reservation_id:reservation,amount_units:'200000000'});
-    for(const [,init] of writes(r)){expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer synthetic-native');expect(new Headers(init?.headers).get('X-Auth-Session')).toBe('native-a');expect(new Headers(init?.headers).get('New-Api-User')).toBe('910001');}
+    for(const [,init] of writes(r)){expect(new Headers(init?.headers).get('Authorization')).toBeNull();expect(new Headers(init?.headers).get('X-CSRF-Token')).toBe('synthetic-csrf');expect(new Headers(init?.headers).get('X-Auth-Session')).toBeNull();expect(new Headers(init?.headers).get('New-Api-User')).toBeNull();}
     await act(async()=>buyin.resolve(ok(receipt('buyin'))));expect(r.p.onEnter).not.toHaveBeenCalled();expect(r.p.onPendingChange).toHaveBeenLastCalledWith(true);
     await act(async()=>admission.resolve(ok(seated())));expect(r.p.onEnter).toHaveBeenCalledExactlyOnceWith(table,{snapshot:seated(),scope:{user_id:'910001',session_generation:r.api.getSessionGeneration(),request_generation:3,query_key:'/api/v1/poker'}});
     expect(r.p.onPendingChange).toHaveBeenLastCalledWith(false);expect(uuid).toHaveBeenCalledTimes(3);expect(writes(r)).toHaveLength(3);
@@ -121,14 +121,6 @@ describe('Live Lobby original entry pipeline',()=>{
     await act(async()=>vi.advanceTimersByTime(1_999));expect(lookups).toBe(1);await act(async()=>window.dispatchEvent(new Event('focus')));expect(lookups).toBe(2);await act(async()=>{});
     expect(r.fetcher.mock.calls.filter(([path])=>path.endsWith('/entry-receipt-query'))).toHaveLength(2);expect(attempts).toBe(1);expect(uuid).toHaveBeenCalledTimes(keyCount);
     expect(r.p.onPendingChange).toHaveBeenLastCalledWith(false);
-  });
-  it('blocks a write still waiting on native refresh when the latest soft policy is loading',async()=>{
-    const r=await setup(),refresh=deferred<Response>();r.fetcher.mockImplementation((path)=>path.endsWith('/refresh')?refresh.promise:Promise.resolve(ok(whole())));
-    const view=await prepare(r,'create');vi.spyOn(Date,'now').mockReturnValue(4102444790000);view.submit();await act(async()=>{});
-    expect(writes(r)).toHaveLength(0);expect(r.p.onPendingChange).toHaveBeenLastCalledWith(true);
-    view.rerender(<LivePokerLobby {...r.p} policy={{stage:undefined,recovery_only:true,mutation_blocked:true}}/>);
-    await act(async()=>refresh.resolve(ok(bundle())));expect(writes(r)).toHaveLength(0);
-    expect(r.p.onPendingChange).toHaveBeenLastCalledWith(true);view.rerender(<LivePokerLobby {...r.p}/>);await act(async()=>{});expect(writes(r)).toHaveLength(0);
   });
 });
 
@@ -265,18 +257,6 @@ describe('Live Lobby lifecycle and lease observation',()=>{
     await act(async()=>late.resolve(response));act(()=>old.onIntent({type:'wallet'},old.authority.scope));
     expect(getter).not.toHaveBeenCalled();expect(first.p.onPendingChange).toHaveBeenCalledExactlyOnceWith(true);expect(next.p.onPendingChange).toHaveBeenCalledExactlyOnceWith(true);
     expect(first.p.onEnter).not.toHaveBeenCalled();expect(next.p.onEnter).not.toHaveBeenCalled();expect(first.p.onNavigate).not.toHaveBeenCalled();expect(writes(next)).toHaveLength(1);view.unmount();
-  });
-  it.each(['account','sid','dispose'] as const)('blocks old entry dispatch after %s changes during native refresh',async boundary=>{
-    const r=await setup(),refresh=deferred<Response>();r.fetcher.mockImplementation((path)=>path.endsWith('/refresh')?refresh.promise:Promise.resolve(ok(whole())));
-    const view=await prepare(r,'create');vi.spyOn(Date,'now').mockReturnValue(4102444790000);view.submit();await act(async()=>{});
-    if(boundary==='dispose')view.unmount();
-    await act(async()=>refresh.resolve(ok(bundle(boundary==='sid'?'native-b':'native-a',boundary==='account'?910002:910001))));
-    expect(writes(r)).toHaveLength(0);expect(r.p.onPendingChange).toHaveBeenCalledExactlyOnceWith(true);expect(r.p.onEnter).not.toHaveBeenCalled();
-  });
-  it('suppresses stale whole GET after native refresh while permitting the latest query only',async()=>{
-    const r=await setup();await live(r);const refresh=deferred<Response>();r.fetcher.mockImplementation((path)=>path.endsWith('/refresh')?refresh.promise:Promise.resolve(ok(whole())));vi.spyOn(Date,'now').mockReturnValue(4102444790000);
-    fireEvent.change(screen.getByLabelText('搜索牌桌'),{target:{value:'retired'}});fireEvent.change(screen.getByLabelText('搜索牌桌'),{target:{value:'current'}});
-    await act(async()=>refresh.resolve(ok(bundle())));expect(reads(r)).toHaveLength(2);expect(reads(r).at(-1)?.[0]).toContain('q=current');expect(reads(r).some(([path])=>path.includes('q=retired'))).toBe(false);
   });
   it.each(['seat','owner','table','id','CONSUMED','EXPIRED','invalid','NOT_FOUND'] as const)('keeps reserve ACK but rejects %s as current buyin authority',async condition=>{
     const r=await setup();r.fetcher.mockImplementation((path,init)=>{

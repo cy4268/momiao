@@ -11,8 +11,8 @@ const active=()=>({session_id:session,table_id:table,table_name:'原会话牌桌
 const settled=()=>({...active(),state:'SETTLED',stack_units:'0',committed_units:'0',poker_in_play_units:'0',
   final_cash_out_units:'9007199255500000',realized_pl_units:'-1000000',ended_at:'2026-09-06T00:10:00Z',end_reason:'SAFE_LEAVE'});
 const ok=(data:unknown)=>new Response(JSON.stringify({success:true,data}),{headers:{'Content-Type':'application/json'}});
-async function setup(){const fetcher=vi.fn().mockResolvedValueOnce(ok({access_token:'synthetic-session-token',access_expires_at:4102444800,user:{id:910002,username:'synthetic',role:1},session:{sid:'synthetic-session-sid'}}));
-  const client=new ApiClient(fetcher);await client.login('synthetic','synthetic');const scope=capturePokerReadScope(client,table,'PLAYER_SELF',1);return {fetcher,client,scope};}
+async function setup(){const fetcher=vi.fn().mockResolvedValueOnce(ok({authentication_state:'AUTHENTICATED',csrf_token:'synthetic-session-sid'})).mockResolvedValueOnce(ok({id:910002,username:'synthetic',role:1}));
+  const client=new ApiClient(fetcher);await client.bootstrap();const scope=capturePokerReadScope(client,table,'PLAYER_SELF',1);return {fetcher,client,scope};}
 
 describe('Original owner Session cash-out boundary',()=>{
   it('reads exact active exposure and detached settled cash-out without Number rounding or socket authority',()=>{
@@ -37,23 +37,23 @@ describe('Original owner Session cash-out boundary',()=>{
   });
   it('uses the exact authenticated owner GET with no original mutation key, ticket or automatic replay',async()=>{
     const {fetcher,client,scope}=await setup();fetcher.mockResolvedValueOnce(ok(settled()));expect(await readPokerHttpSession(client,scope,()=>scope,session)).toEqual(settled());
-    expect(fetcher).toHaveBeenCalledTimes(2);expect(fetcher.mock.calls[1][0]).toBe(`/api/v1/poker/sessions/${session}`);
-    const init=fetcher.mock.calls[1][1],headers=new Headers(init.headers);expect(init).toMatchObject({method:'GET',credentials:'same-origin',cache:'no-store'});expect(init.body).toBeUndefined();
-    expect(headers.get('Authorization')).toBe('Bearer synthetic-session-token');expect(headers.get('X-Auth-Session')).toBe('synthetic-session-sid');expect(headers.get('New-Api-User')).toBe('910002');
+    expect(fetcher).toHaveBeenCalledTimes(3);expect(fetcher.mock.calls[2][0]).toBe(`/api/v1/poker/sessions/${session}`);
+    const init=fetcher.mock.calls[2][1],headers=new Headers(init.headers);expect(init).toMatchObject({method:'GET',credentials:'same-origin',cache:'no-store'});expect(init.body).toBeUndefined();
+    expect(headers.get('Authorization')).toBeNull();expect(headers.get('X-CSRF-Token')).toBe('synthetic-session-sid');expect(headers.get('X-Auth-Session')).toBeNull();expect(headers.get('New-Api-User')).toBeNull();
   });
-  it('drops late malformed data before decoding after native logout or read-generation replacement',async()=>{
+  it('drops late malformed data before decoding after cookie logout or read-generation replacement',async()=>{
     for(const logout of [false,true]){const {fetcher,client,scope}=await setup();let resolve!:(r:Response)=>void;let current=scope;
       fetcher.mockReturnValueOnce(new Promise<Response>(r=>resolve=r));const pending=readPokerHttpSession(client,scope,()=>current,session);
-      if(logout){fetcher.mockResolvedValueOnce(ok({}));await client.logout();}else current={...scope,request_generation:2};
+      if(logout){fetcher.mockResolvedValueOnce(ok({authentication_state:'AUTHENTICATED',csrf_token:'synthetic-csrf'})).mockResolvedValueOnce(ok({authentication_state:'ANONYMOUS',csrf_token:'logged-out'}));await client.logout();}else current={...scope,request_generation:2};
       resolve(ok({secret:'old-private-response'}));expect(await pending).toBeUndefined();}
   });
   it('keeps dependency and malformed success failures redacted, not settled or NOT_FOUND',async()=>{
     const {fetcher,client,scope}=await setup();for(const mode of ['network','shape']){if(mode==='network')fetcher.mockRejectedValueOnce(Error('private-upstream-secret'));else fetcher.mockResolvedValueOnce(ok({private:'private-upstream-secret'}));
       await expect(readPokerHttpSession(client,scope,()=>scope,session)).rejects.toMatchObject({code:'POKER_SESSION_READ_UNAVAILABLE',uncertain:false});}
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
   it('rejects invalid original identity or expired scope before any protected network operation',async()=>{
     const {fetcher,client,scope}=await setup();await expect(readPokerHttpSession(client,scope,()=>null,session)).rejects.toThrow();await expect(readPokerHttpSession(client,scope,()=>scope,'../another')).rejects.toThrow();
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });

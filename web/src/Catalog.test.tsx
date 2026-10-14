@@ -4,7 +4,7 @@ import { expect, it, vi } from 'vitest';
 import { Catalog, CatalogDetailPage, APIAccess, CatalogPersona, CatalogPriceTable } from './Catalog';
 import { ApiClient } from './api';
 import { catalogModelPath, catalogTime, type CatalogModel, type CatalogPage } from './catalog-api';
-import { bundle, ok } from './m1-test-fixtures';
+import { bundle, ok, user } from './m1-test-fixtures';
 import { App } from './App';
 import { peekRouteIntent } from './post-auth-intent';
 
@@ -13,15 +13,15 @@ export const page:CatalogPage={items:[model],total:1,offset:0,limit:24,freshness
 function browser(path:string,element:React.ReactNode){return render(<MemoryRouter initialEntries={[path]}>{element}</MemoryRouter>)}
 it('keeps public model detail anonymous and saves its choice through the single App login intent',async()=>{
  sessionStorage.clear();const calls:string[]=[];
- const c=new ApiClient(async path=>{calls.push(path);if(path.includes('/auth/refresh'))return new Response('{}',{status:401});if(path==='/platform/v1/admission/config')return ok({enabled:false,registration_enabled:false,eligibility:'注册暂未开放'});if(path.startsWith('/platform/v1/announcements'))return ok({item:null});return ok({item:model,vocabulary:page.vocabulary,api_base_url:'https://api.example/v1'})});
- browser(catalogModelPath(model.model_id),<App client={c}/>);await waitFor(()=>expect(c.getSnapshot().ready).toBe(true));fireEvent.click(await screen.findByRole('button',{name:'使用此模型'}));expect(await screen.findByRole('link',{name:'前往 New API 登录'})).toHaveAttribute('href','/sign-in');expect(peekRouteIntent()).toBe('/api/access?model_id=%E7%BB%84%E7%BB%87%2Fmodel&intent=use');expect(calls.some(path=>path.startsWith('/platform/v1/access-gate')||path.startsWith('/api/token/'))).toBe(false);
+ const c=new ApiClient(async path=>{calls.push(path);if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'ANONYMOUS',csrf_token:'anonymous-csrf'});if(path==='/platform/v1/admission/config')return ok({enabled:false,registration_enabled:false,eligibility:'注册暂未开放'});if(path.startsWith('/platform/v1/announcements'))return ok({item:null});return ok({item:model,vocabulary:page.vocabulary,api_base_url:'https://api.example/v1'})});
+ browser(catalogModelPath(model.model_id),<App client={c}/>);await waitFor(()=>expect(c.getSnapshot().ready).toBe(true));fireEvent.click(await screen.findByRole('button',{name:'使用此模型'}));expect(await screen.findByRole('button',{name:'登录控制台'})).toBeVisible();expect(peekRouteIntent()).toBe('/api/access?model_id=%E7%BB%84%E7%BB%87%2Fmodel&intent=use');expect(calls.some(path=>path.startsWith('/platform/v1/access-gate')||path.startsWith('/api/token/'))).toBe(false);
 });
 it('does not mount model operations before the central Gate resolves its scope',async()=>{
- const calls:string[]=[];const c=new ApiClient(async path=>{calls.push(path);if(path.includes('/auth/refresh'))return ok(bundle);if(path.startsWith('/platform/v1/access-gate?'))return ok({user_id:'1',route:'/ops/models',stage:'ROLE_DENIED'});return new Response('{}',{status:503})});
+ const calls:string[]=[];const c=new ApiClient(async path=>{calls.push(path);if(path==='/api/v1/session/bootstrap')return ok(bundle);if(path==='/api/user/self')return ok(user);if(path.startsWith('/platform/v1/access-gate?'))return ok({user_id:'1',route:'/ops/models',stage:'ROLE_DENIED'});return new Response('{}',{status:503})});
  browser('/ops/models',<App client={c}/>);expect(await screen.findByRole('alert')).toHaveTextContent('当前账户没有访问此页面的权限');expect(calls.some(path=>path.startsWith('/platform/v1/ops/models'))).toBe(false);
 });
 it('binds the key-page Gate to the exact selected model query',async()=>{
- const routes:string[]=[];const c=new ApiClient(async path=>{if(path.includes('/auth/refresh'))return ok(bundle);if(path.startsWith('/platform/v1/access-gate?')){const route=new URLSearchParams(path.split('?')[1]).get('route')!;routes.push(route);return ok({user_id:'1',route,stage:'MIGRATION_UNVERIFIED'})}return new Response('{}',{status:503})});
+ const routes:string[]=[];const c=new ApiClient(async path=>{if(path==='/api/v1/session/bootstrap')return ok(bundle);if(path==='/api/user/self')return ok(user);if(path.startsWith('/platform/v1/access-gate?')){const route=new URLSearchParams(path.split('?')[1]).get('route')!;routes.push(route);return ok({user_id:'1',route,stage:'MIGRATION_UNVERIFIED'})}return new Response('{}',{status:503})});
  browser('/keys?model_id=team%2Fmodel',<App client={c}/>);await screen.findByRole('alert');expect(routes).toEqual(['/keys?model_id=team%2Fmodel']);
 });
 it('reads the public catalog and applies explicit same-dimension price and context filters',async()=>{
@@ -37,7 +37,7 @@ it('selects exact channel model IDs inside one family without retaining stale de
  const second={...first,model_id:'渠道/second',metadata:{...model.metadata,display_name:'第二个型号'}};
  let resolve!:(r:Response)=>void;const pending=new Promise<Response>(r=>resolve=r);const paths:string[]=[];
  let finishGate!:(r:Response)=>void;const pendingGate=new Promise<Response>(r=>finishGate=r);
- const c=new ApiClient(async path=>{paths.push(path);if(path==='/api/user/login')return ok(bundle);if(path.startsWith('/platform/v1/access-gate?'))return pendingGate;if(path.includes('/personal-price?'))return ok({model_id:new URLSearchParams(path.split('?')[1]).get('model_id'),quotes:[],basis:'current_user_group_reference_not_token_selection',observed_at:model.last_seen_at});if(path.includes('/detail?'))return path.includes(encodeURIComponent(second.model_id))?pending:ok({item:first,vocabulary:page.vocabulary,api_base_url:'https://api.example/v1'});return ok({...page,items:[first,second],total:2})});
+ const c=new ApiClient(async path=>{paths.push(path);if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'ANONYMOUS',csrf_token:'anonymous-csrf'});if(path==='/api/v1/auth/password/login')return ok(bundle);if(path==='/api/user/self')return ok(user);if(path.startsWith('/platform/v1/access-gate?'))return pendingGate;if(path.includes('/personal-price?'))return ok({model_id:new URLSearchParams(path.split('?')[1]).get('model_id'),quotes:[],basis:'current_user_group_reference_not_token_selection',observed_at:model.last_seen_at});if(path.includes('/detail?'))return path.includes(encodeURIComponent(second.model_id))?pending:ok({item:first,vocabulary:page.vocabulary,api_base_url:'https://api.example/v1'});return ok({...page,items:[first,second],total:2})});
  await c.login('one','x');paths.length=0;
  browser('/models?view=family&family=gemini&recommended=true&q=old-search',<Catalog client={c}/>);
  expect(await screen.findByRole('link',{name:'查看接入示例'})).toHaveAttribute('href','/api/access?model_id='+encodeURIComponent(model.model_id));
@@ -59,7 +59,7 @@ it('shows unavailable source and unknown context without inventing a price or us
  browser(catalogModelPath(model.model_id),<CatalogDetailPage client={c}/>);expect(await screen.findByText('无渠道')).toBeInTheDocument();expect(screen.getByText('Context 未知')).toBeInTheDocument();expect(screen.getByText('未提供数值报价')).toBeInTheDocument();expect(screen.getByRole('button',{name:'暂不可接入'})).toBeDisabled();
 });
 it('hands the bounded model choice to the existing login gate without writing browser auth storage',async()=>{
- const login=vi.fn();const c=new ApiClient(async path=>path.includes('/auth/refresh')?new Response('{}',{status:401}):ok({item:model,vocabulary:page.vocabulary,api_base_url:'https://api.example/v1'}));await c.bootstrap();
+ const login=vi.fn();const c=new ApiClient(async path=>path==='/api/v1/session/bootstrap'?ok({authentication_state:'ANONYMOUS',csrf_token:'anonymous-csrf'}):ok({item:model,vocabulary:page.vocabulary,api_base_url:'https://api.example/v1'}));await c.bootstrap();
  browser(catalogModelPath(model.model_id),<CatalogDetailPage client={c} onLoginRequired={login}/>);fireEvent.click(await screen.findByRole('button',{name:'使用此模型'}));await waitFor(()=>expect(login).toHaveBeenCalledWith('/api/access?model_id=%E7%BB%84%E7%BB%87%2Fmodel&intent=use'));
 });
 it('copies a placeholder cURL without reading keys or calling a model',async()=>{
@@ -69,7 +69,7 @@ it('copies a placeholder cURL without reading keys or calling a model',async()=>
 });
 it('clears personal quotes after logout and never restores a late private response',async()=>{
  let resolve!:(r:Response)=>void;const privateResponse=new Promise<Response>(r=>resolve=r);
- const c=new ApiClient(async path=>path==='/api/user/login'?ok(bundle):path.includes('/auth/logout')?ok():path.includes('/personal-price?')?privateResponse:ok({item:model,vocabulary:page.vocabulary,api_base_url:''}));await c.login('one','x');
+ const c=new ApiClient(async path=>path==='/api/v1/session/bootstrap'||path==='/api/v1/session/logout'?ok({authentication_state:'ANONYMOUS',csrf_token:'anonymous-csrf'}):path==='/api/v1/auth/password/login'?ok(bundle):path==='/api/user/self'?ok(user):path.includes('/personal-price?')?privateResponse:ok({item:model,vocabulary:page.vocabulary,api_base_url:''}));await c.login('one','x');
  browser(catalogModelPath(model.model_id),<CatalogDetailPage client={c}/>);await screen.findByRole('heading',{name:'本人会话报价'});await c.logout();resolve(ok({model_id:model.model_id,basis:'current_user_group_reference_not_token_selection',observed_at:'2026-09-06T00:00:00Z',quotes:[{candidate:1,price:{...model.price,dimensions:[{...model.price.dimensions[0],amount:'987.654'}]}}]}));
  await waitFor(()=>expect(screen.queryByRole('heading',{name:'本人会话报价'})).not.toBeInTheDocument());expect(screen.queryByText('987.654')).not.toBeInTheDocument();
 });

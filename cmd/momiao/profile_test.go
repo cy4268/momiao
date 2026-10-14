@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -41,6 +42,7 @@ func (s *profileTestStore) UpdateProfile(_ context.Context, u int64, p platform.
 	s.patch = p
 	return s.result(u)
 }
+
 const validProfileInit = `{"expected_version":"0","display_name":"Alice","avatar_id":"system-default"}`
 
 func TestProfileHTTPReadAndWriteContract(t *testing.T) {
@@ -49,6 +51,8 @@ func TestProfileHTTPReadAndWriteContract(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := walletReq("GET", "/platform/v1/master-profile", "")
 	r.Header.Set("X-User-Id", "2")
+	r.Header.Set("New-Api-User", "2")
+	r.Header.Set("Authorization", "Bearer forged")
 	h.ServeHTTP(w, r)
 	if w.Code != 200 || s.reads != 1 || s.inits != 0 || s.updates != 0 || s.user != 9007199254740993 {
 		t.Fatal(w.Code, w.Body, s)
@@ -113,7 +117,7 @@ func TestProfileHTTPOriginContentTypeAndAuth(t *testing.T) {
 		want       int
 	}{
 		{"Origin", "", 403}, {"Origin", "null", 403}, {"Origin", "https://wallet.example/", 403}, {"Origin", "https://evil.invalid", 403},
-		{"Content-Type", "text/plain", 415}, {"Content-Type", "", 415}, {"Authorization", "", 401}, {"New-Api-User", "2", 401},
+		{"Content-Type", "text/plain", 415}, {"Content-Type", "", 415},
 	} {
 		s := &profileTestStore{}
 		r := walletReq("POST", "/platform/v1/master-profile/initialize", validProfileInit)
@@ -134,18 +138,22 @@ func TestProfileHTTPOriginContentTypeAndAuth(t *testing.T) {
 			t.Fatal("duplicate header", key, w.Code)
 		}
 	}
-	for _, status := range []int{401, 403, 500} {
+	// Missing or inactive local identities never reach the profile store.
+	for _, status := range []int{0, 2} {
 		s := &profileTestStore{}
 
 		r := walletReq("GET", "/platform/v1/master-profile", "")
-		r.Header.Set("Cookie", "secret")
+		user, _ := identity.UserFromContext(r.Context())
+		r = r.WithContext(context.Background())
+		if status != 0 {
+			user.Status = status
+			r = r.WithContext(identity.WithUser(r.Context(), user, strings.Repeat("a", 64)))
+		}
+		r.Header.Set("Authorization", "Bearer secret")
+		r.Header.Set("New-Api-User", "9007199254740993")
 		w := httptest.NewRecorder()
 		newProfileHandler("https://wallet.example", s).ServeHTTP(w, r)
-		want := status
-		if status == 500 {
-			want = 502
-		}
-		if w.Code != want || s.reads != 0 || strings.Contains(w.Body.String(), "private") {
+		if w.Code != 401 || s.reads != 0 || !strings.Contains(w.Body.String(), "AUTH_UNAUTHORIZED") {
 			t.Fatal(w.Code, w.Body)
 		}
 	}

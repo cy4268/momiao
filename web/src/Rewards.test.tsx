@@ -109,7 +109,7 @@ it('never consumes a previous account receipt after switching sessions', async (
     const { client, fetcher } = fixtureClient(p => {
         if (p.endsWith('/daily/claim')) return new Promise<Response>(r => { resolve = r; });
         if (account === 2) {
-            if (p === '/api/user/login') return ok({ ...bundle, user: { ...user, id: 2 }, session: { sid: 'second' } });
+            if (p === '/api/v1/auth/password/login') return ok({ ...bundle, csrf_token: 'second-csrf' });
             if (p === '/api/user/self') return ok({ ...user, id: 2 });
             if (p === '/platform/v1/master-profile') return ok({ ...profile, user_id: '2' });
             if (p === '/platform/v1/wallet') return ok({ ...wallet, user_id: '2' });
@@ -120,7 +120,7 @@ it('never consumes a previous account receipt after switching sessions', async (
     fireEvent.click(await screen.findByRole('button', { name: '领取今日 500 额度' }));
     await waitFor(() => expect(resolve).toBeTypeOf('function'));
     await act(async () => { await client.logout(); });
-    expect(await screen.findByRole('link', { name: '前往 New API 登录' })).toHaveAttribute('href', '/sign-in');
+    expect(await screen.findByRole('button', { name: '登录控制台' })).toBeVisible();
     account = 2;
     await act(async () => { await client.login('second', 'fixture'); });
     fireEvent.click(screen.getByRole('button', { name: 'test provider return' }));

@@ -913,7 +913,6 @@ func TestCatalogBrowserOpaqueRoutesAndExactAccessProxy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("catalog SPA"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	calls := 0
 	cfg := catalogHTTPConfig(&catalogHTTPStore{})
 	cfg.WebDir = dir
 	h := newPortalHandler(cfg)
@@ -924,19 +923,19 @@ func TestCatalogBrowserOpaqueRoutesAndExactAccessProxy(t *testing.T) {
 			t.Fatal(path, w.Code, w.Body)
 		}
 	}
-	if calls != 0 {
-		t.Fatal("access page was proxied")
-	}
-	for _, path := range []string{"/api/access/", "/api/user/self"} {
+	for _, tc := range []struct {
+		path string
+		want int
+	}{{"/api/access/", http.StatusNotFound}, {"/api/user/self", http.StatusUnauthorized}} {
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
-		if w.Code != 201 {
-			t.Fatal(path, w.Code)
+		h.ServeHTTP(w, httptest.NewRequest("GET", tc.path, nil))
+		if w.Code != tc.want || strings.Contains(w.Body.String(), "catalog SPA") {
+			t.Fatal(tc.path, w.Code, w.Body)
 		}
 	}
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("POST", "/api/access", nil))
-	if w.Code != 405 || calls != 2 {
-		t.Fatal("access method boundary", w.Code, calls)
+	if w.Code != 405 || w.Header().Get("Allow") != "GET, HEAD" {
+		t.Fatal("access method boundary", w.Code, w.Header())
 	}
 }

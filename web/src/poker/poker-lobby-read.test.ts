@@ -7,8 +7,9 @@ import synthetic from './fixtures/l1-lobby.synthetic.json';
 const filters:LobbyFilters={query:'',visibility:'ALL',open_seats_only:false,max_seats:'ALL',blind_preset_id:'ALL',lifecycle_state:'ALL',spectators_only:false,sort:'LOW_BLIND',limit:50,cursor:null};
 const raw=():any=>structuredClone(synthetic),owner='910001';
 const ok=(data:unknown)=>new Response(JSON.stringify({success:true,data}),{headers:{'Content-Type':'application/json'}});
-const bundle=(id=910001)=>({access_token:'synthetic-memory-token',access_expires_at:4102444800,user:{id,username:'synthetic',display_name:'Synthetic',role:1},session:{sid:'synthetic-session'}});
-async function setup(query?:LobbyFilters){const fetcher=vi.fn().mockResolvedValueOnce(ok(bundle())),client=new ApiClient(fetcher);await client.login('synthetic','synthetic');return {fetcher,client,scope:capturePokerLobbyScope(client,query,1)};}
+const user={id:910001,username:'synthetic',display_name:'Synthetic',role:1};
+const bundle={authentication_state:'AUTHENTICATED',csrf_token:'synthetic-csrf'};
+async function setup(query?:LobbyFilters){const fetcher=vi.fn().mockResolvedValueOnce(ok(bundle)).mockResolvedValueOnce(ok(user)),client=new ApiClient(fetcher);await client.bootstrap();return {fetcher,client,scope:capturePokerLobbyScope(client,query,1)};}
 const session=()=>({session_id:'019a0000-0000-7000-8000-000000000001',table_id:synthetic.tables[0].table_id,table_name:'月光长廊',state:'ACTIVE',seat_no:1,stack_units:'400000000',committed_units:'10000000',poker_in_play_units:'410000000',small_blind_units:'2500000',big_blind_units:'5000000',ante_units:'0',can_reconnect:true});
 
 describe('L2a closed whole lobby read',()=>{
@@ -44,7 +45,7 @@ describe('L2a closed whole lobby read',()=>{
     }
   });
 });
-describe('L2a canonical public query and native HTTP scope',()=>{
+describe('L2a canonical public query and cookie HTTP scope',()=>{
   it('encodes only the ten public fields once and passes opaque NEAR_FULL cursors unchanged',()=>{
     expect(pokerLobbyReadPath()).toBe('/api/v1/poker');
     expect(pokerLobbyReadPath({...filters,query:'  % _ &  ',visibility:'PASSWORD',open_seats_only:true,max_seats:6,blind_preset_id:'5-10',lifecycle_state:'IN_HAND',spectators_only:true,sort:'NEAR_FULL',limit:2,cursor:'eyJ2IjoxfQ'})).toBe('/api/v1/poker/tables?q=%25+_+%26&access_mode=PASSWORD&open_seats_only=true&max_seats=6&blind_preset=5-10&lifecycle_state=IN_HAND&spectators_only=true&sort=NEAR_FULL&limit=2&cursor=eyJ2IjoxfQ');
@@ -54,17 +55,17 @@ describe('L2a canonical public query and native HTTP scope',()=>{
     for(const patch of [{secret:'x'},{sort:'NEAR_START'},{limit:0},{limit:101},{max_seats:10},{open_seats_only:'false'},{query:'x\u0000'},{query:'👨‍👩‍👧‍👦'.repeat(41)},{cursor:'x='},{cursor:'x'.repeat(513)},{lifecycle_state:'ACTIVE'},{visibility:'private'}])expect(()=>pokerLobbyReadPath({...filters,...patch} as LobbyFilters)).toThrow();
     expect(pokerLobbyReadPath({...filters,query:'👨‍👩‍👧‍👦'.repeat(40)})).toContain('q=');
   });
-  it('uses one native-auth GET for the whole snapshot with no socket scope or grant',async()=>{
+  it('uses one cookie-auth GET for the whole snapshot with no socket scope or grant',async()=>{
     const {fetcher,client,scope}=await setup();fetcher.mockResolvedValueOnce(ok(raw()));expect(await readPokerHttpLobby(client,scope,()=>scope)).toEqual(raw());
     expect(scope).toEqual({user_id:owner,session_generation:client.getSessionGeneration(),request_generation:1,query_key:'/api/v1/poker'});expect(currentPokerLobbyScope(client,scope,()=>scope)).toBe(true);
-    expect(fetcher).toHaveBeenCalledTimes(2);const [path,init]=fetcher.mock.calls[1];expect(path).toBe('/api/v1/poker');expect(init).toMatchObject({method:'GET',credentials:'same-origin',cache:'no-store'});expect(init.body).toBeUndefined();expect(new Headers(init.headers).get('New-Api-User')).toBe(owner);
+    expect(fetcher).toHaveBeenCalledTimes(3);const [path,init]=fetcher.mock.calls[2];expect(path).toBe('/api/v1/poker');expect(init).toMatchObject({method:'GET',credentials:'same-origin',cache:'no-store'});expect(init.body).toBeUndefined();expect(new Headers(init.headers).get('X-CSRF-Token')).toBe(bundle.csrf_token);expect(new Headers(init.headers).get('New-Api-User')).toBeNull();
   });
   it('blocks stale scope and query-path mismatch before I/O; errors never become zero wallet/empty tables',async()=>{
-    const {fetcher,client,scope}=await setup();await expect(readPokerHttpLobby(client,scope,()=>null)).rejects.toThrow();await expect(readPokerHttpLobby(client,scope,()=>scope,filters)).rejects.toThrow();expect(fetcher).toHaveBeenCalledTimes(1);
+    const {fetcher,client,scope}=await setup();await expect(readPokerHttpLobby(client,scope,()=>null)).rejects.toThrow();await expect(readPokerHttpLobby(client,scope,()=>scope,filters)).rejects.toThrow();expect(fetcher).toHaveBeenCalledTimes(2);
     fetcher.mockResolvedValueOnce(new Response(JSON.stringify({success:false,message:'secret'}),{status:503}));await expect(readPokerHttpLobby(client,scope,()=>scope)).rejects.toMatchObject({code:'POKER_LOBBY_READ_UNAVAILABLE',status:503});
-    fetcher.mockRejectedValueOnce(Error('private'));await expect(readPokerHttpLobby(client,scope,()=>scope)).rejects.not.toThrow('private');expect(fetcher).toHaveBeenCalledTimes(3);
+    fetcher.mockRejectedValueOnce(Error('private'));await expect(readPokerHttpLobby(client,scope,()=>scope)).rejects.not.toThrow('private');expect(fetcher).toHaveBeenCalledTimes(4);
   });
-  it.each(['owner','session','request','filter','page','dispose','native-session','native-account','logout'])('drops late %s data before Poker decoding',async(kind)=>{
+  it.each(['owner','session','request','filter','page','dispose','cookie-session','cookie-account','logout'])('drops late %s data before Poker decoding',async(kind)=>{
     const {fetcher,client,scope}=await setup();let resolve!:(r:Response)=>void,current:PokerLobbyReadScope|null=scope,decoded=0;
     fetcher.mockReturnValueOnce(new Promise<Response>(r=>resolve=r));const pending=readPokerHttpLobby(client,scope,()=>current);
     if(kind==='dispose')current=null;
@@ -72,7 +73,7 @@ describe('L2a canonical public query and native HTTP scope',()=>{
     else if(kind==='session')current={...scope,session_generation:scope.session_generation+1};
     else if(kind==='request')current={...scope,request_generation:2};
     else if(kind==='filter'||kind==='page')current={...scope,query_key:kind==='filter'?'/api/v1/poker/tables?q=new':'/api/v1/poker/tables?cursor=eyJ2IjoxfQ'};
-    else {const next=bundle(kind==='native-account'?910002:910001);next.session.sid='synthetic-new-session';fetcher.mockResolvedValueOnce(ok(kind==='logout'?{}:next));if(kind==='logout')await client.logout();else await client.login('synthetic','synthetic');}
+    else {if(kind==='logout'){fetcher.mockResolvedValueOnce(ok(bundle)).mockResolvedValueOnce(ok({authentication_state:'ANONYMOUS',csrf_token:'logged-out'}));await client.logout();}else{fetcher.mockResolvedValueOnce(ok({...bundle,csrf_token:'synthetic-new-csrf'})).mockResolvedValueOnce(ok({...user,id:kind==='cookie-account'?910002:910001}));await client.refresh();}}
     const v=raw();Object.defineProperty(v,'server_now',{enumerable:true,get(){decoded++;throw Error('stale decoded');}});
     resolve({ok:true,status:200,json:async()=>({success:true,data:v})} as Response);expect(await pending).toBeUndefined();expect(decoded).toBe(0);
   });

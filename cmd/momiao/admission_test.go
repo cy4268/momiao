@@ -31,9 +31,12 @@ func TestAdmissionHTTPAuthorityAndExplicitEnsure(t *testing.T) {
 		t.Fatal("GET wrote state")
 	}
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, walletReq("POST", "/platform/v1/admission/ensure", "{}"))
+	r := walletReq("POST", "/platform/v1/admission/ensure", "{}")
+	r.Header.Set("New-Api-User", "1")
+	r.Header.Set("Authorization", "Bearer forged")
+	h.ServeHTTP(w, r)
 	if w.Code != 200 || s.inits != 1 || s.user != 9007199254740993 {
-		t.Fatal("native identity not authoritative")
+		t.Fatal("local identity not authoritative")
 	}
 	for _, body := range []string{`{"registered":true}`, `{"source":"NEW_DISCORD_REGISTRATION"}`, `{"user_id":"1"}`, `{"grant":true}`, `null`, `{} {}`, strings.Repeat(" ", 2049) + `{}`} {
 		w = httptest.NewRecorder()
@@ -42,7 +45,7 @@ func TestAdmissionHTTPAuthorityAndExplicitEnsure(t *testing.T) {
 			t.Fatal("client source accepted", w.Code)
 		}
 	}
-	for _, change := range []func(*http.Request){func(r *http.Request) { r.Header.Del("Authorization") }, func(r *http.Request) { r.Header.Set("New-Api-User", "1") }, func(r *http.Request) { r.Header.Set("Origin", "https://evil.example") }, func(r *http.Request) { r.Header.Add("Origin", "https://wallet.example") }} {
+	for _, change := range []func(*http.Request){func(r *http.Request) { *r = *r.WithContext(context.Background()) }, func(r *http.Request) { r.Header.Set("Origin", "https://evil.example") }, func(r *http.Request) { r.Header.Add("Origin", "https://wallet.example") }} {
 		r := walletReq("POST", "/platform/v1/admission/ensure", "{}")
 		change(r)
 		w = httptest.NewRecorder()

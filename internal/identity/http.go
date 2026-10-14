@@ -26,6 +26,12 @@ type requestIdentity struct {
 	SessionID string
 }
 
+// WithUser attaches an already verified local identity and session digest.
+// HTTP callers must authenticate through Request before using this context.
+func WithUser(ctx context.Context, user User, sessionID string) context.Context {
+	return context.WithValue(ctx, userContextKey{}, requestIdentity{User: user, SessionID: sessionID})
+}
+
 func UserFromContext(ctx context.Context) (User, bool) {
 	value, ok := ctx.Value(userContextKey{}).(requestIdentity)
 	return value.User, ok
@@ -113,7 +119,7 @@ func (h *HTTP) Request(r *http.Request, optional bool) (*http.Request, error) {
 	}
 	ctx := r.Context()
 	if user.ID != 0 {
-		ctx = context.WithValue(ctx, userContextKey{}, requestIdentity{User: user, SessionID: sessionID(value.Token)})
+		ctx = WithUser(ctx, user, sessionID(value.Token))
 	}
 	r = r.Clone(ctx)
 	r.Header.Del("Authorization")
