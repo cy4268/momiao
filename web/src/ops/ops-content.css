@@ -643,3 +643,7 @@
 .catalog-model-cover .catalog-persona {width:112px;flex:none;height:150px;margin:0}
 .catalog-model-cover .catalog-persona img {height:100%;width:100%;object-fit:contain}
 @media(max-width:600px){.catalog-cover-columns{grid-template-columns:1fr}.catalog-cover-toolbar{align-items:stretch;flex-direction:column;gap:8px}.catalog-cover-current .catalog-cover-art img{height:180px}.catalog-cover-manager .catalog-actions{flex-wrap:wrap}}
+
+.ops-workbench .catalog-row-warning { display:block; margin-top:6px; color:#ffd59e; }
+.ops-workbench .catalog-price-editor > :is(label,.ops-form-grid) { margin-block:16px; }
+.ops-workbench .catalog-ops-fields .wide { grid-column:1 / -1; }

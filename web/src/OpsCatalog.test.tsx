@@ -27,14 +27,23 @@ it('saves local model prices, publication and family covers directly without leg
   if(path===catalogOps&&init?.method==='PUT'){
    const v=JSON.parse(String(init.body));item={...item,metadata:v.metadata,recommended:v.recommended,sort_order:v.sort_order,publication_state:v.public?'PUBLISHED':'HIDDEN'};price=v.price_settings||price;return ok({item,price_settings:price});
   }
+  if(path===catalogOps+'/prices'&&init?.method==='PUT'){price=JSON.parse(String(init.body)).price_settings;return ok({saved:true})}
   if(path===catalogOps+'/publication'&&init?.method==='PUT'){item={...item,publication_state:JSON.parse(String(init.body)).public?'PUBLISHED':'HIDDEN'};return ok({saved:true})}
   if(path.startsWith(catalogOps+'/detail?'))return ok({item,price_settings:price});
-  if(path.startsWith(catalogOps))return failRead?failed():ok({items:[item],total:1,offset:0,limit:50,freshness:item.freshness,vocabulary:{families:[{value:'gemini',label:'Gemini'}],tags:[],use_cases:[],assets:[]}});
+  if(path.startsWith(catalogOps))return failRead?failed():ok({items:[item],total:1,offset:0,limit:Number(new URLSearchParams(path.split('?')[1]).get('limit')||50),freshness:item.freshness,vocabulary:{families:[{value:'gemini',label:'Gemini'}],tags:[],use_cases:[],assets:[]}});
   throw new Error('Unexpected endpoint: '+path);
  });
  const client=new ApiClient(fetcher);await client.bootstrap();
  const view=render(<MemoryRouter initialEntries={['/ops/models']}><App client={client}/></MemoryRouter>);
+ await screen.findByRole('button',{name:'编辑模型'});
+ expect(screen.getByRole('combobox',{name:'每页条数'})).toHaveValue('10');
+ expect(screen.queryByText('尚未命名')).not.toBeInTheDocument();
+ fireEvent.change(screen.getByRole('combobox',{name:'每页条数'}),{target:{value:'20'}});
+ await waitFor(()=>expect(fetcher.mock.calls.some(([p])=>p.includes('limit=20'))).toBe(true));
+ expect(localStorage.getItem('momiao.ops.models.pageSize')).toBe('20');
  fireEvent.click(await screen.findByRole('button',{name:'编辑模型'}));
+ await screen.findByRole('dialog',{name:'编辑模型'});
+ expect(screen.queryByRole('spinbutton',{name:'排序 synthetic/model'})).not.toBeInTheDocument();
  fireEvent.change(await screen.findByLabelText('展示名称'),{target:{value:'本地模型'}});
  fireEvent.change(screen.getByLabelText('模型家族'),{target:{value:'gemini'}});
  fireEvent.change(screen.getByLabelText('模型简介'),{target:{value:'本地可编辑目录。'}});
@@ -42,7 +51,7 @@ it('saves local model prices, publication and family covers directly without leg
  fireEvent.click(screen.getByRole('checkbox',{name:'公开此模型'}));
  failRead=true;
  fireEvent.click(screen.getByRole('button',{name:'保存模型'}));
- await screen.findByText('已保存');expect(price.input).toBe('0.125');expect(item.publication_state).toBe('PUBLISHED');
+ await screen.findByText('已保存');expect(screen.queryByRole('dialog',{name:'编辑模型'})).not.toBeInTheDocument();expect(price.input).toBe('0.125');expect(item.publication_state).toBe('PUBLISHED');
  await screen.findByText('已保存，列表读取失败，请刷新查看。');
  failRead=false;fireEvent.click(screen.getByRole('button',{name:'刷新'}));
  await waitFor(()=>expect(screen.queryByText('已保存，列表读取失败，请刷新查看。')).not.toBeInTheDocument());
@@ -50,6 +59,21 @@ it('saves local model prices, publication and family covers directly without leg
  expect(new Headers(save[1]?.headers).get('X-CSRF-Token')).toBe('local-csrf');
  expect(Object.keys(JSON.parse(String(save[1]?.body))).sort()).toEqual(['metadata','model_id','price_settings','public','recommended','sort_order']);
  fireEvent.click(screen.getByRole('checkbox',{name:'选择 synthetic/model'}));
+ fireEvent.click(screen.getByRole('button',{name:'批量设置价格'}));
+ const pricing=await screen.findByRole('dialog',{name:'批量设置价格'});
+ expect(within(pricing).queryByLabelText('输入单价')).not.toBeInTheDocument();
+ await within(pricing).findByRole('option',{name:'本地模型 · synthetic/model'});
+ fireEvent.change(within(pricing).getByLabelText('从其他模型复制价格'),{target:{value:item.model_id}});
+ expect(await within(pricing).findByLabelText('输入单价')).toHaveValue('0.125');
+ fireEvent.change(within(pricing).getByLabelText('输入单价'),{target:{value:'0.75'}});
+ fireEvent.click(within(pricing).getByRole('button',{name:'保存价格'}));
+ await waitFor(()=>expect(screen.queryByRole('dialog',{name:'批量设置价格'})).not.toBeInTheDocument());
+ const batch=fetcher.mock.calls.find(([p])=>p===catalogOps+'/prices')!;
+ expect(JSON.parse(String(batch[1]?.body)).model_ids).toEqual([item.model_id]);
+ expect(price.input).toBe('0.75');expect(item.metadata.display_name).toBe('本地模型');
+ fireEvent.change(screen.getByLabelText('快捷筛选'),{target:{value:'UNPRICED'}});
+ await waitFor(()=>expect(fetcher.mock.calls.some(([p])=>p.includes('state=UNPRICED'))).toBe(true));
+ fireEvent.click(await screen.findByRole('checkbox',{name:'选择 synthetic/model'}));
  fireEvent.click(screen.getByRole('button',{name:'批量隐藏'}));await waitFor(()=>expect(item.publication_state).toBe('HIDDEN'));
  await waitFor(()=>expect(screen.getByRole('button',{name:'家族封面'})).toBeEnabled());
  fireEvent.click(screen.getByRole('button',{name:'家族封面'}));

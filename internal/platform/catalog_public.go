@@ -172,10 +172,10 @@ func (s *Store) PublicCatalog(ctx context.Context, filter CatalogFilter) (Catalo
 func (s *Store) OpsCatalog(ctx context.Context, userID int64, filter CatalogOpsFilter) (CatalogOpsPage, error) {
 	page := CatalogOpsPage{Items: []CatalogModel{}}
 	if filter.Limit == 0 {
-		filter.Limit = 50
+		filter.Limit = 10
 	}
 	filter.Search = strings.TrimSpace(filter.Search)
-	if !catalogSearchValid(filter.Search) || filter.Limit < 1 || filter.Limit > 100 || filter.Offset < 0 || filter.Offset > 1000000 || !slices.Contains([]string{"", "PENDING_METADATA", "PUBLISHED", "HIDDEN", "RETIRED"}, filter.State) {
+	if !catalogSearchValid(filter.Search) || filter.Limit < 1 || filter.Limit > 100 || filter.Offset < 0 || filter.Offset > 1000000 || !slices.Contains([]string{"", "PENDING_METADATA", "PUBLISHED", "HIDDEN", "RETIRED", "UNPUBLISHED", "UNPRICED", "NO_CHANNEL", "PUBLISHED_NO_CHANNEL"}, filter.State) {
 		return page, ErrCatalogInvalid
 	}
 	var err error
@@ -194,7 +194,14 @@ func (s *Store) OpsCatalog(ctx context.Context, userID int64, filter CatalogOpsF
 		return page, err
 	}
 	page.Freshness = localCatalogFreshness()
-	selection := catalogModelTables + ` WHERE ($1='' OR coalesce(p.publication_state,'PENDING_METADATA')=$1) AND ($2='' OR strpos(lower(m.display_name),lower($2))>0 OR strpos(lower(m.model_id),lower($2))>0)`
+	selection := catalogModelTables + ` WHERE CASE $1
+ WHEN '' THEN true
+ WHEN 'UNPUBLISHED' THEN coalesce(p.publication_state,'PENDING_METADATA')<>'PUBLISHED'
+ WHEN 'UNPRICED' THEN rp.model IS NULL OR g.name IS NULL
+ WHEN 'NO_CHANNEL' THEN NOT a.supported
+ WHEN 'PUBLISHED_NO_CHANNEL' THEN p.publication_state='PUBLISHED' AND NOT a.supported
+ ELSE coalesce(p.publication_state,'PENDING_METADATA')=$1 END
+ AND ($2='' OR strpos(lower(m.display_name),lower($2))>0 OR strpos(lower(m.model_id),lower($2))>0)`
 	if err = tx.QueryRow(ctx, "SELECT count(*)"+selection, filter.State, filter.Search).Scan(&page.Total); err != nil {
 		return page, err
 	}

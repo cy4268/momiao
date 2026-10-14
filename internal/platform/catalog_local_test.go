@@ -211,6 +211,42 @@ func TestLocalCatalog(t *testing.T) {
 	if _, err = loadCatalogModel(ctx, tx, unseen, true); err != nil {
 		t.Fatal("batch left partial visibility", err)
 	}
+	// Price-only batches preserve metadata and visibility, and share single-save units.
+	beforePriceBatch := read(unseen)
+	prices := CatalogPricesSettings{ModelIDs: ids, Price: &CatalogPriceSettings{Input: "0.125", Output: "0", CacheRead: "0", CacheWrite: "0", CacheWrite1h: "0"}}
+	if err = saveCatalogPrices(ctx, tx, regular, prices); err != ErrCatalogForbidden {
+		t.Fatal("ordinary user saved batch prices", err)
+	}
+	if err = saveCatalogPrices(ctx, tx, admin, prices); err != nil {
+		t.Fatal("batch prices", err)
+	}
+	for _, id := range ids {
+		p, err := readCatalogPrice(ctx, tx, id)
+		if err != nil || p == nil || CompareCatalogDecimal(p.Input, "0.125") != 0 || p.PerSecond != nil || p.PerRequest != nil {
+			t.Fatal("batch base price/mode", id, p, err)
+		}
+	}
+	if next := read(unseen); next.MetadataVersion != beforePriceBatch.MetadataVersion || next.PublicationState != beforePriceBatch.PublicationState || next.Recommended != beforePriceBatch.Recommended || next.SortOrder != beforePriceBatch.SortOrder {
+		t.Fatal("price-only batch changed editorial settings")
+	}
+	if err = tx.QueryRow(ctx, relayCostSQL, price(unseen), 1000000, 0, 0, 0, 0, nil).Scan(&cost); err != nil || cost != 125000 {
+		t.Fatal("batch price/group applied more than once", cost, err)
+	}
+	nested, err = tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prices.ModelIDs = []string{unseen, "zzzz/absent-model"}
+	prices.Price.Input = "999"
+	if err = saveCatalogPrices(ctx, nested, admin, prices); err != ErrCatalogNotFound {
+		t.Fatal("invalid batch price target", err)
+	}
+	if err = nested.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := readCatalogPrice(ctx, tx, unseen); err != nil || CompareCatalogDecimal(p.Input, "0.125") != 0 {
+		t.Fatal("failed batch left partial price", p, err)
+	}
 	var c CatalogCoverUploadCommand
 	var file CatalogCoverUploadImage
 	var assetID string
@@ -231,12 +267,21 @@ func TestLocalCatalog(t *testing.T) {
 		t.Fatal("cover default restore", err)
 	}
 	var count int
-	if err = tx.QueryRow(ctx, `SELECT count(*) FROM ops.audit_log`).Scan(&count); err != nil || count != audits+7 {
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM ops.audit_log`).Scan(&count); err != nil || count != audits+8 {
 		t.Fatal("one audit per direct save; reused upload/no failed batch audit", count-audits, err)
 	}
-	t.Log("direct saves: base 0.5/group2 -> cost500000; request250000; 8-second800000; exact tiny decimal; new metadata/history; batch hide/publish; failed batch atomic; existing cover reuse/bind/reset; 7 audits in rollback transaction")
+	t.Log("direct saves: base 0.5/group2 -> cost500000; request250000; 8-second800000; exact tiny decimal; new metadata/history; batch hide/publish; failed batch atomic; existing cover reuse/bind/reset; batch price-only save/rollback, 8 audits in rollback transaction")
 	if err = tx.Rollback(ctx); err != nil {
 		t.Fatal(err)
+	}
+	unpricedPage, err := s.OpsCatalog(ctx, admin, CatalogOpsFilter{State: "UNPRICED"})
+	if err != nil || unpricedPage.Limit != 10 || unpricedPage.Total == 0 || len(unpricedPage.Items) > 10 {
+		t.Fatal("missing-price filter/default pagination", unpricedPage.Total, unpricedPage.Limit, err)
+	}
+	for _, item := range unpricedPage.Items {
+		if item.Price.Configured {
+			t.Fatal("priced model included in missing-price filter", item.ModelID)
+		}
 	}
 	page, err := s.PublicCatalog(ctx, CatalogFilter{PriceDimension: "input", Sort: "price", Limit: 100})
 	if err != nil || page.Total != 9 || len(page.Items) != 9 || page.Freshness.State != "CURRENT" {

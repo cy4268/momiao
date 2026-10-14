@@ -8,7 +8,7 @@
 .ops-workbench .ops-table-pagination { display:flex; align-items:center; flex-wrap:wrap; gap:12px 24px; margin-top:16px; }
 .ops-workbench .ops-table-pagination > label { display:flex; flex-direction:row; align-items:center; gap:8px; margin:0; }
 .ops-workbench .ops-table-pagination .pager { flex:1 1 300px; margin:0; border:0; padding:0; }
-.ops-workbench .modal.ops-drawer { width:min(720px,100vw); max-width:100vw; height:100dvh; max-height:100dvh; margin:0 0 0 auto; padding:0; border-radius:0; border-width:0 0 0 1px; overflow:hidden; }
+.ops-workbench .modal.ops-drawer { width:min(720px,100%); max-width:100%; height:100dvh; max-height:100dvh; margin:0 0 0 auto; padding:0; border-radius:0; border-width:0 0 0 1px; overflow:hidden; }
 .ops-workbench .ops-drawer[open] { display:grid; grid-template-rows:auto minmax(0,1fr) auto; }
 .ops-workbench .ops-drawer .modal-heading { margin:0; padding:20px 24px; }
 .ops-workbench .ops-drawer-body { min-width:0; overflow:auto; overscroll-behavior:contain; padding:0 24px 24px; }
