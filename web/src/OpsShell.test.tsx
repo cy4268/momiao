@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import { ApiClient } from './api';
@@ -92,7 +92,7 @@ it('saves maintenance directly with a local admin and shows all operations witho
  render(<MemoryRouter initialEntries={['/ops/maintenance']}><App client={client}/></MemoryRouter>);
  expect(await screen.findByRole('heading',{name:'维护设置'})).toBeVisible();
  expect(await screen.findByRole('alert')).toBeVisible();
- failRead=false;fireEvent.click(screen.getByRole('button',{name:'重新读取'}));
+ failRead=false;await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'重新读取'}));});
  const form=await screen.findByRole('group',{name:'维护设置'});
  expect(within(form).getByRole('checkbox',{name:'奖励领取'})).toBeChecked();
  fireEvent.click(within(form).getByRole('checkbox',{name:'开启维护'}));
