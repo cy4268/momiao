@@ -48,7 +48,7 @@ export function OpsLogs({client}:{client:ApiClient}){
   {key:'cost',label:'Token / 费用',render:l=><>{l.tokens}<small>{l.cost} Credit</small></>},
   {key:'status',label:'耗时 / 状态',render:l=><>{l.duration_ms} ms / {l.status_code||'未记录'}<small>{l.kind===5?'错误':'消费'}{l.error?' · '+l.error:''}</small></>},
  ];
- return <><header className="page-heading"><div><p className="eyebrow">OPERATIONS / RELAY LOGS</p><h1>全局调用日志</h1><p>每行是一条渠道尝试；点开可查看同一请求的各次尝试。请求数合并重试，历史记录各算一次。</p></div><button onClick={resource.reload}>刷新日志</button></header>
+ return <><header className="page-heading"><div><p className="eyebrow">OPERATIONS / RELAY LOGS</p><h1>全局调用日志</h1><p>每行是一条渠道尝试；点开可查看同一请求的各次尝试。请求数合并重试，历史记录各算一次。</p></div><button onClick={()=>range==='all'||range==='custom'?resource.reload():changeRange(range)}>刷新日志</button></header>
  <section className="panel"><FilterBar>
   <UserFilter client={client} value={filters.user} onChange={value=>filter('user',value)}/>
   <label>Key ID<input type="number" min="1" value={filters.key} onChange={e=>filter('key',e.target.value)}/></label>

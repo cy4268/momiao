@@ -387,8 +387,15 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  await screen.findByText(/请求 1 · 尝试 2/);
  fireEvent.change(screen.getByLabelText('搜索用户'),{target:{value:'新昵称'}});
  fireEvent.click(await screen.findByRole('button',{name:'新昵称 · #2'}));
- fireEvent.change(screen.getByLabelText('时间范围'),{target:{value:'7d'}});
- await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>{const q=new URLSearchParams(path.split('?')[1]);return path.includes('/ops/logs?')&&q.get('user')==='2'&&Number(q.get('end'))-Number(q.get('start'))===7*86400})).toBe(true));
+ vi.useFakeTimers({toFake:['Date']});
+ try{
+  vi.setSystemTime(new Date('2026-10-14T10:00:00Z'));
+  fireEvent.change(screen.getByLabelText('时间范围'),{target:{value:'7d'}});
+  await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>{const q=new URLSearchParams(path.split('?')[1]);return path.includes('/ops/logs?')&&q.get('user')==='2'&&Number(q.get('end'))-Number(q.get('start'))===7*86400})).toBe(true));
+  vi.setSystemTime(new Date('2026-10-14T10:05:00Z'));
+  fireEvent.click(screen.getByRole('button',{name:'刷新日志'}));
+  await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>{const q=new URLSearchParams(path.split('?')[1]);return path.includes('/ops/logs?')&&q.get('user')==='2'&&Number(q.get('end'))===Date.now()/1000&&Number(q.get('end'))-Number(q.get('start'))===7*86400})).toBe(true));
+ }finally{vi.useRealTimers()}
  expect(screen.getByRole('combobox',{name:'渠道'})).toHaveTextContent('dev channel');
  expect(screen.getByRole('combobox',{name:'模型'})).toHaveTextContent('gpt-test');
  const logsReads=fetcher.mock.calls.filter(([p])=>p.startsWith('/api/v1/ops/logs?')).length;
