@@ -45,6 +45,19 @@
 .ops-workbench .ops-model-dialog td { overflow-wrap:anywhere; }
 .ops-workbench .ops-filter-bar > label.ops-checkbox { flex-direction:row; align-items:center; flex:0 1 auto; gap:8px; padding-block:10px; }
 .ops-workbench .ops-checkbox input { width:auto; }
+.ops-workbench .ops-clickable-row { cursor:pointer; }
+.ops-workbench .ops-clickable-row:hover { background:#19354b; }
+.ops-workbench button.ops-text-button { min-height:0; padding:0; border:0; color:#f0d5a0; background:none; text-align:left; }
+.ops-workbench .ops-user-search { position:relative; flex:1 1 240px; min-width:0; }
+.ops-workbench .ops-user-search > label { display:flex; flex-direction:column; margin:0; }
+.ops-workbench .ops-user-search input { padding-right:36px; }
+.ops-workbench .ops-user-clear { position:absolute; right:4px; bottom:3px; min-height:32px; padding:4px 8px; border:0; background:none; }
+.ops-workbench .ops-user-matches { position:absolute; z-index:3; top:100%; width:100%; max-height:280px; overflow:auto; background:#102a40; border:1px solid #59758e; }
+.ops-workbench .ops-user-matches ul { list-style:none; margin:0; padding:4px; }
+.ops-workbench .ops-user-matches button { width:100%; text-align:left; border:0; overflow-wrap:anywhere; }
+.ops-workbench .ops-user-matches p { padding:8px; margin:0; }
+.ops-workbench .ops-log-top > summary { cursor:pointer; font-weight:600; }
+.ops-workbench .ops-log-top[open] > summary { margin-bottom:16px; }
 @media (max-width:600px) {
  .ops-workbench .ops-drawer .modal-heading { padding:16px; }
  .ops-workbench .ops-drawer-body { padding-inline:16px; }

@@ -19,7 +19,7 @@ export function Empty({ title, children }: {
     title: string;
     children: ReactNode;
 }) { return <div className="empty"><span aria-hidden="true">◇</span><h3>{title}</h3><p>{children}</p></div>; }
-export function Loading({label='正在读取账户数据'}:{label?:string}) { return <p className="loading" role="status">{label}<span aria-hidden="true">…</span></p>; }
+export function Loading({label='加载中'}:{label?:string}) { return <p className="loading" role="status">{label}<span aria-hidden="true">…</span></p>; }
 export function useResource<T>(load: () => Promise<T>, dependencies: unknown[]) {
     const [state, setState] = useState<{
         data?: T;

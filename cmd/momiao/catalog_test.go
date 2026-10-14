@@ -704,7 +704,15 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 			if w := request(admin, "GET", "/api/v1/ops/users/9223372036854775807/master", "", false); w.Code != 404 {
 				t.Fatal("missing Master", w.Code)
 			}
-			for _, path := range []string{"/api/v1/ops/users", "/api/v1/ops/users/" + strconv.FormatInt(regular, 10), "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/ledger", "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/keys", "/api/v1/ops/logs"} {
+			var logs struct {
+				Data platform.OpsLogPage `json:"data"`
+			}
+			w = request(admin, "GET", "/api/v1/ops/logs?page_size=1", "", false)
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &logs) != nil || len(logs.Data.Items) != 1 {
+				t.Fatal("existing log for detail", w.Code)
+			}
+			logPath := "/api/v1/ops/logs/" + strconv.FormatInt(logs.Data.Items[0].ID, 10)
+			for _, path := range []string{"/api/v1/ops/users", "/api/v1/ops/users/" + strconv.FormatInt(regular, 10), "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/ledger", "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/keys", "/api/v1/ops/logs", logPath} {
 				if w := request(admin, "GET", path, "", false); w.Code != 200 {
 					t.Fatal("local users Ops", path, w.Code, w.Body.String())
 				}
@@ -713,6 +721,11 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 				}
 				if w := request(0, "GET", path, "", false); w.Code != 401 {
 					t.Fatal("anonymous role", w.Code)
+				}
+			}
+			for _, path := range []string{"/api/v1/ops/logs/invalid", "/api/v1/ops/logs/9223372036854775807"} {
+				if w := request(admin, "GET", path, "", false); w.Code != 404 {
+					t.Fatal("missing log", w.Code)
 				}
 			}
 			path := "/api/v1/ops/users/" + strconv.FormatInt(regular, 10)

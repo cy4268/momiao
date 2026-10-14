@@ -1,45 +1,61 @@
-import { useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ApiClient, errorText, type User, type Page, type Key } from '../api';
 import { Alert, Loading, Pager, role, useResource } from '../ui';
+import { FilterBar, useDebouncedValue } from './components/FilterBar';
+import { DataTable, usePageSize, type Column } from './components/DataTable';
+import { Drawer } from './components/Drawer';
 
-type OpsUser={id:number;username:string;display_name:string;discord_id:string;group:string;role:number;status:number;two_fa_enabled:boolean;reserve:string;wallet_initialized:boolean;created_at:string;last_login_at:string|null};
+type OpsUser={id:number;username:string;display_name:string;master_name:string;discord_id:string;group:string;role:number;status:number;two_fa_enabled:boolean;reserve:string;wallet_initialized:boolean;created_at:string;last_login_at:string|null};
 type Group={name:string};
 type Ledger={id:string;created_at:string;biz_type:string;delta_amount:string;balance_after_amount:string;note:string};
 type Master={newapi_user_id:string;display_name:string;profile_version:string;rename_required:boolean;nickname_changed_at:string|null};
 const root='/api/v1/ops/users';
 const time=(v:string|null)=>v?new Date(v).toLocaleString('zh-CN',{hour12:false}):'—';
 export function OpsUsers({client,user}:{client:ApiClient;user:User}){
- const {userID}=useParams();
- return userID?<UserDetail key={userID} client={client} current={user} id={userID}/>:<UserList client={client}/>;
-}
-function UserList({client}:{client:ApiClient}){
- const [page,setPage]=useState(1),[filters,setFilters]=useState({q:'',group:'',role:'',status:''});
+ const {userID}=useParams(),navigate=useNavigate(),[editing,setEditing]=useState('');
+ const selected=editing||userID;
+ const [filters,setFilters]=useState({page:1,q:'',group:'',role:'',status:''}),[search,setSearch]=useState('');
+ const settled=useDebouncedValue(search),[pageSize,setPageSize]=usePageSize('momiao.ops.users.pageSize');
+ useEffect(()=>{setFilters(current=>({...current,q:settled,page:1}))},[settled]);
+ useEffect(()=>{if(!selected)document.title='用户 · Chaldea Ops'},[selected]);
  const groups=useResource(()=>client.request<Group[]>('/api/v1/ops/groups'),[client]);
- const resource=useResource(()=>client.request<Page<OpsUser>>(root+'?'+new URLSearchParams({...filters,page:String(page),page_size:'20'})),[client,page,filters]);
- function filter(key:string,value:string){setFilters({...filters,[key]:value});setPage(1)}
+ const resource=useResource(()=>client.request<Page<OpsUser>>(root+'?'+new URLSearchParams({...filters,page:String(filters.page),page_size:String(pageSize)})),[client,pageSize,filters]);
+ function filter(key:string,value:string){setFilters(current=>({...current,[key]:value,page:1}))}
+ const columns:Column<OpsUser>[]=[
+  {key:'name',label:'Master / 账号',render:u=><><button className="ops-text-button" onClick={()=>setEditing(String(u.id))}>{u.master_name||u.username} · #{u.id}</button><small>{u.username}{u.display_name?' · '+u.display_name:''}</small></>},
+  {key:'discord',label:'Discord ID',render:u=>u.discord_id||'未绑定'},
+  {key:'status',label:'分组 / 角色 / 状态',render:u=><>{u.group} / {role(u.role)} / {u.status===1?'正常':'封禁'}</>},
+  {key:'reserve',label:'Reserve',render:u=>u.wallet_initialized?u.reserve:'未初始化'},
+  {key:'time',label:'注册 / 最近登录',render:u=><>{time(u.created_at)}<small>{time(u.last_login_at)}</small></>},
+ ];
+ function close(changed:boolean){setEditing('');if(userID)navigate('/ops/users');if(changed)resource.reload()}
  return <><header className="page-heading"><div><p className="eyebrow">OPERATIONS / USERS</p><h1>用户管理</h1><p>本地账号、会话与 Reserve。</p></div><button onClick={resource.reload}>刷新用户</button></header><section className="panel">
- <div className="filter-row"><label>用户名、显示名、Discord ID 或 ID<input maxLength={100} value={filters.q} onChange={e=>filter('q',e.target.value)}/></label><label>分组<select value={filters.group} onChange={e=>filter('group',e.target.value)}><option value="">全部分组</option>{groups.data?.map(g=><option key={g.name}>{g.name}</option>)}</select></label><label>角色<select value={filters.role} onChange={e=>filter('role',e.target.value)}><option value="">全部角色</option>{[1,10,100].map(r=><option value={r} key={r}>{role(r)}</option>)}</select></label><label>状态<select value={filters.status} onChange={e=>filter('status',e.target.value)}><option value="">全部状态</option><option value="1">正常</option><option value="2">封禁</option></select></label></div>
- {groups.error&&<Alert>{groups.error}</Alert>}{resource.error&&<Alert>{resource.error}</Alert>}{resource.loading?<Loading/>:resource.data&&<><div className="table-wrap"><table><thead><tr><th>账号</th><th>Discord ID</th><th>分组 / 角色 / 状态</th><th>Reserve</th><th>注册 / 最近登录</th></tr></thead><tbody>{resource.data.items.map(u=><tr key={u.id}><td><Link to={'/ops/users/'+u.id}>{u.username} · #{u.id}</Link><small>{u.display_name}</small></td><td>{u.discord_id||'未绑定'}</td><td>{u.group} / {role(u.role)} / {u.status===1?'正常':'封禁'}</td><td>{u.wallet_initialized?u.reserve:'未初始化'}</td><td>{time(u.created_at)}<small>{time(u.last_login_at)}</small></td></tr>)}</tbody></table></div><Pager page={page} size={20} total={resource.data.total} onChange={setPage}/></>}</section></>;
+ <FilterBar><label>用户名、显示名、Discord ID 或 ID<input maxLength={100} value={search} onChange={e=>setSearch(e.target.value)}/></label><label>分组<select value={filters.group} onChange={e=>filter('group',e.target.value)}><option value="">全部分组</option>{groups.data?.map(g=><option key={g.name}>{g.name}</option>)}</select></label><label>角色<select value={filters.role} onChange={e=>filter('role',e.target.value)}><option value="">全部角色</option>{[1,10,100].map(r=><option value={r} key={r}>{role(r)}</option>)}</select></label><label>状态<select value={filters.status} onChange={e=>filter('status',e.target.value)}><option value="">全部状态</option><option value="1">正常</option><option value="2">封禁</option></select></label></FilterBar>
+ {groups.error&&<Alert>{groups.error}</Alert>}{resource.error&&<Alert>{resource.error}</Alert>}{resource.loading?<Loading/>:resource.data&&<DataTable columns={columns} rows={resource.data.items} rowKey={u=>String(u.id)} page={filters.page} total={resource.data.total} pageSize={pageSize} onPageChange={page=>setFilters(current=>({...current,page}))} onPageSizeChange={size=>{setPageSize(size);setFilters(current=>({...current,page:1}))}} disabled={search!==settled}/>}</section>
+ {selected&&<UserDetail key={selected} client={client} current={user} id={selected} onClose={close}/>}</>;
 }
-function UserDetail({client,current,id}:{client:ApiClient;current:User;id:string}){
+function UserDetail({client,current,id,onClose}:{client:ApiClient;current:User;id:string;onClose:(changed:boolean)=>void}){
  const resource=useResource(()=>client.request<OpsUser>(root+'/'+id),[client,id]);
  const groups=useResource(()=>client.request<Group[]>('/api/v1/ops/groups'),[client]);
  const [tab,setTab]=useState('profile'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[version,setVersion]=useState(0);
+ const changed=useRef(false);
  async function action(kind:string,body:unknown){
   setBusy(true);setError('');setNotice('');
-  try{await client.request(root+'/'+id+(kind?'/'+kind:''),kind?'POST':'PUT',body);setNotice('操作已保存');resource.reload();setVersion(v=>v+1);return true}catch(e){setError(errorText(e));return false}finally{setBusy(false)}
+  try{await client.request(root+'/'+id+(kind?'/'+kind:''),kind?'POST':'PUT',body);changed.current=true;setNotice('操作已保存');resource.reload();setVersion(v=>v+1);return true}catch(e){setError(errorText(e));return false}finally{setBusy(false)}
  }
  const u=resource.data,canManage=!!u&&(current.role===100||current.role>u.role);
- return <><header className="page-heading"><div><p className="eyebrow">OPERATIONS / USER {id}</p><h1>{u?.username||'用户详情'}</h1></div><Link to="/ops/users">返回用户列表</Link></header>
+ const title=`${u?.master_name||u?.username||'用户详情'} · #${id}`;
+ useEffect(()=>{document.title=title+' · Chaldea Ops'},[title]);
+ return <Drawer title={title} onClose={()=>onClose(changed.current)} busy={busy}>
  {notice&&<p role="status">{notice}</p>}{error&&<Alert>{error}</Alert>}{resource.error&&<Alert>{notice?'操作已保存，详情读取失败，请刷新核对。':resource.error}</Alert>}<button disabled={busy} onClick={resource.reload}>刷新详情</button>
  <div className="row-actions">{[['profile','资料与会话'],['master','Master 资料'],['balance','余额与流水'],['keys','API Key']].map(([key,label])=><button key={key} aria-pressed={tab===key} onClick={()=>setTab(key)}>{label}</button>)}<Link to={'/ops/logs?user='+id}>调用日志</Link><Link to={'/ops/records?user='+id}>游戏记录</Link></div>
- {resource.loading?<Loading/>:u&&<><p>{u.display_name} · #{u.id} · Discord {u.discord_id||'未绑定'} · 注册 {time(u.created_at)} · 最近登录 {time(u.last_login_at)}</p>
+ {resource.loading?<Loading/>:u&&<><p>登录名 {u.username} · 账号显示名 {u.display_name||'—'} · Discord {u.discord_id||'未绑定'} · 注册 {time(u.created_at)} · 最近登录 {time(u.last_login_at)}</p>
  {tab==='profile'&&<section className="panel"><Profile key={version} u={u} groups={groups.data||[]} root={current.role===100} disabled={busy||!canManage} save={body=>action('',body)}/>{groups.error&&<Alert>{groups.error}</Alert>}<p>2FA：{u.two_fa_enabled?'已启用':'未启用'}</p><div className="row-actions"><button disabled={busy||!canManage} onClick={()=>{if(window.confirm('重置此用户的 2FA 并撤销全部会话？'))void action('reset-2fa',{})}}>重置 2FA</button><button disabled={busy||!canManage} onClick={()=>{if(window.confirm('撤销此用户的全部登录会话？'))void action('logout',{})}}>强制下线</button></div></section>}
  {tab==='balance'&&<Balance key={version} client={client} u={u} disabled={busy||!canManage} adjust={body=>action('reserve',body)}/>}
  {tab==='master'&&<MasterProfile key={version} client={client} id={id} disabled={busy||!canManage} action={action}/>}
  {tab==='keys'&&<UserKeys key={version} client={client} id={id} disabled={busy||!canManage} action={action}/>}</>}
- </>;
+ </Drawer>;
 }
 function Profile({u,groups,root:asRoot,disabled,save}:{u:OpsUser;groups:Group[];root:boolean;disabled:boolean;save:(body:unknown)=>Promise<boolean>}){
  const [group,setGroup]=useState(u.group),[status,setStatus]=useState(u.status),[newRole,setRole]=useState(u.role);

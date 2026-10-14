@@ -15,15 +15,16 @@ type Props<T>={
  columns:Column<T>[];rows:T[];rowKey:(row:T)=>string;
  page:number;total:number;pageSize:number;onPageChange:(page:number)=>void;onPageSizeChange:(size:number)=>void;
  selected?:string[];onSelectionChange?:(keys:string[])=>void;disabled?:boolean;emptyText?:string;
+ onRowClick?:(row:T)=>void;
 };
-export function DataTable<T>({columns,rows,rowKey,page,total,pageSize,onPageChange,onPageSizeChange,selected=[],onSelectionChange,disabled=false,emptyText='暂无符合条件的数据'}:Props<T>) {
+export function DataTable<T>({columns,rows,rowKey,page,total,pageSize,onPageChange,onPageSizeChange,selected=[],onSelectionChange,disabled=false,emptyText='暂无符合条件的数据',onRowClick}:Props<T>) {
  const keys=rows.map(rowKey),count=keys.filter(key=>selected.includes(key)).length;
  return <div className="ops-data-table">
   <div className="table-wrap"><table><thead><tr>
    {onSelectionChange&&<th><input type="checkbox" aria-label="选择当前页" checked={keys.length>0&&count===keys.length} ref={node=>{if(node)node.indeterminate=count>0&&count<keys.length}} disabled={disabled||!keys.length} onChange={e=>onSelectionChange(e.target.checked?[...new Set([...selected,...keys])]:selected.filter(key=>!keys.includes(key)))}/></th>}
    {columns.map(col=><th key={col.key} scope="col">{col.label}</th>)}
   </tr></thead><tbody>
-   {rows.map(row=>{const key=rowKey(row);return <tr key={key}>
+   {rows.map(row=>{const key=rowKey(row);return <tr key={key} className={onRowClick?'ops-clickable-row':undefined} onClick={onRowClick?e=>{if(!(e.target as Element).closest('a,button,input,select,textarea,summary'))onRowClick(row)}:undefined}>
     {onSelectionChange&&<td><input type="checkbox" aria-label={'选择 '+key} checked={selected.includes(key)} disabled={disabled} onChange={e=>onSelectionChange(e.target.checked?[...selected,key]:selected.filter(value=>value!==key))}/></td>}
     {columns.map(col=><td key={col.key}>{col.render(row)}</td>)}
    </tr>})}

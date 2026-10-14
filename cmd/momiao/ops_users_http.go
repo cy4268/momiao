@@ -15,7 +15,7 @@ import (
 )
 
 func localOpsUsersRoute(path string) bool {
-	return path == opsUsersPath || strings.HasPrefix(path, opsUsersPath+"/") || path == "/api/v1/ops/logs"
+	return path == opsUsersPath || strings.HasPrefix(path, opsUsersPath+"/") || path == "/api/v1/ops/logs" || strings.HasPrefix(path, "/api/v1/ops/logs/")
 }
 func newLocalOpsUsersHandler(store *platform.Store, auth *identity.HTTP) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +58,13 @@ func newLocalOpsUsersHandler(store *platform.Store, auth *identity.HTTP) http.Ha
 		var result any
 		var err error
 		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v1/ops/logs/") && r.Method == "GET":
+			id, parseErr := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/v1/ops/logs/"), 10, 64)
+			if parseErr != nil || id <= 0 {
+				walletError(w, 404, "NOT_FOUND")
+				return
+			}
+			result, err = store.LocalOpsLogDetail(ctx, id)
 		case r.URL.Path == "/api/v1/ops/logs" && r.Method == "GET":
 			if f.Dimension == "" {
 				f.Dimension = "model"

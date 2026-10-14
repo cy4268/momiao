@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/cy4268/momiao/internal/identity"
+	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -97,11 +98,15 @@ func TestV08OpsUsersShortAccountSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	master, err := readLocalOpsMaster(ctx, tx, user)
+	if err != nil || original.MasterName != master.DisplayName {
+		t.Fatal("Master name in user DTO", err)
+	}
 	page, err := listLocalOpsUsers(ctx, tx, OpsUserFilter{Page: 1, PageSize: 1, Search: strconv.FormatInt(user, 10), Role: 1, Status: 1, Group: original.Group})
 	if err != nil || page.Total < 1 || len(page.Items) != 1 {
 		t.Fatal("local paged user search", err)
 	}
-	for _, search := range []string{original.Username, original.DisplayName, original.DiscordID} {
+	for _, search := range []string{original.Username, original.DisplayName, original.DiscordID, original.MasterName} {
 		if search == "" {
 			continue
 		}
@@ -254,6 +259,27 @@ func TestV08OpsUsersShortAccountSearch(t *testing.T) {
 	selected, err := localOpsLogs(ctx, tx, sample)
 	if err != nil || selected.Total < 1 {
 		t.Fatal("all log filters", err)
+	}
+	log := selected.Items[0]
+	detail, err := localOpsLogDetail(ctx, tx, log.ID)
+	if err != nil || len(detail.Items) == 0 {
+		t.Fatal("log detail attempts", err)
+	}
+	var expectedName string
+	var attemptCount int
+	if err = tx.QueryRow(ctx, `SELECT coalesce(nullif(p.display_name,''),u.username,'') FROM identity.users u LEFT JOIN identity.master_profiles p ON p.newapi_user_id=u.id WHERE u.id=$1`, log.UserID).Scan(&expectedName); err != nil || log.DisplayName != expectedName {
+		t.Fatal("Master name in logs", err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM relay.logs WHERE kind IN(2,5) AND user_id=$1 AND (id=$2 OR ($3<>'' AND request_id=$3))`, log.UserID, log.ID, log.RequestID).Scan(&attemptCount); err != nil || len(detail.Items) != attemptCount {
+		t.Fatal("complete request attempts", err)
+	}
+	for _, attempt := range detail.Items {
+		if attempt.UserID != log.UserID || attempt.RequestID != log.RequestID || attempt.CostUnits == "" || attempt.PromptTokens == "" {
+			t.Fatal("log detail fields or request boundary")
+		}
+	}
+	if _, err = localOpsLogDetail(ctx, tx, 9223372036854775807); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatal("missing log detail", err)
 	}
 	sample.ErrorsOnly = true
 	failed, err := localOpsLogs(ctx, tx, sample)
