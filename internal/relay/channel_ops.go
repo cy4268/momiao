@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/tidwall/gjson"
@@ -119,27 +121,63 @@ func FetchChannelModels(ctx context.Context, c platform.RelayChannel) ([]string,
 }
 
 type ChannelTestResult struct {
-	OK       bool   `json:"ok"`
-	Model    string `json:"model"`
-	Status   int    `json:"status_code"`
-	Duration int64  `json:"duration_ms"`
-	Message  string `json:"message"`
+	OK            bool      `json:"ok"`
+	Model         string    `json:"model"`
+	Status        int       `json:"status_code"`
+	Duration      int64     `json:"duration_ms"`
+	Message       string    `json:"message"`
+	UpstreamModel string    `json:"upstream_model"`
+	MaxTokens     int64     `json:"max_tokens"`
+	TestAt        time.Time `json:"test_at"`
 }
 
-func TestChannel(ctx context.Context, c platform.RelayChannel, model string) ChannelTestResult {
+type ChannelTestOptions struct {
+	Model    string `json:"model"`
+	Stream   bool   `json:"stream"`
+	Endpoint string `json:"endpoint"`
+}
+
+func (v ChannelTestOptions) Valid() bool {
+	return slices.Contains([]string{"", "auto", "chat/completions", "responses", "messages"}, v.Endpoint)
+}
+
+// Copyright QuantumNous and contributors, AGPL-3.0-or-later.
+// Request shapes/budgets follow official f1164142 controller/channel-test.go.
+// Reuse the live protocol converter and response reader, not the billing handler.
+func TestChannel(ctx context.Context, c platform.RelayChannel, options ChannelTestOptions) ChannelTestResult {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
 	start := time.Now()
-	result := ChannelTestResult{Model: model}
+	result := ChannelTestResult{Model: options.Model, UpstreamModel: c.UpstreamModel}
 	finish := func(message string) ChannelTestResult {
 		result.Message = message
 		result.Duration = time.Since(start).Milliseconds()
+		result.TestAt = time.Now().UTC()
 		return result
 	}
-	if model == "" {
+	if options.Model == "" {
 		return finish("请先配置至少一个模型")
 	}
-	body, _ := json.Marshal(map[string]any{"model": model, "messages": []map[string]string{{"role": "user", "content": "hi"}}, "max_tokens": 1, "stream": false})
-	incoming, _ := http.NewRequestWithContext(ctx, "POST", "http://localhost/v1/chat/completions", nil)
-	req, format, _, err := upstreamRequest(ctx, incoming, body, types.RelayFormatOpenAI, model, false, c)
+	endpoint := options.Endpoint
+	if endpoint == "" || endpoint == "auto" {
+		endpoint = "chat/completions"
+		if c.Type == 14 {
+			endpoint = "messages"
+		} else if strings.Contains(c.UpstreamModel, "codex") {
+			endpoint = "responses"
+		}
+	}
+	format := types.RelayFormatOpenAI
+	payload := map[string]any{"model": options.Model, "messages": []map[string]string{{"role": "user", "content": "hi"}}, "max_tokens": 16, "stream": options.Stream}
+	if endpoint == "responses" {
+		format = types.RelayFormatOpenAIResponses
+		payload = map[string]any{"model": options.Model, "input": "hi", "max_output_tokens": 16, "stream": options.Stream, "store": false}
+	} else if endpoint == "messages" {
+		format = types.RelayFormatClaude
+	}
+	body, _ := json.Marshal(payload)
+	incoming, _ := http.NewRequestWithContext(ctx, "POST", "http://localhost/v1/"+endpoint, nil)
+	req, format, meta, err := upstreamRequest(ctx, incoming, body, format, options.Model, options.Stream, c)
 	if err != nil {
 		return finish("渠道配置或协议转换失败")
 	}
@@ -149,20 +187,53 @@ func TestChannel(ctx context.Context, c platform.RelayChannel, model string) Cha
 	if err != nil {
 		return finish("测试请求生成失败")
 	}
-	field := "max_tokens"
-	if format == types.RelayFormatGemini {
+	field, budget := "max_tokens", int64(16)
+	name := strings.ToLower(c.UpstreamModel)
+	if strings.Contains(name, "thinking") && !strings.Contains(name, "claude") {
+		budget = 50
+	}
+	if strings.Contains(name, "gemini") {
+		budget = 3000
+	}
+	switch format {
+	case types.RelayFormatGemini:
 		field = "generationConfig.maxOutputTokens"
-	} else {
-		body, _ = sjson.SetBytes(body, "stream", false)
-		if format == types.RelayFormatOpenAI && gjson.GetBytes(body, "max_completion_tokens").Exists() {
+		budget = 3000
+	case types.RelayFormatOpenAIResponses:
+		field = "max_output_tokens"
+	case types.RelayFormatOpenAI:
+		if dto.IsOpenAIReasoningOModel(name) || dto.IsOpenAIGPT5Model(name) || gjson.GetBytes(body, "max_completion_tokens").Exists() {
 			field = "max_completion_tokens"
-			body, _ = sjson.DeleteBytes(body, "max_tokens")
+		}
+	case types.RelayFormatClaude:
+		// Extended thinking needs at least 1024 tokens and max_tokens > budget.
+		if gjson.GetBytes(body, "thinking.type").String() == "enabled" {
+			body, _ = sjson.SetBytes(body, "thinking.budget_tokens", 1024)
+			budget = 1025
 		}
 	}
-	body, err = sjson.SetBytes(body, field, 1)
+	// Remove alternate caps from imported overrides; the probe owns its small budget.
+	for _, other := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens", "generationConfig.maxOutputTokens"} {
+		if other != field {
+			body, _ = sjson.DeleteBytes(body, other)
+		}
+	}
+	if format != types.RelayFormatGemini {
+		body, _ = sjson.SetBytes(body, "stream", options.Stream)
+		body, _ = sjson.SetBytes(body, "model", c.UpstreamModel)
+	}
+	if format == types.RelayFormatOpenAI {
+		if options.Stream {
+			body, _ = sjson.SetBytes(body, "stream_options.include_usage", true)
+		} else {
+			body, _ = sjson.DeleteBytes(body, "stream_options")
+		}
+	}
+	body, err = sjson.SetBytes(body, field, budget)
 	if err != nil {
 		return finish("测试请求生成失败")
 	}
+	result.MaxTokens = budget
 	req.Body = io.NopCloser(strings.NewReader(string(body)))
 	req.ContentLength = int64(len(body))
 	req.GetBody = nil
@@ -172,13 +243,12 @@ func TestChannel(ctx context.Context, c platform.RelayChannel, model string) Cha
 	}
 	defer res.Body.Close()
 	result.Status = res.StatusCode
-	body, err = io.ReadAll(res.Body)
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return finish(fmt.Sprintf("上游 HTTP %d", res.StatusCode))
 	}
-	problem := gjson.GetBytes(body, "error")
-	if err != nil || !json.Valid(body) || problem.Exists() && problem.Type != gjson.Null {
-		return finish("上游响应格式或错误字段异常")
+	response := forwardResponse(ctx, httptest.NewRecorder(), res, format, format, meta, options.Stream, "channel-test")
+	if response.failure != "" {
+		return finish("上游响应未完成：" + response.failure)
 	}
 	result.OK = true
 	return finish("测试成功")

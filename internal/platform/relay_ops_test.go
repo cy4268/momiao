@@ -50,6 +50,8 @@ func TestLocalRelayOps(t *testing.T) {
 		t.Fatal(err)
 	}
 	channel.Name += " edited"
+	channel.Remark = "ops round-two test"
+	channel.TestModel = channel.Models[0]
 	edit := ChannelWrite{ChannelSettings: channel.ChannelSettings}
 	if err = ValidateChannel(&edit); err != nil {
 		t.Fatal(err)
@@ -62,10 +64,10 @@ func TestLocalRelayOps(t *testing.T) {
 	if err = tx.QueryRow(ctx, `SELECT key,jsonb_build_array(param_override,channel_info,setting,settings,other)::text FROM relay.channels WHERE id=$1`, id).Scan(&keptKey, &keptAdvanced); err != nil {
 		t.Fatal(err)
 	}
-	if originalKey != keptKey || advanced != keptAdvanced || saved.Name != edit.Name || !saved.KeyConfigured {
+	if originalKey != keptKey || advanced != keptAdvanced || saved.Name != edit.Name || saved.Remark != edit.Remark || saved.TestModel != edit.TestModel || !saved.KeyConfigured {
 		t.Fatal("blank key or advanced configuration changed")
 	}
-	page, err := listOpsChannels(ctx, tx, OpsRelayFilter{Page: 1, PageSize: 1, Search: edit.Name})
+	page, err := listOpsChannels(ctx, tx, OpsRelayFilter{Page: 1, PageSize: 1, Search: edit.Name, Type: int64(edit.Type)})
 	if err != nil || page.Total != 1 || len(page.Items) != 1 || !page.Items[0].KeyConfigured {
 		t.Fatal("filtered local list", err)
 	}
@@ -75,6 +77,23 @@ func TestLocalRelayOps(t *testing.T) {
 	}
 	if page.Items[0].Requests != calls || page.Items[0].Errors != failures {
 		t.Fatal("24 hour channel statistics")
+	}
+	otherType := int64(1)
+	if edit.Type == 1 {
+		otherType = 14
+	}
+	wrongType, err := listOpsChannels(ctx, tx, OpsRelayFilter{Page: 1, PageSize: 1, Search: edit.Name, Type: otherType})
+	if err != nil || wrongType.Total != 0 {
+		t.Fatal("channel type filter", err)
+	}
+	priority, noModels := int64(7), []string{}
+	partial := ChannelPatch{Priority: &priority, Models: &noModels}
+	if err = ValidateChannelPatch(partial); err != nil {
+		t.Fatal(err)
+	}
+	patched, err := patchOpsChannel(ctx, tx, admin, id, partial)
+	if err != nil || patched.Priority != 7 || len(patched.Models) != 0 || patched.TestModel != "" || patched.Remark != saved.Remark || patched.Weight != saved.Weight || patched.Name != saved.Name {
+		t.Fatal("partial edit overwrote other settings or left a removed default model", err)
 	}
 	encoded, _ := json.Marshal(saved)
 	if strings.Contains(string(encoded), originalKey) || strings.Contains(string(encoded), `"key":`) {
@@ -89,9 +108,13 @@ func TestLocalRelayOps(t *testing.T) {
 	}
 	create := edit
 	create.ID = 0
+	create.CopyFrom = id
 	create.Name = "ops-regression-channel"
 	create.Groups = []string{group.Name}
-	create.Key = originalKey
+	create.Key = ""
+	if err = ValidateChannel(&create); err != nil {
+		t.Fatal("copy without reading a secret into the form", err)
+	}
 	created, err := saveOpsChannel(ctx, tx, admin, create)
 	if err != nil {
 		t.Fatal("create channel", err)
@@ -176,11 +199,11 @@ func TestLocalRelayOps(t *testing.T) {
 	if err = tx.QueryRow(ctx, `SELECT count(*),coalesce(bool_or(position($1 in before_state::text)>0 OR position($1 in after_state::text)>0),false) FROM ops.audit_log`, originalKey).Scan(&count, &leaked); err != nil {
 		t.Fatal(err)
 	}
-	if count != audits+8 || leaked {
+	if count != audits+9 || leaked {
 		t.Fatal("audit count or secret exposure", count-audits, leaked)
 	}
 	if err = tx.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}
-	t.Log("channel create/edit/disable/group removal/delete; blank key and imported settings preserved; group create/rename/exact ratio/reference rejection/delete; live routing + matrix + 24h metrics; 8 secret-free audits; all writes rolled back")
+	t.Log("channel fields/type filter/partial edit/create/disable/delete; blank key and imported settings preserved; group lifecycle + live routing + 24h metrics; 9 secret-free audits; all writes rolled back")
 }

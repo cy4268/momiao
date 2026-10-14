@@ -37,6 +37,14 @@
 .ops-workbench .ops-key-value-row input { width:100%; min-width:0; }
 .ops-workbench .ops-key-value-row > span { padding-bottom:10px; }
 .ops-workbench .ops-key-value-row [aria-invalid=true], .ops-workbench .ops-key-value textarea[aria-invalid=true] { border-color:#ff9e91; }
+.ops-workbench .ops-inline-numbers { display:flex; gap:6px; }
+.ops-workbench input.ops-number { width:78px; min-width:0; }
+.ops-workbench .ops-row-menu > summary { cursor:pointer; padding:8px; }
+.ops-workbench .ops-row-menu > div { display:flex; flex-direction:column; gap:6px; padding-block:8px; }
+.ops-workbench .modal.ops-model-dialog { width:min(1000px,calc(100vw - 32px)); max-width:100%; }
+.ops-workbench .ops-model-dialog td { overflow-wrap:anywhere; }
+.ops-workbench .ops-filter-bar > label.ops-checkbox { flex-direction:row; align-items:center; flex:0 1 auto; gap:8px; padding-block:10px; }
+.ops-workbench .ops-checkbox input { width:auto; }
 @media (max-width:600px) {
  .ops-workbench .ops-drawer .modal-heading { padding:16px; }
  .ops-workbench .ops-drawer-body { padding-inline:16px; }

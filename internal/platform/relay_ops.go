@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -26,17 +27,22 @@ type ChannelSettings struct {
 	Priority       int64             `json:"priority"`
 	Weight         int64             `json:"weight"`
 	Enabled        bool              `json:"enabled"`
+	Remark         string            `json:"remark"`
+	TestModel      string            `json:"test_model"`
 }
 type ChannelWrite struct {
 	ChannelSettings
-	Key string `json:"key"`
+	Key      string `json:"key"`
+	CopyFrom int64  `json:"copy_from,omitempty"`
 }
 type OpsChannel struct {
 	ChannelSettings
-	KeyConfigured bool    `json:"key_configured"`
-	Requests      int64   `json:"requests_24h"`
-	Errors        int64   `json:"errors_24h"`
-	ErrorRate     float64 `json:"error_rate"`
+	KeyConfigured bool       `json:"key_configured"`
+	Requests      int64      `json:"requests_24h"`
+	Errors        int64      `json:"errors_24h"`
+	ErrorRate     float64    `json:"error_rate"`
+	TestAt        *time.Time `json:"test_at"`
+	ResponseMS    int64      `json:"response_ms"`
 }
 type OpsChannelPage struct {
 	Items    []OpsChannel `json:"items"`
@@ -47,6 +53,7 @@ type OpsChannelPage struct {
 type OpsRelayFilter struct {
 	Page, PageSize         int64
 	Search, Group, Enabled string
+	Type                   int64
 }
 
 // Validate once at the HTTP boundary. Imported advanced settings are untouched.
@@ -54,7 +61,8 @@ func ValidateChannel(v *ChannelWrite) error {
 	v.Name = strings.TrimSpace(v.Name)
 	v.Key = strings.TrimSpace(v.Key)
 	v.BaseURL = strings.TrimRight(strings.TrimSpace(v.BaseURL), "/")
-	if v.ID < 0 || v.Name == "" || !slices.Contains([]int{1, 14, 24, 41, 43}, v.Type) || v.Weight < 0 || v.Weight > 1000000 || v.ID == 0 && v.Key == "" {
+	v.TestModel = strings.TrimSpace(v.TestModel)
+	if v.ID < 0 || v.CopyFrom < 0 || v.ID != 0 && v.CopyFrom != 0 || v.Name == "" || !slices.Contains([]int{1, 14, 24, 41, 43}, v.Type) || v.Weight < 0 || v.Weight > 1000000 || v.ID == 0 && v.Key == "" && v.CopyFrom == 0 {
 		return ErrOpsInvalid
 	}
 	if v.BaseURL != "" {
@@ -67,6 +75,9 @@ func ValidateChannel(v *ChannelWrite) error {
 		if !ValidCatalogModelID(id) {
 			return ErrOpsInvalid
 		}
+	}
+	if v.TestModel != "" && !slices.Contains(v.Models, v.TestModel) {
+		return ErrOpsInvalid
 	}
 	for _, name := range v.Groups {
 		if strings.TrimSpace(name) == "" {
@@ -94,7 +105,8 @@ func ValidateChannel(v *ChannelWrite) error {
 
 const opsChannelJSON = `jsonb_build_object('id',c.id,'name',c.name,'type',c.type,'base_url',c.base_url,
  'models',c.models,'groups',c.groups,'model_mapping',c.model_mapping,'header_override',c.header_override,
- 'priority',c.priority,'weight',c.weight,'enabled',c.enabled,'key_configured',c.key<>'')`
+ 'priority',c.priority,'weight',c.weight,'enabled',c.enabled,'key_configured',c.key<>'',
+ 'remark',c.remark,'test_model',c.test_model,'test_at',c.test_at,'response_ms',c.response_ms)`
 
 func (s *Store) ListOpsChannels(ctx context.Context, f OpsRelayFilter) (OpsChannelPage, error) {
 	return listOpsChannels(ctx, s.pool, f)
@@ -102,14 +114,14 @@ func (s *Store) ListOpsChannels(ctx context.Context, f OpsRelayFilter) (OpsChann
 func listOpsChannels(ctx context.Context, q announcementQuerier, f OpsRelayFilter) (OpsChannelPage, error) {
 	result := OpsChannelPage{Items: []OpsChannel{}, Page: f.Page, PageSize: f.PageSize}
 	where := ` WHERE ($1::text='' OR c.name ILIKE '%'||$1||'%' OR EXISTS(SELECT 1 FROM unnest(c.models) m WHERE m ILIKE '%'||$1||'%'))
- AND ($2::text='' OR $2=ANY(c.groups)) AND ($3::text='' OR c.enabled=($3='true'))`
-	args := []any{f.Search, f.Group, f.Enabled}
+ AND ($2::text='' OR $2=ANY(c.groups)) AND ($3::text='' OR c.enabled=($3='true')) AND ($4::int=0 OR c.type=$4)`
+	args := []any{f.Search, f.Group, f.Enabled, f.Type}
 	if err := q.QueryRow(ctx, `SELECT count(*) FROM relay.channels c`+where, args...).Scan(&result.Total); err != nil {
 		return result, err
 	}
 	rows, err := q.Query(ctx, `SELECT `+opsChannelJSON+`,stats.requests,stats.errors FROM relay.channels c
  LEFT JOIN LATERAL(SELECT count(*) AS requests,count(*) FILTER(WHERE kind=5 OR status_code>=400) AS errors
- FROM relay.logs WHERE channel_id=c.id AND kind IN(2,5) AND created_at>=now()-interval '24 hours') stats ON true`+where+` ORDER BY c.id DESC LIMIT $4 OFFSET $5`, append(args, f.PageSize, (f.Page-1)*f.PageSize)...)
+ FROM relay.logs WHERE channel_id=c.id AND kind IN(2,5) AND created_at>=now()-interval '24 hours') stats ON true`+where+` ORDER BY c.id DESC LIMIT $5 OFFSET $6`, append(args, f.PageSize, (f.Page-1)*f.PageSize)...)
 	if err != nil {
 		return result, err
 	}
@@ -200,6 +212,15 @@ func saveOpsChannel(ctx context.Context, tx pgx.Tx, user int64, v ChannelWrite) 
 			return item, err
 		}
 		before = channelAudit(item)
+	} else if v.CopyFrom > 0 {
+		err = tx.QueryRow(ctx, `INSERT INTO relay.channels(name,type,key,other,param_override,setting,settings,channel_info)
+ SELECT $2,$3,key,other,param_override,setting,settings,channel_info FROM relay.channels WHERE id=$1 RETURNING id`, v.CopyFrom, v.Name, v.Type).Scan(&v.ID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return OpsChannel{}, ErrOpsNotFound
+		}
+		if err != nil {
+			return OpsChannel{}, err
+		}
 	} else {
 		err = tx.QueryRow(ctx, `INSERT INTO relay.channels(name,type,key) VALUES($1,$2,$3) RETURNING id`, v.Name, v.Type, v.Key).Scan(&v.ID)
 		if err != nil {
@@ -207,8 +228,8 @@ func saveOpsChannel(ctx context.Context, tx pgx.Tx, user int64, v ChannelWrite) 
 		}
 	}
 	_, err = tx.Exec(ctx, `UPDATE relay.channels SET name=$2,type=$3,base_url=$4,models=$5,groups=$6,model_mapping=$7,
- priority=$8,weight=$9,enabled=$10,header_override=$11,key=CASE WHEN $12='' THEN key ELSE $12 END,updated_at=now() WHERE id=$1`,
-		v.ID, v.Name, v.Type, v.BaseURL, v.Models, v.Groups, v.ModelMapping, v.Priority, v.Weight, v.Enabled, v.HeaderOverride, v.Key)
+ priority=$8,weight=$9,enabled=$10,header_override=$11,key=CASE WHEN $12='' THEN key ELSE $12 END,remark=$13,test_model=$14,updated_at=now() WHERE id=$1`,
+		v.ID, v.Name, v.Type, v.BaseURL, v.Models, v.Groups, v.ModelMapping, v.Priority, v.Weight, v.Enabled, v.HeaderOverride, v.Key, v.Remark, v.TestModel)
 	if err != nil {
 		return OpsChannel{}, err
 	}
@@ -403,10 +424,11 @@ func relayAvailability(ctx context.Context, q announcementQuerier, f OpsRelayFil
 
 // Manual probes use the saved configuration, including imported overrides, and
 // the first enabled key. They never advance the live multi-key polling cursor.
-func (s *Store) OpsProbeChannel(ctx context.Context, id int64) (RelayChannel, string, error) {
+func (s *Store) OpsProbeChannel(ctx context.Context, id int64, model string) (RelayChannel, string, error) {
 	var c RelayChannel
 	var models []string
-	err := s.pool.QueryRow(ctx, `SELECT id,type,name,base_url,key,other,models,model_mapping,header_override,param_override,setting,settings,channel_info FROM relay.channels WHERE id=$1`, id).Scan(&c.ID, &c.Type, &c.Name, &c.BaseURL, &c.Key, &c.Other, &models, &c.ModelMapping, &c.HeaderOverride, &c.ParamOverride, &c.Setting, &c.Settings, &c.Info)
+	var defaultModel string
+	err := s.pool.QueryRow(ctx, `SELECT id,type,name,base_url,key,other,models,model_mapping,header_override,param_override,setting,settings,channel_info,test_model FROM relay.channels WHERE id=$1`, id).Scan(&c.ID, &c.Type, &c.Name, &c.BaseURL, &c.Key, &c.Other, &models, &c.ModelMapping, &c.HeaderOverride, &c.ParamOverride, &c.Setting, &c.Settings, &c.Info, &defaultModel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = ErrOpsNotFound
 	}
@@ -422,13 +444,75 @@ func (s *Store) OpsProbeChannel(ctx context.Context, id int64) (RelayChannel, st
 	}
 	c.KeyIndex = enabled[0]
 	c.Key = keys[c.KeyIndex]
-	model := ""
-	if len(models) > 0 {
+	if model == "" {
+		model = defaultModel
+	}
+	if model == "" && len(models) > 0 {
 		model = models[0]
+	}
+	if model != "" && !slices.Contains(models, model) {
+		return c, model, ErrOpsInvalid
 	}
 	c.UpstreamModel = model
 	if mapped := c.ModelMapping[model]; mapped != "" {
 		c.UpstreamModel = mapped
 	}
 	return c, model, nil
+}
+
+func (s *Store) RecordChannelTest(ctx context.Context, id int64, at time.Time, duration int64) error {
+	_, err := s.pool.Exec(ctx, `UPDATE relay.channels SET test_at=$2,response_ms=$3 WHERE id=$1 AND (test_at IS NULL OR test_at<=$2)`, id, at, duration)
+	return err
+}
+
+// Inline routing edits and failed-model removal must not overwrite other settings.
+type ChannelPatch struct {
+	Priority *int64    `json:"priority"`
+	Weight   *int64    `json:"weight"`
+	Models   *[]string `json:"models"`
+}
+
+func ValidateChannelPatch(v ChannelPatch) error {
+	if v.Priority == nil && v.Weight == nil && v.Models == nil || v.Weight != nil && (*v.Weight < 0 || *v.Weight > 1000000) {
+		return ErrOpsInvalid
+	}
+	if v.Models != nil {
+		for _, model := range *v.Models {
+			if !ValidCatalogModelID(model) {
+				return ErrOpsInvalid
+			}
+		}
+	}
+	return nil
+}
+func (s *Store) PatchOpsChannel(ctx context.Context, user, id int64, v ChannelPatch) (OpsChannel, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return OpsChannel{}, err
+	}
+	defer rollback(tx)
+	item, err := patchOpsChannel(ctx, tx, user, id, v)
+	if err != nil {
+		return item, err
+	}
+	return item, tx.Commit(ctx)
+}
+func patchOpsChannel(ctx context.Context, tx pgx.Tx, user, id int64, v ChannelPatch) (OpsChannel, error) {
+	before, err := readOpsChannel(ctx, tx, id, true)
+	if err != nil {
+		return before, err
+	}
+	_, err = tx.Exec(ctx, `UPDATE relay.channels SET priority=coalesce($2,priority),weight=coalesce($3,weight),
+ models=coalesce($4::text[],models),test_model=CASE WHEN test_model=ANY(coalesce($4::text[],models)) THEN test_model ELSE '' END,updated_at=now() WHERE id=$1`, id, v.Priority, v.Weight, v.Models)
+	if err != nil {
+		return OpsChannel{}, err
+	}
+	after, err := readOpsChannel(ctx, tx, id, false)
+	if err != nil {
+		return after, err
+	}
+	if err = relayOpsAudit(ctx, tx, user, "CHANNEL_UPDATE", "CHANNEL", strconv.FormatInt(id, 10), channelAudit(before), channelAudit(after)); err != nil {
+		return after, err
+	}
+	return after, nil
 }

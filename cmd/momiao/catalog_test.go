@@ -27,6 +27,7 @@ import (
 	"github.com/cy4268/momiao/internal/poker"
 	"github.com/cy4268/momiao/internal/poker/redislease"
 	"github.com/cy4268/momiao/internal/rankings"
+	"github.com/cy4268/momiao/internal/relay"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -790,31 +791,67 @@ func TestCatalogHTTPProtectedWrites(t *testing.T) {
 				t.Fatal("legacy prepare remains", w.Code)
 			}
 			if webDir == "" {
-				var probeID string
-				if err = store.Pool().QueryRow(t.Context(), `SELECT id::text FROM relay.channels WHERE enabled AND type=1 AND models[1]='gpt-5.6-sol' ORDER BY id LIMIT 1`).Scan(&probeID); err != nil {
+				var probeID, upstream string
+				if err = store.Pool().QueryRow(t.Context(), `SELECT id::text,coalesce(nullif(model_mapping->>'CPA/gpt-5.6-sol',''),'CPA/gpt-5.6-sol') FROM relay.channels WHERE enabled AND type=1 AND 'CPA/gpt-5.6-sol'=ANY(models) ORDER BY id LIMIT 1`).Scan(&probeID, &upstream); err != nil {
 					t.Fatal("existing small dev channel", err)
 				}
-				w = request(admin, "POST", "/api/v1/ops/channels/"+probeID+"/models", `{}`, true)
+				if strings.Contains(strings.ToLower(upstream), "claude") {
+					t.Fatal("dev acceptance must not call a Claude alias")
+				}
+				endpoint := "/api/v1/ops/channels/" + probeID + "/test"
+				if w = request(admin, "POST", endpoint, `{"endpoint":"unknown"}`, true); w.Code != 400 {
+					t.Fatal("invalid probe endpoint", w.Code)
+				}
+				if w = request(admin, "POST", endpoint, `{"model":"not-a-channel-model"}`, true); w.Code != 400 {
+					t.Fatal("unknown probe model", w.Code)
+				}
+				if w = request(admin, "POST", endpoint, `{}`, false); w.Code != 403 {
+					t.Fatal("probe CSRF", w.Code)
+				}
+				var channel struct {
+					Data platform.OpsChannel `json:"data"`
+				}
+				w = request(admin, "GET", "/api/v1/ops/channels/"+probeID, "", false)
+				if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &channel) != nil {
+					t.Fatal("channel detail", w.Code)
+				}
+				fetchBody, _ := json.Marshal(map[string]any{"id": channel.Data.ID, "type": channel.Data.Type, "base_url": channel.Data.BaseURL, "header_override": channel.Data.HeaderOverride})
+				w = request(admin, "POST", "/api/v1/ops/channels/models", string(fetchBody), true)
 				var models struct {
 					Data []string `json:"data"`
 				}
 				if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &models) != nil || len(models.Data) == 0 {
-					t.Fatal("upstream model discovery", w.Code, w.Body.String())
+					t.Fatal("form model discovery", w.Code, w.Body.String())
 				}
-				w = request(admin, "POST", "/api/v1/ops/channels/"+probeID+"/test", `{}`, true)
+				snapshot := func() string {
+					var result string
+					e := store.Pool().QueryRow(t.Context(), `SELECT jsonb_build_array((SELECT count(*) FROM relay.logs),(SELECT count(*) FROM economy.wallet_ledger),(SELECT sum(balance_units) FROM economy.wallet_balances),(SELECT sum(used_quota) FROM relay.api_keys))::text`).Scan(&result)
+					if e != nil {
+						t.Fatal(e)
+					}
+					return result
+				}
+				before := snapshot()
+				w = request(admin, "POST", endpoint, `{"model":"CPA/gpt-5.6-sol","stream":true,"endpoint":"responses"}`, true)
 				var probe struct {
-					Data struct {
-						OK       bool   `json:"ok"`
-						Status   int    `json:"status_code"`
-						Duration int64  `json:"duration_ms"`
-						Model    string `json:"model"`
-						Message  string `json:"message"`
-					} `json:"data"`
+					Data relay.ChannelTestResult `json:"data"`
 				}
-				if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &probe) != nil || !probe.Data.OK || probe.Data.Status != 200 || probe.Data.Model != "gpt-5.6-sol" {
-					t.Fatal("manual first-model probe", w.Code, w.Body.String())
+				if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &probe) != nil {
+					t.Fatal("manual model probe", w.Code, w.Body.String())
 				}
-				t.Logf("saved channel %s: discovery=%d models; first-model %s max_tokens=1 HTTP%d %dms; no Reserve debit", probeID, len(models.Data), probe.Data.Model, probe.Data.Status, probe.Data.Duration)
+				var at time.Time
+				var duration int64
+				err = store.Pool().QueryRow(t.Context(), `SELECT test_at,response_ms FROM relay.channels WHERE id=$1`, channel.Data.ID).Scan(&at, &duration)
+				if err != nil || !at.Equal(probe.Data.TestAt.Truncate(time.Microsecond)) || duration != probe.Data.Duration {
+					t.Fatal("last probe not persisted", err)
+				}
+				if snapshot() != before {
+					t.Fatal("channel probe wrote usage, wallet or key billing")
+				}
+				if !probe.Data.OK || probe.Data.Status != 200 || probe.Data.Model != "CPA/gpt-5.6-sol" || probe.Data.UpstreamModel != upstream || probe.Data.MaxTokens != 16 {
+					t.Fatal("explicit Responses stream probe", w.Code, w.Body.String())
+				}
+				t.Logf("channel %s: discovery=%d; Responses stream %s -> %s HTTP%d cap=%d %dms; metadata persisted; logs/ledger/Reserve/key usage unchanged", probeID, len(models.Data), probe.Data.Model, probe.Data.UpstreamModel, probe.Data.Status, probe.Data.MaxTokens, probe.Data.Duration)
 			}
 		})
 	}

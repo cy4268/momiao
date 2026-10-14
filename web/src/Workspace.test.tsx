@@ -20,7 +20,7 @@ it('retires the text playground without native model calls', async () => {
 });
 it('saves local channels and groups directly with availability links',async()=>{
  const root='/api/v1/ops';
- let value={id:7,name:'My channel',type:14,base_url:'https://api.anthropic.com',models:['alpha'],groups:['team'],model_mapping:{alpha:'actual'},header_override:{},priority:2,weight:3,enabled:true,key_configured:true,requests_24h:10,errors_24h:1,error_rate:0.1};
+ let value={id:7,name:'My channel',type:1,base_url:'https://upstream.example',models:['alpha'],groups:['team'],model_mapping:{alpha:'actual'},header_override:{},priority:2,weight:3,enabled:true,key_configured:true,requests_24h:10,errors_24h:1,error_rate:0.1,remark:'',test_model:'',test_at:null,response_ms:0};
  let groups=[{name:'team',description:'Team',ratio:'1'},{name:'another',description:'Another',ratio:'2'}];
  const f=vi.fn(async(p:string,i?:RequestInit)=>{
   if(p==='/api/v1/session/bootstrap')return ok({authentication_state:'AUTHENTICATED',csrf_token:'local-csrf'});
@@ -33,11 +33,11 @@ it('saves local channels and groups directly with availability links',async()=>{
    return ok(groups);
   }
   if(p.startsWith(root+'/groups/availability'))return ok({items:[{model:'alpha',channels:[value]}],page:1,page_size:20,total:1});
-  if(p===root+'/channels/7/models')return ok(['alpha','beta']);
-  if(p===root+'/channels/7/test')return ok({ok:true,model:'alpha',duration_ms:10,status_code:200,message:'测试成功'});
+  if(p===root+'/channels/models')return ok(['alpha','beta']);
+  if(p===root+'/channels/7/test')return ok({ok:true,model:'alpha',upstream_model:'actual',max_tokens:16,test_at:'2026-10-14T09:00:00Z',duration_ms:10,status_code:200,message:'测试成功'});
   if(p===root+'/channels/7/status'){value={...value,enabled:JSON.parse(String(i?.body)).enabled};return ok(null)}
   if(p===root+'/channels'&&i?.method==='PUT'){value={...value,...JSON.parse(String(i.body))};return ok(value)}
-  if(p===root+'/channels/7')return ok(value);
+  if(p===root+'/channels/7'){if(i?.method==='PATCH')value={...value,...JSON.parse(String(i.body))};return ok(value)}
   if(p.startsWith(root+'/channels?'))return ok({items:[value],total:1,page:1,page_size:20});
   throw new Error('Unexpected endpoint: '+p);
  });
@@ -65,7 +65,12 @@ it('saves local channels and groups directly with availability links',async()=>{
  expect(await screen.findByRole('dialog',{name:'编辑渠道'})).toBeVisible();
  expect(screen.getByLabelText('上游密钥（留空保留）')).toHaveValue('');
  fireEvent.click(screen.getByRole('button',{name:'从上游拉取模型'}));
- await screen.findByText('已拉取 2 个模型；保存后生效。');
+ const discovery=within(await screen.findByRole('dialog',{name:'选择上游模型'}));
+ expect(discovery.getByText('新增')).toBeVisible();
+ expect(f.mock.calls.filter(([p,i])=>p===root+'/channels'&&i?.method==='PUT')).toHaveLength(0);
+ fireEvent.click(discovery.getByRole('button',{name:'全选上游模型'}));
+ fireEvent.click(discovery.getByRole('button',{name:'填入表单'}));
+ await screen.findByText('模型列表已填入表单；保存后生效。');
  fireEvent.paste(screen.getByLabelText('模型列表'),{clipboardData:{getData:()=> 'alpha,gamma\ngamma'}});
  fireEvent.change(screen.getByLabelText('渠道名称'),{target:{value:'Renamed'}});
  fireEvent.change(screen.getByLabelText('渠道分组'),{target:{value:'another'}});
@@ -84,9 +89,23 @@ it('saves local channels and groups directly with availability links',async()=>{
  expect(listReads()).toBe(beforeEdit);
  const saved=f.mock.calls.find(([p,i])=>p===root+'/channels'&&i?.method==='PUT')!;
  expect(new Headers(saved[1]?.headers).get('X-CSRF-Token')).toBe('local-csrf');
- expect(JSON.parse(String(saved[1]?.body))).toEqual({id:7,name:'Renamed',type:14,base_url:value.base_url,models:['alpha','beta','gamma'],groups:['team','another'],model_mapping:{alpha:'actual',beta:'actual-beta'},header_override:{},priority:2,weight:3,enabled:true});
+ expect(JSON.parse(String(saved[1]?.body))).toEqual({id:7,name:'Renamed',type:1,base_url:value.base_url,models:['alpha','beta','gamma'],groups:['team','another'],model_mapping:{alpha:'actual',beta:'actual-beta'},header_override:{},priority:2,weight:3,enabled:true,remark:'',test_model:''});
+ fireEvent.change(screen.getByLabelText('优先级 7'),{target:{value:'4'}});
+ fireEvent.blur(screen.getByLabelText('优先级 7'));
+ await waitFor(()=>expect(value.priority).toBe(4));
+ expect(JSON.parse(String(f.mock.calls.find(([p,i])=>p===root+'/channels/7'&&i?.method==='PATCH')?.[1]?.body))).toEqual({priority:4});
+ fireEvent.click(screen.getByText('更多'));
  fireEvent.click(screen.getByRole('button',{name:'停用'}));await waitFor(()=>expect(value.enabled).toBe(false));
- fireEvent.click(await screen.findByRole('button',{name:'测试'}));await screen.findByText(/测试成功.*10 ms/);
+ fireEvent.click(await screen.findByRole('button',{name:'测试'}));
+ const probe=within(await screen.findByRole('dialog',{name:'模型测试 · Renamed'}));
+ expect(f.mock.calls.filter(([p])=>p.endsWith('/test'))).toHaveLength(0);
+ fireEvent.click(probe.getByLabelText('流式测试'));
+ fireEvent.change(probe.getByLabelText('端点类型'),{target:{value:'responses'}});
+ fireEvent.change(probe.getByLabelText('搜索模型'),{target:{value:'alpha'}});
+ fireEvent.click(probe.getByRole('button',{name:'测试 alpha'}));
+ await probe.findByText('测试成功');
+ expect(JSON.parse(String(f.mock.calls.find(([p])=>p.endsWith('/test'))?.[1]?.body))).toEqual({model:'alpha',stream:true,endpoint:'responses'});
+ fireEvent.click(probe.getByRole('button',{name:'关闭对话框'}));
  fireEvent.click(screen.getAllByRole('link',{name:'分组与可用性'})[0]);
  await screen.findByRole('heading',{name:'模型可用性矩阵'});
  fireEvent.click(screen.getByRole('button',{name:'编辑 team'}));
