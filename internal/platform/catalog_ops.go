@@ -33,6 +33,10 @@ type CatalogPublicationSettings struct {
 	ModelIDs []string `json:"model_ids"`
 	Public   bool     `json:"public"`
 }
+type CatalogPricesSettings struct {
+	ModelIDs []string              `json:"model_ids"`
+	Price    *CatalogPriceSettings `json:"price_settings"`
+}
 type CatalogOpsDetail struct {
 	Item  CatalogModel          `json:"item"`
 	Price *CatalogPriceSettings `json:"price_settings"`
@@ -108,10 +112,7 @@ func saveCatalog(ctx context.Context, tx pgx.Tx, user int64, v CatalogSettings) 
 		}
 	}
 	if v.Price != nil {
-		p := v.Price
-		_, err = tx.Exec(ctx, `INSERT INTO relay.prices(model,input,output,cache_read,cache_write,cache_write_1h,per_request,per_second,default_seconds)
-   VALUES($1,$2::numeric*500000,$3::numeric*500000,$4::numeric*500000,$5::numeric*500000,$6::numeric*500000,$7::numeric*500000,$8::numeric*500000,$9)
-   ON CONFLICT(model) DO UPDATE SET input=EXCLUDED.input,output=EXCLUDED.output,cache_read=EXCLUDED.cache_read,cache_write=EXCLUDED.cache_write,cache_write_1h=EXCLUDED.cache_write_1h,per_request=EXCLUDED.per_request,per_second=EXCLUDED.per_second,default_seconds=EXCLUDED.default_seconds`, v.ModelID, p.Input, p.Output, p.CacheRead, p.CacheWrite, p.CacheWrite1h, p.PerRequest, p.PerSecond, p.DefaultSeconds)
+		err = saveCatalogPrice(ctx, tx, v.ModelID, *v.Price)
 		if err != nil {
 			return result, err
 		}
@@ -130,6 +131,61 @@ func saveCatalog(ctx context.Context, tx pgx.Tx, user int64, v CatalogSettings) 
 	_, err = tx.Exec(ctx, `INSERT INTO ops.audit_log(actor_user_id,action,target_type,target,before_state,after_state) VALUES($1,'MODEL_SAVE','MODEL',$2,$3,$4)`, user, v.ModelID, CatalogOpsDetail{Item: before, Price: oldPrice}, result)
 	return result, err
 }
+func saveCatalogPrice(ctx context.Context, tx pgx.Tx, id string, p CatalogPriceSettings) error {
+	_, err := tx.Exec(ctx, `INSERT INTO relay.prices(model,input,output,cache_read,cache_write,cache_write_1h,per_request,per_second,default_seconds)
+   VALUES($1,$2::numeric*500000,$3::numeric*500000,$4::numeric*500000,$5::numeric*500000,$6::numeric*500000,$7::numeric*500000,$8::numeric*500000,$9)
+   ON CONFLICT(model) DO UPDATE SET input=EXCLUDED.input,output=EXCLUDED.output,cache_read=EXCLUDED.cache_read,cache_write=EXCLUDED.cache_write,cache_write_1h=EXCLUDED.cache_write_1h,per_request=EXCLUDED.per_request,per_second=EXCLUDED.per_second,default_seconds=EXCLUDED.default_seconds`, id, p.Input, p.Output, p.CacheRead, p.CacheWrite, p.CacheWrite1h, p.PerRequest, p.PerSecond, p.DefaultSeconds)
+	return err
+}
+
+func (s *Store) SaveCatalogPrices(ctx context.Context, user int64, v CatalogPricesSettings) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(tx)
+	if err = saveCatalogPrices(ctx, tx, user, v); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func saveCatalogPrices(ctx context.Context, tx pgx.Tx, user int64, v CatalogPricesSettings) error {
+	if len(v.ModelIDs) == 0 || len(v.ModelIDs) > 100 || v.Price == nil || !validCatalogPriceSettings(*v.Price) {
+		return ErrCatalogInvalid
+	}
+	for _, id := range v.ModelIDs {
+		if !ValidCatalogModelID(id) {
+			return ErrCatalogInvalid
+		}
+	}
+	if err := catalogAdmin(ctx, tx, user, true); err != nil {
+		return err
+	}
+	if err := lockCatalog(ctx, tx); err != nil {
+		return err
+	}
+	ids := slices.Clone(v.ModelIDs)
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	before := make(map[string]*CatalogPriceSettings, len(ids))
+	for _, id := range ids {
+		if _, err := loadCatalogModel(ctx, tx, id, false); err != nil {
+			return err
+		}
+		price, err := readCatalogPrice(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		before[id] = price
+		if err = saveCatalogPrice(ctx, tx, id, *v.Price); err != nil {
+			return err
+		}
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO ops.audit_log(actor_user_id,action,target_type,target,before_state,after_state) VALUES($1,'MODEL_PRICE_SAVE','MODEL','BATCH',$2,$3)`, user, before, CatalogPricesSettings{ModelIDs: ids, Price: v.Price})
+	return err
+}
+
 func saveCatalogPublication(ctx context.Context, tx pgx.Tx, id string, public, recommended bool, order int) error {
 	state := "HIDDEN"
 	if public {

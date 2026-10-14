@@ -16,6 +16,7 @@ type LocalOpsUser struct {
 	ID                int64      `json:"id"`
 	Username          string     `json:"username"`
 	DisplayName       string     `json:"display_name"`
+	MasterName        string     `json:"master_name"`
 	DiscordID         string     `json:"discord_id"`
 	Group             string     `json:"group"`
 	Role              int        `json:"role"`
@@ -38,15 +39,15 @@ type LocalOpsUserPage struct {
 	PageSize int64          `json:"page_size"`
 }
 
-const localOpsUserTables = ` FROM identity.users u LEFT JOIN economy.wallet_balances w ON w.newapi_user_id=u.id AND w.asset_type='RESERVE_API_CREDIT'`
-const localOpsUserColumns = `u.id,u.username,u.display_name,coalesce(u.discord_id,''),u.group_name,u.role,u.status,
+const localOpsUserTables = ` FROM identity.users u LEFT JOIN identity.master_profiles p ON p.newapi_user_id=u.id LEFT JOIN economy.wallet_balances w ON w.newapi_user_id=u.id AND w.asset_type='RESERVE_API_CREDIT'`
+const localOpsUserColumns = `u.id,u.username,u.display_name,coalesce(p.display_name,''),coalesce(u.discord_id,''),u.group_name,u.role,u.status,
  EXISTS(SELECT 1 FROM identity.two_fas WHERE user_id=u.id AND is_enabled AND deleted_at IS NULL),
  coalesce(w.balance_units,0),w.newapi_user_id IS NOT NULL,u.created_at,u.last_login_at`
 
 func scanLocalOpsUser(row pgx.Row) (LocalOpsUser, error) {
 	var v LocalOpsUser
 	var units int64
-	err := row.Scan(&v.ID, &v.Username, &v.DisplayName, &v.DiscordID, &v.Group, &v.Role, &v.Status, &v.TwoFA, &units, &v.WalletInitialized, &v.CreatedAt, &v.LastLoginAt)
+	err := row.Scan(&v.ID, &v.Username, &v.DisplayName, &v.MasterName, &v.DiscordID, &v.Group, &v.Role, &v.Status, &v.TwoFA, &units, &v.WalletInitialized, &v.CreatedAt, &v.LastLoginAt)
 	v.Reserve = FormatAmount(units)
 	return v, err
 }
@@ -55,7 +56,7 @@ func (s *Store) ListLocalOpsUsers(ctx context.Context, f OpsUserFilter) (LocalOp
 }
 func listLocalOpsUsers(ctx context.Context, q announcementQuerier, f OpsUserFilter) (LocalOpsUserPage, error) {
 	out := LocalOpsUserPage{Items: []LocalOpsUser{}, Page: f.Page, PageSize: f.PageSize}
-	where := ` WHERE u.deleted_at IS NULL AND ($1='' OR u.id::text=$1 OR strpos(lower(u.username),lower($1))>0 OR strpos(lower(u.display_name),lower($1))>0 OR strpos(coalesce(u.discord_id,''),$1)>0)
+	where := ` WHERE u.deleted_at IS NULL AND ($1='' OR u.id::text=$1 OR strpos(lower(u.username),lower($1))>0 OR strpos(lower(u.display_name),lower($1))>0 OR strpos(lower(p.display_name),lower($1))>0 OR strpos(coalesce(u.discord_id,''),$1)>0)
  AND ($2='' OR u.group_name=$2) AND ($3::int=0 OR u.role=$3) AND ($4::int=0 OR u.status=$4)`
 	args := []any{f.Search, f.Group, f.Role, f.Status}
 	if err := q.QueryRow(ctx, `SELECT count(*)`+localOpsUserTables+where, args...).Scan(&out.Total); err != nil {

@@ -7,6 +7,7 @@ import art from './ops-art.json';
 import './ops.css';
 import './ops-chamber.css';
 import './ops-workbench.css';
+import './components/components.css';
 
 const opsPages=[
  ['/ops','运营总览'],['/ops/models','模型目录'],['/ops/channels','渠道'],['/ops/groups','分组与可用性'],['/ops/announcements','公告'],
@@ -27,7 +28,7 @@ export function OpsShell({client,user}:{client:ApiClient;user:User}){
  const location=useLocation(),main=useRef<HTMLElement>(null);
  const [menuOpen,setMenuOpen]=useState(false);
  const [artFailed,setArtFailed]=useState(false);
- const title=opsPages.find(([path])=>path===location.pathname)?.[1]||(location.pathname==='/ops/gambler-campaign'?'赌怪一次性活动':'操作详情');
+ const title=opsPages.find(([path])=>path===location.pathname||(path!=='/ops'&&location.pathname.startsWith(path+'/')))?.[1]||(location.pathname==='/ops/gambler-campaign'?'赌怪一次性活动':'操作详情');
  useEffect(()=>{document.title=`${title} · Chaldea Ops`;setMenuOpen(false);main.current?.focus();},[title,location.pathname]);
  const groups=visibleGroups();
  const overview=location.pathname.replace(/\/+$/,'')==='/ops';

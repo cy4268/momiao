@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,7 +37,7 @@ func newOpsRelayHandler(store *platform.Store) http.Handler {
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
 		f := platform.OpsRelayFilter{Page: 1, PageSize: 20, Search: r.URL.Query().Get("q"), Group: r.URL.Query().Get("group"), Enabled: r.URL.Query().Get("enabled")}
-		for name, dst := range map[string]*int64{"page": &f.Page, "page_size": &f.PageSize} {
+		for name, dst := range map[string]*int64{"page": &f.Page, "page_size": &f.PageSize, "type": &f.Type} {
 			if raw := r.URL.Query().Get(name); raw != "" {
 				n, err := strconv.ParseInt(raw, 10, 64)
 				if err != nil {
@@ -46,7 +47,7 @@ func newOpsRelayHandler(store *platform.Store) http.Handler {
 				*dst = n
 			}
 		}
-		if f.Page < 1 || f.Page > 1000000 || f.PageSize < 1 || f.PageSize > 100 || f.Enabled != "" && f.Enabled != "true" && f.Enabled != "false" {
+		if f.Page < 1 || f.Page > 1000000 || f.PageSize < 1 || f.PageSize > 100 || !slices.Contains([]int64{0, 1, 14, 24, 41, 43}, f.Type) || f.Enabled != "" && f.Enabled != "true" && f.Enabled != "false" {
 			walletError(w, 400, "OPS_INPUT_INVALID")
 			return
 		}
@@ -63,6 +64,33 @@ func newOpsRelayHandler(store *platform.Store) http.Handler {
 				return
 			}
 			result, err = store.SaveOpsChannel(ctx, user.ID, v)
+		case path == "channels/models" && r.Method == "POST":
+			var v platform.ChannelWrite
+			if json.NewDecoder(r.Body).Decode(&v) != nil {
+				walletError(w, 400, "OPS_INPUT_INVALID")
+				return
+			}
+			v.Name = "model discovery"
+			if platform.ValidateChannel(&v) != nil {
+				walletError(w, 400, "OPS_INPUT_INVALID")
+				return
+			}
+			var channel platform.RelayChannel
+			if v.ID > 0 && v.Key == "" {
+				channel, _, err = store.OpsProbeChannel(ctx, v.ID, "")
+			}
+			if err == nil {
+				channel.Type, channel.BaseURL = v.Type, v.BaseURL
+				channel.HeaderOverride, _ = json.Marshal(v.HeaderOverride)
+				if v.Key != "" {
+					channel.Key = v.Key
+				}
+				result, err = relay.FetchChannelModels(ctx, channel)
+				if err != nil {
+					writeJSONError(w, 502, err.Error())
+					return
+				}
+			}
 		case strings.HasPrefix(path, "channels/"):
 			parts := strings.Split(strings.TrimPrefix(path, "channels/"), "/")
 			id, e := strconv.ParseInt(parts[0], 10, 64)
@@ -79,6 +107,13 @@ func newOpsRelayHandler(store *platform.Store) http.Handler {
 				result, err = store.OpsChannel(ctx, id)
 			case action == "" && r.Method == "DELETE":
 				err = store.ChangeOpsChannel(ctx, user.ID, id, nil)
+			case action == "" && r.Method == "PATCH":
+				var v platform.ChannelPatch
+				if json.NewDecoder(r.Body).Decode(&v) != nil || platform.ValidateChannelPatch(v) != nil {
+					walletError(w, 400, "OPS_INPUT_INVALID")
+					return
+				}
+				result, err = store.PatchOpsChannel(ctx, user.ID, id, v)
 			case action == "status" && r.Method == "PUT":
 				var v struct {
 					Enabled *bool `json:"enabled"`
@@ -90,11 +125,17 @@ func newOpsRelayHandler(store *platform.Store) http.Handler {
 				err = store.ChangeOpsChannel(ctx, user.ID, id, v.Enabled)
 			case (action == "test" || action == "models") && r.Method == "POST":
 				var channel platform.RelayChannel
-				var model string
-				channel, model, err = store.OpsProbeChannel(ctx, id)
+				var options relay.ChannelTestOptions
+				if action == "test" && (json.NewDecoder(r.Body).Decode(&options) != nil || !options.Valid()) {
+					walletError(w, 400, "OPS_INPUT_INVALID")
+					return
+				}
+				channel, options.Model, err = store.OpsProbeChannel(ctx, id, strings.TrimSpace(options.Model))
 				if err == nil {
 					if action == "test" {
-						result = relay.TestChannel(ctx, channel, model)
+						probe := relay.TestChannel(ctx, channel, options)
+						result = probe
+						err = store.RecordChannelTest(ctx, id, probe.TestAt, probe.Duration)
 					} else {
 						result, err = relay.FetchChannelModels(ctx, channel)
 						if err != nil {

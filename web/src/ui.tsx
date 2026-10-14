@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { errorText } from './api';
 export function NewAPIAttribution() {
     return <span className="upstream-attribution"><a href="https://github.com/QuantumNous/new-api" target="_blank" rel="noopener noreferrer">Frontend design and development by New API contributors.</a> <a href="/notices/new-api/NOTICE.txt">许可与声明</a></span>;
@@ -19,7 +19,7 @@ export function Empty({ title, children }: {
     title: string;
     children: ReactNode;
 }) { return <div className="empty"><span aria-hidden="true">◇</span><h3>{title}</h3><p>{children}</p></div>; }
-export function Loading() { return <p className="loading" role="status">正在读取账户数据<span aria-hidden="true">…</span></p>; }
+export function Loading({label='加载中'}:{label?:string}) { return <p className="loading" role="status">{label}<span aria-hidden="true">…</span></p>; }
 export function useResource<T>(load: () => Promise<T>, dependencies: unknown[]) {
     const [state, setState] = useState<{
         data?: T;
@@ -30,7 +30,7 @@ export function useResource<T>(load: () => Promise<T>, dependencies: unknown[]) 
     useEffect(() => { let current = true; setState({ error: '', loading: true }); load().then(data => { if (current)
         setState({ data, error: '', loading: false }); }).catch(e => { if (current)
         setState({ error: errorText(e), loading: false }); }); return () => { current = false; }; }, [...dependencies, version]);
-    return { ...state, reload: () => setVersion(v => v + 1) };
+    return { ...state, reload: () => setVersion(v => v + 1), setData: (data:T) => setState({data,error:'',loading:false}) };
 }
 export function Pager({ page, total, size, onChange, disabled = false }: {
     page: number;
@@ -39,14 +39,16 @@ export function Pager({ page, total, size, onChange, disabled = false }: {
     onChange: (p: number) => void;
     disabled?: boolean;
 }) { const pages = Math.max(1, Math.ceil(total / size)); return <nav className="pager" aria-label="分页"><span>共 {number(total)} 条 · 第 {page} / {pages} 页</span><div><button disabled={disabled || page <= 1} onClick={() => onChange(page - 1)} aria-label="上一页">上一页</button><button disabled={disabled || page >= pages} onClick={() => onChange(page + 1)} aria-label="下一页">下一页</button></div></nav>; }
-export function Modal({ title, children, onClose, busy = false }: {
+export function Modal({ title, children, onClose, busy = false, className = '' }: {
     title: string;
     children: ReactNode;
     onClose: () => void;
     busy?: boolean;
+    className?: string;
 }) {
     const ref = useRef<HTMLDialogElement>(null);
+    const titleId = useId();
     useEffect(() => { const previous = document.activeElement as HTMLElement | null; const dialog = ref.current; dialog?.showModal(); return () => { dialog?.close(); previous?.focus(); }; }, []);
-    return <dialog ref={ref} className="modal" aria-labelledby="dialog-title" onCancel={e => { e.preventDefault(); if (!busy)
-        onClose(); }}><div className="modal-heading"><h2 id="dialog-title">{title}</h2><button className="icon-button" aria-label="关闭对话框" disabled={busy} onClick={onClose}>×</button></div>{children}</dialog>;
+    return <dialog ref={ref} className={'modal '+className} aria-labelledby={titleId} onCancel={e => { e.preventDefault(); if (!busy)
+        onClose(); }}><div className="modal-heading"><h2 id={titleId}>{title}</h2><button className="icon-button" aria-label="关闭对话框" disabled={busy} onClick={onClose}>×</button></div>{children}</dialog>;
 }

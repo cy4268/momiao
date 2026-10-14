@@ -24,6 +24,7 @@ type catalogStore interface {
 	OpsCatalogModel(context.Context, int64, string) (platform.CatalogOpsDetail, error)
 	SaveCatalog(context.Context, int64, platform.CatalogSettings) (platform.CatalogOpsDetail, error)
 	SaveCatalogPublication(context.Context, int64, platform.CatalogPublicationSettings) error
+	SaveCatalogPrices(context.Context, int64, platform.CatalogPricesSettings) error
 }
 
 func catalogBrowserRoute(escaped string) bool {
@@ -127,6 +128,14 @@ func newCatalogHandler(cfg config) http.Handler {
 					return
 				}
 				data, err = cfg.catalog.SaveCatalog(ctx, user, body)
+			case "/prices":
+				var body platform.CatalogPricesSettings
+				if !decodeAnnouncementBody(r.Body, &body) {
+					walletError(w, 400, "INVALID_REQUEST")
+					return
+				}
+				err = cfg.catalog.SaveCatalogPrices(ctx, user, body)
+				data = map[string]bool{"saved": err == nil}
 			case "/publication":
 				var body platform.CatalogPublicationSettings
 				if !decodeAnnouncementBody(r.Body, &body) {

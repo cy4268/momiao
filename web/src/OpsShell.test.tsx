@@ -251,7 +251,7 @@ it('saves maintenance directly with a local admin and shows all operations witho
 
 
 it('manages local users and filtered relay logs without legacy operations', async()=>{
- let u={id:2,username:'member',display_name:'测试用户',discord_id:'123456789',group:'default',role:1,status:1,two_fa_enabled:true,reserve:'2',wallet_initialized:true,created_at:'2026-10-12T10:00:00Z',last_login_at:null};
+ let u={id:2,username:'member',display_name:'测试用户',master_name:'原昵称',discord_id:'123456789',group:'default',role:1,status:1,two_fa_enabled:true,reserve:'2',wallet_initialized:true,created_at:'2026-10-12T10:00:00Z',last_login_at:null};
  let keys=[{id:7,name:'user key',key:'abcd**********wxyz',status:1,purpose:'GENERAL'}];
  const writes:{path:string;body:Record<string,unknown>}[]=[],ledger:unknown[]=[];
  let adjustment='';let readsFail=false;let rewardReadsFail=false,requeues=0;let assetReadsFail=false,chips='1000000';
@@ -294,7 +294,7 @@ it('manages local users and filtered relay logs without legacy operations', asyn
    if(path.endsWith('/reset-2fa'))u.two_fa_enabled=false;
    if(path.endsWith('/chips')){chips='999999';assetReadsFail=true}
    if(path.endsWith('/master-rename-required'))master={...master,rename_required:body.required};
-   if(path.endsWith('/master-force-rename')){master={...master,display_name:body.display_name,rename_required:false};masterReadsFail=true}
+   if(path.endsWith('/master-force-rename')){master={...master,display_name:body.display_name,rename_required:false};u.master_name=body.display_name;masterReadsFail=true}
    if(path.endsWith('/reserve')){
     if(!adjustment){adjustment=body.request_id;u.reserve='1.999998';ledger.push({id:'entry',created_at:u.created_at,biz_type:'OPS_ADJUST',delta_amount:'-0.000002',balance_after_amount:u.reserve,note:body.note});return failed()}
     expect(body.request_id).toBe(adjustment);
@@ -303,7 +303,10 @@ it('manages local users and filtered relay logs without legacy operations', asyn
    if(path.endsWith('/delete-key'))keys=[];
    return ok(null);
   }
-  if(path.startsWith('/api/v1/ops/logs?'))return ok({items:[{id:1,user_id:2,username:'member',key_id:7,key_name:'user key',model:'gpt-test',channel_id:20,channel_name:'dev channel',group:'工作',created_at:u.created_at,tokens:'15',cost:'0.000002',duration_ms:120,status_code:200,error:'',kind:2,request_id:'req',attempt:2}],total:1,page:1,page_size:20,summary:{requests:1,attempts:2,errors:0,tokens:'15',cost:'0.000002',error_rate:0},top:[{name:'gpt-test',requests:1,attempts:2,errors:0,tokens:'15',cost:'0.000002',error_rate:0}]});
+  if(path.startsWith('/api/v1/ops/channels?'))return ok({items:[{id:20,name:'dev channel',models:['gpt-test']}],total:1});
+  const log={id:1,user_id:2,username:'member',display_name:u.master_name,key_id:7,key_name:'user key',model:'gpt-test',channel_id:20,channel_name:'dev channel',group:'工作',created_at:u.created_at,tokens:'15',prompt_tokens:'10',completion_tokens:'5',cache_read_tokens:'0',cache_write_tokens:'0',cache_write_tokens_1h:'0',cost_units:'1',is_stream:true,cost:'0.000002',duration_ms:120,status_code:200,error:'',kind:2,request_id:'req',attempt:2};
+  if(path==='/api/v1/ops/logs/1')return ok({items:[{...log,id:2,attempt:1,kind:5,status_code:502,error:'upstream failed'},log]});
+  if(path.startsWith('/api/v1/ops/logs?'))return ok({items:[log],total:1,page:1,page_size:20,summary:{requests:1,attempts:2,errors:0,tokens:'15',cost:'0.000002',error_rate:0},top:[{name:'gpt-test',requests:1,attempts:2,errors:0,tokens:'15',cost:'0.000002',error_rate:0}]});
   if(path.startsWith('/api/v1/ops/records?')){
    const q=new URLSearchParams(path.split('?')[1]),users=q.get('user')?[q.get('user')!]:q.has('cursor')?['4']:['2','3'];
    return ok({items:users.map(user=>({record_type:'DIRECT_PLAY_ROUND',source_id:'01993200-0000-7000-8000-000000000001',newapi_user_id:user,occurred_at:u.created_at,status:'SETTLED',stake_units:'5000000',payout_units:'10000000',net_change_units:'5000000',snapshot:{game_title:'命运骰盅',actor_display_name:'玩家'+user}})),has_more:!q.has('cursor'),next_cursor:q.has('cursor')?null:'next-records',game_options:[{game_slug:'dice',game_title:'命运骰盅',retired:false}]});
@@ -316,8 +319,16 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  });
  const client=new ApiClient(fetcher);await client.bootstrap();
  render(<MemoryRouter initialEntries={['/ops/users']}><App client={client}/></MemoryRouter>);
- fireEvent.change(await screen.findByLabelText('用户名、显示名、Discord ID 或 ID'),{target:{value:'member'}});
- fireEvent.click(await screen.findByRole('link',{name:'member · #2'}));
+ fireEvent.change(await screen.findByLabelText('用户名、显示名、Discord ID 或 ID'),{target:{value:'原昵称'}});
+ await waitFor(()=>expect(fetcher.mock.calls.some(([p])=>p.includes('/ops/users?')&&new URLSearchParams(p.split('?')[1]).get('q')==='原昵称')).toBe(true));
+ const userReads=()=>fetcher.mock.calls.filter(([p])=>p.startsWith('/api/v1/ops/users?')).length;
+ const beforeOpen=userReads();
+ fireEvent.click(await screen.findByRole('button',{name:'原昵称 · #2'}));
+ expect(await screen.findByRole('dialog',{name:'原昵称 · #2'})).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'关闭对话框'}));
+ expect(screen.getByLabelText('用户名、显示名、Discord ID 或 ID')).toHaveValue('原昵称');
+ expect(userReads()).toBe(beforeOpen);
+ fireEvent.click(screen.getByRole('button',{name:'原昵称 · #2'}));
  fireEvent.change(await screen.findByLabelText('用户分组'),{target:{value:'工作'}});
  fireEvent.change(screen.getByLabelText('用户角色'),{target:{value:'10'}});
  fireEvent.change(screen.getByLabelText('账号状态'),{target:{value:'2'}});
@@ -372,12 +383,34 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  await waitFor(()=>expect(screen.queryByText('user key')).not.toBeInTheDocument());
  fireEvent.click(screen.getAllByRole('link',{name:'调用日志'})[1]);
  expect(await screen.findByRole('heading',{name:'全局调用日志'})).toBeVisible();
- expect(screen.getByLabelText('用户 ID')).toHaveValue('2');
+ expect(await screen.findByLabelText('搜索用户')).toHaveValue('新昵称 · #2');
  await screen.findByText(/请求 1 · 尝试 2/);
+ fireEvent.change(screen.getByLabelText('搜索用户'),{target:{value:'新昵称'}});
+ fireEvent.click(await screen.findByRole('button',{name:'新昵称 · #2'}));
+ vi.useFakeTimers({toFake:['Date']});
+ try{
+  vi.setSystemTime(new Date('2026-10-14T10:00:00Z'));
+  fireEvent.change(screen.getByLabelText('时间范围'),{target:{value:'7d'}});
+  await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>{const q=new URLSearchParams(path.split('?')[1]);return path.includes('/ops/logs?')&&q.get('user')==='2'&&Number(q.get('end'))-Number(q.get('start'))===7*86400})).toBe(true));
+  vi.setSystemTime(new Date('2026-10-14T10:05:00Z'));
+  fireEvent.click(screen.getByRole('button',{name:'刷新日志'}));
+  await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>{const q=new URLSearchParams(path.split('?')[1]);return path.includes('/ops/logs?')&&q.get('user')==='2'&&Number(q.get('end'))===Date.now()/1000&&Number(q.get('end'))-Number(q.get('start'))===7*86400})).toBe(true));
+ }finally{vi.useRealTimers()}
+ expect(screen.getByRole('combobox',{name:'渠道'})).toHaveTextContent('dev channel');
+ expect(screen.getByRole('combobox',{name:'模型'})).toHaveTextContent('gpt-test');
+ const logsReads=fetcher.mock.calls.filter(([p])=>p.startsWith('/api/v1/ops/logs?')).length;
+ fireEvent.click(screen.getByRole('button',{name:'日志 #1'}));
+ const logDrawer=await screen.findByRole('dialog',{name:'调用详情 #1'});
+ expect(await within(logDrawer).findByText('upstream failed')).toBeVisible();
+ expect(within(logDrawer).getByText('第 2 次尝试')).toBeVisible();
+ expect(within(logDrawer).getAllByText('req')).toHaveLength(2);
+ fireEvent.click(within(logDrawer).getByRole('button',{name:'关闭对话框'}));
+ expect(fetcher.mock.calls.filter(([p])=>p.startsWith('/api/v1/ops/logs?')).length).toBe(logsReads);
+ fireEvent.click(screen.getByText('调用 Top 20'));
  fireEvent.change(screen.getByLabelText('汇总维度'),{target:{value:'user'}});
  fireEvent.click(screen.getByLabelText('仅错误'));
  await waitFor(()=>expect(fetcher.mock.calls.some(([path])=>path.includes('/ops/logs?')&&path.includes('user=2')&&path.includes('dimension=user')&&path.includes('errors_only=true'))).toBe(true));
- fireEvent.click(screen.getByRole('link',{name:'member'}));
+ fireEvent.click(screen.getByRole('link',{name:'新昵称'}));
  fireEvent.click(await screen.findByRole('link',{name:'游戏记录'}));
  expect(await screen.findByRole('heading',{name:'全局游戏记录'})).toBeVisible();
  expect(screen.getByLabelText('用户 ID（可选）')).toHaveValue('2');
