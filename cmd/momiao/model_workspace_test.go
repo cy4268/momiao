@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,7 +14,7 @@ func TestModelWorkspaceRoutes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<html>workspace</html>"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	h := newPortalHandler(config{WebDir: root}, nil)
+	h := newPortalHandler(config{WebDir: root})
 	for _, path := range []string{"/models", "/admin/channels"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
@@ -34,11 +33,8 @@ func TestModelWorkspaceRoutes(t *testing.T) {
 
 func TestRetiredPlaygroundNeverReachesNative(t *testing.T) {
 	calls := 0
-	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		calls++
-		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("unexpected upstream call"))}, nil
-	})
-	h := newPortalHandler(config{WebDir: t.TempDir()}, transport)
+
+	h := newPortalHandler(config{WebDir: t.TempDir()})
 	for _, tc := range []struct {
 		method string
 		status int

@@ -54,7 +54,7 @@ func TestPokerReceiptQueryLostAckOwnerBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer h.Close()
-	portal := newPortalHandler(config{WebDir: f.dir, poker: h}, nil)
+	portal := newPortalHandler(config{WebDir: f.dir, poker: h})
 	server := httptest.NewServer(portal)
 	defer server.Close()
 	user1, user2 := http.Header{"X-Synthetic-User": {"910001"}}, http.Header{"X-Synthetic-User": {"910002"}}

@@ -14,7 +14,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/cy4268/momiao/internal/games"
-	"github.com/cy4268/momiao/internal/nativeself"
+	"github.com/cy4268/momiao/internal/identity"
+	"github.com/cy4268/momiao/internal/jsonutil"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/roulette"
 )
@@ -52,7 +53,7 @@ func decodeRouletteJSON(w http.ResponseWriter, r *http.Request, out any) error {
 		return roulette.ErrInvalidInput
 	}
 	unique := json.NewDecoder(bytes.NewReader(raw))
-	if !nativeself.UniqueJSON(unique, 0) {
+	if !jsonutil.Unique(unique, 0) {
 		return roulette.ErrInvalidInput
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
@@ -66,7 +67,7 @@ func decodeRouletteJSON(w http.ResponseWriter, r *http.Request, out any) error {
 	}
 	return nil
 }
-func newRouletteHandler(origin string, service *roulette.Service, csrf *games.Service, transport http.RoundTripper) http.Handler {
+func newRouletteHandler(origin string, service *roulette.Service, csrf *games.Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -81,20 +82,12 @@ func newRouletteHandler(origin string, service *roulette.Service, csrf *games.Se
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
-		user, status := verifyWalletUser(r, transport)
+		user, status := verifyWalletUser(r)
 		if status != 0 {
-			code := "AUTH_UNAVAILABLE"
-			if status == 401 || status == 403 {
-				code = "AUTH_UNAUTHORIZED"
-			}
-			walletError(w, status, code)
+			walletError(w, status, "AUTH_UNAUTHORIZED")
 			return
 		}
-		session, ok := authHeader(r, "X-Auth-Session", 512, true)
-		if !ok {
-			walletError(w, 401, "AUTH_UNAUTHORIZED")
-			return
-		}
+		session := identity.SessionIDFromContext(r.Context())
 		q, e := url.ParseQuery(r.URL.RawQuery)
 		if e != nil {
 			rouletteError(w, roulette.ErrInvalidInput)

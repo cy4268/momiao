@@ -1,16 +1,12 @@
 package rankings
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
-	"io"
 	"regexp"
 	"strconv"
 	"time"
-	"unicode/utf8"
 
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/jackc/pgx/v5"
@@ -30,42 +26,9 @@ type OpsRebuildInput struct {
 	ModelID    string `json:"model_id,omitempty"`
 }
 
-type opsPublishInput struct {
-	Metric string `json:"metric"`
-}
-
 type pointerState struct {
 	SnapshotID string `json:"snapshot_id,omitempty"`
 	Version    int64  `json:"version,string"`
-}
-
-type rebuildPlan struct {
-	SliceTargetID string          `json:"slice_target_id"`
-	Input         OpsRebuildInput `json:"input"`
-	State         string          `json:"state"`
-}
-
-type publishPlan struct {
-	SnapshotID             string `json:"snapshot_id"`
-	Metric                 string `json:"metric"`
-	PreviousSnapshotID     string `json:"previous_snapshot_id,omitempty"`
-	CurrentPointerVersion  int64  `json:"current_pointer_version,string"`
-	ProposedPointerVersion int64  `json:"proposed_pointer_version,string"`
-}
-
-func decodeRankingInput(raw json.RawMessage, target any) error {
-	if len(raw) == 0 || len(raw) > 4096 || !utf8.Valid(raw) {
-		return platform.ErrOpsInvalid
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return platform.ErrOpsInvalid
-	}
-	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return platform.ErrOpsInvalid
-	}
-	return nil
 }
 
 func rankingContains(values []string, value string) bool {
@@ -121,11 +84,6 @@ func sliceTargetID(domain, metric, period string, start time.Time) string {
 	return domain + ":" + metric + ":" + period + ":" + strconv.FormatInt(start.UTC().Unix(), 10)
 }
 
-func strictPointerVersion(value string) (int64, bool) {
-	version, err := strconv.ParseInt(value, 10, 64)
-	return version, err == nil && version >= 0 && strconv.FormatInt(version, 10) == value
-}
-
 func readPublishedPointer(ctx context.Context, tx pgx.Tx, domain, metric, period string,
 	start, activation time.Time, lock bool) (string, int64, error) {
 	if lock {
@@ -148,122 +106,59 @@ func readPublishedPointer(ctx context.Context, tx pgx.Tx, domain, metric, period
 	return snapshotID, version, err
 }
 
-type rankingRebuildOpsHandler struct{ service *Service }
-
-func (handler rankingRebuildOpsHandler) Canonicalize(raw json.RawMessage) (json.RawMessage, error) {
-	var input OpsRebuildInput
-	if handler.service == nil || handler.service.activation.IsZero() {
-		return nil, platform.ErrOpsUnavailable
-	}
-	if err := decodeRankingInput(raw, &input); err != nil {
-		return nil, err
-	}
-	var err error
-	input, _, err = normalizeRebuildInput(input, time.Now().UTC(), handler.service.activation)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(input)
+type RebuildResult struct {
+	JobID string `json:"job_id"`
 }
 
-func (handler rankingRebuildOpsHandler) Prepare(ctx context.Context, tx pgx.Tx, _ platform.OpsPrincipal,
-	request platform.OpsPrepareRequest, lock bool) (platform.OpsPreparedMaterial, error) {
-	if handler.service == nil || handler.service.store == nil || tx == nil || !handler.service.enabled(time.Now().UTC()) {
-		return platform.OpsPreparedMaterial{}, platform.ErrOpsUnavailable
+func (s *Service) CreateRebuild(ctx context.Context, actor int64, input OpsRebuildInput) (RebuildResult, error) {
+	var result RebuildResult
+	err := s.store.WithTx(ctx, func(tx pgx.Tx) error {
+		var err error
+		result, err = s.createRebuild(ctx, tx, actor, input)
+		return err
+	})
+	return result, err
+}
+
+func (s *Service) createRebuild(ctx context.Context, tx pgx.Tx, actor int64, input OpsRebuildInput) (RebuildResult, error) {
+	var result RebuildResult
+	if err := platform.RequireLocalOpsAdmin(ctx, tx, actor); err != nil {
+		return result, err
 	}
-	var input OpsRebuildInput
-	if err := decodeRankingInput(request.Input, &input); err != nil {
-		return platform.OpsPreparedMaterial{}, err
+	if !s.enabled(time.Now().UTC()) {
+		return result, platform.ErrOpsUnavailable
 	}
-	now := time.Now().UTC()
-	input, start, err := normalizeRebuildInput(input, now, handler.service.activation)
+	input, start, err := normalizeRebuildInput(input, time.Now().UTC(), s.activation)
 	if err != nil {
-		return platform.OpsPreparedMaterial{}, err
+		return result, err
 	}
-	targetID := sliceTargetID(input.Domain, input.Metric, input.Period, start)
-	if request.Target.ID != targetID {
-		return platform.OpsPreparedMaterial{}, platform.ErrOpsInvalid
-	}
-	expected, valid := strictPointerVersion(request.Target.ExpectedVersion)
-	if !valid {
-		return platform.OpsPreparedMaterial{}, platform.ErrOpsInvalid
-	}
-	currentID, currentVersion, err := readPublishedPointer(ctx, tx, input.Domain, input.Metric,
-		input.Period, start, handler.service.activation, lock)
+	_, version, err := readPublishedPointer(ctx, tx, input.Domain, input.Metric, input.Period, start, s.activation, true)
 	if err != nil {
-		return platform.OpsPreparedMaterial{}, err
-	}
-	if currentVersion != expected {
-		return platform.OpsPreparedMaterial{}, platform.ErrOpsPreviewStale
+		return result, err
 	}
 	var active bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rankings.rebuild_jobs WHERE domain=$1 AND metric=$2
-		AND period=$3 AND requested_date=$4 AND model_scope=$5 AND model_id=$6 AND status IN('PENDING','RUNNING'))`,
+  AND period=$3 AND requested_date=$4 AND model_scope=$5 AND model_id=$6 AND status IN('PENDING','RUNNING'))`,
 		input.Domain, input.Metric, input.Period, input.Date, input.ModelScope, input.ModelID).Scan(&active)
 	if err != nil {
-		return platform.OpsPreparedMaterial{}, err
+		return result, err
 	}
 	if active {
-		return platform.OpsPreparedMaterial{}, platform.ErrOpsConflict
+		return result, platform.ErrOpsConflict
 	}
-	current, _ := json.Marshal(pointerState{SnapshotID: currentID, Version: currentVersion})
-	plan := rebuildPlan{SliceTargetID: targetID, Input: input, State: "PENDING"}
-	proposed, _ := json.Marshal(plan)
-	one := int64(1)
-	impact := platform.OpsImpact{CurrentState: current, ProposedChange: proposed, AffectedItems: &one,
-		BlockingFacts: []string{}, ContinuingAcceptedWork: []string{"ranking_ingestion", "routine_ranking_publication"},
-		RelatedIDs: []string{targetID}, UnavailableMeasurements: []string{"affected_users", "changed_entries"}}
-	return platform.OpsPreparedMaterial{Impact: impact, TargetVersion: strconv.FormatInt(currentVersion, 10),
-		TargetLocator: targetID}, nil
-}
-
-func (handler rankingRebuildOpsHandler) Execute(ctx context.Context, tx pgx.Tx, actor platform.OpsPrincipal,
-	operation platform.OpsOperation, material platform.OpsPreparedMaterial) (platform.OpsExecutionResult, error) {
-	var plan rebuildPlan
-	if err := decodeRankingInput(material.Impact.ProposedChange, &plan); err != nil || plan.State != "PENDING" ||
-		plan.SliceTargetID != operation.Target.ID {
-		return platform.OpsExecutionResult{}, platform.ErrOpsInvalid
-	}
-	expected, valid := strictPointerVersion(operation.Target.ExpectedVersion)
-	if !valid {
-		return platform.OpsExecutionResult{}, platform.ErrOpsInvalid
-	}
-	_, err := tx.Exec(ctx, `INSERT INTO rankings.rebuild_jobs(operation_id,actor_user_id,domain,metric,
-		period,requested_date,model_scope,model_id,expected_pointer_version,status)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'PENDING')`, operation.OperationID, actor.UserID, plan.Input.Domain,
-		plan.Input.Metric, plan.Input.Period, plan.Input.Date, plan.Input.ModelScope, plan.Input.ModelID,
-		expected)
+	err = tx.QueryRow(ctx, `INSERT INTO rankings.rebuild_jobs(operation_id,actor_user_id,domain,metric,
+  period,requested_date,model_scope,model_id,expected_pointer_version,status)
+  VALUES(gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,'PENDING') RETURNING operation_id::text`,
+		actor, input.Domain, input.Metric, input.Period, input.Date, input.ModelScope, input.ModelID, version).Scan(&result.JobID)
 	if err != nil {
-		return platform.OpsExecutionResult{}, err
+		return result, err
 	}
-	after, _ := json.Marshal(plan)
-	result, _ := json.Marshal(map[string]any{"operation_id": operation.OperationID, "state": "PENDING",
-		"slice_target_id": plan.SliceTargetID})
-	return platform.OpsExecutionResult{BeforeSnapshot: material.Impact.CurrentState, AfterSnapshot: after,
-		Result: result, RelatedBusinessID: operation.OperationID}, nil
-}
-
-type rankingPublishOpsHandler struct{ service *Service }
-
-func (rankingPublishOpsHandler) Canonicalize(raw json.RawMessage) (json.RawMessage, error) {
-	var input opsPublishInput
-	if err := decodeRankingInput(raw, &input); err != nil {
-		return nil, err
-	}
-	metrics, err := metricsForDomain(metricDomain(input.Metric))
-	if err != nil || !rankingContains(metrics, input.Metric) {
-		return nil, platform.ErrOpsInvalid
-	}
-	return json.Marshal(input)
+	return result, platform.RecordOpsChange(ctx, tx, actor, "RANKING_REBUILD_CREATE", "ranking_job", result.JobID, nil, input)
 }
 
 type repairCandidate struct {
-	meta                   snapshotMeta
-	metric, modelScope     string
-	modelID                 string
-	currentID               string
-	currentPointerVersion   int64
-	expectedPointerVersion  int64
+	meta                        snapshotMeta
+	metric, modelScope, modelID string
 }
 
 func loadRepairCandidate(ctx context.Context, tx pgx.Tx, snapshotID string) (repairCandidate, error) {
@@ -278,11 +173,9 @@ func loadRepairCandidate(ctx context.Context, tx pgx.Tx, snapshotID string) (rep
 	if err != nil {
 		return result, err
 	}
-	err = tx.QueryRow(ctx, `SELECT metric,model_scope,model_id,expected_pointer_version
-		FROM rankings.rebuild_jobs j WHERE shadow_snapshot_id=$1::uuid AND status='SHADOW'
-		AND NOT EXISTS(SELECT 1 FROM rankings.publication_events e
-		 WHERE e.snapshot_id=j.shadow_snapshot_id AND e.metric=j.metric AND e.source='REPAIR')`, snapshotID).
-		Scan(&result.metric, &result.modelScope, &result.modelID, &result.expectedPointerVersion)
+	err = tx.QueryRow(ctx, `SELECT metric,model_scope,model_id
+		FROM rankings.rebuild_jobs j WHERE shadow_snapshot_id=$1::uuid AND status='SHADOW' FOR UPDATE`, snapshotID).
+		Scan(&result.metric, &result.modelScope, &result.modelID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return result, platform.ErrOpsNotFound
 	}
@@ -293,123 +186,46 @@ func loadRepairCandidate(ctx context.Context, tx pgx.Tx, snapshotID string) (rep
 		result.modelScope != "ALL" || result.modelID != "" {
 		return result, platform.ErrOpsConflict
 	}
+	var published bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rankings.publication_events WHERE snapshot_id=$1::uuid AND metric=$2 AND source='REPAIR')`, snapshotID, result.metric).Scan(&published); err != nil {
+		return result, err
+	}
+	if published {
+		return result, platform.ErrOpsConflict
+	}
 	result.meta = meta
 	return result, nil
 }
 
-func (handler rankingPublishOpsHandler) Prepare(ctx context.Context, tx pgx.Tx, _ platform.OpsPrincipal,
-	request platform.OpsPrepareRequest, lock bool) (platform.OpsPreparedMaterial, error) {
-	if handler.service == nil || handler.service.store == nil || tx == nil || !handler.service.enabled(time.Now().UTC()) {
-		return platform.OpsPreparedMaterial{}, platform.ErrOpsUnavailable
-	}
-	var input opsPublishInput
-	if err := decodeRankingInput(request.Input, &input); err != nil {
-		return platform.OpsPreparedMaterial{}, err
-	}
-	candidate, err := loadRepairCandidate(ctx, tx, request.Target.ID)
-	if err != nil {
-		return platform.OpsPreparedMaterial{}, err
-	}
-	if input.Metric != candidate.metric {
-		return platform.OpsPreparedMaterial{}, platform.ErrOpsInvalid
-	}
-	expected, valid := strictPointerVersion(request.Target.ExpectedVersion)
-	if !valid {
-		return platform.OpsPreparedMaterial{}, platform.ErrOpsInvalid
-	}
-	if lock {
-		if err = platform.RequireNoMaintenance(ctx, tx, "RANKINGS_PUBLISHING"); err != nil {
-			if errors.Is(err, platform.ErrMaintenanceActive) {
-				return platform.OpsPreparedMaterial{}, platform.ErrOpsConflict
-			}
-			return platform.OpsPreparedMaterial{}, err
-		}
-	}
-	candidate.currentID, candidate.currentPointerVersion, err = readPublishedPointer(ctx, tx,
-		candidate.meta.domain, candidate.metric, candidate.meta.period, candidate.meta.start,
-		candidate.meta.activation, lock)
-	if err != nil {
-		return platform.OpsPreparedMaterial{}, err
-	}
-	if candidate.currentPointerVersion != expected || candidate.currentID == candidate.meta.id {
-		return platform.OpsPreparedMaterial{}, platform.ErrOpsPreviewStale
-	}
-	diff, err := rankingDiff(ctx, tx, candidate.currentID, candidate.meta.id, candidate.metric)
-	if err != nil {
-		return platform.OpsPreparedMaterial{}, err
-	}
-	current, _ := json.Marshal(pointerState{SnapshotID: candidate.currentID, Version: candidate.currentPointerVersion})
-	plan := publishPlan{SnapshotID: candidate.meta.id, Metric: candidate.metric,
-		PreviousSnapshotID: candidate.currentID, CurrentPointerVersion: candidate.currentPointerVersion,
-		ProposedPointerVersion: candidate.currentPointerVersion + 1}
-	proposed, _ := json.Marshal(plan)
-	delta, _ := json.Marshal(diff)
-	affected := diff.Added + diff.Removed + diff.Changed
-	impact := platform.OpsImpact{CurrentState: current, ProposedChange: proposed, AffectedItems: &affected,
-		Delta: delta, BlockingFacts: []string{}, ContinuingAcceptedWork: []string{"ranking_ingestion"},
-		RelatedIDs: []string{candidate.meta.id, candidate.currentID}, UnavailableMeasurements: []string{"affected_users"}}
-	if candidate.currentID == "" {
-		impact.RelatedIDs = []string{candidate.meta.id}
-	}
-	return platform.OpsPreparedMaterial{Impact: impact, TargetVersion: strconv.FormatInt(candidate.currentPointerVersion, 10),
-		TargetLocator: candidate.meta.id}, nil
+func (s *Service) PublishRepair(ctx context.Context, actor int64, snapshotID string) error {
+	return s.store.WithTx(ctx, func(tx pgx.Tx) error { return s.publishRepair(ctx, tx, actor, snapshotID) })
 }
 
-func (handler rankingPublishOpsHandler) Execute(ctx context.Context, tx pgx.Tx, actor platform.OpsPrincipal,
-	operation platform.OpsOperation, material platform.OpsPreparedMaterial) (platform.OpsExecutionResult, error) {
-	var plan publishPlan
-	if err := decodeRankingInput(material.Impact.ProposedChange, &plan); err != nil || plan.SnapshotID != operation.Target.ID {
-		return platform.OpsExecutionResult{}, platform.ErrOpsInvalid
+func (s *Service) publishRepair(ctx context.Context, tx pgx.Tx, actor int64, snapshotID string) error {
+	if err := platform.RequireLocalOpsAdmin(ctx, tx, actor); err != nil {
+		return err
 	}
-	candidate, err := loadRepairCandidate(ctx, tx, operation.Target.ID)
-	if err != nil || candidate.metric != plan.Metric {
-		if err != nil {
-			return platform.OpsExecutionResult{}, err
-		}
-		return platform.OpsExecutionResult{}, platform.ErrOpsPreviewStale
+	if !s.enabled(time.Now().UTC()) {
+		return platform.ErrOpsUnavailable
 	}
-	expected, valid := strictPointerVersion(operation.Target.ExpectedVersion)
-	if !valid {
-		return platform.OpsExecutionResult{}, platform.ErrOpsInvalid
-	}
-	version, previous, err := publishPointer(ctx, tx, candidate.meta, candidate.metric, &expected,
-		operation.OperationID, &actor.UserID, "REPAIR")
+	candidate, err := loadRepairCandidate(ctx, tx, snapshotID)
 	if err != nil {
-		return platform.OpsExecutionResult{}, err
+		return err
 	}
-	before, _ := json.Marshal(pointerState{SnapshotID: previous, Version: version - 1})
-	after, _ := json.Marshal(pointerState{SnapshotID: candidate.meta.id, Version: version})
-	result, _ := json.Marshal(map[string]any{"snapshot_id": candidate.meta.id, "metric": candidate.metric,
-		"pointer_version": strconv.FormatInt(version, 10), "state": "PUBLISHED"})
-	return platform.OpsExecutionResult{BeforeSnapshot: before, AfterSnapshot: after, Result: result,
-		RelatedBusinessID: candidate.meta.id}, nil
-}
-
-// OpsBindings is the only Rankings write surface registered with the shared
-// operation engine. Rebuild is Level 2; pointer publication is fresh Level 3.
-func OpsBindings(service *Service) []platform.OpsOperationBinding {
-	if service == nil || service.store == nil {
-		return []platform.OpsOperationBinding{}
+	if err = platform.RequireNoMaintenance(ctx, tx, "RANKINGS_PUBLISHING"); err != nil {
+		return err
 	}
-	return []platform.OpsOperationBinding{
-		{Descriptor: platform.OpsOperationDescriptor{OperationType: "RANKING_REBUILD_CREATE",
-			Risk: platform.OpsRiskImpactful, RequiredPermission: "rankings.rebuild",
-			AllowedRoles: []string{"SUPER_ADMIN", "OPERATOR"}, TargetType: "ranking_slice",
-			InputSchemaVersion: "ranking-rebuild-create.v1", ImpactSchemaVersion: "ranking-rebuild-create-impact.v1",
-			RequiresReason: true, ConfirmationMode: platform.OpsConfirmExplicit, ExecutionMode: platform.OpsSameDatabase},
-			Handler: rankingRebuildOpsHandler{service: service}},
-		{Descriptor: platform.OpsOperationDescriptor{OperationType: "RANKING_REPAIR_PUBLISH",
-			Risk: platform.OpsRiskCritical, RequiredPermission: "rankings.repair.publish",
-			AllowedRoles: []string{"SUPER_ADMIN"}, TargetType: "ranking_snapshot",
-			InputSchemaVersion: "ranking-repair-publish.v1", ImpactSchemaVersion: "ranking-repair-publish-impact.v1",
-			RequiresReason: true, RequiresFreshAuth: true, ConfirmationMode: platform.OpsConfirmTyped,
-			ExecutionMode: platform.OpsSameDatabase}, Handler: rankingPublishOpsHandler{service: service}},
+	version, previous, err := publishPointer(ctx, tx, candidate.meta, candidate.metric, candidate.meta.operationID, &actor, "REPAIR")
+	if err != nil {
+		return err
 	}
+	return platform.RecordOpsChange(ctx, tx, actor, "RANKING_REPAIR_PUBLISH", "ranking_snapshot", snapshotID,
+		pointerState{SnapshotID: previous, Version: version - 1}, pointerState{SnapshotID: snapshotID, Version: version})
 }
 
 type rebuildJob struct {
 	operationID, domain, metric, period, date, modelScope, modelID string
-	actor, expected, attempts                                      int64
+	actor, attempts                                                int64
 	runnable                                                       bool
 }
 
@@ -418,12 +234,12 @@ func (s *Service) claimRebuildJob(ctx context.Context) (rebuildJob, bool, error)
 	claimed := false
 	err := s.store.WithTx(ctx, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `SELECT operation_id::text,actor_user_id,domain,metric,period,requested_date,
-			model_scope,model_id,expected_pointer_version,attempts FROM rankings.rebuild_jobs
+			model_scope,model_id,attempts FROM rankings.rebuild_jobs
 			WHERE (status='PENDING' AND (failure_code IS NULL OR updated_at<=clock_timestamp()-interval '5 seconds'))
 			 OR (status='RUNNING' AND updated_at<=clock_timestamp()-interval '2 minutes')
 			ORDER BY created_at,operation_id FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&job.operationID, &job.actor,
 			&job.domain, &job.metric, &job.period, &job.date, &job.modelScope, &job.modelID,
-			&job.expected, &job.attempts)
+			&job.attempts)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}

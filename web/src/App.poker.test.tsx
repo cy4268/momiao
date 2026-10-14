@@ -12,7 +12,7 @@ import { peekRouteIntent } from './post-auth-intent';
 const table=self.table_id,session=self.viewer.session_id,other='019a0000-0000-7000-8000-000000000011';
 const ok=(data:unknown)=>new Response(JSON.stringify({success:true,data}));
 const user={id:910002,username:'synthetic-route',display_name:'Synthetic',role:1};
-const bundle=(sid='route-native')=>({access_token:'synthetic',access_expires_at:4102444800,user,session:{sid}});
+const bundle=(csrf='route-cookie')=>({authentication_state:'AUTHENTICATED',csrf_token:csrf});
 class Socket extends EventTarget {
   static all:Socket[]=[];readyState=0;bufferedAmount=0;protocol='chaldea-poker.v1';sent:string[]=[];id=String(Socket.all.length+1).repeat(32);
   constructor(){super();Socket.all.push(this);}send(text:string){this.sent.push(text);}close(){this.readyState=3;this.dispatchEvent(new CloseEvent('close',{code:1000}));}
@@ -25,9 +25,9 @@ function whole(active=false):any {
   return raw;
 }
 async function setup(raw=whole()) {
-  const f={sid:'route-native',raw,gateStage:'READY',read:()=>Promise.resolve(ok(raw)),respond:undefined as ((path:string,init?:RequestInit)=>Promise<Response>|undefined)|undefined,gateRead:undefined as ((route:string)=>Promise<Response>)|undefined};
+  const f={csrf:'route-cookie',raw,gateStage:'READY',read:()=>Promise.resolve(ok(raw)),respond:undefined as ((path:string,init?:RequestInit)=>Promise<Response>|undefined)|undefined,gateRead:undefined as ((route:string)=>Promise<Response>)|undefined};
   const fetcher=vi.fn(async(path:string,init?:RequestInit)=>{
-    if(path==='/api/user/login'||path.includes('/auth/refresh'))return ok(bundle(f.sid));
+    if(path==='/api/v1/auth/password/login'||path==='/api/v1/session/bootstrap')return ok(bundle(f.csrf));
     if(path==='/api/user/self')return ok(user);
     if(path.startsWith('/platform/v1/access-gate?')){const route=new URLSearchParams(path.split('?')[1]).get('route')!;return f.gateRead?.(route)??ok({user_id:String(user.id),route,stage:f.gateStage});}
     if(path==='/platform/v1/master-profile')return ok({...profile,user_id:String(user.id)});
@@ -37,7 +37,7 @@ async function setup(raw=whole()) {
     const response=f.respond?.(path,init);if(response)return response;
     return new Response(JSON.stringify({success:false}),{status:403});
   });
-  const client=new ApiClient(fetcher);await client.login('synthetic','synthetic');vi.stubGlobal('WebSocket',Socket);
+  const client=new ApiClient(fetcher);await client.bootstrap();vi.stubGlobal('WebSocket',Socket);
   return{client,fetcher,f};
 }
 const pokerCalls=(r:Awaited<ReturnType<typeof setup>>)=>r.fetcher.mock.calls.filter(([p])=>p.startsWith('/api/v1/poker'));
@@ -50,7 +50,7 @@ it('mounts the whole-Lobby owner under the ordinary Shell without creating a tic
   expect(screen.getByRole('navigation',{name:'底部导航'})).toBeVisible();expect(tickets(r)).toHaveLength(0);
 });
 
-function Navigation(){const navigate=useNavigate(),location=useLocation();return <><output data-testid="path">{location.pathname}</output><button onClick={()=>navigate('/wallet')}>test wallet navigation</button><button onClick={()=>navigate(-1)}>test browser back</button><button onClick={()=>navigate(1)}>test browser forward</button><button onClick={()=>navigate('/poker')}>test lobby navigation</button><button onClick={()=>navigate('/welcome')}>test provider return</button></>;}
+function Navigation(){const navigate=useNavigate(),location=useLocation();return <><output data-testid="path">{location.pathname}</output><button onClick={()=>navigate('/wallet')}>test wallet navigation</button><button onClick={()=>navigate(-1)}>test browser back</button><button onClick={()=>navigate(1)}>test browser forward</button><button onClick={()=>navigate('/poker')}>test lobby navigation</button></>;}
 function mount(r:Awaited<ReturnType<typeof setup>>,path='/poker/table/'+table){return render(<MemoryRouter initialEntries={['/wallet',path]} initialIndex={1}><Navigation/><App client={r.client}/></MemoryRouter>);}
 function activate(socket:Socket,player=true){
   const frame=(type:string,payload:unknown)=>JSON.stringify({type,event_id:'app-route-synthetic',event_seq:10,table_id:table,table_version:7,hand_id:self.hand.hand_id,hand_version:8,server_time:self.server_now,payload});
@@ -83,8 +83,8 @@ it('saves only the guest catalog destination and returns through the original po
   sessionStorage.clear();const paths:string[]=[];let signedIn=false;
   const client=new ApiClient(async(path)=>{
     paths.push(path);
-    if(path.includes('/auth/refresh'))return new Response(JSON.stringify({success:false}),{status:401});
-    if(path==='/api/user/login'){signedIn=true;return ok(bundle());}
+    if(path==='/api/v1/session/bootstrap')return ok({authentication_state:signedIn?'AUTHENTICATED':'ANONYMOUS',csrf_token:'guest-csrf'});
+    if(path==='/api/v1/auth/password/login'){signedIn=true;return ok(bundle());}
     if(path==='/api/user/self')return ok(user);
     if(path==='/api/v1/games')return ok(publicPoker());
     if(path.startsWith('/platform/v1/access-gate?'))return ok({user_id:String(user.id),route:new URLSearchParams(path.split('?')[1]).get('route'),stage:'READY'});
@@ -96,9 +96,9 @@ it('saves only the guest catalog destination and returns through the original po
   render(<MemoryRouter initialEntries={['/entertainment']}><Navigation/><App client={client}/></MemoryRouter>);
   await screen.findByRole('heading',{name:'目录中的 Poker'});fireEvent.click(screen.getByRole('link',{name:'进入 Poker 大厅'}));
   await waitFor(()=>expect(screen.getByTestId('path').textContent).toBe('/login'));
-  expect(screen.getByRole('link',{name:'前往 New API 登录'})).toHaveAttribute('href','/sign-in');expect(peekRouteIntent()).toBe('/poker');expect(signedIn).toBe(false);expect(paths.some(p=>p.startsWith('/api/v1/poker'))).toBe(false);
-  await act(async()=>{await client.login('synthetic','synthetic');});
-  fireEvent.click(screen.getByRole('button',{name:'test provider return'}));
+  expect(screen.getByRole('button',{name:'登录控制台'})).toBeEnabled();expect(peekRouteIntent()).toBe('/poker');expect(signedIn).toBe(false);expect(paths.some(p=>p.startsWith('/api/v1/poker'))).toBe(false);
+  fireEvent.change(screen.getByLabelText('用户名'),{target:{value:'synthetic'}});fireEvent.change(screen.getByLabelText('密码'),{target:{value:'synthetic'}});
+  fireEvent.click(screen.getByRole('button',{name:'登录控制台'}));
   await screen.findByRole('region',{name:'Poker 大厅'});expect(screen.getByTestId('path').textContent).toBe('/poker');
   expect(paths.filter(p=>p.startsWith('/api/v1/poker'))).toEqual(['/api/v1/poker']);expect(Socket.all).toHaveLength(0);
   expect(peekRouteIntent()).toBe('/dashboard');sessionStorage.clear();
@@ -189,14 +189,14 @@ it('hands the successful create/reserve/buyin owner into the same player route h
   act(()=>activate(Socket.all[0]));fireEvent.click(screen.getByRole('button',{name:'test wallet navigation'}));await waitFor(()=>expect(screen.getByTestId('path').textContent).toBe('/poker/table/'+table));
   expect(screen.getByRole('button',{name:'安全离座'})).toBeEnabled();expect(tickets(r)).toHaveLength(1);expect(pokerCalls(r).filter(([p])=>/\/(tables|seat-reservations|buy-ins)$/.test(p))).toHaveLength(3);
 });
-it.each(['native','client'])('retires an already held %s identity without letting old cleanup release its replacement',async boundary=>{
+it.each(['cookie','client'])('retires an already held %s identity without letting old cleanup release its replacement',async boundary=>{
   const r=await setup(whole(true)),view=await live(r),old=Socket.all[0];let current=r;
-  if(boundary==='native'){r.f.sid='held-native-next';await act(async()=>{await r.client.login('synthetic','synthetic');});}
+  if(boundary==='cookie'){r.f.csrf='held-cookie-next';await act(async()=>{await r.client.login('synthetic','synthetic');});}
   else{current=await setup(whole(true));view.rerender(<MemoryRouter initialEntries={['/wallet','/poker/table/'+table]} initialIndex={1}><Navigation/><App client={current.client}/></MemoryRouter>);}
   await waitFor(()=>expect(Socket.all).toHaveLength(2));expect(old.readyState).toBe(3);act(()=>activate(Socket.all[1]));
   act(()=>old.message('retired socket response'));fireEvent.click(screen.getByRole('button',{name:'test wallet navigation'}));
   await waitFor(()=>expect(screen.getByTestId('path').textContent).toBe('/poker/table/'+table));expect(Socket.all).toHaveLength(2);expect(Socket.all[1].readyState).toBe(1);expect(screen.getByRole('button',{name:'安全离座'})).toBeEnabled();
-  expect(tickets(current)).toHaveLength(boundary==='native'?2:1);
+  expect(tickets(current)).toHaveLength(boundary==='cookie'?2:1);
 });
 it.each([true,false])('derives deep-link control only from fresh whole admission, active=%s',async active=>{
   const r=await setup(whole(active));render(<MemoryRouter initialEntries={['/poker/table/'+table]}><App client={r.client}/></MemoryRouter>);
@@ -215,11 +215,11 @@ it.each(['/poker?viewer=PLAYER_SELF','/poker/table/'+table+'?password=secret','/
   const r=await setup();render(<MemoryRouter initialEntries={[path]}><App client={r.client}/></MemoryRouter>);
   expect(await screen.findByText('牌桌入口格式无效，请返回大厅。')).toBeVisible();expect(pokerCalls(r)).toHaveLength(0);
 });
-it('discards old deep-link admission on native SID replacement while a whole read waits',async()=>{
+it('discards old deep-link admission on cookie-session CSRF replacement while a whole read waits',async()=>{
   const r=await setup(whole(true));let resolve!:(value:Response)=>void;r.f.read=()=>new Promise(done=>{resolve=done;});
   render(<MemoryRouter initialEntries={['/poker/table/'+table]}><App client={r.client}/></MemoryRouter>);
   await waitFor(()=>expect(pokerCalls(r)).toHaveLength(1));const old=resolve;
-  r.f.sid='route-native-next';await act(async()=>{await r.client.login('synthetic','synthetic');});
+  r.f.csrf='route-cookie-next';await act(async()=>{await r.client.login('synthetic','synthetic');});
   await waitFor(()=>expect(pokerCalls(r)).toHaveLength(2));await act(async()=>old(ok(whole(true))));expect(tickets(r)).toHaveLength(0);
   await act(async()=>resolve(ok(whole(true))));await waitFor(()=>expect(tickets(r)).toHaveLength(1));
 });

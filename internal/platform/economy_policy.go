@@ -117,15 +117,6 @@ func LockEconomyUsersInTx(ctx context.Context, tx pgx.Tx, users ...int64) error 
 	return nil
 }
 
-// Called once during startup, before handlers and workers can access the Store.
-func (s *Store) ConfigureEconomicObserver(observer NativeQuotaObserver) error {
-	if s == nil || observer == nil || s.economicObserver != nil {
-		return ErrInvalidMutation
-	}
-	s.economicObserver = observer
-	return nil
-}
-
 func LoadCapSettlementInTx(ctx context.Context, tx pgx.Tx, kind, id string, user int64) (*CapSettlement, error) {
 	var raw []byte
 	err := tx.QueryRow(ctx, `SELECT receipt FROM economy.cap_settlements WHERE source_kind=$1 AND source_id=$2 AND newapi_user_id=$3`, kind, id, user).Scan(&raw)
@@ -176,8 +167,8 @@ func RecordCapSettlementInTx(ctx context.Context, tx pgx.Tx, kind, id string, us
 	return err
 }
 
-func PrepareCapSettlementInTx(ctx context.Context, tx pgx.Tx, observer NativeQuotaObserver, p EconomicPolicy, user, stake, gross, quantum int64) (CapSettlement, error) {
-	assets, err := ReadUnifiedAssetsInTx(ctx, tx, observer, user)
+func PrepareCapSettlementInTx(ctx context.Context, tx pgx.Tx, p EconomicPolicy, user, stake, gross, quantum int64) (CapSettlement, error) {
+	assets, err := ReadUnifiedAssetsInTx(ctx, tx, user)
 	if err != nil {
 		return CapSettlement{}, err
 	}
@@ -240,7 +231,7 @@ func (s *Store) applyRewardInTx(ctx context.Context, tx pgx.Tx, m Mutation) (Led
 		if p.Version == "" {
 			return applyInTx(ctx, tx, m)
 		}
-		c, err = PrepareCapSettlementInTx(ctx, tx, s.economicObserver, p, m.UserID, 0, m.DeltaUnits, 1)
+		c, err = PrepareCapSettlementInTx(ctx, tx, p, m.UserID, 0, m.DeltaUnits, 1)
 		if err != nil {
 			return LedgerEntry{}, err
 		}

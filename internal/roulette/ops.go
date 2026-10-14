@@ -1,10 +1,9 @@
 package roulette
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"io"
+	"errors"
 	"math"
 	"strconv"
 	"time"
@@ -68,57 +67,6 @@ func OpsStatsInTx(ctx context.Context, tx pgx.Tx, slug string) (OpsStats, error)
 		out.ReviewRooms = append(out.ReviewRooms, r)
 	}
 	return out, rows.Err()
-}
-
-const configPreview = "ROULETTE_CONFIG_PREVIEW"
-const configActivate = "ROULETTE_CONFIG_ACTIVATE"
-const systemVoid = "ROULETTE_SYSTEM_VOID"
-
-type opsHandler struct {
-	service *Service
-	kind    string
-}
-type opsInput struct {
-	Game string `json:"game_slug,omitempty"`
-}
-
-func OpsBindings(s *Service) []platform.OpsOperationBinding {
-	out := []platform.OpsOperationBinding{}
-	for _, kind := range []string{configPreview, configActivate, systemVoid} {
-		d := platform.OpsOperationDescriptor{OperationType: kind, Risk: platform.OpsRiskCritical, RequiredPermission: "games.config.activate", AllowedRoles: []string{"SUPER_ADMIN"}, TargetType: "game_config", InputSchemaVersion: "roulette-config-reference.v1", ImpactSchemaVersion: "roulette-impact.v1", ExecutionMode: platform.OpsSameDatabase, ConfirmationMode: platform.OpsConfirmTyped, RequiresReason: true, RequiresFreshAuth: true}
-		if kind == configPreview {
-			d.Risk = platform.OpsRiskRoutine
-			d.RequiredPermission = "games.config.validate"
-			d.AllowedRoles = []string{"SUPER_ADMIN", "OPERATOR"}
-			d.ConfirmationMode = platform.OpsConfirmNone
-			d.RequiresReason = false
-			d.RequiresFreshAuth = false
-		}
-		if kind == systemVoid {
-			d.RequiredPermission = "games.runtime.write"
-			d.TargetType = "roulette_round"
-			d.InputSchemaVersion = "roulette-void.v1"
-		}
-		var h platform.OpsOperationHandler
-		if s != nil {
-			h = opsHandler{s, kind}
-		}
-		out = append(out, platform.OpsOperationBinding{Descriptor: d, Handler: h})
-	}
-	return out
-}
-func (h opsHandler) Canonicalize(raw json.RawMessage) (json.RawMessage, error) {
-	var in opsInput
-	d := json.NewDecoder(bytes.NewReader(raw))
-	d.DisallowUnknownFields()
-	if d.Decode(&in) != nil || d.Decode(&struct{}{}) != io.EOF || h.kind == systemVoid && in.Game != "" || h.kind != systemVoid && !IsGame(in.Game) {
-		return nil, platform.ErrOpsInvalid
-	}
-	return json.Marshal(in)
-}
-func opsRaw(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
-func opsImpact(current, proposed any, id string) platform.OpsImpact {
-	return platform.OpsImpact{CurrentState: opsRaw(current), ProposedChange: opsRaw(proposed), BlockingFacts: []string{}, ContinuingAcceptedWork: []string{"other accepted rounds retain their original binding"}, RelatedIDs: []string{id}, UnavailableMeasurements: []string{}}
 }
 
 // No seed is needed for a system refund. This path never decrypts, replaces or
@@ -196,116 +144,51 @@ func voidMaterial(ctx context.Context, tx pgx.Tx, id string, lock bool) (*round,
 	}
 	return r, ps, o, nil
 }
-func (h opsHandler) Prepare(ctx context.Context, tx pgx.Tx, _ platform.OpsPrincipal, in platform.OpsPrepareRequest, lock bool) (platform.OpsPreparedMaterial, error) {
-	empty := platform.OpsPreparedMaterial{}
-	canonical, e := h.Canonicalize(in.Input)
-	if e != nil {
-		return empty, e
+func SystemVoidInTx(ctx context.Context, tx pgx.Tx, actor int64, slug, id string) error {
+	if err := platform.RequireLocalOpsAdmin(ctx, tx, actor); err != nil {
+		return err
 	}
-	var input opsInput
-	_ = json.Unmarshal(canonical, &input)
-	if h.kind == systemVoid {
-		if in.Target.Type != "roulette_round" || !ValidRoundID(in.Target.ID) {
-			return empty, platform.ErrOpsInvalid
-		}
-		r, _, refund, e := voidMaterial(ctx, tx, in.Target.ID, lock)
-		if e != nil {
-			return empty, e
-		}
-		version := strconv.FormatInt(r.Version, 10)
-		if version != in.Target.ExpectedVersion {
-			return empty, platform.ErrOpsPreviewStale
-		}
-		return platform.OpsPreparedMaterial{Impact: opsImpact(map[string]any{"state": r.State, "escrow_units": strconv.FormatInt(r.Escrow, 10)}, refund, r.ID), TargetVersion: version, TargetLocator: r.Game}, nil
+	if !IsGame(slug) || !ValidRoundID(id) {
+		return platform.ErrOpsInvalid
 	}
-	if in.Target.Type != "game_config" || !ValidRoundID(in.Target.ID) {
-		return empty, platform.ErrOpsInvalid
+	r, ps, o, err := voidMaterial(ctx, tx, id, true)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return platform.ErrOpsNotFound
 	}
-	suffix := ""
-	if lock {
-		suffix = " FOR UPDATE"
+	if err != nil {
+		return err
 	}
-	var impl string
-	var registryVersion int64
-	var active *string
-	e = tx.QueryRow(ctx, `SELECT implementation_key,version,active_config_version_id::text FROM games.game_registry WHERE game_slug=$1`+suffix, input.Game).Scan(&impl, &registryVersion, &active)
-	if e != nil {
-		return empty, e
+	if r.Game != slug {
+		return platform.ErrOpsNotFound
 	}
-	if impl != implementation(input.Game) {
-		return empty, platform.ErrOpsConflict
+	before := map[string]any{"state": r.State, "escrow_units": strconv.FormatInt(r.Escrow, 10)}
+	if err = lockWallets(ctx, tx, ps); err != nil {
+		return err
 	}
-	var status string
-	var version int64
-	e = tx.QueryRow(ctx, `SELECT status,version_number FROM games.game_config_versions WHERE game_slug=$1 AND config_version_id=$2`+suffix, input.Game, in.Target.ID).Scan(&status, &version)
-	if e != nil {
-		return empty, e
-	}
-	if strconv.FormatInt(version, 10) != in.Target.ExpectedVersion {
-		return empty, platform.ErrOpsPreviewStale
-	}
-	if h.kind == configPreview && status != "VALIDATED" || h.kind == configActivate && status != "PREVIEWED" {
-		return empty, platform.ErrOpsConflict
-	}
-	c, e := ReadConfig(ctx, tx, input.Game, in.Target.ID)
-	if e != nil {
-		return empty, platform.ErrOpsConflict
-	}
-	next := "PREVIEWED"
-	if h.kind == configActivate {
-		next = "ACTIVE"
-	}
-	impact := opsImpact(map[string]any{"config": c.ID, "status": status, "registry_version": strconv.FormatInt(registryVersion, 10), "active_config": active}, map[string]any{"config": c.ID, "status": next}, c.ID)
-	return platform.OpsPreparedMaterial{Impact: impact, TargetVersion: strconv.FormatInt(version, 10), TargetLocator: input.Game}, nil
-}
-func (h opsHandler) Execute(ctx context.Context, tx pgx.Tx, _ platform.OpsPrincipal, op platform.OpsOperation, m platform.OpsPreparedMaterial) (platform.OpsExecutionResult, error) {
-	result := platform.OpsExecutionResult{BeforeSnapshot: m.Impact.CurrentState, AfterSnapshot: m.Impact.ProposedChange, Result: m.Impact.ProposedChange, RelatedBusinessID: op.Target.ID}
-	if op.OperationType != h.kind {
-		return result, platform.ErrOpsInvalid
-	}
-	if h.kind == systemVoid {
-		r, ps, o, e := voidMaterial(ctx, tx, op.Target.ID, true)
-		if e != nil {
-			return result, e
-		}
-		if strconv.FormatInt(r.Version, 10) != op.Target.ExpectedVersion {
-			return result, platform.ErrOpsPreviewStale
-		}
-		if e = lockWallets(ctx, tx, ps); e != nil {
-			return result, e
-		}
-		for _, a := range o.Awards {
-			var p participant
-			for _, v := range ps {
-				if v.User == a.User {
-					p = v
-					break
-				}
-			}
-			if e = fund(ctx, tx, r, p, "VOID_REFUND", a.Amount); e != nil {
-				return result, e
+	for _, a := range o.Awards {
+		var p participant
+		for _, v := range ps {
+			if v.User == a.User {
+				p = v
+				break
 			}
 		}
-		if e = markReview(ctx, tx, r); e != nil {
-			return result, e
+		if err = fund(ctx, tx, r, p, "VOID_REFUND", a.Amount); err != nil {
+			return err
 		}
-		_, e = tx.Exec(ctx, `UPDATE roulette.rounds SET state='CANCELLED',version=version+1,escrow_units=0,ended_at=clock_timestamp(),deadline=NULL,void_outcome=$2 WHERE round_id=$1`, r.ID, opsRaw(o))
-		if e != nil {
-			return result, e
-		}
-		_, e = tx.Exec(ctx, `UPDATE roulette.participants SET active=false WHERE round_id=$1`, r.ID)
-		return result, e
 	}
-	if h.kind == configPreview {
-		_, e := tx.Exec(ctx, `UPDATE games.game_config_versions SET status='PREVIEWED',previewed_at=clock_timestamp() WHERE config_version_id=$1 AND status='VALIDATED'`, op.Target.ID)
-		return result, e
+	if err = markReview(ctx, tx, r); err != nil {
+		return err
 	}
-	if _, e := tx.Exec(ctx, `UPDATE games.game_config_versions SET status='SUPERSEDED',superseded_at=clock_timestamp() WHERE game_slug=$1 AND status='ACTIVE'`, m.TargetLocator); e != nil {
-		return result, e
+	raw, err := json.Marshal(o)
+	if err != nil {
+		return err
 	}
-	if _, e := tx.Exec(ctx, `UPDATE games.game_config_versions SET status='ACTIVE',activated_at=clock_timestamp() WHERE config_version_id=$1 AND status='PREVIEWED'`, op.Target.ID); e != nil {
-		return result, e
+	if _, err = tx.Exec(ctx, `UPDATE roulette.rounds SET state='CANCELLED',version=version+1,escrow_units=0,ended_at=clock_timestamp(),deadline=NULL,void_outcome=$2 WHERE round_id=$1`, id, raw); err != nil {
+		return err
 	}
-	_, e := tx.Exec(ctx, `UPDATE games.game_registry SET active_config_version_id=$2,version=version+1 WHERE game_slug=$1`, m.TargetLocator, op.Target.ID)
-	return result, e
+	if _, err = tx.Exec(ctx, `UPDATE roulette.participants SET active=false WHERE round_id=$1`, id); err != nil {
+		return err
+	}
+	return platform.RecordOpsChange(ctx, tx, actor, "ROULETTE_SYSTEM_VOID", "roulette_round", id, before, map[string]any{"state": "CANCELLED", "escrow_units": "0", "refund": o})
 }

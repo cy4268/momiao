@@ -8,8 +8,8 @@ import (
 var errBotGamesConfig = errors.New("bot games configuration invalid")
 
 type botGamesConfig struct {
-	Socket, TokenFile, QuoteKeyFile, NativeDSNFile string
-	RouletteEnabled                                bool
+	Socket, TokenFile, QuoteKeyFile string
+	RouletteEnabled                 bool
 }
 
 func loadBotGamesConfig(cfg *config, lookup func(string) (string, bool)) error {
@@ -30,7 +30,6 @@ func loadBotGamesConfig(cfg *config, lookup func(string) (string, bool)) error {
 		{"MOMIAO_BOT_GAMES_SOCKET", &b.Socket},
 		{"MOMIAO_BOT_GAMES_TOKEN_FILE", &b.TokenFile},
 		{"MOMIAO_BOT_GAMES_QUOTE_KEY_FILE", &b.QuoteKeyFile},
-		{"MOMIAO_BOT_GAMES_NATIVE_DSN_FILE", &b.NativeDSNFile},
 	}
 	count := 0
 	for _, f := range fields {
@@ -52,12 +51,12 @@ func loadBotGamesConfig(cfg *config, lookup func(string) (string, bool)) error {
 		return errBotGamesConfig
 	}
 	seen := map[string]bool{}
-	for _, p := range []string{cfg.ListenSocket, cfg.NewAPISocket, cfg.RefillSocket, cfg.EconomyReadSocket, cfg.PokerRemoteSocket, cfg.Session.OpsSocket, cfg.WalletDSNFile, cfg.GameFairnessKeyringFile, cfg.NativeQuotaDSNFile, cfg.NativeQuotaKeyFile, cfg.RefillKeyFile, cfg.RegistrationReaderKeyFile, cfg.CatalogReaderKeyFile, cfg.CatalogAssets.CredentialsFile, cfg.PokerServiceKeyringFile, cfg.PokerPeerKeyringFile, cfg.Poker.DSNFile, cfg.Poker.ReaderKeyFile, cfg.Poker.StateKeyringFile, cfg.Poker.TicketKeyringFile, cfg.Poker.RedisConfigFile, cfg.Session.DSNFile, cfg.Session.RedisConfigFile, cfg.Session.ReaderKeyFile, cfg.Session.OpsKeyFile, cfg.Session.SessionSealKeyFile, cfg.Session.CredentialSealKeyFile, cfg.History.ReaderDSNFile, cfg.History.WorkerDSNFile, cfg.History.PokerDSNFile, cfg.History.PokerKeyringFile} {
+	for _, p := range []string{cfg.ListenSocket, cfg.PokerRemoteSocket, cfg.WalletDSNFile, cfg.GameFairnessKeyringFile, cfg.CatalogAssets.CredentialsFile, cfg.PokerServiceKeyringFile, cfg.PokerPeerKeyringFile, cfg.Poker.DSNFile, cfg.Poker.StateKeyringFile, cfg.Poker.TicketKeyringFile, cfg.Poker.RedisConfigFile, cfg.Poker.SessionRedisConfigFile, cfg.Session.RedisConfigFile, cfg.History.ReaderDSNFile, cfg.History.WorkerDSNFile, cfg.History.PokerDSNFile, cfg.History.PokerKeyringFile} {
 		if p != "" {
 			seen[pokerPathKey(p)] = true
 		}
 	}
-	for _, p := range []string{b.Socket, b.TokenFile, b.QuoteKeyFile, b.NativeDSNFile} {
+	for _, p := range []string{b.Socket, b.TokenFile, b.QuoteKeyFile} {
 		k := pokerPathKey(p)
 		if seen[k] {
 			return errBotGamesConfig

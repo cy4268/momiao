@@ -25,20 +25,16 @@ type Keyring struct {
 type Service struct {
 	store    *platform.Store
 	keyring  Keyring
-	observer platform.NativeQuotaObserver
 }
 
 func NewService(store *platform.Store, keys Keyring) (*Service, error) {
-	return NewServiceWithEconomy(store, keys, nil)
-}
-func NewServiceWithEconomy(store *platform.Store, keys Keyring, observer platform.NativeQuotaObserver) (*Service, error) {
 	if store == nil || !validVersion(keys.Active) || len(keys.Keys) == 0 || len(keys.Keys) > 16 {
 		return nil, ErrUnavailable
 	}
 	if _, ok := keys.Keys[keys.Active]; !ok {
 		return nil, ErrUnavailable
 	}
-	s := &Service{store: store, observer: observer, keyring: Keyring{Active: keys.Active, Keys: make(map[string][32]byte, len(keys.Keys))}}
+	s := &Service{store: store, keyring: Keyring{Active: keys.Active, Keys: make(map[string][32]byte, len(keys.Keys))}}
 	for version, key := range keys.Keys {
 		if !validVersion(version) {
 			return nil, ErrUnavailable

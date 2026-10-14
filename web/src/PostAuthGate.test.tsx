@@ -10,10 +10,13 @@ it('ensures provisional Master only after the authoritative gate then rechecks b
  const user={id:12,username:'native-readonly',display_name:'Native',role:1};let initialized=false;
  const ownProfile=()=>({...profile,user_id:'12',status:initialized?'COMPLETE':'INCOMPLETE',display_name:initialized?'星之海':'',profile_version:initialized?'1':'0'});
  const f=vi.fn(async(path:string,init?:RequestInit)=>{
-  if(path==='/api/user/login')return ok({access_token:'synthetic',access_expires_at:4102444800,session:{sid:'synthetic'},user});
+  if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'ANONYMOUS',csrf_token:'anonymous-csrf'});
+  if(path==='/api/v1/auth/password/login')return ok({authentication_state:'AUTHENTICATED',csrf_token:'fixture-csrf'});
+  if(path==='/api/user/self')return ok(user);
+  if(path==='/api/v1/maintenance/notices')return ok({items:[]});
   if(path==='/platform/v1/admission/config')return ok({enabled:true,registration_enabled:true,eligibility:'资格验证'});
   if(path.startsWith('/platform/v1/access-gate?'))return ok({user_id:'12',route:new URLSearchParams(path.split('?')[1]).get('route'),stage:initialized?'READY':'MASTER_REQUIRED'});
-  if(path==='/api/momiao/account')return ok({id:12,username:user.username,has_password:false,discord_connected:true,two_fa_enabled:false});
+  if(path==='/api/v1/account')return ok({id:12,username:user.username,has_password:false,discord_linked:true,two_fa_enabled:false});
   if(path==='/platform/v1/admission/ensure'||path==='/platform/v1/master-profile')return ok(ownProfile());
   if(path==='/platform/v1/master-profile/initialize'){initialized=true;return ok(ownProfile());}
   if(path==='/platform/v1/admission')return ok({user_id:'12',source:'NEW_DISCORD_REGISTRATION',grant_status:'PENDING',amount_units:'500000000',transaction_id:null,source_available:false});
@@ -31,11 +34,11 @@ it('ensures provisional Master only after the authoritative gate then rechecks b
  fireEvent.change(name,{target:{value:'星之海'}});fireEvent.click(screen.getByRole('button',{name:'保存并初始化'}));
  await screen.findByRole('heading',{name:'我的钱包'});
  expect(f.mock.calls.findIndex(([p])=>p.startsWith('/platform/v1/access-gate?'))).toBeLessThan(f.mock.calls.findIndex(([p])=>p==='/platform/v1/admission/ensure'));
- expect(f.mock.calls.filter(([,i])=>i?.method==='POST').map(([p])=>p)).toEqual(['/api/user/login','/platform/v1/admission/ensure','/platform/v1/master-profile/initialize']);
+ expect(f.mock.calls.filter(([,i])=>i?.method==='POST').map(([p])=>p)).toEqual(['/api/v1/auth/password/login','/platform/v1/admission/ensure','/platform/v1/master-profile/initialize']);
  expect(sessionStorage.getItem('momiao.wallet.pending.12')).toBe(JSON.stringify(pending));
 });
 it('a failed initialization response offers reconciliation rather than replaying registration',async()=>{
- const user={id:12,username:'u',display_name:'U',role:1};const f=vi.fn(async(path:string)=>path==='/api/user/login'?ok({access_token:'synthetic',access_expires_at:4102444800,session:{sid:'synthetic'},user}):path.includes('/admission/config')?ok({enabled:true,registration_enabled:true,eligibility:'资格验证'}):path==='/api/momiao/account'?ok({id:12,username:'u',has_password:false,discord_connected:true,two_fa_enabled:false}):new Response(JSON.stringify({success:false,code:'ADMISSION_UNAVAILABLE'}),{status:503}));const c=new ApiClient(f);await c.login('a','b');
+ const user={id:12,username:'u',display_name:'U',role:1};const f=vi.fn(async(path:string)=>path==='/api/v1/session/bootstrap'?ok({authentication_state:'ANONYMOUS',csrf_token:'anonymous-csrf'}):path==='/api/v1/auth/password/login'?ok({authentication_state:'AUTHENTICATED',csrf_token:'fixture-csrf'}):path==='/api/user/self'?ok(user):path==='/api/v1/maintenance/notices'?ok({items:[]}):path.includes('/admission/config')?ok({enabled:true,registration_enabled:true,eligibility:'资格验证'}):path==='/api/v1/account'?ok({id:12,username:'u',has_password:false,discord_linked:true,two_fa_enabled:false}):new Response(JSON.stringify({success:false,code:'ADMISSION_UNAVAILABLE'}),{status:503}));const c=new ApiClient(f);await c.login('a','b');
  render(<MemoryRouter initialEntries={['/welcome']}><App client={c}/></MemoryRouter>);
  await screen.findByRole('button',{name:'重新核对访问状态'});expect(f.mock.calls.some(([p])=>p.includes('/registration/start'))).toBe(false);expect(f.mock.calls.some(([p])=>p.includes('/ensure'))).toBe(false);
 });
@@ -44,7 +47,10 @@ it('keeps migration acknowledgement separate and holds the intent and feature re
  const user={id:12,username:'u',display_name:'U',role:1};let acknowledged=false;
  const notice=()=>({user_id:'12',state:acknowledged?'ACKNOWLEDGED':'REQUIRED',required_migration_version:'2',acknowledged_migration_version:acknowledged?'2':'0',acknowledged_at:acknowledged?'2026-09-06T00:00:00Z':null,title:'迁移事实确认',body:'此处只确认已完成的事实。',completed_at:'2026-09-05T00:00:00Z'});
  const f=vi.fn(async(path:string,init?:RequestInit)=>{
-  if(path==='/api/user/login')return ok({access_token:'synthetic',access_expires_at:4102444800,session:{sid:'synthetic'},user});
+  if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'ANONYMOUS',csrf_token:'anonymous-csrf'});
+  if(path==='/api/v1/auth/password/login')return ok({authentication_state:'AUTHENTICATED',csrf_token:'fixture-csrf'});
+  if(path==='/api/user/self')return ok(user);
+  if(path==='/api/v1/maintenance/notices')return ok({items:[]});
   if(path.startsWith('/platform/v1/access-gate?'))return ok({user_id:'12',route:'/keys',stage:acknowledged?'READY':'MIGRATION_REQUIRED',...(acknowledged?{}:{migration_notice:notice()})});
   if(path==='/platform/v1/migration-notice/acknowledge'){acknowledged=true;return new Response(JSON.stringify({success:false}),{status:503});}
   if(path==='/platform/v1/master-profile')return ok({...profile,user_id:'12'});

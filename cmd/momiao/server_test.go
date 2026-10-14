@@ -91,12 +91,8 @@ func TestUnownedPlatformAPINeverReachesNative(t *testing.T) {
 		for _, enabled := range []bool{false, true} {
 			cfg := config{WebDir: webDir}
 			cfg.Session.Enabled = enabled
-			calls := 0
-			handler := newPortalHandler(cfg, roundTripFunc(func(*http.Request) (*http.Response, error) {
-				calls++
-				return nil, errors.New("unowned Platform route reached Native")
-			}))
-			for _, route := range []string{"/api/v1", "/api/v1/not-owned", "/api/v1/not-owned?source=browser", "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup", "/internal/v1/bot-games/dice/%70repare", "/internal/v1/bot-games/dice/prepare?x=1", "/internal/v1/bot-games/slot/prepare", "/internal/v1/bot-games/slot/play", "/internal/v1/bot-games/slot/lookup", "/internal/v1/bot-games/slot/%70repare", "/internal/v1/bot-games/slot/prepare?x=1"} {
+			handler := newPortalHandler(cfg)
+			for _, route := range []string{"/platform/v1/native-quota", "/platform/v1/quota-transfers", "/platform/v1/quota-transfers/by-key", "/internal/momiao/active-quota/refill", "/api/user/login", "/api/momiao/auth/discord/login/start", "/api/unowned", "/api/v1", "/api/v1/not-owned", "/api/v1/not-owned?source=browser", "/internal/v1/bot-games/dice/prepare", "/internal/v1/bot-games/dice/play", "/internal/v1/bot-games/dice/lookup", "/internal/v1/bot-games/dice/%70repare", "/internal/v1/bot-games/dice/prepare?x=1", "/internal/v1/bot-games/slot/prepare", "/internal/v1/bot-games/slot/play", "/internal/v1/bot-games/slot/lookup", "/internal/v1/bot-games/slot/%70repare", "/internal/v1/bot-games/slot/prepare?x=1"} {
 				for _, method := range []string{http.MethodGet, http.MethodPost} {
 					response := httptest.NewRecorder()
 					handler.ServeHTTP(response, httptest.NewRequest(method, route, nil))
@@ -107,9 +103,6 @@ func TestUnownedPlatformAPINeverReachesNative(t *testing.T) {
 						t.Fatalf("web=%t session=%t %s %s: status=%d body=%q", webDir != "", enabled, method, route, response.Code, response.Body.String())
 					}
 				}
-			}
-			if calls != 0 {
-				t.Fatalf("unowned Platform routes made %d Native calls", calls)
 			}
 		}
 	}
@@ -144,14 +137,14 @@ func TestPortalServesOnlyApprovedSPAAndCompiledFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := newPortalHandler(config{WebDir: webDir, NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, nil)
-	cdnHandler := newPortalHandler(config{WebDir: webDir, AssetCDNOrigin: "https://assets.example.test"}, nil)
+	handler := newPortalHandler(config{WebDir: webDir})
+	cdnHandler := newPortalHandler(config{WebDir: webDir, AssetCDNOrigin: "https://assets.example.test"})
 	cdnResponse := httptest.NewRecorder()
 	cdnHandler.ServeHTTP(cdnResponse, httptest.NewRequest(http.MethodGet, "/models", nil))
 	if csp := cdnResponse.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "img-src 'self' data: https://assets.example.test;") || !strings.Contains(csp, "connect-src 'self'") || strings.Count(csp, "assets.example.test") != 1 {
 		t.Fatalf("CDN must be allowed for images only: %q", csp)
 	}
-	for _, route := range []string{"/", "/login", "/sign-in", "/dashboard", "/keys", "/logs", "/games/dice", "/wallet/activate", "/history/rounds/11111111-1111-4111-8111-111111111111", "/history/sessions/11111111-1111-4111-8111-111111111111", "/history/hands/11111111-1111-4111-8111-111111111111", "/wallet/transactions/11111111-1111-4111-8111-111111111111"} {
+	for _, route := range []string{"/", "/login", "/register", "/dashboard", "/keys", "/logs", "/games/dice", "/history/rounds/11111111-1111-4111-8111-111111111111", "/history/sessions/11111111-1111-4111-8111-111111111111", "/history/hands/11111111-1111-4111-8111-111111111111", "/wallet/transactions/11111111-1111-4111-8111-111111111111"} {
 		t.Run("shell "+route, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))
@@ -213,47 +206,19 @@ func TestPortalServesOnlyApprovedSPAAndCompiledFiles(t *testing.T) {
 		t.Fatalf("fingerprinted asset cache policy=%q", got)
 	}
 
-	nativeAuthDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(nativeAuthDir, "static", "js"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(nativeAuthDir, "index.html"), []byte(`<!doctype html><head><link href="/logo.png"></head><body>native auth</body>`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(nativeAuthDir, "static", "js", "auth-12345678.js"), []byte("export default 'auth'"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(nativeAuthDir, ".env"), []byte("SECRET=leak"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	nativeHandler := newPortalHandler(config{WebDir: webDir, NativeAuthWebDir: nativeAuthDir, NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, nil)
-	for _, route := range []string{"/sign-in", "/sign-up", "/otp"} {
+	for _, route := range []string{"/wallet/activate", "/sign-in", "/sign-up", "/otp", "/native-auth/static/js/auth-12345678.js"} {
 		response := httptest.NewRecorder()
-		nativeHandler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))
-		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "native auth") || !strings.Contains(response.Body.String(), `<meta name="chaldea-auth-ui" content="opaque-v1">`) || !strings.Contains(response.Body.String(), `href="/native-auth/logo.png"`) {
-			t.Fatalf("Native auth shell %s: status=%d body=%q", route, response.Code, response.Body.String())
-		}
-	}
-	for _, tc := range []struct {
-		path string
-		want int
-	}{
-		{"/native-auth/static/js/auth-12345678.js", http.StatusOK},
-		{"/native-auth/.env", http.StatusNotFound},
-		{"/native-auth/index.html", http.StatusNotFound},
-		{"/native-auth/pay-card.png", http.StatusNotFound},
-	} {
-		response := httptest.NewRecorder()
-		nativeHandler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.path, nil))
-		if response.Code != tc.want {
-			t.Fatalf("Native auth asset %s: status=%d, want %d", tc.path, response.Code, tc.want)
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("removed native route %s: %d", route, response.Code)
 		}
 	}
 	callback := httptest.NewRecorder()
-	nativeHandler.ServeHTTP(callback, httptest.NewRequest(http.MethodGet, "/oauth/discord?code=fixture&state="+strings.Repeat("s", 43), nil))
-	if callback.Code != http.StatusOK || !strings.Contains(callback.Body.String(), "portal") || strings.Contains(callback.Body.String(), "chaldea-auth-ui") {
-		t.Fatalf("unowned Discord callback did not retain Platform shell: status=%d body=%q", callback.Code, callback.Body.String())
+	handler.ServeHTTP(callback, httptest.NewRequest(http.MethodGet, "/oauth/discord?code=fixture&state=fixture", nil))
+	if callback.Code != 200 || !strings.Contains(callback.Body.String(), "portal") {
+		t.Fatal("Discord callback must use local portal")
 	}
+
 }
 
 func TestPortalCanonicalizesWebRootAlias(t *testing.T) {
@@ -268,7 +233,7 @@ func TestPortalCanonicalizesWebRootAlias(t *testing.T) {
 	if err := os.Symlink(realRoot, alias); err != nil {
 		t.Skipf("directory aliases are unavailable on this host: %v", err)
 	}
-	handler := newPortalHandler(config{WebDir: alias, NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, nil)
+	handler := newPortalHandler(config{WebDir: alias})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/app-CfXwKDEl.js", nil))
 	if response.Code != http.StatusOK || response.Body.String() != "asset" {
@@ -276,128 +241,12 @@ func TestPortalCanonicalizesWebRootAlias(t *testing.T) {
 	}
 }
 
-func TestProxyPreservesNativeContractAndRejectsSpoofedForwarding(t *testing.T) {
-	var captured *http.Request
-	var capturedBody string
-	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		captured = request.Clone(request.Context())
-		body, err := io.ReadAll(request.Body)
-		if err != nil {
-			return nil, err
-		}
-		capturedBody = string(body)
-		return &http.Response{
-			StatusCode: http.StatusCreated,
-			Header: http.Header{
-				"Content-Type":   []string{"application/json"},
-				"Set-Cookie":     []string{"session=native; Secure; HttpOnly"},
-				"Connection":     []string{"X-Internal-Hop"},
-				"X-Internal-Hop": []string{"secret"},
-			},
-			Body: io.NopCloser(strings.NewReader(`{"ok":true}`)),
-		}, nil
-	})
-	handler := newPortalHandler(config{WebDir: t.TempDir(), NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, transport)
-	request := httptest.NewRequest(http.MethodPost, "/api/items/a%2Fb?cursor=x%2Fy", strings.NewReader(`{"name":"key"}`))
-	request.Header.Set("Authorization", "Bearer token")
-	request.Header.Set("New-Api-User", "42")
-	request.Header.Set("Cookie", "session=native")
-	request.Header.Set("Origin", "https://portal.example")
-	request.Header.Set("Forwarded", "for=attacker")
-	request.Header.Set("X-Forwarded-For", "203.0.113.10")
-	request.Header.Set("X-Forwarded-Proto", "https")
-	request.Header.Set("X-Real-IP", "203.0.113.11")
-	request.Header.Set("CF-Connecting-IP", "203.0.113.12")
-	request.Header.Set("True-Client-IP", "203.0.113.13")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-
-	if response.Code != http.StatusCreated || response.Body.String() != `{"ok":true}` {
-		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("request did not reach transport")
-	}
-	if captured.Method != http.MethodPost || captured.URL.EscapedPath() != "/api/items/a%2Fb" || captured.URL.RawQuery != "cursor=x%2Fy" || capturedBody != `{"name":"key"}` {
-		t.Fatalf("native request changed: method=%s path=%s query=%s body=%q", captured.Method, captured.URL.EscapedPath(), captured.URL.RawQuery, capturedBody)
-	}
-	for key, want := range map[string]string{
-		"Authorization": "Bearer token",
-		"New-Api-User":  "42",
-		"Cookie":        "session=native",
-		"Origin":        "https://portal.example",
-	} {
-		if got := captured.Header.Get(key); got != want {
-			t.Errorf("%s=%q, want %q", key, got, want)
-		}
-	}
-	if captured.Header.Get("Forwarded") != "" || captured.Header.Get("X-Forwarded-For") != "" || captured.Header.Get("X-Forwarded-Proto") != "" || captured.Header.Get("X-Real-IP") != "" || captured.Header.Get("CF-Connecting-IP") != "" || captured.Header.Get("True-Client-IP") != "" {
-		t.Fatalf("spoofed forwarding headers reached upstream: %v", captured.Header)
-	}
-	if captured.URL.Scheme != "http" || captured.URL.Host != "unix" {
-		t.Fatalf("proxy target was not fixed: %s", captured.URL)
-	}
-	if got := response.Header().Get("Set-Cookie"); got != "session=native; Secure; HttpOnly" {
-		t.Fatalf("Set-Cookie=%q", got)
-	}
-	if response.Header().Get("X-Internal-Hop") != "" {
-		t.Fatal("hop-by-hop response header leaked")
-	}
-}
-
-func TestProxyFailureIsBoundedAndUpgradeDoesNotLeak(t *testing.T) {
-	called := 0
-	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		called++
-		deadline, ok := request.Context().Deadline()
-		if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > time.Minute {
-			t.Fatalf("missing bounded request deadline: %v %v", deadline, ok)
-		}
-		return nil, errors.New("Authorization: Bearer secret")
-	})
-	handler := newPortalHandler(config{WebDir: t.TempDir(), NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, transport)
-
-	response := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/status", nil))
-	if response.Code != http.StatusBadGateway || response.Header().Get("Content-Type") != "application/json" || response.Body.String() != "{\"error\":\"upstream unavailable\"}\n" || strings.Contains(response.Body.String(), "secret") {
-		t.Fatalf("unsafe proxy error: status=%d headers=%v body=%q", response.Code, response.Header(), response.Body.String())
-	}
-	if remaining := time.Until(response.writeDeadline); !response.deadlineSet || remaining < 20*time.Second || remaining > 30*time.Second {
-		t.Fatalf("api write deadline not aligned to request bound: set=%v deadline=%v", response.deadlineSet, response.writeDeadline)
-	}
-
-	upgrade := httptest.NewRequest(http.MethodGet, "/api/live", nil)
-	upgrade.Header.Set("Connection", "keep-alive, Upgrade")
-	upgrade.Header.Set("Upgrade", "websocket")
-	upgradeResponse := httptest.NewRecorder()
-	handler.ServeHTTP(upgradeResponse, upgrade)
-	if upgradeResponse.Code != http.StatusBadRequest || called != 1 {
-		t.Fatalf("upgrade reached transport: status=%d calls=%d", upgradeResponse.Code, called)
-	}
-}
-
-func TestV1ProxyAlignsWriteDeadlineAndKeepsOverallBound(t *testing.T) {
-	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		deadline, ok := request.Context().Deadline()
-		if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 5*time.Minute {
-			t.Fatalf("missing bounded v1 request deadline: %v %v", deadline, ok)
-		}
-		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("data: done\n\n"))}, nil
-	})
-	handler := newPortalHandler(config{WebDir: t.TempDir(), NewAPISocket: filepath.Join(t.TempDir(), "newapi.sock")}, transport)
-	response := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`)))
-	if remaining := time.Until(response.writeDeadline); response.Code != http.StatusOK || !response.deadlineSet || remaining < 4*time.Minute || remaining > 5*time.Minute {
-		t.Fatalf("v1 write deadline not aligned to stream bound: status=%d set=%v deadline=%v", response.Code, response.deadlineSet, response.writeDeadline)
-	}
-}
-
-func TestNativeTransportUsesRouteDeadlineForDelayedHeaders(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "newapi.sock")
-	transport := newNativeTransport(socket)
+func TestPokerTransportUsesRouteDeadlineForDelayedHeaders(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "poker.sock")
+	transport := newPokerTransport(socket)
 	defer transport.CloseIdleConnections()
 	if transport.ResponseHeaderTimeout != 0 {
-		t.Fatalf("native transport imposed an independent response-header timeout: %v", transport.ResponseHeaderTimeout)
+		t.Fatalf("Poker transport imposed an independent response-header timeout: %v", transport.ResponseHeaderTimeout)
 	}
 
 	address, err := net.ResolveUnixAddr("unix", socket)
@@ -413,7 +262,7 @@ func TestNativeTransportUsesRouteDeadlineForDelayedHeaders(t *testing.T) {
 	}
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(50 * time.Millisecond)
-		_, _ = io.WriteString(w, "native")
+		_, _ = io.WriteString(w, "poker")
 	})}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
@@ -424,7 +273,7 @@ func TestNativeTransportUsesRouteDeadlineForDelayedHeaders(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://unix/v1/models", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://unix/internal/v1/poker/ready", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,8 +287,8 @@ func TestNativeTransportUsesRouteDeadlineForDelayedHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(started); response.StatusCode != http.StatusOK || string(body) != "native" || elapsed < 40*time.Millisecond || elapsed >= 500*time.Millisecond {
-		t.Fatalf("delayed native response ignored route context: status=%d body=%q elapsed=%v", response.StatusCode, body, elapsed)
+	if elapsed := time.Since(started); response.StatusCode != http.StatusOK || string(body) != "poker" || elapsed < 40*time.Millisecond || elapsed >= 500*time.Millisecond {
+		t.Fatalf("delayed Poker response ignored route context: status=%d body=%q elapsed=%v", response.StatusCode, body, elapsed)
 	}
 }
 
@@ -483,18 +332,6 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return fn(request)
-}
-
-type deadlineRecorder struct {
-	*httptest.ResponseRecorder
-	writeDeadline time.Time
-	deadlineSet   bool
-}
-
-func (recorder *deadlineRecorder) SetWriteDeadline(deadline time.Time) error {
-	recorder.writeDeadline = deadline
-	recorder.deadlineSet = true
-	return nil
 }
 
 func TestServeGracefullyDrainsActiveRequest(t *testing.T) {

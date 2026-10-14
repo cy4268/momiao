@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -25,17 +24,13 @@ type CatalogFamilyCover struct {
 	DefaultImage *CatalogCoverImage `json:"default_image"`
 }
 type CatalogFamilyCoverPage struct {
-	Principal AnnouncementPrincipal `json:"principal"`
-	Items     []CatalogFamilyCover  `json:"items"`
+	Items []CatalogFamilyCover `json:"items"`
 }
 type CatalogCoverUploadCommand struct {
-	OperationID  string `json:"operation_id"`
-	Epoch        int64  `json:"authz_epoch"`
 	Family       string `json:"family"`
 	Alt          string `json:"alt"`
 	RightsStatus string `json:"rights_status"`
 	RightsNote   string `json:"rights_note"`
-	Reason       string `json:"reason"`
 }
 type CatalogCoverUploadImage struct {
 	SHA256      string `json:"sha256"`
@@ -46,31 +41,15 @@ type CatalogCoverUploadImage struct {
 	Height      int    `json:"height"`
 }
 type CatalogCoverUploadResult struct {
-	OperationID  string            `json:"operation_id"`
 	AssetID      string            `json:"asset_id"`
 	Image        CatalogCoverImage `json:"image"`
 	RightsStatus string            `json:"rights_status"`
 	RightsNote   string            `json:"rights_note"`
 	Reused       bool              `json:"reused"`
 }
-type CatalogFamilyCoverCommand struct {
-	OperationID     string `json:"operation_id"`
-	Epoch           int64  `json:"authz_epoch"`
-	Action          string `json:"action"`
-	Family          string `json:"family"`
-	AssetID         string `json:"asset_id"`
-	ExpectedVersion int64  `json:"expected_version,string"`
-	Reason          string `json:"reason"`
-}
-type CatalogFamilyCoverPreview struct {
-	ID        string             `json:"preview_id"`
-	Before    CatalogFamilyCover `json:"before"`
-	After     CatalogFamilyCover `json:"after"`
-	ExpiresAt time.Time          `json:"expires_at"`
-}
-type CatalogFamilyCoverResult struct {
-	OperationID string             `json:"operation_id"`
-	Cover       CatalogFamilyCover `json:"cover"`
+type CatalogFamilyCoverSettings struct {
+	Family  string `json:"family"`
+	AssetID string `json:"asset_id"`
 }
 
 func CatalogCoverObjectKey(family, hash, extension string) (string, error) {
@@ -83,7 +62,7 @@ func CatalogCoverObjectKey(family, hash, extension string) (string, error) {
 
 // Shared with the HTTP boundary: reject invalid metadata before writing an object.
 func ValidateCatalogCoverUpload(c CatalogCoverUploadCommand) error {
-	if !announcementUUID(c.OperationID) || c.Epoch <= 0 || !catalogChoice(catalogFamilies, c.Family) || c.Alt == "" || !catalogPlainText(c.Alt, 120, false) || c.RightsNote == "" || !catalogPlainText(c.RightsNote, 500, true) || c.Reason == "" || !catalogPlainText(c.Reason, 500, true) || !slices.Contains([]string{"ORIGINAL_PLATFORM", "ORIGINAL_GENERATED", "LICENSED_OR_APPROVED"}, c.RightsStatus) {
+	if !catalogChoice(catalogFamilies, c.Family) || c.Alt == "" || !catalogPlainText(c.Alt, 120, false) || c.RightsNote == "" || !catalogPlainText(c.RightsNote, 500, true) || !slices.Contains([]string{"ORIGINAL_PLATFORM", "ORIGINAL_GENERATED", "LICENSED_OR_APPROVED"}, c.RightsStatus) {
 		return ErrCatalogInvalid
 	}
 	return nil
@@ -152,7 +131,7 @@ func (s *Store) CatalogFamilyCovers(ctx context.Context, userID int64) (CatalogF
 		return result, err
 	}
 	defer rollback(tx)
-	result.Principal, err = catalogAuthority(ctx, tx, userID, false)
+	err = catalogAdmin(ctx, tx, userID, false)
 	if err != nil {
 		return result, err
 	}

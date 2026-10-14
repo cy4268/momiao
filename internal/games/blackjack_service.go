@@ -253,7 +253,7 @@ func (s *Service) finishBlackjackTransition(ctx context.Context, tx pgx.Tx, user
 			return e
 		}
 		if p.Version != "" {
-			assets, e := platform.ReadUnifiedAssetsInTx(ctx, tx, s.observer, user)
+			assets, e := platform.ReadUnifiedAssetsInTx(ctx, tx, user)
 			if e != nil {
 				return e
 			}

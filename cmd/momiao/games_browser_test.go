@@ -198,24 +198,7 @@ func TestGamesBrowserFixture(t *testing.T) {
 	}
 	var mu sync.Mutex
 	active := map[int64]bool{}
-	native := walletTransport(func(r *http.Request) (*http.Response, error) {
-		id, _ := strconv.ParseInt(r.Header.Get("New-Api-User"), 10, 64)
-		mu.Lock()
-		valid := active[id] && tokens[id] != "" && r.Header.Get("Authorization") == "Bearer "+tokens[id] && r.Header.Get("X-Auth-Session") == sessionID(id)
-		mu.Unlock()
-		status := 200
-		var body []byte
-		if !valid {
-			status = 401
-			body = []byte(`{"success":false,"code":"AUTH_UNAUTHORIZED"}`)
-		} else if r.URL.Path == "/api/user/self" {
-			body, _ = json.Marshal(map[string]any{"success": true, "data": nativeUser(id)})
-		} else {
-			status = 404
-			body = []byte(`{"success":false}`)
-		}
-		return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(string(body)))}, nil
-	})
+
 	web, err := filepath.Abs("../../web/dist")
 	if err != nil {
 		t.Fatal(err)
@@ -234,7 +217,7 @@ func TestGamesBrowserFixture(t *testing.T) {
 	}
 	origin := "http://" + listener.Addr().String()
 	cfg := config{WebDir: web, PublicOrigin: origin, games: service, roulette: rouletteService, wallet: runtime, economy: runtime, profile: runtime, announcements: runtime, accessGate: runtime, accessDeclaration: &accessDeclaration{Version: 1, Environment: "DEVELOPMENT", Origin: origin, EvidenceRef: "g1-real-games-synthetic-native-only", MigrationApplicability: "NO_MIGRATION_APPLICABLE", Resources: map[string]string{"ACCOUNT": "AVAILABLE", "ASSETS": "AVAILABLE", "EXPERIENCE": "AVAILABLE", "COMMUNITY": "AVAILABLE"}}}
-	portal := newPortalHandler(cfg, native)
+	portal := newPortalHandler(cfg)
 	var server *http.Server
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -306,7 +289,7 @@ func TestGamesBrowserFixture(t *testing.T) {
             // The actual immutable history and proof readers remain production code.
             if historyAPIRoute(r.URL.Path) {
                 if r.Method!="GET" {walletError(w,405,"HISTORY_READ_ONLY");return}
-                user,status:=verifyWalletUser(r,native);if status!=0 {walletError(w,status,"AUTH_UNAUTHORIZED");return}
+                user,status:=verifyWalletUser(r);if status!=0 {walletError(w,status,"AUTH_UNAUTHORIZED");return}
                 kind,id,proof,q,e:=parseHistoryRequest(r.URL);if e!=nil{historyHTTPError(w,e);return}
                 access:=historyaccess.Own(user);var value any
                 switch kind {case "roulette": if proof{value,e=rouletteService.HistoryVerify(r.Context(),access,id)}else{value,e=rouletteService.HistoryDetail(r.Context(),access,id,roulette.HistoryQuery{Limit:historyLimit(q,"limit"),Cursor:q.Get("cursor")})}

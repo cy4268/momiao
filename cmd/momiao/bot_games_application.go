@@ -17,7 +17,6 @@ import (
 	"github.com/cy4268/momiao/internal/botroulette"
 	"github.com/cy4268/momiao/internal/games"
 	"github.com/cy4268/momiao/internal/platform"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var errBotGamesStartup = errors.New("bot games startup failed")
@@ -26,7 +25,6 @@ var errBotGamesListener = errors.New("bot games listener failed")
 type botGamesApplication struct {
 	listener net.Listener
 	server   *http.Server
-	native   *pgxpool.Pool
 	once     sync.Once
 }
 
@@ -75,34 +73,7 @@ func openBotGamesApplication(ctx context.Context, cfg config, store *platform.St
 			return nil, errBotGamesStartup
 		}
 	}
-	raw, e := readPokerPrivateFile(cfg.BotGames.NativeDSNFile, 8192)
-	if e != nil || strings.TrimSpace(string(raw)) == "" {
-		return nil, errBotGamesStartup
-	}
-	pc, e := pgxpool.ParseConfig(strings.TrimSpace(string(raw)))
-	if e != nil {
-		return nil, errBotGamesStartup
-	}
-	pc.MaxConns = 4
-	pc.MinConns = 0
-	pc.ConnConfig.ConnectTimeout = 2 * time.Second
-	pc.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
-	openCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	pool, e := pgxpool.NewWithConfig(openCtx, pc)
-	if e != nil {
-		return nil, errBotGamesStartup
-	}
-	ok := false
-	defer func() {
-		if !ok {
-			pool.Close()
-		}
-	}()
-	if pool.Ping(openCtx) != nil {
-		return nil, errBotGamesStartup
-	}
-	resolver := botGamesResolver{native: pool, platform: store, declaration: cfg.accessDeclaration}
+	resolver := botGamesResolver{platform: store, declaration: cfg.accessDeclaration}
 	service, e := botgames.NewService(engine, resolver, key, time.Now)
 	if e != nil {
 		return nil, errBotGamesStartup
@@ -133,8 +104,7 @@ func openBotGamesApplication(ctx context.Context, cfg config, store *platform.St
 	if e != nil {
 		return nil, errBotGamesStartup
 	}
-	app := &botGamesApplication{listener: listener, native: pool, server: &http.Server{Handler: handler, ReadHeaderTimeout: time.Second, ReadTimeout: 2 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 10 * time.Second, MaxHeaderBytes: 4096, ErrorLog: log.New(io.Discard, "", 0)}}
-	ok = true
+	app := &botGamesApplication{listener: listener, server: &http.Server{Handler: handler, ReadHeaderTimeout: time.Second, ReadTimeout: 2 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 10 * time.Second, MaxHeaderBytes: 4096, ErrorLog: log.New(io.Discard, "", 0)}}
 	return app, nil
 }
 func (a *botGamesApplication) Run(ctx context.Context, timeout time.Duration) error {
@@ -153,9 +123,6 @@ func (a *botGamesApplication) Close() error {
 		}
 		if a.listener != nil {
 			_ = a.listener.Close()
-		}
-		if a.native != nil {
-			a.native.Close()
 		}
 	})
 	return nil

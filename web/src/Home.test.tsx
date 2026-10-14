@@ -2,7 +2,7 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import { App } from './App';
-import { failed, fixtureClient } from './m1-test-fixtures';
+import { failed, fixtureClient, ok } from './m1-test-fixtures';
 
 const { mountGuangxi } = vi.hoisted(() => ({ mountGuangxi: vi.fn() }));
 vi.mock('./guangxi-runtime', () => ({ mountGuangxi }));
@@ -52,7 +52,7 @@ it('keeps guangxi movable, persistent and non-blocking across lifecycle changes'
         expect(handle()).toBeVisible();
         expect(widget()).toHaveStyle({ left: '16px', bottom: '16px' });
         expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('在月光下');
-        expect(screen.getByRole('link', { name: 'Discord 登录' })).toHaveAttribute('href', '/sign-in');
+        expect(screen.getByRole('link', { name: 'Discord 登录' })).toHaveAttribute('href', '/login');
         await idle();
         expect(mountGuangxi).toHaveBeenCalledTimes(1);
         drag(100, -50);
@@ -154,15 +154,15 @@ it('renders the public home immediately while session bootstrap is unresolved', 
     const { client } = fixtureClient(() => new Promise<Response>(() => {}));
     render(<MemoryRouter initialEntries={['/']}><App client={client} /></MemoryRouter>);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('在月光下');
-    expect(screen.getByRole('link', { name: 'Discord 登录' })).toHaveAttribute('href', '/sign-in');
+    expect(screen.getByRole('link', { name: 'Discord 登录' })).toHaveAttribute('href', '/login');
     expect(screen.queryByText('从这里，走向你的下一站')).not.toBeInTheDocument();
 });
 it.each(['guest', 'failure'])('keeps / public after %s session verification', async state => {
-    const { client, fetcher } = fixtureClient(() => state === 'guest' ? new Response(JSON.stringify({ success: false }), { status: 401 }) : failed());
+    const { client, fetcher } = fixtureClient(() => state === 'guest' ? ok({ authentication_state: 'ANONYMOUS', csrf_token: 'anonymous-csrf' }) : failed());
     render(<MemoryRouter initialEntries={['/']}><App client={client} /></MemoryRouter>);
     await waitFor(() => expect(client.getSnapshot().ready).toBe(true));
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('在月光下');
-    expect(fetcher.mock.calls.map(c => c[0])).toEqual(['/api/user/auth/refresh']);
+    expect(fetcher.mock.calls.map(c => c[0])).toEqual(['/api/v1/session/bootstrap']);
     expect(screen.queryByLabelText('密码')).not.toBeInTheDocument();
 });
 it('enhances the same home for a signed-in user without loading personal business data', async () => {
@@ -170,7 +170,7 @@ it('enhances the same home for a signed-in user without loading personal busines
     render(<MemoryRouter initialEntries={['/']}><App client={client} /></MemoryRouter>);
     expect(await screen.findByRole('link', { name: '返回指挥台' })).toHaveAttribute('href', '/dashboard');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('在月光下');
-    expect(fetcher.mock.calls.every(c => c[0].startsWith('/api/user/'))).toBe(true);
+    expect(fetcher.mock.calls.map(c => c[0])).toEqual(['/api/v1/session/bootstrap', '/api/user/self']);
     expect(screen.queryByText(/今日已领取|今日待领取|在线人数|热门榜|服务正常/)).not.toBeInTheDocument();
     expect(screen.queryByRole('link', {name:/探索娱乐沙龙/})).not.toBeInTheDocument();
     expect(screen.queryByRole('link', {name:'Discord 登录'})).not.toBeInTheDocument();
@@ -183,6 +183,8 @@ it('keeps the hero content usable if the decorative image fails', async () => {
     fireEvent.error(art!);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('在月光下');
     expect(screen.getByRole('link', { name: 'Discord 登录' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Frontend design and development by New API contributors.' })).toHaveAttribute('href', 'https://github.com/QuantumNous/new-api');
+    expect(screen.getByRole('link', { name: '许可与声明' })).toHaveAttribute('href', '/notices/new-api/NOTICE.txt');
 });
 it('opens the reviewed public catalog to guests without native group or model reads', async () => {
     const { client, fetcher } = fixtureClient(() => new Response(JSON.stringify({ success: false }), { status: 401 }));

@@ -206,7 +206,7 @@ func TestBotSummonPostgres(t *testing.T) {
 			defer func() { f.now = f.now.Add(-121 * time.Second) }()
 			engine, e := games.NewService(f.runtime, games.Keyring{Active: "bot-fixture-v1", Keys: map[string][32]byte{"bot-fixture-v1": {9}}})
 			botGamesPGCheck(t, e, "restart engine")
-			service, e := botgames.NewService(engine, botGamesResolver{native: f.native, platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
+			service, e := botgames.NewService(engine, botGamesResolver{platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
 			botGamesPGCheck(t, e, "restart summon")
 			recovered, e := service.LookupSummon(ctx, subject, p.Quote)
 			botGamesPGCheck(t, e, "lost response lookup")
@@ -216,7 +216,7 @@ func TestBotSummonPostgres(t *testing.T) {
 				t.Fatal("restart changed saved receipt")
 			}
 			f.summonLedger(t, user, first)
-			f.exec(t, `UPDATE public.users SET status=2 WHERE id=$1`, user)
+			f.exec(t, `UPDATE identity.users SET status=2 WHERE id=$1`, user)
 			_, e = service.LookupSummon(ctx, subject, p.Quote)
 			botGamesWantFault(t, e, "ACCOUNT_RESTRICTED")
 		})
@@ -263,8 +263,8 @@ func TestBotSummonPostgres(t *testing.T) {
 		user, subject := f.player(t, true, 550000000)
 		other, _ := f.player(t, true, 550000000)
 		p := f.prepareSummon(t, subject, "11", "TENFOLD")
-		f.exec(t, `UPDATE public.users SET discord_id='' WHERE id=$1`, user)
-		f.exec(t, `UPDATE public.users SET discord_id=$2 WHERE id=$1`, other, subject)
+		f.exec(t, `UPDATE identity.users SET discord_id=NULL WHERE id=$1`, user)
+		f.exec(t, `UPDATE identity.users SET discord_id=$2 WHERE id=$1`, other, subject)
 		_, e := f.service.PlaySummon(ctx, subject, p.Quote)
 		botGamesWantFault(t, e, "BINDING_CHANGED")
 		_, e = f.service.LookupSummon(ctx, subject, p.Quote)
@@ -343,8 +343,7 @@ func TestBotSummonPostgres(t *testing.T) {
 	}
 	t.Run("deterministic_active_pool_and_economic_cap", func(t *testing.T) {
 		installSummonT2Fixture(t, f)
-		f.exec(t, platform.NativeQuotaMigration)
-		f.exec(t, `UPDATE momiao_quota.settings SET enabled=true; UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
+		f.exec(t, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
 		defer f.exec(t, `UPDATE economy.policy_runtime SET active_version=NULL WHERE singleton`)
 		for _, tc := range []struct{ mode, maximum, tooMuch, stake, gross string }{{"SINGLE", "500000000000", "1000001", "5500000", "11000000"}, {"TENFOLD", "50000000000", "100001", "55000000", "110000000"}} {
 			t.Run(tc.mode, func(t *testing.T) {

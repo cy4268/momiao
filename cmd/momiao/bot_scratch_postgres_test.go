@@ -111,7 +111,7 @@ func (f *botGamesPGFixture) restartScratch(t *testing.T) *botgames.Service {
 	t.Helper()
 	engine, e := games.NewService(f.runtime, games.Keyring{Active: "bot-fixture-v1", Keys: map[string][32]byte{"bot-fixture-v1": {9}}})
 	botGamesPGCheck(t, e, "restart scratch engine")
-	s, e := botgames.NewService(engine, botGamesResolver{native: f.native, platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
+	s, e := botgames.NewService(engine, botGamesResolver{platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
 	botGamesPGCheck(t, e, "restart scratch bridge")
 	return s
 }
@@ -144,7 +144,7 @@ func TestBotScratchPostgres(t *testing.T) {
 		botGamesPGCheck(t, e, "website scratch purchase")
 		p := f.prepareScratch(t, subject, "99")
 		barrier := &scratchRevealBarrier{Service: f.engine, entered: make(chan struct{}), release: make(chan struct{})}
-		s, e := botgames.NewService(barrier, botGamesResolver{native: f.native, platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
+		s, e := botgames.NewService(barrier, botGamesResolver{platform: f.runtime, declaration: f.declaration}, [32]byte{2}, func() time.Time { return f.now })
 		botGamesPGCheck(t, e, "barrier bridge")
 		before := f.balance(t, user)
 		done := make(chan error, 1)
@@ -290,7 +290,7 @@ func TestBotScratchPostgres(t *testing.T) {
 			}
 		}
 		f.scratchLedger(t, user, first)
-		f.exec(t, `UPDATE public.users SET status=2 WHERE id=$1`, user)
+		f.exec(t, `UPDATE identity.users SET status=2 WHERE id=$1`, user)
 		_, e = restart.LookupScratch(ctx, subject, p.Quote)
 		botGamesWantFault(t, e, "ACCOUNT_RESTRICTED")
 	})
@@ -453,8 +453,8 @@ func TestBotScratchPostgres(t *testing.T) {
 		_, e = f.service.LookupSummon(ctx, subject, p.Quote)
 		botGamesWantFault(t, e, "UNAUTHORIZED")
 		other, _ := f.player(t, true, 550000000)
-		f.exec(t, `UPDATE public.users SET discord_id='' WHERE id=$1`, user)
-		f.exec(t, `UPDATE public.users SET discord_id=$2 WHERE id=$1`, other, subject)
+		f.exec(t, `UPDATE identity.users SET discord_id=NULL WHERE id=$1`, user)
+		f.exec(t, `UPDATE identity.users SET discord_id=$2 WHERE id=$1`, other, subject)
 		_, e = f.service.PlayScratch(ctx, subject, p.Quote)
 		botGamesWantFault(t, e, "BINDING_CHANGED")
 		_, e = f.service.LookupScratch(ctx, subject, p.Quote)
@@ -535,8 +535,7 @@ func TestBotScratchPostgres(t *testing.T) {
 	})
 	t.Run("current_odds_and_capped_raw_win", func(t *testing.T) {
 		installScratchT2Fixture(t, f)
-		f.exec(t, platform.NativeQuotaMigration)
-		f.exec(t, `UPDATE momiao_quota.settings SET enabled=true; UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
+		f.exec(t, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`, pgx.QueryExecModeSimpleProtocol)
 		defer f.exec(t, `UPDATE economy.policy_runtime SET active_version=NULL WHERE singleton`)
 		limitUser, limitSubject := f.player(t, true, 1000000000000)
 		p := f.prepareScratch(t, limitSubject, "11")

@@ -37,7 +37,6 @@ var (
 
 type Store struct {
 	pool             *pgxpool.Pool
-	economicObserver NativeQuotaObserver
 }
 
 // OpenLazy validates connection configuration without requiring an available database.
@@ -66,6 +65,9 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 	return s, nil
 }
 func (s *Store) Close() { s.pool.Close() }
+
+// Pool lets local identity and wallet operations share the runtime connection pool.
+func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 
 type Wallet struct {
 	UserID       int64 `json:"user_id,string"`

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { parseNativeQuota } from './quota-api';
 import { DailyReward } from './DailyReward';
 import { RewardPrograms } from './RewardPrograms';
 import { ApiClient, ApiError } from './api';
@@ -19,7 +18,6 @@ export function WalletActions({client,userID,wallet,onChange,dailyOnly=false,led
  const lock=useRef(false);const active=useRef(false);const generation=useRef(client.getSessionGeneration());
  useEffect(()=>{active.current=true;try{setPending(parsePending(sessionStorage.getItem(storageKey)))}catch{setStorageError(true)}return()=>{active.current=false}},[storageKey]);
  const current=()=>active.current && client.getSessionGeneration()===generation.current && String(client.getSnapshot().user?.id)===userID && !client.getSnapshot().loggingOut;
- const native=useResource(async()=>dailyOnly?null:parseNativeQuota(await client.request('/platform/v1/native-quota'),userID),[client,userID,dailyOnly,historyVersion]);
  const daily=useResource(()=>readDaily(client,userID),[client,userID]);
  // A read at the server-provided reset or on return to this tab refreshes the date; it never claims.
  useEffect(()=>{
@@ -34,7 +32,7 @@ export function WalletActions({client,userID,wallet,onChange,dailyOnly=false,led
  const rewardBlocked=blocked || daily.data===undefined || maintenanceActive;
  const to:Asset=from==='RESERVE_API_CREDIT'?'AVAILABLE_CHIPS':'RESERVE_API_CREDIT';
  const units=amountUnits(amount);const balance=wallet.wallets.find(w=>w.asset===from)!;
- const available=BigInt(balance.balance_units)+(from==='RESERVE_API_CREDIT' && native.data?.enabled?BigInt(native.data.raw_quota):0n);
+ const available=BigInt(balance.balance_units);
  function finish(t:Transaction,p:PendingOperation){if(!matchesOperation(t,p))throw new Error('Receipt mismatch');setRetry(false);setPendingReceipt(t);setNotice(transactionStatus[t.status]);setHistoryVersion(v=>v+1);if(!transactionTerminal(t))return;sessionStorage.removeItem(storageKey);setPending(null);setPendingReceipt(null);daily.reload();onChange(t)}
  async function send(p:PendingOperation,isRetry=false):Promise<Transaction|undefined>{
   if(lock.current || storageError || (!isRetry && pending))return;
@@ -64,7 +62,7 @@ export function WalletActions({client,userID,wallet,onChange,dailyOnly=false,led
   <div className={dailyOnly?"reward-detail":"wallet-actions-grid"}>
    <DailyReward daily={daily} blocked={rewardBlocked} onClaim={()=>void send({kind:'DAILY',key:crypto.randomUUID()})} links={dailyLinks}/>
    {dailyOnly && <RewardPrograms client={client} userID={userID} blocked={rewardBlocked} version={historyVersion} onClaim={kind=>send({kind,key:crypto.randomUUID()})}/>}
-   {!dailyOnly && <section className="panel finance-exchange" aria-labelledby="exchange-title"><h2 id="exchange-title">资产兑换</h2><p>1:1 · 无手续费 · 优先使用 Reserve，不足部分从 API 额度扣除。</p><form className="exchange-form" onSubmit={exchange}><label>兑换方向<select disabled={blocked} value={from} onChange={e=>setFrom(e.target.value as Asset)}>{assets.map(a=><option value={a} key={a}>{a==='RESERVE_API_CREDIT'?'Reserve 与 API 额度':assetNames[a]} → {assetNames[a==='RESERVE_API_CREDIT'?'AVAILABLE_CHIPS':'RESERVE_API_CREDIT']}</option>)}</select></label><label>兑换数量<input inputMode="decimal" maxLength={30} value={amount} disabled={blocked} onChange={e=>setAmount(e.target.value)} placeholder="例如 100"/></label><p className="hint">可用 {unitsAmount(available)} {from==='RESERVE_API_CREDIT' && native.data?.enabled?'Reserve 与 API 额度':assetNames[from]}。</p>{from==='RESERVE_API_CREDIT' && (native.loading || native.error || !native.data?.enabled) && <p className="hint">Active 额度尚未确认可用，当前仅列出 Reserve；可刷新后核对。<button type="button" disabled={native.loading || busy} onClick={native.reload}>刷新 Active 额度</button></p>}{amount && <p aria-live="polite">{units===null?'请输入可精确表示的正数。':units>available?'来源余额不足。':`将兑换 ${amount} ${from==='RESERVE_API_CREDIT'?'API Credit（优先 Reserve，其次 Active）':assetNames[from]}，获得 ${amount} ${assetNames[to]}。`}</p>}<button className="primary" disabled={blocked || units===null || units>available}>确认兑换</button></form></section>}
+   {!dailyOnly && <section className="panel finance-exchange" aria-labelledby="exchange-title"><h2 id="exchange-title">资产兑换</h2><p>1:1 · 无手续费 · 仅使用所选本地资产余额。</p><form className="exchange-form" onSubmit={exchange}><label>兑换方向<select disabled={blocked} value={from} onChange={e=>setFrom(e.target.value as Asset)}>{assets.map(a=><option value={a} key={a}>{assetNames[a]} → {assetNames[a==='RESERVE_API_CREDIT'?'AVAILABLE_CHIPS':'RESERVE_API_CREDIT']}</option>)}</select></label><label>兑换数量<input inputMode="decimal" maxLength={30} value={amount} disabled={blocked} onChange={e=>setAmount(e.target.value)} placeholder="例如 100"/></label><p className="hint">可用 {unitsAmount(available)} {assetNames[from]}。</p>{amount && <p aria-live="polite">{units===null?'请输入可精确表示的正数。':units>available?'来源余额不足。':`将兑换 ${amount} ${assetNames[from]}，获得 ${amount} ${assetNames[to]}。`}</p>}<button className="primary" disabled={blocked || units===null || units>available}>确认兑换</button></form></section>}
   </div>
   {beforeHistory}
   <section className="finance-history">

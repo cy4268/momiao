@@ -10,7 +10,7 @@ func botGamesTestConfig(t *testing.T) (config, map[string]string) {
 	t.Helper()
 	root := t.TempDir()
 	cfg := config{ProcessRole: "platform", WalletDSNFile: filepath.Join(root, "wallet"), GameFairnessKeyringFile: filepath.Join(root, "fairness"), accessDeclaration: &accessDeclaration{MigrationApplicability: "NO_MIGRATION_APPLICABLE", Resources: map[string]string{"EXPERIENCE": "AVAILABLE"}}}
-	values := map[string]string{"MOMIAO_BOT_GAMES_SOCKET": filepath.Join(root, "bot.sock"), "MOMIAO_BOT_GAMES_TOKEN_FILE": filepath.Join(root, "token"), "MOMIAO_BOT_GAMES_QUOTE_KEY_FILE": filepath.Join(root, "quote"), "MOMIAO_BOT_GAMES_NATIVE_DSN_FILE": filepath.Join(root, "native")}
+	values := map[string]string{"MOMIAO_BOT_GAMES_SOCKET": filepath.Join(root, "bot.sock"), "MOMIAO_BOT_GAMES_TOKEN_FILE": filepath.Join(root, "token"), "MOMIAO_BOT_GAMES_QUOTE_KEY_FILE": filepath.Join(root, "quote")}
 	return cfg, values
 }
 func TestBotGamesConfig(t *testing.T) {
@@ -47,7 +47,7 @@ func TestBotGamesConfig(t *testing.T) {
 			t.Fatalf("process did not load bot configuration: %v", err)
 		}
 	})
-	for _, field := range []string{"SOCKET", "TOKEN_FILE", "QUOTE_KEY_FILE", "NATIVE_DSN_FILE"} {
+	for _, field := range []string{"SOCKET", "TOKEN_FILE", "QUOTE_KEY_FILE"} {
 		for _, bad := range []string{"missing", "empty", "relative"} {
 			t.Run(field+"/"+bad, func(t *testing.T) {
 				c, m := botGamesTestConfig(t)
@@ -66,7 +66,7 @@ func TestBotGamesConfig(t *testing.T) {
 			})
 		}
 	}
-	for _, bad := range []string{"role", "wallet", "fairness", "declaration", "self_collision", "listen", "newapi", "refill", "economy", "session", "poker", "fairness_collision", "wallet_collision", "catalog_credentials_collision"} {
+	for _, bad := range []string{"role", "wallet", "fairness", "declaration", "self_collision", "listen", "session", "poker", "fairness_collision", "wallet_collision", "catalog_credentials_collision"} {
 		t.Run(bad, func(t *testing.T) {
 			c, m := botGamesTestConfig(t)
 			p := m["MOMIAO_BOT_GAMES_SOCKET"]
@@ -83,20 +83,14 @@ func TestBotGamesConfig(t *testing.T) {
 				m["MOMIAO_BOT_GAMES_TOKEN_FILE"] = p
 			case "listen":
 				c.ListenSocket = p
-			case "newapi":
-				c.NewAPISocket = p
-			case "refill":
-				c.RefillSocket = p
-			case "economy":
-				c.EconomyReadSocket = p
 			case "session":
-				c.Session.OpsSocket = p
+				c.Session.RedisConfigFile = p
 			case "poker":
 				c.PokerRemoteSocket = p
 			case "fairness_collision":
 				m["MOMIAO_BOT_GAMES_QUOTE_KEY_FILE"] = c.GameFairnessKeyringFile
 			case "wallet_collision":
-				m["MOMIAO_BOT_GAMES_NATIVE_DSN_FILE"] = c.WalletDSNFile
+				m["MOMIAO_BOT_GAMES_QUOTE_KEY_FILE"] = c.WalletDSNFile
 			case "catalog_credentials_collision":
 				c.CatalogAssets.CredentialsFile = m["MOMIAO_BOT_GAMES_TOKEN_FILE"]
 			}

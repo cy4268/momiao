@@ -39,7 +39,7 @@ func TestGameCatalogQueryBoundaryAndOutage(t *testing.T) {
 		t.Fatal(err)
 	}
 	transport := &catalogForbiddenAuth{}
-	handler := newGameHandler("http://127.0.0.1", service, transport, nil)
+	handler := newGameHandler("http://127.0.0.1", service, nil)
 	for _, tc := range []struct {
 		raw    string
 		status int
@@ -167,7 +167,7 @@ func TestPokerCatalogHTTPRealRead(t *testing.T) {
 			if tc.name == "no reader" {
 				cfg.pokerCatalogRuntime = nil
 			}
-			server := httptest.NewServer(newPortalHandler(cfg, auth))
+			server := httptest.NewServer(newPortalHandler(cfg))
 			defer server.Close()
 			request := func(method, query string, status int) []byte {
 				t.Helper()
@@ -235,7 +235,7 @@ func TestCatalogDiscoveryBrowserFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	portal := newPortalHandler(config{WebDir: web, PublicOrigin: "http://" + address, games: service}, &catalogForbiddenAuth{})
+	portal := newPortalHandler(config{WebDir: web, PublicOrigin: "http://" + address, games: service})
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/user/auth/refresh" {
 			walletError(w, 401, "AUTH_UNAUTHORIZED")

@@ -2,9 +2,9 @@
 
 ## Current source
 
-The current source includes the platform session/BFF integration, model portal, wallet and game services, operations UI, simplified illustrated homepage, and isolated Native login UI. Runtime configuration and operational records are deliberately not stored here. Earlier feature notes below describe historical milestones, not the current deployment status or a claim that every acceptance case passed.
+The current source includes local authentication adapted from official NewAPI, Redis sessions, the model portal, wallet and game services, operations UI, and illustrated homepage. The old Native/BFF authentication bridge, Native source/adapter/deployment packages and legacy SUPER_ADMIN bootstrap tool are removed. Official NewAPI attribution is retained in [ATTRIBUTION.md](ATTRIBUTION.md). The one-time importer and historical schema remain for migration; the restricted dev release is deployed, while full acceptance and production cutover remain pending. Runtime configuration and operational records are deliberately not stored here. Earlier feature notes below describe historical milestones, not the current deployment status or a claim that every acceptance case passed.
 
-Build the Platform with `go build ./cmd/momiao`. In `web`, install from `package-lock.json` and run `npm run build`; the committed non-secret `web/.env.production` selects opaque sessions. See [Native source integration](native-source/README.md) to reconstruct and build the matching Native backend/authentication UI from source. No compiled binaries, images, data or credentials are included. Public illustrations under `web/public` are application assets, not runtime records.
+Build the Platform with `go build ./cmd/momiao`. In `web`, install from `package-lock.json` and run `npm run build`; login uses the local Cookie/Redis entry point, not a Native credential bridge. See [deployment configuration](docs/deployment.md#local-session-startup) for the remaining session settings. No compiled binaries, images, data or credentials are included. Public illustrations under `web/public` are application assets, not runtime records.
 
 ### Game hall artwork
 
@@ -17,25 +17,25 @@ The artwork manifest uses relative, content-hashed keys; host matching files und
 
 ## 当前功能
 
-- **登录**：原生密码与二步验证流程、刷新后续期、退出登录；访问令牌只保存在内存中。
-- **指挥台**：真实账户身份、原生可用/已用额度、请求数、密钥数量及最近个人记录。
+- **登录**：本地密码、二步验证与 Discord 登录；HttpOnly Cookie 对应 Redis 会话，支持续期与退出。
+- **指挥台**：本地账户身份、Reserve、请求数、密钥数量及最近个人记录。
 - **密钥管理**：分页、创建、明确查看/复制、启停、确认删除；列表默认脱敏，离开弹窗清除页面中的明文。
 - **调用记录**：个人记录分页、类型/模型/日期筛选，只展示调用元数据。
 - **模型**：按已发布家族展示模型，支持搜索、详情中选择具体模型 ID 与 API 接入；不虚构价格或能力参数。
-- **渠道管理**：管理员查看与启停；超级管理员新建、编辑基本 OpenAI 兼容渠道。已有密钥和未编辑的高级设置保持不变。
+- **渠道管理**：本地管理员直接新建、编辑和测试渠道及分组，保存与审计同事务；已有密钥留空不修改。
 - **交付层**：React + TypeScript 界面；单个 Go 服务提供 SPA、固定 Unix Socket 上游代理及存活探针。
 
-原生额度与 Reserve 分开记账，按显式单位换算。每日签到、本地兑换以及 Reserve → 原生可用额度的单向划转已接入；反向划转、自动补充、正式游戏结算与旧数据迁移尚未上线，V1 不做额度购买商城。旧服务与旧数据独立保留，迁移不再阻塞改造。见 [门户优先决策](docs/decisions/0002-usable-portal-first.md) 和 [模型闭环范围](docs/decisions/0003-model-workspace.md)。
+模型调用直接扣 Reserve；签到、本地筹码兑换与服务端游戏结算保留。Native 额度划转和 refill 已删除。开发站已完成旧数据导入，生产旧服务与数据保留用于最终切换后的回退。见 [门户优先决策](docs/decisions/0002-usable-portal-first.md) 和 [模型闭环范围](docs/decisions/0003-model-workspace.md)。
 
 ## 平台钱包一期
 
-`internal/platform` 提供独立 PostgreSQL 的身份锚点、双资产零值钱包、精确金额、幂等单钱包账变与追加式流水；包含显式版本迁移和真实数据库集成测试。钱包页面 `/wallet` 已接入可选的独立平台数据库：显式初始化、真实余额与流水查询。每日固定 500 API Credit 签到、本地 1:1 兑换和单向原生额度划转见下方契约；没有默认赠金，也不携带生产数据库凭据。完整经济系统仍未实现。
+`internal/platform` 提供独立 PostgreSQL 的身份锚点、双资产零值钱包、精确金额、幂等单钱包账变与追加式流水；包含显式版本迁移和真实数据库集成测试。钱包页面 `/wallet` 已接入可选的独立平台数据库：显式初始化、真实余额与流水查询。每日固定 500 Reserve 签到与本地 1:1 兑换见下方契约；没有默认赠金，也不携带生产数据库凭据。完整经济系统仍未实现。
 
 见 [账本基础与验证](docs/wallet-foundation.md)、[钱包接口契约](contracts/wallet-api.md)、[隔离与可用性决策](docs/decisions/0005-wallet-portal.md)。
 
-## 原生额度划转
+## 本地 Reserve
 
-/wallet/activate 支持主动将 Reserve 转入原生可用额度。后台持久化处理，同一请求不重复入账；结果未知时先按原编号核对。仅针对已验证的原生版本和数据库直接记账模式启用，见 [划转契约](contracts/quota-transfer-api.md)。
+模型调用直接消耗 Reserve；Reserve 与可用筹码 1:1 双向兑换。`/wallet/activate`、Native 额度读取/划转接口及自动 refill 已删除；旧划转/跨库兑换行只作历史查询，不再由新程序启动 worker。上线前仍须处理历史在途并按计划一次性合并 Native 剩余额度。
 
 ## Master 展示身份
 
@@ -66,27 +66,42 @@ npm run build
 
 ## 运行
 
-**只运行存活探针**：不设置额外环境变量，执行构建出的 `momiao`（Windows 为 `momiao.exe`），默认监听 `127.0.0.1:8080`。`GET/HEAD /healthz` 返回 `{"status":"ok"}`；该模式其他路径为 404。存活不代表上游或业务就绪。
+### 去 NewAPI：开发站已部署，生产待验收后切换
 
-**完整界面**：需要一个运行中的兼容 NewAPI，以及指向它的私有 Unix HTTP Socket。Linux 示例：
+`internal/identity` 复用官方 `QuantumNous/new-api@f1164142` 的 bcrypt、TOTP/备用码和 Discord OAuth，只适配本地 PG 与 Redis，不使用 VPS 定制登录补丁。History、Bot 身份查询、Poker 和运营台均使用本地身份；旧 Native 源码、桥接和启动依赖已移除。
+
+一次性导入器按 `identity` → `keys` → `workspace` → `prices` → `quota` 执行，各阶段独立事务，不是跨阶段事务。前四阶段要求目标表为空；最终额度按 1:1 units 合并到 Reserve，旧会话不迁移。开发站已完成导入与镜像切换，勿重跑。冻结、迁移、授权和运行配置见 [部署说明](docs/deployment.md#local-identity-migration-in-progress)。
+
+Discord 通过 `MOMIAO_DISCORD_CONFIG_FILE` 提供私有 `client_id`、`client_secret`；注册还需 `guild_id`、`role_id`、`policy_version` 和 `MOMIAO_ADMISSION_ENABLED=true`。回调为 `MOMIAO_PUBLIC_ORIGIN` + `/oauth/discord`。新注册验证身份组后原子创建账号与准入回执；已有绑定账号不重复发赠额。独立 Poker 通过 `MOMIAO_POKER_SESSION_REDIS_CONFIG_FILE` 只读同一 Redis 会话。
+
+运营台按本地角色直接保存，写入与审计同事务；删除、封禁、扣余额等操作有确认。模型中转使用本地 Key/分组/价格与官方协议适配，结束后扣 Reserve、更新 Key 用量、日志和归因；不预扣，余额不足扣到零。旧预览/fresh/操作回执与 Native 划转/refill 均已删除，历史记录保留。
+
+开发验收尚待 2FA 登录、新 Discord 注册、改密/封禁会话失效、Poker 完整一局及可独立接入 dev 的 Bot。已通过的密码/Discord老账户登录退出、中转扣费、Key/Ops、排行榜、骰子/21点不重复执行。生产尚未切换，原 Native 容器和数据库保留用于回退。
+
+**只运行存活探针**：不设置额外环境变量，执行构建出的 `momiao`（Windows 为 `momiao.exe`），默认监听 `127.0.0.1:8080`。`GET/HEAD /healthz` 返回 `{"status":"ok"}`；无后端配置时业务接口未就绪。存活不代表上游或业务就绪。
+
+**本地登录界面**：需要已迁移的平台数据库与会话 Redis，Linux 示例（其余业务组件配置见部署说明）：
 
 ```sh
 MOMIAO_WEB_DIR=/srv/momiao/web/dist \
-MOMIAO_NEWAPI_SOCKET=/run/native-api/http.sock \
+MOMIAO_WALLET_DSN_FILE=/run/secrets/wallet.dsn \
+MOMIAO_PUBLIC_ORIGIN=https://dev.momiao.win \
+MOMIAO_SESSION_ENABLED=true \
+MOMIAO_SESSION_REDIS_CONFIG_FILE=/run/secrets/session-redis.json \
 MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 ./momiao
 ```
 
-打开 `/login`。生产环境使用 HTTPS 入口并配置原生安全 Cookie 和准确的可信 Origin；原生认证 Cookie 的 Path 不作改写。也可用 `MOMIAO_LISTEN_SOCKET` 替换 TCP 监听，供支持 Unix Socket 的入口直接连接，见 [部署说明](docs/deployment.md)。没有随仓库提供的账户、默认密码或数据库。
+打开 `/login`，HTTPS 入口使用本地 `__Host-chaldea_session` Cookie 与准确的 Public Origin。也可用 `MOMIAO_LISTEN_SOCKET` 替换 TCP 监听，供支持 Unix Socket 的入口直接连接，见 [部署说明](docs/deployment.md)。没有随仓库提供的账户、默认密码或数据库。门户已删除 Native Socket、身份投影与就绪探测；旧 Native 服务源码/工具与部署文件已清理，完整开发验收前不切生产。
 
 | 环境变量 | 缺省 / 含义 |
 |---|---|
 | `MOMIAO_LISTEN_ADDR` | `127.0.0.1:8080`；数字 IP 与 `1..65535` 端口，IPv6 加方括号 |
 | `MOMIAO_LISTEN_SOCKET` | 可选绝对路径；与显式设置的 TCP 地址互斥；新 Socket 为 0600，不覆盖已有路径 |
-| `MOMIAO_WEB_DIR` | 可选绝对路径；必须存在且含 `index.html`，与上游 Socket 成对配置 |
-| `MOMIAO_NEWAPI_SOCKET` | 固定上游绝对路径；浏览器不参与选择上游 |
+| `MOMIAO_WEB_DIR` | 可选绝对路径；必须存在且含 `index.html`，不再要求 Native Socket |
+| `MOMIAO_SESSION_ENABLED` | `true` 启用本地登录，会话需要平台数据库、Public Origin 与 Redis |
+| `MOMIAO_SESSION_REDIS_CONFIG_FILE` | 现有 Redis TLS 配置文件绝对路径 |
 | `MOMIAO_WALLET_DSN_FILE` | 可选受限平台 DSN 文件绝对路径；钱包与 Master 共用，与 Public Origin 成对 |
-| `MOMIAO_NATIVE_QUOTA_DSN_FILE` | 可选原生额度适配器受限 DSN 绝对路径；需平台钱包配置和显式安装验证 |
 | `MOMIAO_PUBLIC_ORIGIN` | 与平台 DSN 成对的准确 HTTPS Origin，用于显式写入验证 |
 | `MOMIAO_SHUTDOWN_TIMEOUT` | `10s`，可设 `1s..30s`；超时后强制结束剩余连接 |
 
@@ -94,13 +109,11 @@ MOMIAO_LISTEN_ADDR=127.0.0.1:8080 \
 
 ## 接口与范围
 
-SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/admin/channels`、`/wallet`、`/wallet/activate`、`/master-profile`、`/games/dice`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
+SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/logs`、`/models`、`/admin/channels`、`/wallet`、`/master-profile`、`/games/dice`；`/` 根据登录状态跳转。静态文件不暴露源码、目录列表或 source map。
 
-未由门户处理的 `/api/` 与 `/v1/` 请求转发到固定原生服务；门户文本测试与 `/pg/chat/completions` 转发已移除，前端不复制认证规则。适配版本和真实请求载荷见 [原生接口契约](contracts/native-api.md)。[OpenAPI](contracts/openapi.json) 声明 momiao 自有的 `/healthz` 、`/platform/v1/wallet` 与 `/platform/v1/master-profile` 接口，不把原生 API 冒充为自有实现。
+`GET /v1/models` 使用本地 Key 认证和分组/模型限制，`/v1/*` 由已接线的本地中转处理。未注册的 `/api/` 路径直接返回 404，不再兜底代理到 Native；旧登录、渠道等路径没有兼容代理。门户文本测试与 `/pg/chat/completions` 转发已移除。旧原生接口契约随已移除的服务一起删除。
 
-代理 `/api/` 总上限 30 秒、`/v1/` 总上限 5 分钟。它们是明确的工程上限，**不是并发容量或压测结论**；WebSocket 升级尚不支持。本版主动移除转发身份头，原生端看到的是内部代理地址，未宣称按真实客户端 IP 审计或限流。
-
-登录实际入口使用密码。二步验证有源码契约和自动化覆盖，尚未使用真实已绑定账户验收；OAuth、Passkey、注册、密码找回和 CAPTCHA 控件不在本次范围。
+密码、2FA、Discord 登录及注册准入使用本地身份模块；来源固定为官方 f1164142。开发站已部署并完成部分实际验收；待验收项见运行节，源码测试不替代真实流程验收。
 
 ## 设计与贡献
 
@@ -112,3 +125,11 @@ SPA 路由：`/login`、兼容入口 `/sign-in`、`/dashboard`、`/keys`、`/log
 
 ### Daily rewards and local exchange
 The wallet page now supports an explicit daily 500 Reserve API Credit claim (Asia/Shanghai day), exact 1:1 Reserve/chips exchange, receipts and durable-key retry lookup. Native Active quota is unchanged. See [wallet action contract](contracts/wallet-actions-api.md). Initial grants, hourly/relief rewards, credit purchases and games are not enabled by this slice.
+
+运营台已删除通用预览/执行/二次验证管道、访问控制页和操作回执页；所有模块及账户菜单的入口使用本地角色。历史审计和旧任务行保留只读，健康快照 worker 独立启动。认证启动已删除旧 Native/BFF 会话、独立会话数据库和 Native 凭据配置，直接复用平台连接池与 Redis；未注册的 `/api/` 路径返回 404。RP 记录与榜单直接读取本地归因，不再启动 Native 同步或检查其水位；部署前应用 0066，历史重复逻辑请求只计一次，原始行保留。quota/refill 启动与配置已删除，钱包只按本地余额兑换；旧 Native 投影/helper、transport/readiness 和部署文件已清理；开发站已使用本地镜像，生产保持原状。
+
+### Local-only runtime image
+
+`deploy/Dockerfile` consumes a build context with `bin/` (Linux amd64 `momiao`, `momiao-migrate`, `momiao-import-native`), `web/` (the Vite production output) and `licenses/` (this repository LICENSE/ATTRIBUTION.md plus `new-api/` from `docs/upstream/new-api`). Build Go with `CGO_ENABLED=0`, and the web with `VITE_MOMIAO_SESSION_MODE=opaque` and `VITE_ASSET_BASE_URL=https://assets.momiao.win`. Pass the committed source ID as `--build-arg REVISION=...`. The fresh Alpine image contains no Native-auth frontend, bootstrap binary or Native service; platform and Poker use the same image with their existing process-role configuration.
+
+The current VPS uses the legacy Docker builder; the Dockerfile does not require BuildKit. Use `docker build --network host --build-arg REVISION=... -t IMAGE CONTEXT` there for package downloads; this build option does not change the runtime compose networks.

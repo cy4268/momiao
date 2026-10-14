@@ -3,11 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"hash/crc32"
 	"image"
 	"image/jpeg"
@@ -19,155 +16,46 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cy4268/momiao/internal/games"
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
+	"github.com/cy4268/momiao/internal/poker"
+	"github.com/cy4268/momiao/internal/poker/redislease"
+	"github.com/cy4268/momiao/internal/rankings"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 type catalogHTTPStore struct {
 	*platform.Store
-	publicCalls, authorityCalls, writes int
-	denied, withdrawn                   bool
-	readOnly                            bool
-	uploads                             int
-	uploadReceipt                       *platform.CatalogCoverUploadResult
-	uploadCommand                       platform.CatalogCoverUploadCommand
-	uploadImage                         platform.CatalogCoverUploadImage
-	filter                              platform.CatalogFilter
+	publicCalls int
+	withdrawn   bool
+	filter      platform.CatalogFilter
 }
 
-func (s *catalogHTTPStore) CatalogAuthority(_ context.Context, user int64) (platform.AnnouncementPrincipal, error) {
-	s.authorityCalls++
-	if s.denied {
-		return platform.AnnouncementPrincipal{}, platform.ErrCatalogForbidden
-	}
-	if s.readOnly {
-		return platform.AnnouncementPrincipal{UserID: user, Epoch: 2, Permissions: []string{"models.read"}}, nil
-	}
-	return platform.AnnouncementPrincipal{UserID: user, Role: "OPERATOR", Epoch: 2, Permissions: []string{"models.read", "models.write", "models.publish"}}, nil
-}
-func (s *catalogHTTPStore) PublicCatalog(_ context.Context, f platform.CatalogFilter, _ platform.CatalogPolicy) (platform.CatalogPage, error) {
+func (s *catalogHTTPStore) PublicCatalog(_ context.Context, f platform.CatalogFilter) (platform.CatalogPage, error) {
 	s.publicCalls++
 	s.filter = f
 	return platform.CatalogPage{Items: []platform.CatalogModel{}}, nil
 }
-func (s *catalogHTTPStore) PublicCatalogModel(_ context.Context, id string, _ platform.CatalogPolicy) (platform.CatalogModel, error) {
+func (s *catalogHTTPStore) PublicCatalogModel(_ context.Context, id string) (platform.CatalogModel, error) {
 	s.publicCalls++
 	if s.withdrawn {
 		return platform.CatalogModel{}, platform.ErrCatalogNotFound
 	}
 	return platform.CatalogModel{ModelID: id, PublicationState: "PUBLISHED", CanUse: true}, nil
 }
-func (s *catalogHTTPStore) OpsCatalog(ctx context.Context, user int64, _ platform.CatalogOpsFilter, _ platform.CatalogPolicy) (platform.CatalogOpsPage, error) {
-	p, e := s.CatalogAuthority(ctx, user)
-	return platform.CatalogOpsPage{Principal: p, Items: []platform.CatalogModel{}}, e
-}
-func (s *catalogHTTPStore) PrepareCatalog(_ context.Context, _ int64, c platform.CatalogCommand, _ platform.CatalogSource, _ platform.CatalogPolicy) (platform.CatalogPreview, error) {
-	s.writes++
-	return platform.CatalogPreview{ID: c.OperationID}, nil
-}
-func (s *catalogHTTPStore) ExecuteCatalog(_ context.Context, _ int64, c platform.CatalogCommand, id string, confirmed bool, _ platform.CatalogSource, _ platform.CatalogPolicy) (platform.CatalogResult, error) {
-	s.writes++
-	if !confirmed || id == "" {
-		return platform.CatalogResult{}, platform.ErrCatalogConfirmation
-	}
-	return platform.CatalogResult{OperationID: c.OperationID}, nil
-}
 func catalogHTTPConfig(s catalogStore) config {
-	return config{catalog: s, PublicOrigin: "https://wallet.example", CatalogStaleAfter: 10 * time.Minute, CatalogDisableAfter: 30 * time.Minute, APIBaseURL: "https://api.example/v1"}
-}
-
-func (s *catalogHTTPStore) CatalogFamilyCovers(ctx context.Context, user int64) (platform.CatalogFamilyCoverPage, error) {
-	p, e := s.CatalogAuthority(ctx, user)
-	return platform.CatalogFamilyCoverPage{Principal: p, Items: []platform.CatalogFamilyCover{}}, e
-}
-func (s *catalogHTTPStore) CatalogCoverUploadReceipt(ctx context.Context, user int64, c platform.CatalogCoverUploadCommand, f platform.CatalogCoverUploadImage) (*platform.CatalogCoverUploadResult, error) {
-	if _, err := s.CatalogAuthority(ctx, user); err != nil {
-		return nil, err
-	}
-	if s.uploadReceipt == nil {
-		return nil, nil
-	}
-	if c != s.uploadCommand || f != s.uploadImage {
-		return nil, platform.ErrCatalogOperation
-	}
-	return s.uploadReceipt, nil
-}
-func (s *catalogHTTPStore) RegisterCatalogCoverUpload(ctx context.Context, user int64, c platform.CatalogCoverUploadCommand, f platform.CatalogCoverUploadImage) (platform.CatalogCoverUploadResult, error) {
-	if _, err := s.CatalogAuthority(ctx, user); err != nil {
-		return platform.CatalogCoverUploadResult{}, err
-	}
-	if c.Epoch != 2 {
-		return platform.CatalogCoverUploadResult{}, platform.ErrAnnouncementStale
-	}
-	s.uploads++
-	key, _ := platform.CatalogCoverObjectKey(c.Family, f.SHA256, f.Extension)
-	result := platform.CatalogCoverUploadResult{OperationID: c.OperationID, AssetID: "00000000-0000-4000-8000-000000000002", Image: platform.CatalogCoverImage{Src: "/" + key, Alt: c.Alt, Width: f.Width, Height: f.Height}}
-	s.uploadReceipt = &result
-	s.uploadCommand = c
-	s.uploadImage = f
-	return result, nil
-}
-func (s *catalogHTTPStore) PrepareCatalogFamilyCover(_ context.Context, _ int64, c platform.CatalogFamilyCoverCommand) (platform.CatalogFamilyCoverPreview, error) {
-	s.writes++
-	return platform.CatalogFamilyCoverPreview{ID: c.OperationID}, nil
-}
-func (s *catalogHTTPStore) ExecuteCatalogFamilyCover(_ context.Context, _ int64, c platform.CatalogFamilyCoverCommand, id string, confirmed bool) (platform.CatalogFamilyCoverResult, error) {
-	s.writes++
-	if !confirmed || id == "" {
-		return platform.CatalogFamilyCoverResult{}, platform.ErrCatalogConfirmation
-	}
-	return platform.CatalogFamilyCoverResult{OperationID: c.OperationID}, nil
+	return config{catalog: s, PublicOrigin: "https://wallet.example", APIBaseURL: "https://api.example/v1"}
 }
 
 func TestCatalogCoverUploadLifecycle(t *testing.T) {
-	s := &catalogHTTPStore{}
-	cfg := catalogHTTPConfig(s)
-	keyFile := filepath.Join(t.TempDir(), "r2.json")
-	if err := os.WriteFile(keyFile, []byte(`{"access_key_id":"test-access","secret_access_key":"test-secret"}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	puts := 0
-	fail, revoke, delayed := false, false, false
-	var expected []byte
-	var expectedType, expectedExt string
-	client := &http.Client{Transport: catalogRoundTrip(func(r *http.Request) (*http.Response, error) {
-		puts++
-		if s.uploads != 0 {
-			t.Fatal("object registered before PUT acknowledgement")
-		}
-		if delayed {
-			time.Sleep(100 * time.Millisecond)
-		}
-		got, e := io.ReadAll(r.Body)
-		if e != nil {
-			t.Fatal(e)
-		}
-		sum := sha256.Sum256(expected)
-		if r.Method != "PUT" || !strings.HasSuffix(r.URL.Path, "/assets/models/uploads/gpt/"+hex.EncodeToString(sum[:])+"."+expectedExt) || !bytes.Equal(got, expected) || r.Header.Get("Content-Type") != expectedType || r.Header.Get("Cache-Control") != "public, max-age=31536000, immutable" {
-			t.Fatal("PUT content/key/cache contract changed", r.Method, r.URL.Path, r.Header.Get("Content-Type"))
-		}
-		if revoke {
-			s.denied = true
-		}
-		status := 200
-		body := ""
-		if fail {
-			status = 400
-			body = "<Error><Code>AccessDenied</Code><Message>SECRET_R2_DETAIL</Message></Error>"
-		}
-		return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
-	})}
-	var err error
-	cfg.catalogAssets, err = newCatalogAssetStore(catalogAssetConfig{AccountID: strings.Repeat("a", 32), Bucket: "test-assets", CredentialsFile: keyFile}, client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := newCatalogHandler(cfg, profileTransport())
-	command := platform.CatalogCoverUploadCommand{OperationID: "00000000-0000-4000-8000-000000000001", Epoch: 2, Family: "gpt", Alt: "Acceptance cover", RightsStatus: "ORIGINAL_GENERATED", RightsNote: "Generated", Reason: "Acceptance"}
+	command := platform.CatalogCoverUploadCommand{Family: "gpt", Alt: "Acceptance cover", RightsStatus: "ORIGINAL_GENERATED", RightsNote: "Generated"}
 	metadata, _ := json.Marshal(command)
 	request := func(data []byte, mimeType, extra string) *http.Request {
 		var body bytes.Buffer
@@ -215,98 +103,25 @@ func TestCatalogCoverUploadLifecycle(t *testing.T) {
 	}{
 		{[]byte("<svg></svg>"), "image/png", ""}, {make([]byte, 8*1024*1024+1), "image/png", ""}, {mutatePNG(9000, 1), "image/png", ""}, {mutatePNG(5000, 5000), "image/png", ""}, {apng, "image/png", ""}, {animated, "image/webp", ""}, {png[:100], "image/png", ""}, {webp[:40], "image/webp", ""}, {png, "image/jpeg", ""}, {png, "image/png", "file"}, {png, "image/png", "metadata"}, {png, "image/png", "unexpected"},
 	} {
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, request(v.data, v.kind, v.extra))
-		if w.Code != 400 {
-			t.Fatal("invalid upload accepted", w.Code, w.Body)
+
+		if _, _, err := parseCatalogCoverUpload(httptest.NewRecorder(), request(v.data, v.kind, v.extra)); err == nil {
+			t.Fatal("invalid upload accepted")
 		}
-	}
-	if puts != 0 || s.uploads != 0 || s.writes != 0 {
-		t.Fatal("invalid upload reached storage")
 	}
 	for _, v := range []struct {
 		data              []byte
 		mime, actual, ext string
 	}{{png, "image/png", "image/png", "png"}, {webp, "application/octet-stream", "image/webp", "webp"}, {jpg.Bytes(), "", "image/jpeg", "jpg"}} {
-		s.uploadReceipt = nil
-		expected = v.data
-		expectedType = v.actual
-		expectedExt = v.ext
-		s.uploads = 0
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, request(v.data, v.mime, ""))
-		if w.Code != 200 || s.uploads != 1 || s.writes != 0 {
-			t.Fatal("valid upload lifecycle failed", w.Code, w.Body)
+		c, f, err := parseCatalogCoverUpload(httptest.NewRecorder(), request(v.data, v.mime, ""))
+		if err != nil || c.Family != "gpt" || !bytes.Equal(f.Bytes, v.data) || f.Image.ContentType != v.actual || f.Image.Extension != v.ext {
+			t.Fatal("original raster upload changed", err)
 		}
-		first := w.Body.String()
-		beforePuts := puts
-		fail = true
-		s.uploads = 0
-		w = httptest.NewRecorder()
-		h.ServeHTTP(w, request(v.data, v.mime, ""))
-		if w.Code != 200 || first != w.Body.String() || puts != beforePuts || s.uploads != 0 {
-			t.Fatal("committed receipt retry depended on R2 or changed identity", w.Body)
-		}
-		before := s.uploadReceipt
-		w = httptest.NewRecorder()
-		// Keep the operation ID but change metadata: no new public PUT is allowed.
-		command.Reason = "Different command"
-		metadata, _ = json.Marshal(command)
-		h.ServeHTTP(w, request(v.data, v.mime, ""))
-		if w.Code != 409 || puts != beforePuts || !reflect.DeepEqual(before, s.uploadReceipt) {
-			t.Fatal("conflicting operation reached R2", w.Code)
-		}
-		command.Reason = "Acceptance"
-		metadata, _ = json.Marshal(command)
-		fail = false
-	}
-	s.uploadReceipt = nil
-	expected = png
-	expectedType = "image/png"
-	expectedExt = "png"
-	s.uploads = 0
-	fail = true
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, request(png, "image/png", ""))
-	if w.Code != 503 || s.uploads != 0 || strings.Contains(w.Body.String(), "SECRET") {
-		t.Fatal("storage failure registered or leaked", w.Body)
-	}
-	fail = false
-	revoke = true
-	w = httptest.NewRecorder()
-	h.ServeHTTP(w, request(png, "image/png", ""))
-	if w.Code != 403 || s.uploads != 0 || s.writes != 0 {
-		t.Fatal("revocation crossed publication boundary", w.Body)
-	}
-	s.denied = false
-	revoke = false
-	delayed = true
-	server := httptest.NewUnstartedServer(h)
-	server.Config.ReadTimeout = 20 * time.Millisecond
-	server.Config.WriteTimeout = 20 * time.Millisecond
-	server.Start()
-	defer server.Close()
-	r := request(png, "image/png", "")
-	u, _ := url.Parse(server.URL + r.URL.Path)
-	r.URL = u
-	r.RequestURI = ""
-	response, err := http.DefaultClient.Do(r)
-	if err != nil {
-		t.Fatal("authorized upload retained short server deadline", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != 200 || s.uploads != 1 || server.Config.ReadTimeout != 20*time.Millisecond || server.Config.WriteTimeout != 20*time.Millisecond {
-		t.Fatal("upload deadline changed global configuration", response.StatusCode)
 	}
 }
 
 func TestCatalogHTTPPublicAndStrictQueries(t *testing.T) {
 	s := &catalogHTTPStore{}
-	native := catalogRoundTrip(func(*http.Request) (*http.Response, error) {
-		t.Fatal("public read reached native identity")
-		return nil, nil
-	})
-	h := newCatalogHandler(catalogHTTPConfig(s), native)
+	h := newCatalogHandler(catalogHTTPConfig(s))
 	for _, path := range []string{"/platform/v1/models", "/platform/v1/models/detail?model_id=" + url.QueryEscape("组织/x%2F'"), "/platform/v1/models/access-config"} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("GET", path, nil)
@@ -337,156 +152,770 @@ func TestCatalogHTTPPublicAndStrictQueries(t *testing.T) {
 	}
 }
 func TestCatalogHTTPProtectedWrites(t *testing.T) {
-	s := &catalogHTTPStore{denied: true}
-	h := newCatalogHandler(catalogHTTPConfig(s), profileTransport())
-	for _, tail := range []string{"", "/upload", "/prepare", "/execute"} {
-		method := "POST"
-		if tail == "" {
-			method = "GET"
+	path := os.Getenv("MOMIAO_SESSION_DSN_FILE")
+	if path == "" {
+		t.Skip("requires the existing dev database and Redis")
+	}
+	dsn, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("read dev DSN")
+	}
+	store, err := platform.Open(t.Context(), strings.TrimSpace(string(dsn)))
+	if err != nil {
+		t.Fatal("open dev database")
+	}
+	defer store.Close()
+	options, err := readSessionRedisConfig(os.Getenv("MOMIAO_SESSION_REDIS_CONFIG_FILE"))
+	if err != nil {
+		t.Fatal("read dev session Redis config")
+	}
+	client := redis.NewClient(options)
+	defer client.Close()
+	auth := &identity.HTTP{Store: &identity.Store{Pool: store.Pool()}, Sessions: identity.Sessions{Redis: client}, Origin: "https://dev.momiao.win"}
+
+	var admin, regular int64
+	if err = store.Pool().QueryRow(t.Context(), `SELECT min(id) FILTER(WHERE role>=10),min(id) FILTER(WHERE role<10) FROM identity.users WHERE status=1 AND deleted_at IS NULL`).Scan(&admin, &regular); err != nil {
+		t.Fatal(err)
+	}
+	var model string
+	if err = store.Pool().QueryRow(t.Context(), `SELECT model_id FROM catalog.model_catalog_publication WHERE publication_state='PUBLISHED' ORDER BY model_id LIMIT 1`).Scan(&model); err != nil {
+		t.Fatal(err)
+	}
+	sessions := map[int64]identity.Session{}
+	for _, user := range []int64{admin, regular} {
+		value, e := auth.Sessions.Create(t.Context(), user)
+		if e != nil {
+			t.Fatal(e)
 		}
-		for _, mode := range []string{"anonymous", "scope", "query", "origin", "permission"} {
-			r := announcementReq(method, "/platform/v1/ops/models/family-covers"+tail, `{"command":{}}`)
-			s.denied = mode == "scope"
-			s.readOnly = mode == "permission"
-			want := 403
-			if mode == "anonymous" {
-				r = httptest.NewRequest(method, r.URL.String(), nil)
-				want = 401
+		sessions[user] = value
+		defer func() {
+			if e := auth.Sessions.Revoke(context.Background(), value); e != nil {
+				t.Error(e)
 			}
-			if mode == "query" {
-				r.URL.RawQuery = "x=1"
-				want = 400
+		}()
+	}
+	for _, webDir := range []string{"", "/unused-catalog-web"} {
+		cfg := catalogHTTPConfig(store)
+		cfg.PublicOrigin, cfg.WebDir = auth.Origin, webDir
+		cfg.OpsEnvironment = "DEVELOPMENT"
+		cfg.Session.Enabled = true
+		cfg.localIdentity = auth
+		cfg.relay = store
+		cfg.rpUsage = store
+		cfg.RankingActivationTime = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+		cfg.rankings = rankings.NewService(store, rankings.Options{ActivationTime: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)})
+		cfg.games, err = games.NewService(store, games.Keyring{Active: "ops-read-only", Keys: map[string][32]byte{"ops-read-only": {}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var pokerPool *pgxpool.Pool
+		if path := os.Getenv("MOMIAO_OPS_POKER_DSN_FILE"); path != "" {
+			raw, e := os.ReadFile(path)
+			if e != nil {
+				t.Fatal("read dev Poker DSN")
 			}
-			if mode == "origin" {
-				r.Header.Set("Origin", "https://evil.example")
-				if method == "GET" {
-					want = 200
+			pokerPool, e = pgxpool.New(t.Context(), strings.TrimSpace(string(raw)))
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer pokerPool.Close()
+			lease, e := redislease.Open(t.Context(), redislease.Config{Addr: options.Addr, Username: options.Username, Password: options.Password, TLSConfig: options.TLSConfig})
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer lease.Close()
+			service, e := poker.New(poker.Options{Pool: pokerPool, Leases: lease, Keyring: poker.Keyring{Current: "read-only", Keys: map[string][]byte{"read-only": make([]byte, 32)}}})
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer service.Close()
+			cfg.pokerOps = service
+
+		}
+		h := newPortalHandler(cfg)
+		request := func(user int64, method, path, body string, csrf bool) *httptest.ResponseRecorder {
+			r := httptest.NewRequest(method, path, strings.NewReader(body))
+			r.Header.Set("New-Api-User", "1")
+			r.Header.Set("X-Auth-Session", "forged")
+			r.Header.Set("Origin", auth.Origin)
+			r.Header.Set("Content-Type", "application/json")
+			if value, ok := sessions[user]; ok {
+				r.AddCookie(&http.Cookie{Name: identity.SessionCookieName, Value: value.Token})
+				if csrf {
+					r.Header.Set("X-CSRF-Token", value.CSRFToken)
 				}
-			}
-			if mode == "permission" && method == "GET" {
-				want = 200
 			}
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, r)
-			if w.Code != want {
-				t.Fatal("cover HTTP boundary", tail, mode, w.Code, w.Body)
+			return w
+		}
+
+		t.Run("native-dependencies", func(t *testing.T) {
+			for _, user := range []int64{admin, regular} {
+				r := httptest.NewRequest("GET", "/local-wallet", nil)
+				r.AddCookie(&http.Cookie{Name: identity.SessionCookieName, Value: sessions[user].Token})
+				prepared, err := auth.Request(r, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if id, status := verifyWalletUser(prepared); status != 0 || id != user {
+					t.Fatal("local wallet identity", id, status)
+				}
+				prepared.URL.Path = "/platform/v1/wallet"
+				wallet := httptest.NewRecorder()
+				newWalletHandler(auth.Origin, store).ServeHTTP(wallet, prepared)
+				if wallet.Code != 200 || !strings.Contains(wallet.Body.String(), `"user_id":"`+strconv.FormatInt(user, 10)+`"`) {
+					t.Fatal("local wallet read", wallet.Code, wallet.Body.String())
+				}
+				w := request(user, "GET", "/api/v1/rankings/me", "", false)
+				if w.Code != 200 {
+					t.Fatalf("web=%t local personal ranking: status=%d body=%s", webDir != "", w.Code, w.Body.String())
+				}
+				var actual struct {
+					Data rankings.Page `json:"data"`
+				}
+				if json.Unmarshal(w.Body.Bytes(), &actual) != nil {
+					t.Fatal("ranking response")
+				}
+				expected, err := cfg.rankings.Read(t.Context(), rankings.Query{Metric: "TOTAL_ASSETS", Period: "CURRENT", Page: 1}, user)
+				if err != nil {
+					t.Fatal(err)
+				}
+				a, _ := json.Marshal(actual.Data)
+				b, _ := json.Marshal(expected)
+				if !bytes.Equal(a, b) {
+					t.Fatal("ranking does not match the local session user")
+				}
 			}
-		}
-	}
-	s.denied = false
-	s.readOnly = false
-	for _, body := range []string{`null`, `{"command":{},"unknown":1}`, `{"command":{"family":"gpt","family":"other"}}`} {
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, announcementReq("POST", "/platform/v1/ops/models/family-covers/prepare", body))
-		if w.Code != 400 {
-			t.Fatal("cover JSON boundary", w.Code)
-		}
-	}
-	wc := httptest.NewRecorder()
-	h.ServeHTTP(wc, announcementReq("POST", "/platform/v1/ops/models/family-covers/execute", `{"command":{},"confirmed":false}`))
-	if wc.Code != 400 {
-		t.Fatal("cover confirmation missing", wc.Code)
-	}
-	s.writes = 0
-	s.denied = true
-	for _, path := range []string{"/platform/v1/ops/models", "/platform/v1/models/personal-price?model_id=x"} {
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
-		if w.Code != 401 {
-			t.Fatal(path, w.Code)
-		}
-	}
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, announcementReq("GET", "/platform/v1/ops/models", ""))
-	if w.Code != 403 {
-		t.Fatal("native admin gained scope", w.Code)
-	}
-	s.denied = false
-	for _, body := range []string{`null`, `[]`, `{"command":{},"command":{}}`, `{"command":{"action":"SAVE","action":"SYNC"}}`, `{"command":{},"other":1}`, strings.Repeat(" ", 66000)} {
-		w = httptest.NewRecorder()
-		h.ServeHTTP(w, announcementReq("POST", "/platform/v1/ops/models/prepare", body))
-		if w.Code != 400 {
-			t.Fatal(body[:min(len(body), 80)], w.Code)
-		}
-	}
-	for _, kind := range []string{"origin", "content", "query"} {
-		r := announcementReq("POST", "/platform/v1/ops/models/prepare", `{"command":{}}`)
-		if kind == "origin" {
-			r.Header.Set("Origin", "https://evil.example")
-		}
-		if kind == "content" {
-			r.Header.Set("Content-Type", "text/plain")
-		}
-		if kind == "query" {
-			r.URL.RawQuery = "x=1"
-		}
-		w = httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		if w.Code < 400 || s.writes != 0 {
-			t.Fatal(kind, w.Code, s.writes)
-		}
-	}
-	w = httptest.NewRecorder()
-	h.ServeHTTP(w, announcementReq("POST", "/platform/v1/ops/models/prepare", `{"command":{"operation_id":"fixture"}}`))
-	if w.Code != 200 || s.writes != 1 {
-		t.Fatal(w.Code, w.Body)
+			if w := request(0, "GET", "/api/v1/rankings/me", "", false); w.Code != 401 {
+				t.Fatal("ranking anonymous", w.Code)
+			}
+			if w := request(admin, "POST", "/api/v1/rankings/me", `{}`, true); w.Code != 405 {
+				t.Fatal("ranking read only", w.Code)
+			}
+			if w := request(admin, "GET", "/api/v1/rankings/me?page=0", "", false); w.Code != 400 {
+				t.Fatal("ranking invalid page", w.Code)
+			}
+		})
+
+		t.Run("rp", func(t *testing.T) {
+			for _, user := range []int64{admin, regular} {
+				w := request(user, "GET", "/api/v1/usage/rp", "", false)
+				if w.Code != 200 {
+					t.Fatalf("local RP usage: status=%d body=%s", w.Code, w.Body.String())
+				}
+				var body struct {
+					Data struct {
+						platform.RPUsagePage
+						ObservedAt time.Time `json:"observed_at"`
+					} `json:"data"`
+				}
+				if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+					t.Fatal(err)
+				}
+				var total int64
+				if err := store.Pool().QueryRow(t.Context(), `SELECT count(DISTINCT logical_request_id) FROM economy.request_attributions WHERE newapi_user_id=$1 AND key_purpose_snapshot='ROLEPLAY' AND entered_model_flow AND requested_at>=$2`, user, cfg.RankingActivationTime).Scan(&total); err != nil {
+					t.Fatal(err)
+				}
+				if body.Data.Total != total || body.Data.ObservedAt.IsZero() {
+					t.Fatal("RP account isolation or observation", body.Data.Total, total)
+				}
+				w = request(user, "GET", "/api/v1/usage/rp?model=no-such-model&status=SUCCESS&page=2&from=2026-09-01T00:00:00Z&to=2026-10-14T00:00:00Z", "", false)
+				if w.Code != 200 || !strings.Contains(w.Body.String(), `"total":"0"`) || !strings.Contains(w.Body.String(), `"page":2`) {
+					t.Fatal("RP filters", w.Code, w.Body.String())
+				}
+			}
+			if w := request(0, "GET", "/api/v1/usage/rp", "", false); w.Code != 401 {
+				t.Fatal("RP anonymous", w.Code)
+			}
+			if w := request(admin, "POST", "/api/v1/usage/rp", `{}`, true); w.Code != 405 {
+				t.Fatal("RP read only", w.Code)
+			}
+			if w := request(admin, "GET", "/api/v1/usage/rp?page=0", "", false); w.Code != 400 {
+				t.Fatal("RP bad page", w.Code)
+			}
+		})
+
+		t.Run("runtime", func(t *testing.T) {
+			for _, path := range []string{"/api/v1/ops/bootstrap", "/api/v1/ops/admin-principals", "/api/v1/ops/operations", "/api/v1/ops/operations/00000000-0000-4000-8000-000000000001", "/api/v1/ops/fresh/password", "/api/v1/ops/fresh/discord/start"} {
+				if w := request(admin, "GET", path, "", false); w.Code != 404 {
+					t.Fatal("removed ops pipeline", path, w.Code, w.Body.String())
+				}
+				if w := request(admin, "POST", path, `{}`, true); w.Code != 404 {
+					t.Fatal("removed ops write", path, w.Code, w.Body.String())
+				}
+			}
+			if gateRouteDomain("/ops/access-control") == "OPERATIONS" || gateRouteDomain("/ops/operations/00000000-0000-4000-8000-000000000001") == "OPERATIONS" {
+				t.Fatal("removed legacy Ops browser routes")
+			}
+			for _, path := range []string{"/api/v1/ops/jobs?page=1", "/api/v1/ops/attention?page=1", "/api/v1/ops/service-health"} {
+				w := request(admin, "GET", path, "", false)
+				if w.Code != 200 {
+					t.Fatal("local runtime", path, w.Code, w.Body.String())
+				}
+				for _, user := range []int64{regular, 0} {
+					want := 403
+					if user == 0 {
+						want = 401
+					}
+					if w := request(user, "GET", path, "", false); w.Code != want {
+						t.Fatal("runtime role", path, w.Code, w.Body.String())
+					}
+				}
+				if w := request(admin, "POST", path, `{}`, true); w.Code != 405 {
+					t.Fatal("runtime read only", w.Code, w.Body.String())
+				}
+			}
+			for _, path := range []string{"/api/v1/ops/jobs?page=0", "/api/v1/ops/attention?from=bad", "/api/v1/ops/jobs?from=2026-10-14T00:00:00Z&to=2026-10-13T00:00:00Z"} {
+				if w := request(admin, "GET", path, "", false); w.Code != 400 {
+					t.Fatal("runtime filter input", w.Code, w.Body.String())
+				}
+			}
+			for _, path := range []string{"/api/v1/ops/jobs?kind=ANNOUNCEMENTS&status=PENDING&from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z&page=2", "/api/v1/ops/attention?kind=GAME_ROUNDS"} {
+				if w := request(admin, "GET", path, "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"items":`) || !strings.Contains(w.Body.String(), `"summary":`) {
+					t.Fatal("runtime filters", w.Code, w.Body.String())
+				}
+			}
+			if w := request(admin, "GET", "/api/v1/ops/native-runtime", "", false); w.Code != 404 {
+				t.Fatal("removed native runtime", w.Code, w.Body.String())
+			}
+		})
+		t.Run("support-incidents", func(t *testing.T) {
+			for _, path := range []string{"/api/v1/ops/support-cases?page=1", "/api/v1/ops/incidents?page=1"} {
+				w := request(admin, "GET", path, "", false)
+				if w.Code != 200 || !strings.Contains(w.Body.String(), `"items":`) {
+					t.Fatal("local support/incidents", path, w.Code, w.Body.String())
+				}
+				for _, user := range []int64{regular, 0} {
+					want := 403
+					if user == 0 {
+						want = 401
+					}
+					if w := request(user, "GET", path, "", false); w.Code != want {
+						t.Fatal("support role", w.Code, w.Body.String())
+					}
+				}
+			}
+			for _, root := range []string{"/api/v1/ops/support-cases", "/api/v1/ops/incidents"} {
+				if w := request(admin, "POST", root, `{}`, false); w.Code != 403 {
+					t.Fatal("support CSRF", w.Code, w.Body.String())
+				}
+				if w := request(admin, "POST", root, `{}`, true); w.Code != 400 {
+					t.Fatal("support input", w.Code, w.Body.String())
+				}
+				if w := request(regular, "POST", root, `{}`, true); w.Code != 403 {
+					t.Fatal("support write role", w.Code, w.Body.String())
+				}
+				if w := request(admin, "GET", root+"?page=0", "", false); w.Code != 400 {
+					t.Fatal("support page", w.Code, w.Body.String())
+				}
+				if w := request(admin, "GET", root+"?from=bad", "", false); w.Code != 400 {
+					t.Fatal("support date", w.Code, w.Body.String())
+				}
+				if w := request(admin, "GET", root+"?q=not-found&from=2026-09-01T00:00:00Z&to=2026-10-14T00:00:00Z", "", false); w.Code != 200 {
+					t.Fatal("support filters", w.Code, w.Body.String())
+				}
+				missing := root + "/10000000-0000-7000-8000-000000000099"
+				if w := request(admin, "GET", missing, "", false); w.Code != 404 {
+					t.Fatal("support missing", w.Code, w.Body.String())
+				}
+				if w := request(admin, "PUT", missing, `{"next_state":"CLOSED"}`, true); w.Code != 404 {
+					t.Fatal("support update missing", w.Code, w.Body.String())
+				}
+			}
+		})
+		t.Run("poker", func(t *testing.T) {
+			if pokerPool == nil {
+				t.Skip("requires existing dev Poker DSN")
+			}
+			for _, path := range []string{"/api/v1/ops/poker", "/api/v1/ops/poker/tables?limit=2", "/api/v1/ops/poker/sessions?limit=2"} {
+				if w := request(admin, "GET", path, "", false); w.Code != 200 {
+					t.Fatal("local poker", w.Code, w.Body.String())
+				}
+				if w := request(regular, "GET", path, "", false); w.Code != 403 {
+					t.Fatal("poker role", w.Code)
+				}
+				if w := request(0, "GET", path, "", false); w.Code != 401 {
+					t.Fatal("poker anonymous", w.Code)
+				}
+			}
+			for _, query := range []string{"?limit=-1", "?from=bad", "?from=2026-10-14T00:00:00Z&to=2026-09-01T00:00:00Z"} {
+				if w := request(admin, "GET", "/api/v1/ops/poker/tables"+query, "", false); w.Code != 400 {
+					t.Fatal("poker invalid filter", w.Code)
+				}
+			}
+			if w := request(admin, "GET", "/api/v1/ops/poker/tables?state=CLOSED&q=not-found&from=2026-09-01T00:00:00Z&to=2026-10-14T00:00:00Z", "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"items":[]`) {
+				t.Fatal("poker filter", w.Code, w.Body.String())
+			}
+			var tableID, sessionID, handID string
+			if err := pokerPool.QueryRow(t.Context(), `SELECT table_id::text,session_id::text FROM poker.sessions ORDER BY session_id LIMIT 1`).Scan(&tableID, &sessionID); err != nil {
+				t.Fatal(err)
+			}
+			if err := pokerPool.QueryRow(t.Context(), `SELECT hand_id::text FROM poker.hands ORDER BY hand_id LIMIT 1`).Scan(&handID); err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range []string{"/api/v1/ops/poker/tables/" + tableID, "/api/v1/ops/poker/sessions/" + sessionID, "/api/v1/ops/poker/hands/" + handID} {
+				w := request(admin, "GET", path, "", false)
+				if w.Code != 200 {
+					t.Fatal("poker detail", w.Code, w.Body.String())
+				}
+				if strings.Contains(w.Body.String(), `"server_seed"`) || strings.Contains(w.Body.String(), `"encrypted_snapshot"`) {
+					t.Fatal("private poker material")
+				}
+			}
+			path := "/api/v1/ops/poker/tables/00000000-0000-7000-8000-000000000001"
+			if w := request(admin, "POST", path, `{}`, false); w.Code != 403 {
+				t.Fatal("poker CSRF", w.Code)
+			}
+			if w := request(regular, "POST", path, `{}`, true); w.Code != 403 {
+				t.Fatal("poker write role", w.Code)
+			}
+			if w := request(admin, "POST", path, `{}`, true); w.Code != 400 {
+				t.Fatal("poker invalid command", w.Code, w.Body.String())
+			}
+			if w := request(admin, "POST", path, `{"command_type":"POKER_TABLE_PAUSE"}`, true); w.Code != 404 {
+				t.Fatal("poker missing", w.Code, w.Body.String())
+			}
+			t.Log("poker both routers: admin200 regular403 anonymous401 CSRF403 invalid400 missing404; global filters and public details; no native")
+		})
+
+		t.Run("games", func(t *testing.T) {
+			for _, path := range []string{"/api/v1/ops/games", "/api/v1/ops/games/scratch", "/api/v1/ops/games/devil-roulette"} {
+				w := request(admin, "GET", path, "", false)
+				if w.Code != 200 {
+					t.Fatal("local games", w.Code, w.Body.String())
+				}
+				for _, user := range []int64{regular, 0} {
+					want := 403
+					if user == 0 {
+						want = 401
+					}
+					if w := request(user, "GET", path, "", false); w.Code != want {
+						t.Fatal("game read role", w.Code, w.Body.String())
+					}
+				}
+			}
+			if w := request(admin, "GET", "/api/v1/ops/games/scratch?page=2&status=ACTIVE&from=2026-09-01T00:00:00Z&to=2026-10-14T00:00:00Z", "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"page":2`) || !strings.Contains(w.Body.String(), `"config_versions":[]`) {
+				t.Fatal("config history paging", w.Code, w.Body.String())
+			}
+			if w := request(admin, "GET", "/api/v1/ops/games/scratch?from=bad", "", false); w.Code != 400 {
+				t.Fatal("config time filter", w.Code, w.Body.String())
+			}
+			for _, p := range []struct{ path, method string }{
+				{"/api/v1/ops/games/scratch", "PUT"},
+				{"/api/v1/ops/games/scratch/configs/00000000-0000-7000-8000-000000000001/activate", "POST"},
+				{"/api/v1/ops/games/devil-roulette/rounds/00000000-0000-7000-8000-000000000001/void", "POST"},
+			} {
+				if w := request(admin, p.method, p.path, `{}`, false); w.Code != 403 {
+					t.Fatal("games CSRF", w.Code, w.Body.String())
+				}
+				if w := request(regular, p.method, p.path, `{}`, true); w.Code != 403 {
+					t.Fatal("games write role", w.Code, w.Body.String())
+				}
+				want := 404
+				if p.method == "PUT" {
+					want = 400
+				}
+				if w := request(admin, p.method, p.path, `{}`, true); w.Code != want {
+					t.Fatal("games invalid or missing", w.Code, w.Body.String())
+				}
+			}
+			if w := request(admin, "GET", "/api/v1/ops/games/invalid", "", false); w.Code != 404 {
+				t.Fatal(w.Code)
+			}
+			if w := request(admin, "POST", "/api/v1/ops/games/scratch/configs/invalid/validate", `{}`, true); w.Code != 404 {
+				t.Fatal(w.Code)
+			}
+			t.Log("games both routers: local admin200 regular403 anonymous401 CSRF403 invalid400 missing404; no native")
+		})
+
+		t.Run("rankings", func(t *testing.T) {
+			w := request(admin, "GET", "/api/v1/ops/rankings", "", false)
+			if w.Code != 200 {
+				t.Fatal("local rankings", w.Code, w.Body.String())
+			}
+
+			if w := request(admin, "GET", "/api/v1/ops/rankings?domain=GAMES&page=2&from=2026-09-01T00:00:00Z&to=2026-10-14T00:00:00Z", "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"page":2`) {
+				t.Fatal("rankings paging", w.Code, w.Body.String())
+			}
+			for _, query := range []string{"?domain=bad", "?page=-1", "?from=bad", "?from=2026-10-14T00:00:00Z&to=2026-09-01T00:00:00Z"} {
+				if w := request(admin, "GET", "/api/v1/ops/rankings"+query, "", false); w.Code != 400 {
+					t.Fatal("ranking filter", w.Code)
+				}
+			}
+			var snapshotID string
+			if err := store.Pool().QueryRow(t.Context(), `SELECT snapshot_id::text FROM rankings.published_pointers WHERE domain='GAMES' ORDER BY published_at DESC LIMIT 1`).Scan(&snapshotID); err != nil {
+				t.Fatal(err)
+			}
+			if w := request(admin, "GET", "/api/v1/ops/rankings/snapshots/"+snapshotID, "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"diff"`) {
+				t.Fatal("ranking snapshot detail", w.Code, w.Body.String())
+			}
+			for _, user := range []int64{regular, 0} {
+				code := 403
+				if user == 0 {
+					code = 401
+				}
+				if w := request(user, "GET", "/api/v1/ops/rankings", "", false); w.Code != code {
+					t.Fatal("rankings role", w.Code, w.Body.String())
+				}
+			}
+			for _, path := range []string{"/api/v1/ops/rankings/rebuilds", "/api/v1/ops/rankings/snapshots/00000000-0000-4000-8000-000000000001/publish"} {
+				if w := request(admin, "POST", path, `{}`, false); w.Code != 403 {
+					t.Fatal("rankings CSRF", w.Code, w.Body.String())
+				}
+				if w := request(regular, "POST", path, `{}`, true); w.Code != 403 {
+					t.Fatal("rankings write role", w.Code, w.Body.String())
+				}
+			}
+			if w := request(admin, "POST", "/api/v1/ops/rankings/rebuilds", `{"domain":"invalid"}`, true); w.Code != 400 {
+				t.Fatal("rankings invalid rebuild", w.Code, w.Body.String())
+			}
+			if w := request(admin, "POST", "/api/v1/ops/rankings/snapshots/00000000-0000-4000-8000-000000000001/publish", `{}`, true); w.Code != 404 {
+				t.Fatal("rankings missing candidate", w.Code, w.Body.String())
+			}
+		})
+
+		t.Run("economy", func(t *testing.T) {
+			gamblerPath := "/api/v1/ops/economy/gambler-campaigns/" + platform.GamblerCampaignID
+			if w := request(admin, "GET", gamblerPath+"?page=1", "", false); w.Code != 200 || !strings.Contains(w.Body.String(), `"page_size":20`) {
+				t.Fatal("local gambler", w.Code, w.Body.String())
+			}
+			for _, u := range []int64{regular, 0} {
+				want := 403
+				if u == 0 {
+					want = 401
+				}
+				if w := request(u, "GET", gamblerPath, "", false); w.Code != want {
+					t.Fatal("gambler role", w.Code)
+				}
+			}
+			if w := request(admin, "POST", gamblerPath, `{}`, false); w.Code != 403 {
+				t.Fatal("gambler CSRF", w.Code)
+			}
+			if w := request(regular, "POST", gamblerPath, `{}`, true); w.Code != 403 {
+				t.Fatal("gambler write role", w.Code)
+			}
+			if w := request(admin, "POST", gamblerPath, `{}`, true); w.Code != 400 {
+				t.Fatal("gambler input", w.Code, w.Body.String())
+			}
+			if w := request(admin, "GET", gamblerPath+"?page=0", "", false); w.Code != 400 {
+				t.Fatal("gambler page", w.Code)
+			}
+			if w := request(admin, "GET", gamblerPath+"?from=bad", "", false); w.Code != 400 {
+				t.Fatal("gambler date", w.Code)
+			}
+			if w := request(admin, "GET", gamblerPath+"?state=BAD", "", false); w.Code != 400 {
+				t.Fatal("gambler state", w.Code)
+			}
+			if w := request(admin, "GET", gamblerPath+"?eligible=true&from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z&page=2", "", false); w.Code != 200 {
+				t.Fatal("gambler filters", w.Code, w.Body.String())
+			}
+			if w := request(admin, "POST", gamblerPath, `{"action":"snapshot","requests_drained":true}`, true); w.Code != 409 {
+				t.Fatal("completed campaign restart", w.Code, w.Body.String())
+			}
+			assetPath := "/api/v1/ops/economy/user?newapi_user_id=" + strconv.FormatInt(regular, 10)
+			assetResponse := request(admin, "GET", assetPath, "", false)
+			if assetResponse.Code != 200 || !strings.Contains(assetResponse.Body.String(), `"assets":`) || !strings.Contains(assetResponse.Body.String(), `"single_player_in_flight_units":`) {
+				t.Fatal("local assets missing", assetResponse.Code)
+			}
+			if strings.Contains(assetResponse.Body.String(), `"active_quota_units":`) || strings.Contains(assetResponse.Body.String(), `"native_observed_at":`) {
+				t.Fatal("native assets remain")
+			}
+			chipPath := "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/chips"
+			if w := request(admin, "POST", chipPath, `{}`, false); w.Code != 403 {
+				t.Fatal("chips CSRF", w.Code)
+			}
+			if w := request(regular, "POST", chipPath, `{}`, true); w.Code != 403 {
+				t.Fatal("chips role", w.Code)
+			}
+			if w := request(admin, "POST", chipPath, `{}`, true); w.Code != 400 {
+				t.Fatal("chips input", w.Code, w.Body.String())
+			}
+			user := strconv.FormatInt(regular, 10)
+			for _, path := range []string{"/api/v1/ops/economy/overview", "/api/v1/ops/economy/user?newapi_user_id=" + user, "/api/v1/ops/economy/ledger?limit=2", "/api/v1/ops/economy/transfers?limit=2", "/api/v1/ops/rewards/policies", "/api/v1/ops/rewards/claims?limit=2"} {
+				w := request(admin, "GET", path, "", false)
+				if w.Code != 200 {
+					t.Fatal("local economy/rewards", path, w.Code, w.Body.String())
+				}
+				if strings.Contains(w.Body.String(), `"authz_epoch"`) || strings.Contains(w.Body.String(), `"active_quota_units"`) {
+					t.Fatal("legacy economy response", w.Body.String())
+				}
+				if w = request(regular, "GET", path, "", false); w.Code != 403 {
+					t.Fatal("regular", w.Code)
+				}
+				if w = request(0, "GET", path, "", false); w.Code != 401 {
+					t.Fatal("anonymous", w.Code)
+				}
+			}
+			for _, path := range []string{"/api/v1/ops/economy/ledger?newapi_user_id=-1", "/api/v1/ops/economy/ledger?asset=bad", "/api/v1/ops/rewards/claims?program=bad"} {
+				if w := request(admin, "GET", path, "", false); w.Code != 400 {
+					t.Fatal("invalid filter", w.Code, w.Body.String())
+				}
+			}
+			path := "/api/v1/ops/rewards/claims/00000000-0000-4000-8000-000000000001/retry"
+			if w := request(admin, "POST", path, `{}`, false); w.Code != 403 {
+				t.Fatal("retry CSRF", w.Code)
+			}
+			if w := request(admin, "POST", path, `{}`, true); w.Code != 404 {
+				t.Fatal("missing claim", w.Code, w.Body.String())
+			}
+			if w := request(regular, "POST", path, `{}`, true); w.Code != 403 {
+				t.Fatal("regular retry", w.Code)
+			}
+			if w := request(admin, "POST", "/api/v1/ops/economy/transfers", `{}`, true); w.Code != 405 {
+				t.Fatal("historical transfers readonly", w.Code)
+			}
+			if gateRouteDomain("/ops/gambler-campaign") != "OPERATIONS" {
+				t.Fatal("preserved campaign navigation")
+			}
+			t.Log("economy/rewards both routers: local admin200 regular403 anonymous401 CSRF403 invalid400 missing404; transfers readonly405; no native")
+		})
+		t.Run("users", func(t *testing.T) {
+			masterPath := "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/master"
+			w := request(admin, "GET", masterPath, "", false)
+			if w.Code != 200 || !strings.Contains(w.Body.String(), `"rename_required":`) {
+				t.Fatal("local Master", w.Code, w.Body.String())
+			}
+			for _, actor := range []int64{regular, 0} {
+				want := 403
+				if actor == 0 {
+					want = 401
+				}
+				if w := request(actor, "GET", masterPath, "", false); w.Code != want {
+					t.Fatal("Master role", w.Code)
+				}
+			}
+			for _, action := range []string{"master-rename-required", "master-force-rename"} {
+				path := "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/" + action
+				if w := request(admin, "POST", path, `{}`, false); w.Code != 403 {
+					t.Fatal("Master CSRF", w.Code)
+				}
+				if w := request(regular, "POST", path, `{}`, true); w.Code != 403 {
+					t.Fatal("Master write role", w.Code)
+				}
+				if w := request(admin, "POST", path, `{}`, true); w.Code != 400 {
+					t.Fatal("Master input", w.Code, w.Body.String())
+				}
+			}
+			if w := request(admin, "POST", "/api/v1/ops/users/"+strconv.FormatInt(regular, 10)+"/master-force-rename", `{"display_name":"Admin"}`, true); w.Code != 403 {
+				t.Fatal("reserved Master name", w.Code, w.Body.String())
+			}
+			if w := request(admin, "GET", "/api/v1/ops/users/9223372036854775807/master", "", false); w.Code != 404 {
+				t.Fatal("missing Master", w.Code)
+			}
+			for _, path := range []string{"/api/v1/ops/users", "/api/v1/ops/users/" + strconv.FormatInt(regular, 10), "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/ledger", "/api/v1/ops/users/" + strconv.FormatInt(regular, 10) + "/keys", "/api/v1/ops/logs"} {
+				if w := request(admin, "GET", path, "", false); w.Code != 200 {
+					t.Fatal("local users Ops", path, w.Code, w.Body.String())
+				}
+				if w := request(regular, "GET", path, "", false); w.Code != 403 {
+					t.Fatal("regular role", w.Code)
+				}
+				if w := request(0, "GET", path, "", false); w.Code != 401 {
+					t.Fatal("anonymous role", w.Code)
+				}
+			}
+			path := "/api/v1/ops/users/" + strconv.FormatInt(regular, 10)
+			if w := request(admin, "PUT", path, `{}`, false); w.Code != 403 {
+				t.Fatal("user CSRF", w.Code)
+			}
+			if w := request(admin, "PUT", path, `{}`, true); w.Code != 400 {
+				t.Fatal("invalid user input", w.Code, w.Body.String())
+			}
+			if w := request(admin, "GET", "/api/v1/ops/logs?dimension=arbitrary", "", false); w.Code != 400 {
+				t.Fatal("invalid log dimension", w.Code)
+			}
+			if gateRouteDomain("/ops/users/2") != "OPERATIONS" || gateRouteDomain("/ops/logs") != "OPERATIONS" {
+				t.Fatal("local users/logs navigation gate")
+			}
+			t.Log("users/logs both routers: local admin200 regular403 anonymous401 CSRF403 invalid400; no native")
+		})
+		t.Run("catalog-and-relay", func(t *testing.T) {
+			for _, path := range []string{"/api/v1/ops/channels", "/api/v1/ops/groups", "/api/v1/ops/groups/availability"} {
+				w := request(admin, "GET", path, "", false)
+				if w.Code != 200 {
+					t.Fatal("local relay Ops", path, w.Code, w.Body.String())
+				}
+				if strings.Contains(w.Body.String(), `"key":`) || strings.Contains(w.Body.String(), `"channel_info":`) {
+					t.Fatal("channel secret returned")
+				}
+				if w = request(regular, "GET", path, "", false); w.Code != 403 {
+					t.Fatal("regular role", path, w.Code)
+				}
+				if w = request(0, "GET", path, "", false); w.Code != 401 {
+					t.Fatal("anonymous role", path, w.Code)
+				}
+			}
+			if w := request(admin, "PUT", "/api/v1/ops/channels", `{}`, false); w.Code != 403 {
+				t.Fatal("channel CSRF", w.Code)
+			}
+			if w := request(admin, "PUT", "/api/v1/ops/channels", `{}`, true); w.Code != 400 {
+				t.Fatal("channel input", w.Code)
+			}
+			if w := request(admin, "GET", "/api/channel/", "", false); w.Code != 404 {
+				t.Fatal("old channel proxy remains", w.Code)
+			}
+			if gateRouteDomain("/ops/channels/20") != "OPERATIONS" || gateRouteDomain("/ops/groups") != "OPERATIONS" {
+				t.Fatal("local Ops navigation gate")
+			}
+			w := request(admin, "GET", "/platform/v1/ops/models", "", false)
+			if w.Code != 200 {
+				t.Fatal("local Ops catalog", w.Code, w.Body.String())
+			}
+			if strings.Contains(w.Body.String(), `"principal"`) || strings.Contains(w.Body.String(), `"sync"`) {
+				t.Fatal("legacy catalog authority or sync in response")
+			}
+			w = request(admin, "GET", "/platform/v1/ops/models/detail?"+url.Values{"model_id": []string{model}}.Encode(), "", false)
+			if w.Code != 200 || !strings.Contains(w.Body.String(), `"price_settings"`) {
+				t.Fatal("editable local catalog price", w.Code, w.Body.String())
+			}
+			if w = request(admin, "GET", catalogCoversPath, "", false); w.Code != 200 {
+				t.Fatal("local family covers", w.Code, w.Body.String())
+			}
+			for _, user := range []int64{0, regular} {
+				want := 403
+				if user == 0 {
+					want = 401
+				}
+				if w = request(user, "GET", "/platform/v1/ops/models", "", false); w.Code != want {
+					t.Fatal("local Ops role", user, w.Code)
+				}
+			}
+			if w = request(admin, "PUT", "/platform/v1/ops/models", `{}`, false); w.Code != 403 {
+				t.Fatal("missing CSRF accepted", w.Code)
+			}
+			if w = request(admin, "PUT", "/platform/v1/ops/models", `{}`, true); w.Code != 400 {
+				t.Fatal("invalid save accepted", w.Code, w.Body.String())
+			}
+			if w = request(admin, "POST", "/platform/v1/ops/models/prepare", `{}`, true); w.Code != 404 {
+				t.Fatal("legacy prepare remains", w.Code)
+			}
+			if webDir == "" {
+				var probeID string
+				if err = store.Pool().QueryRow(t.Context(), `SELECT id::text FROM relay.channels WHERE enabled AND type=1 AND models[1]='gpt-5.6-sol' ORDER BY id LIMIT 1`).Scan(&probeID); err != nil {
+					t.Fatal("existing small dev channel", err)
+				}
+				w = request(admin, "POST", "/api/v1/ops/channels/"+probeID+"/models", `{}`, true)
+				var models struct {
+					Data []string `json:"data"`
+				}
+				if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &models) != nil || len(models.Data) == 0 {
+					t.Fatal("upstream model discovery", w.Code, w.Body.String())
+				}
+				w = request(admin, "POST", "/api/v1/ops/channels/"+probeID+"/test", `{}`, true)
+				var probe struct {
+					Data struct {
+						OK       bool   `json:"ok"`
+						Status   int    `json:"status_code"`
+						Duration int64  `json:"duration_ms"`
+						Model    string `json:"model"`
+						Message  string `json:"message"`
+					} `json:"data"`
+				}
+				if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &probe) != nil || !probe.Data.OK || probe.Data.Status != 200 || probe.Data.Model != "gpt-5.6-sol" {
+					t.Fatal("manual first-model probe", w.Code, w.Body.String())
+				}
+				t.Logf("saved channel %s: discovery=%d models; first-model %s max_tokens=1 HTTP%d %dms; no Reserve debit", probeID, len(models.Data), probe.Data.Model, probe.Data.Status, probe.Data.Duration)
+			}
+		})
 	}
 }
 func TestCatalogHTTPPersonalPriceBoundaryAndWithdrawal(t *testing.T) {
-	id := "组织/a%2F'"
-	s := &catalogHTTPStore{}
-	nativeCalls := 0
-	withdraw := false
-	native := catalogRoundTrip(func(r *http.Request) (*http.Response, error) {
-		nativeCalls++
-		if r.URL.Path == "/api/user/self" {
-			return profileTransport().RoundTrip(r)
+	path := os.Getenv("MOMIAO_SESSION_DSN_FILE")
+	if path == "" {
+		t.Skip("requires the existing dev database and Redis")
+	}
+	dsn, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("read dev DSN")
+	}
+	store, err := platform.Open(t.Context(), strings.TrimSpace(string(dsn)))
+	if err != nil {
+		t.Fatal("open dev database")
+	}
+	defer store.Close()
+	options, err := readSessionRedisConfig(os.Getenv("MOMIAO_SESSION_REDIS_CONFIG_FILE"))
+	if err != nil {
+		t.Fatal("read dev session Redis config")
+	}
+	client := redis.NewClient(options)
+	defer client.Close()
+	auth := &identity.HTTP{Store: &identity.Store{Pool: store.Pool()}, Sessions: identity.Sessions{Redis: client}, Origin: "https://dev.momiao.win"}
+	var user int64
+	var model, hidden string
+	tx, err := store.Pool().Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	if err = tx.QueryRow(t.Context(), `SELECT id FROM identity.users WHERE status=1 AND deleted_at IS NULL AND group_name='default' ORDER BY id LIMIT 1 FOR UPDATE`).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	session, err := auth.Sessions.Create(t.Context(), user)
+	if err != nil {
+		t.Fatal("create isolated dev test session")
+	}
+	defer func() {
+		if err := auth.Sessions.Revoke(context.Background(), session); err != nil {
+			t.Error("revoke dev test session", err)
 		}
-		if r.Method != "GET" || r.URL.Scheme != "http" || r.URL.Host != "unix" || r.URL.Path != "/api/momiao/catalog/prices" || r.URL.Query().Get("model_id") != id || len(r.URL.Query()) != 1 {
-			t.Fatal("personal request broadened", r.URL)
+	}()
+	if err = tx.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Pool().QueryRow(t.Context(), `SELECT model_id FROM catalog.model_catalog_publication WHERE publication_state='PUBLISHED' AND EXISTS(SELECT 1 FROM relay.channels WHERE enabled AND model_id=ANY(models) AND 'default'=ANY(groups)) ORDER BY model_id LIMIT 1`).Scan(&model); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Pool().QueryRow(t.Context(), `SELECT model_id FROM catalog.model_catalog_publication WHERE publication_state<>'PUBLISHED' ORDER BY model_id LIMIT 1`).Scan(&hidden); err != nil {
+		t.Fatal(err)
+	}
+	for _, webDir := range []string{"", "/unused-catalog-web"} {
+		cfg := catalogHTTPConfig(store)
+		cfg.PublicOrigin, cfg.WebDir = auth.Origin, webDir
+		cfg.Session.Enabled = true
+		cfg.localIdentity = auth
+		h := newPortalHandler(cfg)
+		request := func(id, extra string, authenticated bool) *httptest.ResponseRecorder {
+			t.Helper()
+			r := httptest.NewRequest("GET", "/platform/v1/models/personal-price?"+url.Values{"model_id": []string{id}}.Encode()+extra, nil)
+			// Only the local cookie may select the user and hence the group.
+			r.Header.Set("New-Api-User", "999999")
+			r.Header.Set("X-Auth-Session", "forged-native-session")
+			if authenticated {
+				r.AddCookie(&http.Cookie{Name: identity.SessionCookieName, Value: session.Token})
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			return w
 		}
-		for k := range r.Header {
-			if k != "Authorization" && k != "New-Api-User" && k != "X-Auth-Session" && k != "Accept" {
-				t.Fatal("forwarded private header", k)
+		w := request(model, "", true)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"source":"local_price"`) {
+			t.Fatal("local personal price", w.Code, w.Body.String())
+		}
+		for _, secret := range []string{"group_multiplier", "native_catalog_visible", "forged-native-session", "api_key", "base_url"} {
+			if strings.Contains(w.Body.String(), secret) {
+				t.Fatal("personal price leaked internal data", secret)
 			}
 		}
-		if r.Header.Get("X-Auth-Session") != "fixture-session" || r.Header.Get("New-Api-User") != "9007199254740993" {
-			t.Fatal("unbound subject")
+		if w = request(model, "&group=工作", true); w.Code != 400 {
+			t.Fatal("group query override", w.Code)
 		}
-		if withdraw {
-			s.withdrawn = true
+		if w = request(hidden, "", true); w.Code != 404 {
+			t.Fatal("unpublished personal price", w.Code)
 		}
-		body, _ := json.Marshal(platform.NativePersonalCatalog{Success: true, Schema: platform.NativeCatalogSchema, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano), ModelID: id, Basis: "current_user_group_reference_not_token_selection", BillingAuthority: "native_settlement", Quotes: []platform.NativePersonalQuote{{Candidate: 1, Reason: "model_not_enabled_in_candidate"}}})
-		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(string(body)))}, nil
-	})
-	h := newCatalogHandler(catalogHTTPConfig(s), native)
-	for _, want := range []int{200, 404} {
-		w := httptest.NewRecorder()
-		r := announcementReq("GET", "/platform/v1/models/personal-price?model_id="+url.QueryEscape(id), "")
-		r.Header.Set("Cookie", "do-not-forward")
-		r.Header.Set("X-Private", "do-not-forward")
-		h.ServeHTTP(w, r)
-		if w.Code != want || strings.Contains(w.Body.String(), "group_multiplier") || strings.Contains(w.Body.String(), "do-not-forward") {
-			t.Fatal(w.Code, w.Body)
+		if w = request(model, "", false); w.Code != 401 {
+			t.Fatal("native headers authorized personal price", w.Code)
 		}
-		withdraw = true
 	}
-	if nativeCalls != 4 || s.publicCalls != 4 {
-		t.Fatal("missing native validation or withdrawal fence", nativeCalls, s.publicCalls)
-	}
+	t.Log("personal price uses existing local Redis session and account group; both routers 200/400/404/401; native transport unused; test session revoked")
 }
 func TestCatalogBrowserOpaqueRoutesAndExactAccessProxy(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("catalog SPA"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	calls := 0
 	cfg := catalogHTTPConfig(&catalogHTTPStore{})
 	cfg.WebDir = dir
-	h := newPortalHandler(cfg, catalogRoundTrip(func(r *http.Request) (*http.Response, error) {
-		calls++
-		return &http.Response{StatusCode: 201, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("native"))}, nil
-	}))
+	h := newPortalHandler(cfg)
 	for _, path := range []string{"/api/access?model_id=x", "/models/" + url.PathEscape("组织/x%2F'"), "/models/~Lg", "/models/~Li4", "/models/%7ELg", "/ops/models"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
@@ -494,51 +923,19 @@ func TestCatalogBrowserOpaqueRoutesAndExactAccessProxy(t *testing.T) {
 			t.Fatal(path, w.Code, w.Body)
 		}
 	}
-	if calls != 0 {
-		t.Fatal("access page was proxied")
-	}
-	for _, path := range []string{"/api/access/", "/api/user/self"} {
+	for _, tc := range []struct {
+		path string
+		want int
+	}{{"/api/access/", http.StatusNotFound}, {"/api/user/self", http.StatusUnauthorized}} {
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
-		if w.Code != 201 {
-			t.Fatal(path, w.Code)
+		h.ServeHTTP(w, httptest.NewRequest("GET", tc.path, nil))
+		if w.Code != tc.want || strings.Contains(w.Body.String(), "catalog SPA") {
+			t.Fatal(tc.path, w.Code, w.Body)
 		}
 	}
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("POST", "/api/access", nil))
-	if w.Code != 405 || calls != 2 {
-		t.Fatal("access method boundary", w.Code, calls)
-	}
-}
-
-func TestCatalogWorkerRecoversAndStops(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	calls := make(chan int, 4)
-	done := make(chan struct{})
-	n := 0
-	go func() {
-		defer close(done)
-		runCatalogWorker(ctx, 5*time.Millisecond, func(context.Context) (platform.CatalogSyncResult, error) {
-			n++
-			calls <- n
-			return platform.CatalogSyncResult{}, errors.New("synthetic failure")
-		})
-	}()
-	for i := 1; i <= 2; i++ {
-		select {
-		case got := <-calls:
-			if got != i {
-				t.Fatal(got)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("worker failed to recover")
-		}
-	}
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("worker ignored cancellation")
+	if w.Code != 405 || w.Header().Get("Allow") != "GET, HEAD" {
+		t.Fatal("access method boundary", w.Code, w.Header())
 	}
 }

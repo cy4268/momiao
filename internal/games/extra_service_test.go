@@ -106,12 +106,6 @@ func TestSlotDurableAtomicSettlement(t *testing.T) {
 	if e := capOwner.EnsureAccount(ctx, capUser); e != nil {
 		t.Fatal(e)
 	}
-	if e := capOwner.WithTx(ctx, func(tx pgx.Tx) error {
-		_, e := tx.Exec(ctx, `INSERT INTO public.users(id) VALUES($1)`, capUser)
-		return e
-	}); e != nil {
-		t.Fatal(e)
-	}
 	if _, e := capOwner.Apply(ctx, platform.Mutation{UserID: capUser, Asset: platform.AvailableChips, DeltaUnits: 2000000000, BizType: "TEST_CAP", BizID: requestKey(t), EntryType: "TEST_GRANT", IdempotencyKey: requestKey(t)}); e != nil {
 		t.Fatal(e)
 	}

@@ -8,7 +8,8 @@ import (
 	"unicode/utf8"
 )
 
-// RegistrationReceipt is a committed native receipt, never client input.
+// RegistrationReceipt is a committed local receipt, never client input.
+// NativeUserID preserves the existing ledger's user-ID and wire field names.
 type RegistrationReceipt struct {
 	Ordinal        int64     `json:"ordinal"`
 	OperationID    string    `json:"operation_id"`

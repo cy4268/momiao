@@ -3,12 +3,66 @@ package platform
 import (
 	"context"
 	"errors"
+	"os"
+	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Each one-shot case gets an entirely new database. Never reset shared schemas,
+// principals or append-only history to make another test pass.
+func migrationNoticeStore(t *testing.T) *Store {
+	t.Helper()
+	dsn := os.Getenv("MOMIAO_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("MOMIAO_TEST_DATABASE_URL absent: migration-notice PostgreSQL integration not run")
+	}
+	if err := validateTestDatabase(dsn); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal("test DSN invalid")
+	}
+	admin, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal("test database unavailable")
+	}
+	name := "momiao_test_m4_" + strings.ReplaceAll(t.Name(), "/", "_") + "_" + time.Now().Format("150405000000")
+	if len(name) > 63 {
+		name = name[:45] + "_" + time.Now().Format("150405000000")
+	}
+	if _, err = admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
+		admin.Close()
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.Database = name
+	sPool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Store{pool: sPool}
+	t.Cleanup(func() {
+		s.Close()
+		_, err := admin.Exec(ctx, "DROP DATABASE "+pgx.Identifier{name}.Sanitize())
+		admin.Close()
+		if err != nil {
+			t.Errorf("isolated database cleanup: %v", err)
+		}
+	})
+	if err = s.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
 func TestMigrationNoticeFactsAndExactlyOnce(t *testing.T) {
-	s := bootstrapStore(t)
+	s := migrationNoticeStore(t)
 	ctx := context.Background()
 	n, err := s.ReadMigrationNotice(ctx, 42, false)
 	if err != nil || n.State != "UNVERIFIED" {

@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/cy4268/momiao/internal/identity"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -70,7 +72,7 @@ func newRecoveryLockedHandler(cfg config) http.Handler {
 		}
 		if canonical && cfg.RecoveryAuthProbes && cfg.ProcessRole == "platform" && cfg.Session.Enabled && r.Method == http.MethodGet && (r.URL.Path == "/api/v1/session/bootstrap" || r.URL.Path == "/api/v1/account") {
 			// Explicitly permitted authentication-state changes include anonymous
-			// Redis sessions, session/credential touches and live Native checks.
+			// Redis sessions, idle touches and local account checks.
 			// No registration, password login, OAuth or account mutation is allowed.
 			serveSessionRoute(cfg.sessionAuth, w, r)
 			return
@@ -92,32 +94,25 @@ func runRecoveryLockedProcess(ctx context.Context, cfg config, logger *log.Logge
 	if cfg.WebDir != "" {
 		cfg.readiness["web"] = webReadiness(cfg.WebDir)
 	}
-	if cfg.NewAPISocket != "" {
-		transport := newNativeTransport(cfg.NewAPISocket)
-		defer transport.CloseIdleConnections()
-		cfg.readiness["native"] = nativeReadiness(transport)
-	}
+	var platformPool *pgxpool.Pool
 	if cfg.WalletDSNFile != "" {
 		pool, err := openPokerPool(ctx, cfg.WalletDSNFile)
 		if err != nil {
 			return errors.New("recovery database startup failed")
 		}
 		defer pool.Close()
+		platformPool = pool
 		cfg.readiness["platform_database"] = pool.Ping
 	}
 	if cfg.Session.Enabled {
-		app, err := openSessionApplication(ctx, cfg)
+		client, err := openSessionRedis(ctx, cfg.Session.RedisConfigFile)
 		if err != nil {
-			if logger != nil {
-				logger.Printf("DR_RECOVERY_SESSION_STARTUP_STAGE=%s", sessionStartupFailureStage(err))
-			}
-			return errSessionStartup
+			return err
 		}
-		defer app.Close()
-		cfg.readiness["session_database"] = app.pool.Ping
-		cfg.readiness["session_cache"] = func(ctx context.Context) error { return app.redis.Ping(ctx).Err() }
+		defer client.Close()
+		cfg.readiness["session_cache"] = func(ctx context.Context) error { return client.Ping(ctx).Err() }
 		if cfg.RecoveryAuthProbes {
-			cfg.sessionAuth = newSessionHandler(app.auth, app.sessions)
+			cfg.sessionAuth = &identity.HTTP{Store: &identity.Store{Pool: platformPool}, Sessions: identity.Sessions{Redis: client}, Origin: cfg.PublicOrigin}
 		}
 	}
 	// Remote Platform owns no second Poker actor/client. The separately locked

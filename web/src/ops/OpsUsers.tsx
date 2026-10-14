@@ -1,24 +1,69 @@
 import { useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
-import { Alert, Loading, useResource } from '../ui';
-import { opsError, opsVersion } from './ops-api';
-import { opsTime } from './OpsOperationDetail';
-import { opsInt64, opsPositiveInt64, opsUserID } from './OpsEconomy';
-import { useOps } from './OpsShell';
-import { OpsMutationPanel, useOpsMutation } from './OpsMutation';
-import './ops-content.css';
+import { Link, useParams } from 'react-router-dom';
+import { ApiClient, errorText, type User, type Page, type Key } from '../api';
+import { Alert, Loading, Pager, role, useResource } from '../ui';
 
-export type OpsUser={newapi_user_id:string;short_account_id:string;profile_status:'INCOMPLETE'|'COMPLETE';display_name:string;profile_version:string;rename_required:boolean;created_at:string};
-export function OpsUsers(){
- const {client,bootstrap}=useOps();const [draft,setDraft]=useState(''),[query,setQuery]=useState(''),[selected,setSelected]=useState<OpsUser>();
- const resource=useResource(async()=>{try{const page=await client.request<{items:OpsUser[]}>(`/api/v1/ops/users?authz_epoch=${bootstrap.principal.authz_epoch}&limit=100${query?'&q='+encodeURIComponent(query):''}`);if(!page||!Array.isArray(page.items)||page.items.length>100||new Set(page.items.map(item=>item?.newapi_user_id)).size!==page.items.length||page.items.some(item=>!item||!opsUserID(item.newapi_user_id)||!opsInt64(item.profile_version)||(item.profile_status==='COMPLETE')!==opsPositiveInt64(item.profile_version)||!['INCOMPLETE','COMPLETE'].includes(item.profile_status)||typeof item.display_name!=='string'||typeof item.short_account_id!=='string'||typeof item.rename_required!=='boolean'||!Number.isFinite(Date.parse(item.created_at))))throw new Error('用户列表响应无法核对。');return page.items}catch(error){throw new Error(opsError(error))}},[client,bootstrap.principal.authz_epoch,query]);
- function search(event:FormEvent){event.preventDefault();setQuery(draft.trim());resource.reload()}
- return <><header className="page-heading"><div><p className="eyebrow">OPERATIONS / USERS</p><h1>用户查询</h1><p>查找平台身份，进入获授权的业务记录与支持流程。</p></div><button onClick={resource.reload} disabled={resource.loading}>刷新用户</button></header><section className="panel ops-users-list" aria-label="用户列表"><div className="ops-content-section-heading"><h2>用户列表</h2><span className="hint">最多显示 100 项</span></div><form className="filters" onSubmit={search}><label>账户编号、短编号或昵称<input value={draft} onChange={event=>setDraft(event.target.value)} maxLength={100}/></label><button type="submit">查找用户</button></form>{resource.loading?<Loading/>:resource.error?<Alert>{resource.error}</Alert>:resource.data&&<><div className="table-wrap"><table><thead><tr><th>账户</th><th>Master 资料</th><th>登记时间</th><th>业务入口</th></tr></thead><tbody>{resource.data.map(item=><tr key={item.newapi_user_id}><td><strong>{item.short_account_id}</strong><small>{item.newapi_user_id}</small></td><td><strong>{item.display_name||'尚未设置昵称'}</strong><small>{item.profile_status==='COMPLETE'?'资料完整':'待完成资料'}{item.rename_required?' · 需修改昵称':''}</small></td><td>{opsTime(item.created_at)}</td><td><div className="ops-inline-actions">{bootstrap.principal.permissions.includes('users.master.moderate')&&item.profile_status==='COMPLETE'&&<button disabled={!!selected} onClick={()=>setSelected(item)}>处理昵称</button>}{bootstrap.principal.permissions.includes('records.read')&&<Link to={`/ops/records?subject_newapi_user_id=${item.newapi_user_id}`}>查看业务记录</Link>}{bootstrap.principal.permissions.includes('support-cases.read')&&<Link to={`/ops/support-cases?subject_newapi_user_id=${item.newapi_user_id}`}>支持工单</Link>}</div></td></tr>)}</tbody></table></div>{!resource.data.length&&<p>没有匹配的用户。</p>}<p className="hint">最多显示 100 项；可使用账户编号精确查询。</p></>}</section>{selected&&<OpsUserModeration key={selected.newapi_user_id} user={selected} onClose={()=>setSelected(undefined)}/>}</>;
+type OpsUser={id:number;username:string;display_name:string;discord_id:string;group:string;role:number;status:number;two_fa_enabled:boolean;reserve:string;wallet_initialized:boolean;created_at:string;last_login_at:string|null};
+type Group={name:string};
+type Ledger={id:string;created_at:string;biz_type:string;delta_amount:string;balance_after_amount:string;note:string};
+type Master={newapi_user_id:string;display_name:string;profile_version:string;rename_required:boolean;nickname_changed_at:string|null};
+const root='/api/v1/ops/users';
+const time=(v:string|null)=>v?new Date(v).toLocaleString('zh-CN',{hour12:false}):'—';
+export function OpsUsers({client,user}:{client:ApiClient;user:User}){
+ const {userID}=useParams();
+ return userID?<UserDetail key={userID} client={client} current={user} id={userID}/>:<UserList client={client}/>;
 }
-function OpsUserModeration({user,onClose}:{user:OpsUser;onClose:()=>void}){
- const mutation=useOpsMutation();const [name,setName]=useState(user.display_name),[reason,setReason]=useState('');
- function prepare(type:string,input:Record<string,unknown>){if(!reason.trim())return;mutation.prepare({operation_type:type,target:{type:'MASTER_PROFILE',id:user.newapi_user_id,expected_version:user.profile_version},input,reason:reason.trim()})}
- return <section className="panel ops-user-moderation"><div className="section-heading"><h2>Master 昵称处理 · {user.newapi_user_id}</h2><button disabled={!!mutation.pending} onClick={onClose}>关闭处理</button></div><fieldset className="ops-user-moderation-fields" disabled={!!mutation.pending}><label className="ops-user-reason">操作原因<textarea value={reason} onChange={event=>setReason(event.target.value)} maxLength={1000}/></label><div className="ops-user-moderation-option"><h3>改名要求</h3><p className="hint">当前状态：{user.rename_required?'需要用户修改昵称':'未要求用户改名'}</p><button disabled={!reason.trim()} onClick={()=>prepare('MASTER_RENAME_REQUIRED',{required:!user.rename_required})}>{user.rename_required?'预览清除改名要求':'预览要求用户改名'}</button></div><div className="ops-user-moderation-option"><h3>管理员更名</h3><label>更正后的昵称<input value={name} onChange={event=>setName(event.target.value)} maxLength={64}/></label><button disabled={!reason.trim()||!name.trim()} onClick={()=>prepare('MASTER_FORCE_RENAME',{display_name:name.trim()})}>预览管理员更名</button></div></fieldset><p className="hint">完成后请刷新用户列表，重新选择用户以核对最新资料。</p><OpsMutationPanel mutation={mutation}/></section>;
+function UserList({client}:{client:ApiClient}){
+ const [page,setPage]=useState(1),[filters,setFilters]=useState({q:'',group:'',role:'',status:''});
+ const groups=useResource(()=>client.request<Group[]>('/api/v1/ops/groups'),[client]);
+ const resource=useResource(()=>client.request<Page<OpsUser>>(root+'?'+new URLSearchParams({...filters,page:String(page),page_size:'20'})),[client,page,filters]);
+ function filter(key:string,value:string){setFilters({...filters,[key]:value});setPage(1)}
+ return <><header className="page-heading"><div><p className="eyebrow">OPERATIONS / USERS</p><h1>用户管理</h1><p>本地账号、会话与 Reserve。</p></div><button onClick={resource.reload}>刷新用户</button></header><section className="panel">
+ <div className="filter-row"><label>用户名、显示名、Discord ID 或 ID<input maxLength={100} value={filters.q} onChange={e=>filter('q',e.target.value)}/></label><label>分组<select value={filters.group} onChange={e=>filter('group',e.target.value)}><option value="">全部分组</option>{groups.data?.map(g=><option key={g.name}>{g.name}</option>)}</select></label><label>角色<select value={filters.role} onChange={e=>filter('role',e.target.value)}><option value="">全部角色</option>{[1,10,100].map(r=><option value={r} key={r}>{role(r)}</option>)}</select></label><label>状态<select value={filters.status} onChange={e=>filter('status',e.target.value)}><option value="">全部状态</option><option value="1">正常</option><option value="2">封禁</option></select></label></div>
+ {groups.error&&<Alert>{groups.error}</Alert>}{resource.error&&<Alert>{resource.error}</Alert>}{resource.loading?<Loading/>:resource.data&&<><div className="table-wrap"><table><thead><tr><th>账号</th><th>Discord ID</th><th>分组 / 角色 / 状态</th><th>Reserve</th><th>注册 / 最近登录</th></tr></thead><tbody>{resource.data.items.map(u=><tr key={u.id}><td><Link to={'/ops/users/'+u.id}>{u.username} · #{u.id}</Link><small>{u.display_name}</small></td><td>{u.discord_id||'未绑定'}</td><td>{u.group} / {role(u.role)} / {u.status===1?'正常':'封禁'}</td><td>{u.wallet_initialized?u.reserve:'未初始化'}</td><td>{time(u.created_at)}<small>{time(u.last_login_at)}</small></td></tr>)}</tbody></table></div><Pager page={page} size={20} total={resource.data.total} onChange={setPage}/></>}</section></>;
 }
-
-
+function UserDetail({client,current,id}:{client:ApiClient;current:User;id:string}){
+ const resource=useResource(()=>client.request<OpsUser>(root+'/'+id),[client,id]);
+ const groups=useResource(()=>client.request<Group[]>('/api/v1/ops/groups'),[client]);
+ const [tab,setTab]=useState('profile'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[version,setVersion]=useState(0);
+ async function action(kind:string,body:unknown){
+  setBusy(true);setError('');setNotice('');
+  try{await client.request(root+'/'+id+(kind?'/'+kind:''),kind?'POST':'PUT',body);setNotice('操作已保存');resource.reload();setVersion(v=>v+1);return true}catch(e){setError(errorText(e));return false}finally{setBusy(false)}
+ }
+ const u=resource.data,canManage=!!u&&(current.role===100||current.role>u.role);
+ return <><header className="page-heading"><div><p className="eyebrow">OPERATIONS / USER {id}</p><h1>{u?.username||'用户详情'}</h1></div><Link to="/ops/users">返回用户列表</Link></header>
+ {notice&&<p role="status">{notice}</p>}{error&&<Alert>{error}</Alert>}{resource.error&&<Alert>{notice?'操作已保存，详情读取失败，请刷新核对。':resource.error}</Alert>}<button disabled={busy} onClick={resource.reload}>刷新详情</button>
+ <div className="row-actions">{[['profile','资料与会话'],['master','Master 资料'],['balance','余额与流水'],['keys','API Key']].map(([key,label])=><button key={key} aria-pressed={tab===key} onClick={()=>setTab(key)}>{label}</button>)}<Link to={'/ops/logs?user='+id}>调用日志</Link><Link to={'/ops/records?user='+id}>游戏记录</Link></div>
+ {resource.loading?<Loading/>:u&&<><p>{u.display_name} · #{u.id} · Discord {u.discord_id||'未绑定'} · 注册 {time(u.created_at)} · 最近登录 {time(u.last_login_at)}</p>
+ {tab==='profile'&&<section className="panel"><Profile key={version} u={u} groups={groups.data||[]} root={current.role===100} disabled={busy||!canManage} save={body=>action('',body)}/>{groups.error&&<Alert>{groups.error}</Alert>}<p>2FA：{u.two_fa_enabled?'已启用':'未启用'}</p><div className="row-actions"><button disabled={busy||!canManage} onClick={()=>{if(window.confirm('重置此用户的 2FA 并撤销全部会话？'))void action('reset-2fa',{})}}>重置 2FA</button><button disabled={busy||!canManage} onClick={()=>{if(window.confirm('撤销此用户的全部登录会话？'))void action('logout',{})}}>强制下线</button></div></section>}
+ {tab==='balance'&&<Balance key={version} client={client} u={u} disabled={busy||!canManage} adjust={body=>action('reserve',body)}/>}
+ {tab==='master'&&<MasterProfile key={version} client={client} id={id} disabled={busy||!canManage} action={action}/>}
+ {tab==='keys'&&<UserKeys key={version} client={client} id={id} disabled={busy||!canManage} action={action}/>}</>}
+ </>;
+}
+function Profile({u,groups,root:asRoot,disabled,save}:{u:OpsUser;groups:Group[];root:boolean;disabled:boolean;save:(body:unknown)=>Promise<boolean>}){
+ const [group,setGroup]=useState(u.group),[status,setStatus]=useState(u.status),[newRole,setRole]=useState(u.role);
+ return <form onSubmit={e=>{e.preventDefault();if(status===2&&u.status!==2&&!window.confirm('确认封禁此用户并撤销全部会话？'))return;void save({group,status,...(asRoot?{role:newRole}:{})})}}><fieldset disabled={disabled}><label>用户分组<select value={group} onChange={e=>setGroup(e.target.value)}>{[...new Set([u.group,...groups.map(g=>g.name)])].map(g=><option key={g}>{g}</option>)}</select></label><label>账号状态<select value={status} onChange={e=>setStatus(Number(e.target.value))}><option value={1}>正常</option><option value={2}>封禁</option></select></label>{asRoot?<label>用户角色<select value={newRole} onChange={e=>setRole(Number(e.target.value))}>{[1,10,100].map(r=><option value={r} key={r}>{role(r)}</option>)}</select></label>:<p>角色：{role(u.role)}</p>}<button type="submit">保存资料</button></fieldset></form>;
+}
+function MasterProfile({client,id,disabled,action}:{client:ApiClient;id:string;disabled:boolean;action:(kind:string,body:unknown)=>Promise<boolean>}){
+ const resource=useResource(()=>client.request<Master>(root+'/'+id+'/master'),[client,id]);
+ return <section className="panel"><h2>Master 昵称管理</h2><p>管理游戏和排行榜使用的昵称，不修改登录账号的显示名。</p><button onClick={resource.reload} disabled={disabled}>刷新 Master 资料</button>
+ {resource.error&&<Alert>{resource.error}</Alert>}{resource.loading?<Loading/>:resource.data&&(resource.data.profile_version==='0'?<p>此账号尚未完成 Master 资料，不创建资料或钱包。</p>:<MasterForm master={resource.data} disabled={disabled} action={action}/>)}</section>;
+}
+function MasterForm({master,disabled,action}:{master:Master;disabled:boolean;action:(kind:string,body:unknown)=>Promise<boolean>}){
+ const [name,setName]=useState(master.display_name),[required,setRequired]=useState(master.rename_required);
+ return <><p>用户最近主动改名：{time(master.nickname_changed_at)}。管理员强制改名不占用用户的七天改名冷却。</p>
+ <form onSubmit={e=>{e.preventDefault();void action('master-rename-required',{required})}}><fieldset disabled={disabled}><label><input type="checkbox" checked={required} onChange={e=>setRequired(e.target.checked)}/>要求用户改名</label><button type="submit">保存改名要求</button></fieldset></form>
+ <form onSubmit={e=>{e.preventDefault();if(window.confirm('将此用户的 Master 昵称改为“'+name+'”并清除改名要求？'))void action('master-force-rename',{display_name:name})}}><fieldset disabled={disabled}><label>Master 昵称<input required value={name} onChange={e=>setName(e.target.value)}/></label><button type="submit">强制改名</button></fieldset></form></>;
+}
+function Balance({client,u,disabled,adjust}:{client:ApiClient;u:OpsUser;disabled:boolean;adjust:(body:unknown)=>Promise<boolean>}){
+ const [page,setPage]=useState(1),[amount,setAmount]=useState(''),[note,setNote]=useState(''),[requestID]=useState(()=>crypto.randomUUID());
+ const ledger=useResource(()=>client.request<Page<Ledger>>(root+'/'+u.id+'/ledger?page='+page),[client,u.id,page]);
+ async function submit(e:FormEvent){e.preventDefault();if(amount.startsWith('-')&&!window.confirm('确认扣减此用户的 Reserve？'))return;await adjust({amount,note,request_id:requestID})}
+ return <section className="panel"><h2>Reserve：{u.wallet_initialized?u.reserve:'未初始化'}</h2><form onSubmit={submit}><fieldset disabled={disabled||!u.wallet_initialized}><label>调整金额（负数扣减）<input required inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.000002"/></label><label>调账备注<textarea required maxLength={1000} value={note} onChange={e=>setNote(e.target.value)}/></label><button type="submit">保存调账</button></fieldset><p>以 Credit 为单位；最小变动 0.000002。请求失败时保留同一调账编号重试，不重复入账。</p></form>
+ {ledger.error&&<Alert>{ledger.error}</Alert>}{ledger.loading?<Loading/>:ledger.data&&<><div className="table-wrap"><table><thead><tr><th>时间</th><th>业务</th><th>变动</th><th>余额</th><th>备注</th></tr></thead><tbody>{ledger.data.items.map(e=><tr key={e.id}><td>{time(e.created_at)}</td><td>{e.biz_type}</td><td>{e.delta_amount}</td><td>{e.balance_after_amount}</td><td>{e.note}</td></tr>)}</tbody></table></div><Pager page={page} size={20} total={ledger.data.total} onChange={setPage} disabled={disabled}/></>}</section>;
+}
+function UserKeys({client,id,disabled,action}:{client:ApiClient;id:string;disabled:boolean;action:(kind:string,body:unknown)=>Promise<boolean>}){
+ const [page,setPage]=useState(1);const resource=useResource(()=>client.request<Page<Key>>(root+'/'+id+'/keys?page='+page),[client,id,page]);
+ return <section className="panel"><h2>API Key</h2>{resource.error&&<Alert>{resource.error}</Alert>}{resource.loading?<Loading/>:resource.data&&<><div className="table-wrap"><table><thead><tr><th>名称</th><th>掩码</th><th>状态 / 用途</th><th>操作</th></tr></thead><tbody>{resource.data.items.map(k=><tr key={k.id}><td>{k.name}</td><td>{k.key}</td><td>{k.status===1?'启用':'停用'} / {k.purpose}</td><td><button disabled={disabled||k.status!==1} onClick={()=>void action('disable-key',{key_id:k.id})}>停用 Key</button><button disabled={disabled} onClick={()=>{if(window.confirm('删除此 Key？历史调用日志保留。'))void action('delete-key',{key_id:k.id})}}>删除 Key</button></td></tr>)}</tbody></table></div><Pager page={page} size={20} total={resource.data.total} onChange={setPage} disabled={disabled}/></>}</section>;
+}

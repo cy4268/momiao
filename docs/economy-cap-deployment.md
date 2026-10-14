@@ -1,111 +1,91 @@
-# Economic cap candidate: inactive by default
+# Local economic cap and one-time campaign
 
-Development of this feature does not authorize deployment, qualification capture,
-badge distribution, policy activation or asset reset. Keep the policy singleton
-inactive until the separately reviewed campaign is complete.
+The migration does not start a new campaign or replay the completed one.
+Keep production containers and databases unchanged until the complete restricted
+dev acceptance described in the NewAPI removal plan passes.
 
-## Independent Poker process
+## Local assets and Poker
 
-Both platform and Poker must configure the same private
-`MOMIAO_ECONOMY_READ_SOCKET` (for example `/run/momiao/economy-read.sock`).
-It must differ from public, Native, refill and Poker request sockets. Platform
-creates the listener, Poker connects to it. Preserve the existing private Unix
-directory ownership and socket permissions; never route this listener through
-the public web proxy.
+Platform and Poker read the same six local asset buckets: Reserve, available
+chips, Poker stacks/pots, solo-game funds in flight and roulette escrow.
+The Native quota observer and `MOMIAO_ECONOMY_READ_SOCKET` are gone. Existing
+per-account locks, cap receipts and wallet writers remain in use.
 
-The listener accepts only signed POST `read` and `query` beneath
-`/internal/v1/economy/quota/`. It reuses Service Assertion V1 with fixed
-**poker → platform** direction, the existing independent process signers, and
-peer public-key files. It never accepts browser credentials or executes Native
-writes. Calls have a two-second budget and 16 KiB response limit. Platform does
-not acquire account SQL locks here: the Poker caller already owns that lock.
-The embedded Poker mode instead uses the same in-process read-only observer.
+Apply the existing migrations in order, preserving their original checksums.
+Keep the existing 0041/0043/0044 runtime grants. Migration 0065 changes only
+the campaign's accepted actor foreign key to `identity.users`; it adds no grant
+and does not alter any existing campaign, badge, snapshot or wallet value.
+History reader/writer roles remain function-only.
 
-Apply additive migrations 0041–0047 with the normal non-login schema owner.
-Apply `runtime-grants-0041-economy-cap.psql` to platform (`platform_writer=true`)
-and Poker (`platform_writer=false`) runtime roles. The application's `history_r`
-and `history_w` roles remain function-only: do not grant them direct table access.
-Direct-game details use the platform role and Poker details use the Poker role,
-already covered by 0041. `runtime-grants-0043-cap-history.psql` is only for a
-separate custom domain reader, not the function-only list/ingestion roles.
-Preserve previous migration checksums,
-key-family separation and all original Native per-operation bounds.
+The policy version is persisted before RNG. Old unbound rounds remain legacy.
+Poker retains original cards, events, pot awards and neutral returns; cap
+receipts record withheld profit without rewriting the original game result.
+Migration 0047 keeps legacy receipts readable while new receipts separately
+record `neutral_return_units`. Public receipts omit whole-account asset totals.
 
-The service persists the policy version before RNG. Old unbound rounds remain
-legacy even after activation. Poker retains original cards, events, pot awards
-and returns, records the profit withheld in immutable cap receipts, and carries
-only actual credited stacks into the next hand or cashout.
+## One-time campaign operations
 
-## One-time campaign (separate production approvals)
+The fixed campaign is `01995000-2026-7000-8000-000000000927`.
+The panel is at `/ops/gambler-campaign`, linked from Economy. It uses local
+Redis/cookie authentication and roles >= 10. POST writes require CSRF, a live
+role check and one transactional audit record. No preview, fresh-auth flow,
+client version, epoch or generic operation record is required.
 
-The fixed campaign is `01995000-2026-7000-8000-000000000927`. Apply
-`runtime-grants-0044-gambler-campaign.psql` after 0047 to the platform role only.
-Its readiness function exposes aggregate counts, not raw Poker or Native rows.
-The campaign panel is under Operations → Economy; only SUPER_ADMIN with
-`economy.adjust` can execute its typed, fresh-authenticated operations. Merely
-opening the page, deploying migrations, or starting the worker has no effect.
+Before starting or resuming financial work:
 
-1. Back up the current platform database and record its recovery reference.
-   Pause **new Native model consumption at the actual API ingress**, drain all
-   already accepted requests and continue serving the private read-only quota
-   endpoint. Platform maintenance alone does not stop Native consumption.
-   The maintenance page reads the current Native HTTP count through the fixed
-   `/api/v1/ops/native-runtime` projection. This requires `maintenance.read`, a
-   verified opaque session and Native AdminAuth; credentials stay server-side.
-   Direct address-bar navigation to Native `/api/status/test` does not carry the
-   dashboard Bearer header. Unknown/error counts are not zero; a zero sample
-   alone proves neither ingress pause nor completion of asynchronous jobs.
-2. Establish one ACTIVE maintenance window covering CHALDEA_USER_WRITES,
-   WALLET_EXCHANGE, REWARDS, DIRECT_PLAY_NEW_ROUNDS, POKER_NEW_TABLES_NEW_HANDS
-   and RANKINGS_PUBLISHING. Accepted recovery/refunds/cashouts remain enabled.
-   Wait for pending transfers, accepted registration grants, unresolved games
-   and all table funds to drain. Existing unknown receipts must be reconciled,
-   never silently omitted. The initial preview reports any remaining blockers.
-3. Separately approve qualification preparation and then medal grants. The
-   worker freezes a cutoff and account-set digest, observes every target, and
-   seals only after a final observation check. The >1 billion comparison is
-   strict. Permanent grants retain this snapshot even after balances change.
-4. Separately approve reset preparation, review its private per-account before
-   values, and approve RESET_START. The frozen set includes zero-balance and
-   administrator accounts. Each durable batch uses the original authorization,
-   epoch and operation ID; process restarts continue the same campaign. The
-   confirmation preview shows exact string-valued affected-user count, Reserve
-   increases/decreases, chips decreases and a zero Native delta. Reset
-   writes only Reserve/chips difference entries with stable business keys;
-   already-correct balances receive a no-change receipt and no zero ledger leg.
-5. Any changed/unavailable Native evidence stops progression. A detected Native
-   change remains an explicit blocking fact; investigate and reconcile before
-   any manual recovery. Do not falsely mark it unchanged or start a new campaign.
-6. After every account is completed, separately approve ECONOMY_POLICY_ACTIVATE.
-   Native and local before/after values are rechecked. End maintenance and
-   restore ingress only after verifying completion. The existing rankings gate
-   stays authoritative: once publishing reopens, the worker publishes one fresh
-   asset snapshot (or recognizes an already newer pointer after a lost response).
-   Normal hourly publication then continues. Reset ledger entries are not bets
-   or game profits. No production step in this document is executed by tests.
+1. Back up the platform database.
+2. Open maintenance for CHALDEA_USER_WRITES, WALLET_EXCHANGE, REWARDS,
+   DIRECT_PLAY_NEW_ROUNDS, POKER_NEW_TABLES_NEW_HANDS and RANKINGS_PUBLISHING.
+   The server selects the current window; no UUID needs to be pasted.
+3. Wait for already accepted model requests to finish settling. Maintenance
+   rejects new relay requests, but it does not cancel the accepted ones.
+   The action confirmation records `requests_drained: true`; this is an
+   operator attestation, **not an automated active-request measurement**.
+4. The server also checks the existing local drain function for unsettled
+   games, table funds, registration grants and historical transfer work.
+   Resolve outstanding work rather than skipping or replacing its receipts.
 
-Source rollback must not restore an old database over accepted ledger entries.
-Keep the compatible backend for new receipts; use audited compensation for any
-already committed financial effects. The offline rollback package is tested
-only on separate source/database copies, not the live service.
+Actions at the same GET/POST campaign endpoint:
 
-## Bounded verification and renewal
+- `snapshot`: freeze the qualification cutoff and account set. The worker
+  seals the snapshot after its final bounded verification pass. Eligibility
+  is strictly greater than 1 billion credits.
+- `grant`: award permanent badges from the frozen qualification snapshot.
+  This does not reset balances. Repeating a successful grant does not duplicate
+  badges; the successful save is audited.
+- `prepare-reset`: freeze a separate local reset checkpoint.
+- `reset`: separately confirm that target Reserve becomes 10,000 credits and
+  available chips become zero. The original maintenance window must still be
+  active. Each account uses the original deterministic ledger business keys;
+  already completed accounts are never replayed, and zero deltas create no leg.
+- `resume`: accept the current local administrator and maintenance window,
+  clear the verification cursor and recheck the original frozen checkpoint.
+  Changed balances block continuation; this does not recapture or overwrite
+  historical values. Sealed qualification remains historical even if current
+  assets later differ. A completed, already active campaign has no UI actions.
+- `activate`: after every target finishes, verify the reset and activate the
+  economic policy. A repeated activation preserves the original timestamp.
+  End maintenance after checking completion. The existing rankings worker
+  recognizes an already newer public pointer or publishes one fresh snapshot
+  once rankings maintenance ends, then ordinary publication continues.
 
-Migration 0046 persists verification phase/cursor. Every worker invocation uses
-a bounded batch; the default one-account batch performs at most two Native
-observations. Final sealing and post-reset verification also advance durable
-cursors instead of rescanning the entire cohort in one request. Maintenance and
-the drained Native ingress must stay continuous during a cursor pass.
+The worker rechecks the accepted actor's local role/status on every batch.
+Revocation or a missing maintenance window stops progression. Durable cursors,
+membership hashes and immutable account records preserve restart behavior.
+New commands leave the historical operation/epoch fields null. Historical
+Native totals remain in old qualification JSON; local verification compares
+the six local buckets rather than silently rewriting those old totals. The
+old `native_unchanged` column is retained as history, not a live measurement.
 
-When the accepted administrator epoch or maintenance window changes, use
-`GAMBLER_REAUTHORIZE` with a new fresh-authenticated, typed confirmation, the
-original campaign ID, a replacement active window and Native pause evidence. Its
-preview retains the old operation/actor/epoch. It updates only execution
-authority, clears the verification cursor and rechecks the frozen cohort before
-continuing; completed resets and the sealed historical medal qualification are
-not replayed or recomputed. A detected Native change remains a blocking fact.
+## Verification and rollback
 
-Migration 0047 keeps legacy Poker receipts readable while new receipts exclude
-uncalled returns from both stake and gross pot payout. Their neutral return is
-recorded separately as `neutral_return_units`; original pot awards and proof stay
-unchanged. Public cap receipts contain no whole-account asset totals.
+The current minimal dev regression uses the imported completed campaign inside
+one rolled-back transaction. It checks local role handling, direct auditing,
+maintenance/drain confirmation, worker revocation and changed checkpoints.
+HTTP checks reject writes; UI actions use mocked responses. They do not run a
+real grant/reset or constitute full in-flight production acceptance.
+
+Source rollback is exercised on another copy. Do not restore an old database
+over accepted ledger entries. Retain compatible history and handle committed
+financial changes through audited corrections. The additive 0065 schema may
+remain when rolling back this source batch.

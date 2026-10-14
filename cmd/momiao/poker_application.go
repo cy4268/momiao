@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"net"
-	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/poker"
-	"github.com/cy4268/momiao/internal/poker/authbridge"
 	"github.com/cy4268/momiao/internal/poker/connectticket"
 	pt "github.com/cy4268/momiao/internal/poker/transport"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,7 +24,7 @@ type pokerApplication struct {
 	service             *poker.Service
 	authPool, pokerPool *pgxpool.Pool
 	tickets             *redis.Client
-	native              *http.Transport
+	sessionRedis        *redis.Client
 	once                sync.Once
 }
 
@@ -49,8 +48,8 @@ func (a *pokerApplication) Close() {
 		if a.authPool != nil {
 			a.authPool.Close()
 		}
-		if a.native != nil {
-			a.native.CloseIdleConnections()
+		if a.sessionRedis != nil {
+			_ = a.sessionRedis.Close()
 		}
 	})
 }
@@ -86,10 +85,6 @@ func openPokerApplication(ctx context.Context, cfg config) (app *pokerApplicatio
 	if err != nil {
 		return nil, err
 	}
-	readerKey, err := readPokerReaderKey(cfg.Poker.ReaderKeyFile)
-	if err != nil {
-		return nil, err
-	}
 	leaseConfig, ticketOptions, err := readPokerRedisConfig(cfg.Poker.RedisConfigFile)
 	if err != nil {
 		return nil, err
@@ -107,11 +102,6 @@ func openPokerApplication(ctx context.Context, cfg config) (app *pokerApplicatio
 	if err = validatePokerPools(startup, a.authPool, a.pokerPool); err != nil {
 		return nil, err
 	}
-	if cfg.ProcessRole == "poker" {
-		if err = validatePokerAuthorityReader(startup, a.authPool); err != nil {
-			return nil, err
-		}
-	}
 	var password *poker.PasswordRuntime
 	if cfg.Poker.Password != nil {
 		password, err = poker.NewPasswordRuntime(cfg.Poker.Password.Policy)
@@ -122,15 +112,21 @@ func openPokerApplication(ctx context.Context, cfg config) (app *pokerApplicatio
 	if err = poker.CheckPasswordProfiles(startup, a.pokerPool, password); err != nil {
 		return nil, err
 	}
-	a.native = newNativeTransport(cfg.NewAPISocket)
-	reader, err := authbridge.NewNativeReader(a.native, readerKey)
-	if err != nil {
-		return nil, err
+	var sessions identity.Sessions
+	if cfg.ProcessRole == "poker" {
+		options, err := readSessionRedisConfig(cfg.Poker.SessionRedisConfigFile)
+		if err != nil {
+			return nil, err
+		}
+		a.sessionRedis = redis.NewClient(options)
+		if err := a.sessionRedis.Ping(startup).Err(); err != nil {
+			return nil, err
+		}
+		sessions = identity.Sessions{Redis: a.sessionRedis}
+	} else {
+		sessions = cfg.localIdentity.Sessions
 	}
-	authority, err := authbridge.New(a.authPool, reader.Check)
-	if err != nil {
-		return nil, err
-	}
+	authority := pokerSessionAuthority{sessions: sessions, pool: a.authPool}
 	live := pokerLiveSession(authority.Check)
 	a.tickets = redis.NewClient(ticketOptions)
 	pingCtx, pingCancel := context.WithTimeout(startup, 2*time.Second)
@@ -155,7 +151,7 @@ func openPokerApplication(ctx context.Context, cfg config) (app *pokerApplicatio
 		return nil, err
 	}
 	var target atomic.Pointer[pt.Handler]
-	serviceOptions := poker.Options{EconomyObserver: cfg.economicObserver,
+	serviceOptions := poker.Options{
 		Pool: a.pokerPool, Keyring: state,
 		ValidateSession: func(ctx context.Context, s poker.AuthSession) error {
 			return live(ctx, pt.Principal{UserID: s.UserID, SessionIDHash: s.SessionIDHash, SessionVersion: s.SessionVersion, SecurityEpoch: s.SecurityEpoch})
@@ -195,7 +191,7 @@ func openPokerApplication(ctx context.Context, cfg config) (app *pokerApplicatio
 	}}
 	ports := adapter.ports()
 	ports.MintTicket = pokerTicketMint(issuer)
-	httpAuth := newPokerHTTPAuth(a.native, authority.Bind)
+	httpAuth := pokerHTTPAuth
 	if cfg.ProcessRole == "poker" {
 		httpAuth = pokerAssertedHTTPAuth
 		ports.MintTicket = nil
@@ -260,23 +256,6 @@ func samePokerEndpoint(a, b *pgxpool.Config) bool {
 	return validPokerEndpoint(a) && validPokerEndpoint(b) && a.ConnConfig.Host == b.ConnConfig.Host && a.ConnConfig.Port == b.ConnConfig.Port && a.ConnConfig.Database == b.ConnConfig.Database
 }
 
-func validatePokerAuthorityReader(ctx context.Context, pool *pgxpool.Pool) error {
-	var isolated bool
-	err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=current_user AND NOT rolinherit)
- AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.rolname=current_user WHERE m.member=r.oid OR m.roleid=r.oid)
- AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
- WHERE n.nspname IN('identity','economy','poker','games','platform_meta','ops','content','catalog','rewards','rankings','audit') AND c.relkind IN('r','p','v','m','f')
- AND (pg_catalog.has_any_column_privilege(current_user,c.oid,'INSERT,UPDATE,REFERENCES') OR pg_catalog.has_table_privilege(current_user,c.oid,'DELETE,TRUNCATE,TRIGGER')
- OR EXISTS(SELECT 1 FROM pg_catalog.pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped AND pg_catalog.has_column_privilege(current_user,c.oid,a.attnum,'SELECT')
- AND NOT(n.nspname='identity' AND ((c.relname='account_refs' AND a.attname IN('newapi_user_id','security_epoch','security_epoch_changed_at'))
- OR(c.relname='native_session_bindings' AND a.attname IN('session_id_hash','newapi_user_id','session_version','native_auth_version','security_epoch_snapshot','native_created_at')))))))
- AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN('identity','economy','poker','games','platform_meta','ops','content','catalog','rewards','rankings','audit') AND p.prorettype<>'trigger'::regtype AND pg_catalog.has_schema_privilege(current_user,n.oid,'USAGE') AND pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE'))`).Scan(&isolated)
-	if err != nil || !isolated {
-		return errPokerConfig
-	}
-	return nil
-}
-
 func validatePokerPools(ctx context.Context, auth, domain *pgxpool.Pool) error {
 	if auth == nil || domain == nil || !samePokerEndpoint(auth.Config(), domain.Config()) {
 		return errPokerConfig
@@ -315,12 +294,7 @@ func validatePokerPools(ctx context.Context, auth, domain *pgxpool.Pool) error {
 	if err != nil || inherited || directEconomy || !gateways {
 		return errPokerConfig
 	}
-	// Check the required live-auth schema/reads without inventing an account or
-	// storing a fabricated authentication chain merely to pass startup readiness.
-	if _, err = auth.Exec(ctx, `SELECT session_id_hash,newapi_user_id,session_version,native_auth_version,security_epoch_snapshot,native_created_at FROM identity.native_session_bindings WHERE false`); err != nil {
-		return errPokerConfig
-	}
-	if _, err = auth.Exec(ctx, `SELECT newapi_user_id,security_epoch,security_epoch_changed_at FROM identity.account_refs WHERE false`); err != nil {
+	if _, err = auth.Exec(ctx, `SELECT id,status,deleted_at FROM identity.users WHERE false`); err != nil {
 		return errPokerConfig
 	}
 	return nil

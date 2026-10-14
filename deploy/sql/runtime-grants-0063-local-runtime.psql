@@ -1,0 +1,5 @@
+-- Apply after 0063; expose only read-only queue metadata to the platform role.
+\set ON_ERROR_STOP on
+BEGIN;
+GRANT EXECUTE ON FUNCTION ops.runtime_job_items() TO :"platform_runtime_role";
+COMMIT;

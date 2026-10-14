@@ -15,12 +15,13 @@ it('keeps both roulette variants folded while recovering original create and roo
  const lobby=(game:'devil-roulette'|'pressure-roulette')=>({game,state:'PLAY',binding:binding(game),minimum_units:'1000000',step_units:'1000000',available_units:'100000000',own_round_id:null,rooms:[],next_cursor:null,csrf_token:'c'.repeat(64)});
  const room=(game:'devil-roulette'|'pressure-roulette',id:string,version='1')=>({id,game,title:game==='devil-roulette'?'合成恶魔桌':'合成加压桌',version,sequence:version==='1'?'0':'1',state:'WAITING',target_players:game==='devil-roulette'?2:3,stake_units:'5000000',pool_units:version==='1'?'0':'5000000',binding:binding(game),server_seed_hash:'d'.repeat(64),turn_seat:null,server_now:'2026-09-22T12:00:00+08:00',deadline:'2099-09-22T12:05:00+08:00',game_deadline:null,players:[{seat:0,name:'御主',ready:version!=='1',alive:true,forfeited:false,hp:4,item_count:4}],self:{seat:0,available_units:'100000000',items:['handcuffs','magnifier','phone','medicine'],intel:[{index:0,live:true}]},actions:version==='1'?[{kind:'READY'},{kind:'LEAVE'},{kind:'CANCEL'}]:[{kind:'UNREADY'},{kind:'CANCEL'}],log:[],devil:null,pressure:null});
  const ok=(data:unknown)=>new Response(JSON.stringify({success:true,data}),{headers:{'Content-Type':'application/json'}}),failed=(status:number,code:string,message:string)=>new Response(JSON.stringify({success:false,error:{code,message}}),{status,headers:{'Content-Type':'application/json'}}),missing=()=>failed(404,'ROULETTE_NOT_FOUND','尚无回执');
- const login={access_token:'synthetic',access_expires_at:4102444800,user:{id:910002,username:'synthetic',display_name:'御主',role:1},session:{sid:'synthetic'}};
+ const user={id:910002,username:'synthetic',display_name:'御主',role:1};
  let hidden=false,online=true,authoritative=false,roomUnavailable=false,wrongRoomID=false,failedRoomReads=0,wrongRoomReads=0,createdRoomReads=0,createReceiptReads=0,receiptReads=0,resolveFirst!:(value:Response)=>void,resolveSecond!:(value:Response)=>void;
  const firstReceipt=new Promise<Response>(resolve=>resolveFirst=resolve),secondReceipt=new Promise<Response>(resolve=>resolveSecond=resolve),createPosts:{key:string;body:any}[]=[],commandPosts:{path:string;key:string;body:any}[]=[],createReceiptMethods:string[]=[],receiptMethods:string[]=[];
  vi.spyOn(document,'hidden','get').mockImplementation(()=>hidden);vi.spyOn(navigator,'onLine','get').mockImplementation(()=>online);
  const fetcher=vi.fn(async(path:string,init?:RequestInit)=>{
-  if(path==='/api/user/login')return ok(login);
+  if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'AUTHENTICATED',csrf_token:'fixture-csrf'});
+  if(path==='/api/user/self')return ok(user);
   if(path.startsWith('/api/v1/roulette?game='))return ok(lobby(path.includes('pressure-roulette')?'pressure-roulette':'devil-roulette'));
   if(path==='/api/v1/roulette/rooms'&&init?.method==='POST'){const headers=new Headers(init.headers);createPosts.push({key:headers.get('Idempotency-Key')||'',body:JSON.parse(String(init.body))});throw new TypeError('synthetic lost create ACK');}
   if(path===`/api/v1/roulette/rooms/${round}/commands`){const headers=new Headers(init?.headers);commandPosts.push({path,key:headers.get('Idempotency-Key')||'',body:JSON.parse(String(init?.body))});return missing();}
@@ -31,7 +32,7 @@ it('keeps both roulette variants folded while recovering original create and roo
   if(path===`/api/v1/roulette/rooms/${other}`)return ok(room('pressure-roulette',other));
   throw new Error(`unexpected ${init?.method||'GET'} ${path}`);
  });
- const client=new ApiClient(fetcher);await client.login('synthetic','synthetic');
+ const client=new ApiClient(fetcher);await client.bootstrap();
 
  for(const slug of ['devil-roulette','pressure-roulette'] as const){
   const lobbyView=render(<MemoryRouter><RouletteLobby client={client} userID="910002" slug={slug}/></MemoryRouter>);

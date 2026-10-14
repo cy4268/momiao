@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Brand } from './ui';
+import { Brand, NewAPIAttribution } from './ui';
 import type { ApiClient } from './api';
 import { GuangxiMascot } from './GuangxiMascot';
 import './home.css';
@@ -18,7 +18,8 @@ export function Home({ signedIn }: { signedIn: boolean; client?: ApiClient }) {
             <h1>在月光下，<br />与你相逢。</h1>
             <p className="moon-home-description">一处与朋友分享灵感的地方。</p>
             {signedIn ? <Link className="moon-home-enter" to="/dashboard">返回指挥台</Link> :
-                <a className="moon-home-enter" href="/sign-in"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20.3 4.5a19.4 19.4 0 0 0-4.8-1.5l-.6 1.2a18 18 0 0 0-5.8 0L8.5 3a19.4 19.4 0 0 0-4.8 1.5C.7 9 .1 13.5.4 17.9a19.5 19.5 0 0 0 5.9 3l1.2-2a12 12 0 0 1-1.9-.9l.5-.4a14 14 0 0 0 11.8 0l.5.4a12 12 0 0 1-1.9.9l1.2 2a19.5 19.5 0 0 0 5.9-3c.4-5.1-.7-9.6-3.3-13.4ZM8 15.4c-1.1 0-2-1-2-2.3s.9-2.3 2-2.3 2 1 2 2.3-.9 2.3-2 2.3Zm8 0c-1.1 0-2-1-2-2.3s.9-2.3 2-2.3 2 1 2 2.3-.9 2.3-2 2.3Z" /></svg>Discord 登录</a>}
+                <a className="moon-home-enter" href="/login"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20.3 4.5a19.4 19.4 0 0 0-4.8-1.5l-.6 1.2a18 18 0 0 0-5.8 0L8.5 3a19.4 19.4 0 0 0-4.8 1.5C.7 9 .1 13.5.4 17.9a19.5 19.5 0 0 0 5.9 3l1.2-2a12 12 0 0 1-1.9-.9l.5-.4a14 14 0 0 0 11.8 0l.5.4a12 12 0 0 1-1.9.9l1.2 2a19.5 19.5 0 0 0 5.9-3c.4-5.1-.7-9.6-3.3-13.4ZM8 15.4c-1.1 0-2-1-2-2.3s.9-2.3 2-2.3 2 1 2 2.3-.9 2.3-2 2.3Zm8 0c-1.1 0-2-1-2-2.3s.9-2.3 2-2.3 2 1 2 2.3-.9 2.3-2 2.3Z" /></svg>Discord 登录</a>}
+            <footer className="moon-home-footer"><NewAPIAttribution /></footer>
         </main>
         <GuangxiMascot />
     </div>;

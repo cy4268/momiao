@@ -3,14 +3,13 @@ package main
 import (
 	"context"
 	"errors"
-	"io"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -43,20 +42,17 @@ func (s *profileTestStore) UpdateProfile(_ context.Context, u int64, p platform.
 	s.patch = p
 	return s.result(u)
 }
-func profileTransport() http.RoundTripper {
-	return walletTransport(func(r *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"data":{"id":9007199254740993,"status":1}}`))}, nil
-	})
-}
 
 const validProfileInit = `{"expected_version":"0","display_name":"Alice","avatar_id":"system-default"}`
 
 func TestProfileHTTPReadAndWriteContract(t *testing.T) {
 	s := &profileTestStore{}
-	h := newProfileHandler("https://wallet.example", s, profileTransport())
+	h := newProfileHandler("https://wallet.example", s)
 	w := httptest.NewRecorder()
 	r := walletReq("GET", "/platform/v1/master-profile", "")
 	r.Header.Set("X-User-Id", "2")
+	r.Header.Set("New-Api-User", "2")
+	r.Header.Set("Authorization", "Bearer forged")
 	h.ServeHTTP(w, r)
 	if w.Code != 200 || s.reads != 1 || s.inits != 0 || s.updates != 0 || s.user != 9007199254740993 {
 		t.Fatal(w.Code, w.Body, s)
@@ -107,7 +103,7 @@ func TestProfileHTTPStrictRequests(t *testing.T) {
 		t.Run(tc.method+tc.path+tc.body, func(t *testing.T) {
 			s := &profileTestStore{}
 			w := httptest.NewRecorder()
-			newProfileHandler("https://wallet.example", s, profileTransport()).ServeHTTP(w, walletReq(tc.method, tc.path, tc.body))
+			newProfileHandler("https://wallet.example", s).ServeHTTP(w, walletReq(tc.method, tc.path, tc.body))
 			if w.Code != tc.want || s.inits+s.updates+s.reads != 0 {
 				t.Fatal(w.Code, w.Body, s)
 			}
@@ -121,13 +117,13 @@ func TestProfileHTTPOriginContentTypeAndAuth(t *testing.T) {
 		want       int
 	}{
 		{"Origin", "", 403}, {"Origin", "null", 403}, {"Origin", "https://wallet.example/", 403}, {"Origin", "https://evil.invalid", 403},
-		{"Content-Type", "text/plain", 415}, {"Content-Type", "", 415}, {"Authorization", "", 401}, {"New-Api-User", "2", 401},
+		{"Content-Type", "text/plain", 415}, {"Content-Type", "", 415},
 	} {
 		s := &profileTestStore{}
 		r := walletReq("POST", "/platform/v1/master-profile/initialize", validProfileInit)
 		r.Header.Set(tc.key, tc.value)
 		w := httptest.NewRecorder()
-		newProfileHandler("https://wallet.example", s, profileTransport()).ServeHTTP(w, r)
+		newProfileHandler("https://wallet.example", s).ServeHTTP(w, r)
 		if w.Code != tc.want || s.inits != 0 {
 			t.Fatal(tc, w.Code, w.Body)
 		}
@@ -137,28 +133,27 @@ func TestProfileHTTPOriginContentTypeAndAuth(t *testing.T) {
 		r := walletReq("POST", "/platform/v1/master-profile/initialize", validProfileInit)
 		r.Header.Add(key, r.Header.Get(key))
 		w := httptest.NewRecorder()
-		newProfileHandler("https://wallet.example", s, profileTransport()).ServeHTTP(w, r)
+		newProfileHandler("https://wallet.example", s).ServeHTTP(w, r)
 		if w.Code == 200 || s.inits != 0 {
 			t.Fatal("duplicate header", key, w.Code)
 		}
 	}
-	for _, status := range []int{401, 403, 500} {
+	// Missing or inactive local identities never reach the profile store.
+	for _, status := range []int{0, 2} {
 		s := &profileTestStore{}
-		tr := walletTransport(func(r *http.Request) (*http.Response, error) {
-			if r.URL.String() != "http://unix/api/user/self" || r.Header.Get("Cookie") != "" {
-				t.Error("bad native verification", r)
-			}
-			return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader("private"))}, nil
-		})
+
 		r := walletReq("GET", "/platform/v1/master-profile", "")
-		r.Header.Set("Cookie", "secret")
-		w := httptest.NewRecorder()
-		newProfileHandler("https://wallet.example", s, tr).ServeHTTP(w, r)
-		want := status
-		if status == 500 {
-			want = 502
+		user, _ := identity.UserFromContext(r.Context())
+		r = r.WithContext(context.Background())
+		if status != 0 {
+			user.Status = status
+			r = r.WithContext(identity.WithUser(r.Context(), user, strings.Repeat("a", 64)))
 		}
-		if w.Code != want || s.reads != 0 || strings.Contains(w.Body.String(), "private") {
+		r.Header.Set("Authorization", "Bearer secret")
+		r.Header.Set("New-Api-User", "9007199254740993")
+		w := httptest.NewRecorder()
+		newProfileHandler("https://wallet.example", s).ServeHTTP(w, r)
+		if w.Code != 401 || s.reads != 0 || !strings.Contains(w.Body.String(), "AUTH_UNAUTHORIZED") {
 			t.Fatal(w.Code, w.Body)
 		}
 	}
@@ -174,7 +169,7 @@ func TestProfileHTTPErrorMapping(t *testing.T) {
 		{platform.ErrNicknameReserved, 403, "NICKNAME_RESERVED"}, {platform.ErrInvalidNickname, 400, "INVALID_NICKNAME"}, {platform.ErrInvalidAvatar, 400, "INVALID_AVATAR"}, {platform.ErrInvalidProfile, 400, "INVALID_REQUEST"}, {errors.New("password secret host private"), 503, "PROFILE_UNAVAILABLE"},
 	} {
 		w := httptest.NewRecorder()
-		newProfileHandler("https://wallet.example", &profileTestStore{err: tc.err}, profileTransport()).ServeHTTP(w, walletReq("PATCH", "/platform/v1/master-profile", `{"expected_version":"1","display_name":"Alice"}`))
+		newProfileHandler("https://wallet.example", &profileTestStore{err: tc.err}).ServeHTTP(w, walletReq("PATCH", "/platform/v1/master-profile", `{"expected_version":"1","display_name":"Alice"}`))
 		if w.Code != tc.want || !strings.Contains(w.Body.String(), tc.code) || strings.Contains(w.Body.String(), "private") {
 			t.Fatal(tc, w.Code, w.Body)
 		}
@@ -188,13 +183,13 @@ func TestProfileRoutesOptionalAndIndependent(t *testing.T) {
 	}
 	for _, cfg := range []config{{}, {WebDir: dir}} {
 		w := httptest.NewRecorder()
-		newPortalHandler(cfg, profileTransport()).ServeHTTP(w, walletReq("GET", "/platform/v1/master-profile", ""))
+		newPortalHandler(cfg).ServeHTTP(w, walletReq("GET", "/platform/v1/master-profile", ""))
 		if w.Code != 503 || !strings.Contains(w.Body.String(), "PROFILE_UNAVAILABLE") {
 			t.Fatal(w.Code, w.Body)
 		}
 	}
 	w := httptest.NewRecorder()
-	newPortalHandler(config{WebDir: dir}, profileTransport()).ServeHTTP(w, walletReq("GET", "/master-profile", ""))
+	newPortalHandler(config{WebDir: dir}).ServeHTTP(w, walletReq("GET", "/master-profile", ""))
 	if w.Code != 200 || w.Body.String() != "portal" {
 		t.Fatal("browser route", w.Code, w.Body)
 	}

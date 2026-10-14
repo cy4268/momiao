@@ -1,19 +1,27 @@
 package main
 
 import (
- "strings"
- "github.com/cy4268/momiao/internal/platform"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/cy4268/momiao/internal/platform"
 )
 
-var opsBrowserPermissions=map[string]string{
- "/ops":"operations.read","/ops/models":"models.read","/ops/announcements":"announcements.read",
- "/ops/games":"games.read","/ops/poker":"poker.read","/ops/economy":"economy.read","/ops/rewards":"rewards.read",
- "/ops/rankings":"rankings.read","/ops/users":"users.read","/ops/records":"records.read","/ops/support-cases":"support-cases.read","/ops/incidents":"incidents.read",
- "/ops/maintenance":"maintenance.read","/ops/service-health":"service-health.read","/ops/jobs":"jobs.read","/ops/attention":"attention.read",
- "/ops/operations":"operations.read","/ops/audit":"audit.read","/ops/access-control":"access_control.read",
-}
-func opsBrowserPermission(route string) string {
- if permission:=opsBrowserPermissions[route];permission!=""{return permission}
- for _,prefix:=range []string{"/ops/operations/","/ops/audit/"}{if strings.HasPrefix(route,prefix)&&platform.ValidOperationKey(strings.TrimPrefix(route,prefix)){if prefix=="/ops/audit/"{return "audit.read"};return "operations.read"}}
- return ""
+func opsBrowserRoute(route string) bool {
+	if slices.Contains([]string{
+		"/ops", "/ops/models", "/ops/channels", "/ops/groups", "/ops/announcements",
+		"/ops/games", "/ops/poker", "/ops/economy", "/ops/gambler-campaign", "/ops/rewards",
+		"/ops/logs", "/ops/rankings", "/ops/users", "/ops/records", "/ops/support-cases", "/ops/incidents",
+		"/ops/maintenance", "/ops/service-health", "/ops/jobs", "/ops/attention", "/ops/audit",
+	}, route) {
+		return true
+	}
+	for _, prefix := range []string{"/ops/users/", "/ops/channels/"} {
+		if strings.HasPrefix(route, prefix) {
+			id, err := strconv.ParseInt(strings.TrimPrefix(route, prefix), 10, 64)
+			return err == nil && id > 0
+		}
+	}
+	return strings.HasPrefix(route, "/ops/audit/") && platform.ValidOperationKey(strings.TrimPrefix(route, "/ops/audit/"))
 }

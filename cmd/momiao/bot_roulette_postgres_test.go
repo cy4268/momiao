@@ -29,18 +29,14 @@ import (
 func TestBotRouletteCrossPlatformConservation(t *testing.T) {
 	f := newBotRoulettePGFixture(t)
 	ctx := context.Background()
-	observer, err := platform.OpenNativeQuota(ctx, f.base.connection.OwnerURL)
-	botGamesPGCheck(t, err, "cross native quota observer")
-	defer observer.Close()
-	f.engine, err = roulette.NewServiceWithEconomy(f.base.runtime,
-		roulette.Keyring{Active: "bot-fixture-v1", Keys: map[string][32]byte{"bot-fixture-v1": {9}}}, observer)
+	var err error
+	f.engine, err = roulette.NewService(f.base.runtime,
+		roulette.Keyring{Active: "bot-fixture-v1", Keys: map[string][32]byte{"bot-fixture-v1": {9}}})
 	botGamesPGCheck(t, err, "cross engine")
 	f.base.exec(t, `UPDATE games.game_registry SET publication_state='PUBLISHED' WHERE game_slug='pressure-roulette'`)
-	f.base.exec(t, platform.NativeQuotaMigration)
-	f.base.exec(t, `UPDATE momiao_quota.settings SET enabled=true`)
 	f.base.exec(t, `UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`)
 	service, err := botroulette.NewService(f.engine,
-		botGamesResolver{native: f.base.native, platform: f.base.runtime, declaration: f.base.declaration}, [32]byte{2}, time.Now)
+		botGamesResolver{platform: f.base.runtime, declaration: f.base.declaration}, [32]byte{2}, time.Now)
 	botGamesPGCheck(t, err, "cross bot service")
 	serial := uint64(0)
 	prepare := func(subject string, in botroulette.PrepareInput) botroulette.PreparedReply {
@@ -635,18 +631,16 @@ func botRoulettePGHTTPConfig(t *testing.T, f *botRoulettePGFixture, enabled stri
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	cfg := config{ProcessRole: "platform", WalletDSNFile: filepath.Join(dir, "wallet"), GameFairnessKeyringFile: filepath.Join(dir, "fairness"), accessDeclaration: f.base.declaration, roulette: f.engine}
 	values := map[string]string{
-		"MOMIAO_BOT_GAMES_SOCKET":          filepath.Join(dir, "bot.sock"),
-		"MOMIAO_BOT_GAMES_TOKEN_FILE":      filepath.Join(dir, "token"),
-		"MOMIAO_BOT_GAMES_QUOTE_KEY_FILE":  filepath.Join(dir, "quote"),
-		"MOMIAO_BOT_GAMES_NATIVE_DSN_FILE": filepath.Join(dir, "native"),
-		"MOMIAO_BOT_ROULETTE_ENABLED":      enabled,
+		"MOMIAO_BOT_GAMES_SOCKET":         filepath.Join(dir, "bot.sock"),
+		"MOMIAO_BOT_GAMES_TOKEN_FILE":     filepath.Join(dir, "token"),
+		"MOMIAO_BOT_GAMES_QUOTE_KEY_FILE": filepath.Join(dir, "quote"),
+		"MOMIAO_BOT_ROULETTE_ENABLED":     enabled,
 	}
 	botGamesPGCheck(t, loadBotGamesConfig(&cfg, func(k string) (string, bool) { v, ok := values[k]; return v, ok }), "roulette config")
 	quoteKey, fairnessKey := [32]byte{2}, [32]byte{9}
 	for p, value := range map[string]string{
 		cfg.BotGames.TokenFile:      botGamesTestToken,
 		cfg.BotGames.QuoteKeyFile:   hex.EncodeToString(quoteKey[:]),
-		cfg.BotGames.NativeDSNFile:  f.base.connection.NativeURL,
 		cfg.GameFairnessKeyringFile: `{"active":"bot-fixture-v1","keys":{"bot-fixture-v1":"` + hex.EncodeToString(fairnessKey[:]) + `"}}`,
 	} {
 		botGamesPGCheck(t, os.WriteFile(p, []byte(value), 0600), "roulette private fixture file")
@@ -784,7 +778,7 @@ func TestBotRouletteHTTPPostgres(t *testing.T) {
 			if !reflect.DeepEqual(lookup, created) || !reflect.DeepEqual(before, f.domain(t, id)) {
 				t.Fatal("receipt replay mutated original room")
 			}
-			f.base.exec(t, `UPDATE public.users SET discord_id='' WHERE id=$1`, users[0])
+			f.base.exec(t, `UPDATE identity.users SET discord_id=NULL WHERE id=$1`, users[0])
 			before = f.domain(t, id)
 			var public botroulette.PublicReply
 			botGamesPGCheck(t, json.Unmarshal(botRoulettePGPost(t, client, prefix+"public", "", botroulette.RoomInput{Game: game, RoomID: id}, 200), &public), "service-only public view")

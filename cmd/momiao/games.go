@@ -14,6 +14,7 @@ import (
 
 	"github.com/cy4268/momiao/internal/games"
 	bj "github.com/cy4268/momiao/internal/games/blackjack"
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -90,7 +91,7 @@ func gameError(w http.ResponseWriter, err error) {
 	}
 	walletError(w, status, code)
 }
-func newGameHandler(origin string, service *games.Service, transport http.RoundTripper, readPoker games.PokerCatalogRuntime) http.Handler {
+func newGameHandler(origin string, service *games.Service, readPoker games.PokerCatalogRuntime) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.EscapedPath() != r.URL.Path || strings.Contains(r.URL.Path, "//") {
 			walletError(w, 404, "NOT_FOUND")
@@ -134,20 +135,12 @@ func newGameHandler(origin string, service *games.Service, transport http.RoundT
 				return
 			}
 		}
-		user, status := verifyWalletUser(r, transport)
+		user, status := verifyWalletUser(r)
 		if status != 0 {
-			code := "AUTH_UNAVAILABLE"
-			if status == 401 || status == 403 {
-				code = "AUTH_UNAUTHORIZED"
-			}
-			walletError(w, status, code)
+			walletError(w, status, "AUTH_UNAUTHORIZED")
 			return
 		}
-		session, ok := authHeader(r, "X-Auth-Session", 512, true)
-		if !ok {
-			walletError(w, 401, "AUTH_UNAUTHORIZED")
-			return
-		}
+		session := identity.SessionIDFromContext(r.Context())
 		if r.Method == "POST" || r.Method == "PUT" {
 			if origins := r.Header.Values("Origin"); len(origins) != 1 || origins[0] != origin {
 				walletError(w, 403, "ORIGIN_REJECTED")

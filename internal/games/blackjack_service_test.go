@@ -29,18 +29,6 @@ func blackjackFixtureMatching(t *testing.T, owner, runtime *platform.Store, matc
 	ctx := context.Background()
 	s := newTestService(t, runtime)
 	user := time.Now().UnixMicro()
-	var capActive bool
-	if e := owner.WithTx(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT active_version IS NOT NULL FROM economy.policy_runtime WHERE singleton`).Scan(&capActive)
-	}); e != nil {
-		t.Fatal(e)
-	}
-	if capActive {
-		user = 1000000000 + time.Now().UnixNano()%900000000
-		if e := owner.WithTx(ctx, func(tx pgx.Tx) error { _, e := tx.Exec(ctx, `INSERT INTO public.users(id) VALUES($1)`, user); return e }); e != nil {
-			t.Fatal(e)
-		}
-	}
 	if err := owner.EnsureAccount(ctx, user); err != nil {
 		t.Fatal(err)
 	}

@@ -76,6 +76,29 @@ func (s *Store) RegistrationCursor(ctx context.Context) (int64, error) {
 	err := s.pool.QueryRow(ctx, "SELECT ordinal FROM platform_meta.registration_cursor WHERE singleton").Scan(&cursor)
 	return cursor, err
 }
+
+func (s *Store) ReadRegistrationPage(ctx context.Context, after int64, limit int) (RegistrationPage, error) {
+	page := RegistrationPage{Receipts: []RegistrationReceipt{}, NextCursor: after}
+	if after < 0 || limit < 1 || limit > 100 {
+		return page, ErrRegistrationReceipt
+	}
+	rows, err := s.pool.Query(ctx, `SELECT ordinal,operation_id::text,native_user_id,discord_subject,source,policy_version,created_at
+ FROM momiao_admission.registration_receipts WHERE ordinal>$1 ORDER BY ordinal LIMIT $2`, after, limit)
+	if err != nil {
+		return page, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var receipt RegistrationReceipt
+		if err := rows.Scan(&receipt.Ordinal, &receipt.OperationID, &receipt.NativeUserID, &receipt.DiscordSubject, &receipt.Source, &receipt.PolicyVersion, &receipt.CreatedAt); err != nil {
+			return page, err
+		}
+		page.Receipts = append(page.Receipts, receipt)
+		page.NextCursor = receipt.Ordinal
+	}
+	return page, rows.Err()
+}
+
 func (s *Store) MarkRegistrationSourceUnavailable(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx, "UPDATE platform_meta.registration_cursor SET source_available=false,last_attempt_at=clock_timestamp() WHERE singleton")
 	return err

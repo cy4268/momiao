@@ -1,13 +1,15 @@
 const key='chaldea.post-auth.route.v2';
 const obsoleteKey='chaldea.post-auth.route.v1';
-const routes=['/dashboard','/me','/wallet','/wallet/activate','/keys','/logs','/models','/api/access','/rewards','/games/dice','/games/scratch','/games/summon','/games/slot','/games/blackjack','/history','/master-profile','/account','/account/security','/admin/channels','/ops/announcements','/ops/models'];
+const routes=['/ops/logs','/ops/channels','/ops/groups','/dashboard','/me','/wallet','/keys','/logs','/models','/api/access','/rewards','/games/dice','/games/scratch','/games/summon','/games/slot','/games/blackjack','/history','/master-profile','/account','/account/security','/admin/channels','/ops/announcements','/ops/models'];
 export function pokerRouteIntent(path:string):boolean {return path==='/poker'||path.length===49&&/^\/poker\/table\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(path);}
 export function rouletteRouteIntent(path:string):boolean{return path==='/roulette/devil-roulette'||path==='/roulette/pressure-roulette'||/^\/roulette\/rooms\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(path);}
 export function validModelID(id:unknown):id is string {return typeof id==='string'&&id.length>0&&id.trim()===id&&!/[\u0000-\u001f\u007f-\u009f]/u.test(id)&&!/[\uD800-\uDFFF]/u.test(id)&&new TextEncoder().encode(id).length<=255;}
 // The single extensible navigation whitelist. Future implemented model/access
 // routes extend this function, not a second auth client or intent storage key.
 export function normalizeRouteIntent(path:string):string|undefined {
- if(['/ops','/ops/games','/ops/poker','/ops/economy','/ops/rewards','/ops/rankings','/ops/users','/ops/records','/ops/support-cases','/ops/incidents','/ops/maintenance','/ops/service-health','/ops/jobs','/ops/attention','/ops/operations','/ops/audit','/ops/access-control'].includes(path)||/^\/ops\/(?:operations|audit)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(path))return path;
+ if(/^\/ops\/(?:channels|users)\/[1-9][0-9]*$/.test(path))return path;
+ if(['/ops','/ops/games','/ops/poker','/ops/economy','/ops/gambler-campaign','/ops/rewards','/ops/rankings','/ops/users','/ops/records','/ops/support-cases','/ops/incidents','/ops/maintenance','/ops/service-health','/ops/jobs','/ops/attention','/ops/audit'].includes(path)||/^\/ops\/audit\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(path))return path;
+ if(/^\/ops\/(?:logs|records)\?user=[1-9][0-9]*$/.test(path))return path;
  if(path==='/rankings'||path==='/logs?purpose=ROLEPLAY')return path;
  if(routes.includes(path)||pokerRouteIntent(path)||rouletteRouteIntent(path))return path;
  if(/^\/history\/roulette\/[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(path))return path;

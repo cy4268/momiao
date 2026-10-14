@@ -24,16 +24,19 @@ func (s *admissionTestStore) ReadAdmission(ctx context.Context, u int64) (platfo
 }
 func TestAdmissionHTTPAuthorityAndExplicitEnsure(t *testing.T) {
 	s := &admissionTestStore{}
-	h := newAdmissionHandler("https://wallet.example", s, profileTransport())
+	h := newAdmissionHandler("https://wallet.example", s)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, walletReq("GET", "/platform/v1/admission", ""))
 	if w.Code != 200 || s.statusReads != 1 || s.inits != 0 {
 		t.Fatal("GET wrote state")
 	}
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, walletReq("POST", "/platform/v1/admission/ensure", "{}"))
+	r := walletReq("POST", "/platform/v1/admission/ensure", "{}")
+	r.Header.Set("New-Api-User", "1")
+	r.Header.Set("Authorization", "Bearer forged")
+	h.ServeHTTP(w, r)
 	if w.Code != 200 || s.inits != 1 || s.user != 9007199254740993 {
-		t.Fatal("native identity not authoritative")
+		t.Fatal("local identity not authoritative")
 	}
 	for _, body := range []string{`{"registered":true}`, `{"source":"NEW_DISCORD_REGISTRATION"}`, `{"user_id":"1"}`, `{"grant":true}`, `null`, `{} {}`, strings.Repeat(" ", 2049) + `{}`} {
 		w = httptest.NewRecorder()
@@ -42,7 +45,7 @@ func TestAdmissionHTTPAuthorityAndExplicitEnsure(t *testing.T) {
 			t.Fatal("client source accepted", w.Code)
 		}
 	}
-	for _, change := range []func(*http.Request){func(r *http.Request) { r.Header.Del("Authorization") }, func(r *http.Request) { r.Header.Set("New-Api-User", "1") }, func(r *http.Request) { r.Header.Set("Origin", "https://evil.example") }, func(r *http.Request) { r.Header.Add("Origin", "https://wallet.example") }} {
+	for _, change := range []func(*http.Request){func(r *http.Request) { *r = *r.WithContext(context.Background()) }, func(r *http.Request) { r.Header.Set("Origin", "https://evil.example") }, func(r *http.Request) { r.Header.Add("Origin", "https://wallet.example") }} {
 		r := walletReq("POST", "/platform/v1/admission/ensure", "{}")
 		change(r)
 		w = httptest.NewRecorder()
@@ -58,7 +61,7 @@ func TestAdmissionHTTPAuthorityAndExplicitEnsure(t *testing.T) {
 func TestAdmissionPrivatePathNeverProxied(t *testing.T) {
 	cfg := config{WebDir: t.TempDir()}
 	called := false
-	h := newPortalHandler(cfg, admissionTransport(func(*http.Request) (*http.Response, error) { called = true; return readerResponse(200, `{}`), nil }))
+	h := newPortalHandler(cfg)
 	for _, path := range []string{"/internal/momiao/registrations", "/internal", "/internal/else", "/api/../internal/momiao/registrations", "/api/%2e%2e/internal/momiao/registrations", "/%69nternal/momiao/registrations"} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("GET", path, nil)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -11,16 +12,15 @@ import (
 	"github.com/cy4268/momiao/internal/games"
 	"github.com/cy4268/momiao/internal/history"
 	"github.com/cy4268/momiao/internal/historyaccess"
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/poker"
- "github.com/cy4268/momiao/internal/roulette"
-	"github.com/cy4268/momiao/internal/session"
+	"github.com/cy4268/momiao/internal/roulette"
 )
 
 // Concrete dependencies keep request-controlled identities out of the authority seam.
 type historyHTTP struct {
 	roulette *roulette.Service
- sessions *session.Service
 	list     *history.Reader
 	rounds   *games.Service
 	poker    *poker.HistoryReader
@@ -45,25 +45,16 @@ func (h *historyHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		walletError(w, 405, "HISTORY_READ_ONLY")
 		return
 	}
-	if h == nil || h.sessions == nil {
+	if h == nil {
 		walletError(w, 503, "HISTORY_UNAVAILABLE")
 		return
 	}
-	verified, err := h.sessions.VerifyPrivateRequest(r)
-	if err != nil {
-		var fault session.Fault
-		status, code := 503, "SESSION_UNAVAILABLE"
-		if errors.As(err, &fault) {
-			status, code = fault.Status, fault.Code
-		}
-		walletError(w, status, code)
+	account, ok := identity.UserFromContext(r.Context())
+	if !ok {
+		walletError(w, 401, "AUTH_UNAUTHORIZED")
 		return
 	}
-	user, err := strconv.ParseInt(verified.View().UserID, 10, 64)
-	if err != nil || user <= 0 {
-		walletError(w, 401, "SESSION_UNAUTHORIZED")
-		return
-	}
+	user := account.ID
 	kind, id, proof, q, err := parseHistoryRequest(r.URL)
 	if err != nil {
 		historyHTTPError(w, err)
@@ -83,25 +74,47 @@ func (h *historyHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Result: q.Get("result"), Status: q.Get("status"), ID: q.Get("id"),
 			Limit: historyLimit(q, "limit"), Cursor: q.Get("cursor"),
 		})
+	default:
+		data, err = h.readRecord(r.Context(), kind, id, proof, q, access)
+	}
+	if err != nil {
+		historyHTTPError(w, err)
+		return
+	}
+	walletSuccess(w, data)
+}
+
+// Personal and Ops reads use the same source visibility/fairness rules.
+func (h *historyHTTP) readRecord(ctx context.Context, kind, id string, proof bool, q url.Values, access historyaccess.Access) (any, error) {
+	var data any
+	var err error
+	switch kind {
 	case "rounds":
 		if h.rounds == nil {
 			err = historyaccess.ErrUnavailable
 			break
 		}
 		if proof {
-			data, err = h.rounds.HistoryVerify(r.Context(), access, id)
+			data, err = h.rounds.HistoryVerify(ctx, access, id)
 		} else {
-			data, err = h.rounds.HistoryDetail(r.Context(), access, id)
+			data, err = h.rounds.HistoryDetail(ctx, access, id)
 		}
 	case "roulette":
-  if h.roulette==nil {err=historyaccess.ErrUnavailable;break}
-  if proof { data,err=h.roulette.HistoryVerify(r.Context(),access,id) } else {data,err=h.roulette.HistoryDetail(r.Context(),access,id,roulette.HistoryQuery{Limit:historyLimit(q,"limit"),Cursor:q.Get("cursor")})}
- case "sessions":
+		if h.roulette == nil {
+			err = historyaccess.ErrUnavailable
+			break
+		}
+		if proof {
+			data, err = h.roulette.HistoryVerify(ctx, access, id)
+		} else {
+			data, err = h.roulette.HistoryDetail(ctx, access, id, roulette.HistoryQuery{Limit: historyLimit(q, "limit"), Cursor: q.Get("cursor")})
+		}
+	case "sessions":
 		if h.poker == nil {
 			err = historyaccess.ErrUnavailable
 			break
 		}
-		data, err = h.poker.SessionDetail(r.Context(), access, id, poker.HistorySessionQuery{
+		data, err = h.poker.SessionDetail(ctx, access, id, poker.HistorySessionQuery{
 			FundingLimit: historyLimit(q, "funding_limit"), HandLimit: historyLimit(q, "hand_limit"),
 			FundingCursor: q.Get("funding_cursor"), HandCursor: q.Get("hand_cursor"),
 		})
@@ -111,9 +124,9 @@ func (h *historyHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		if proof {
-			data, err = h.poker.HandFairness(r.Context(), access, id)
+			data, err = h.poker.HandFairness(ctx, access, id)
 		} else {
-			data, err = h.poker.HandDetail(r.Context(), access, id, poker.HistoryHandQuery{
+			data, err = h.poker.HandDetail(ctx, access, id, poker.HistoryHandQuery{
 				Limit: historyLimit(q, "limit"), Cursor: q.Get("cursor"),
 			})
 		}
@@ -122,19 +135,15 @@ func (h *historyHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			err = historyaccess.ErrUnavailable
 			break
 		}
-		data, err = h.wallet.HistoryTransaction(r.Context(), access, id)
+		data, err = h.wallet.HistoryTransaction(ctx, access, id)
 	}
-	if err != nil {
-		historyHTTPError(w, err)
-		return
-	}
-	walletSuccess(w, data)
+	return data, err
 }
 
 func historyHTTPError(w http.ResponseWriter, err error) {
 	status, code := 503, "HISTORY_UNAVAILABLE"
 	switch {
-	case errors.Is(err, poker.ErrHistoryCursorStale),errors.Is(err,roulette.ErrHistoryCursorStale):
+	case errors.Is(err, poker.ErrHistoryCursorStale), errors.Is(err, roulette.ErrHistoryCursorStale):
 		status, code = 409, "HISTORY_CURSOR_STALE"
 	case errors.Is(err, history.ErrQuery), errors.Is(err, historyaccess.ErrInvalid):
 		status, code = 400, "HISTORY_QUERY_INVALID"

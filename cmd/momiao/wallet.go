@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 	"io"
 	"mime"
@@ -65,73 +66,12 @@ func authHeader(r *http.Request, key string, max int, required bool) (string, bo
 	return v[0], true
 }
 
-type nativeSelfData struct {
-	ID       int64  `json:"id"`
-	Status   *int   `json:"status"`
-	Username string `json:"username"`
-	Role     *int   `json:"role"`
-}
-
-func readNativeSelf(r *http.Request, transport http.RoundTripper) (nativeSelfData, int) {
-	auth, ok := authHeader(r, "Authorization", 8192, true)
-	parts := strings.Split(auth, " ")
-	if !ok || len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
-		return nativeSelfData{}, 401
+func verifyWalletUser(r *http.Request) (int64, int) {
+	user, ok := identity.UserFromContext(r.Context())
+	if !ok || user.Status != 1 {
+		return 0, http.StatusUnauthorized
 	}
-	claimed, ok := authHeader(r, "New-Api-User", 19, true)
-	id, err := decimalInt(claimed)
-	if !ok || err != nil || id <= 0 {
-		return nativeSelfData{}, 401
-	}
-	session, ok := authHeader(r, "X-Auth-Session", 512, false)
-	if !ok {
-		return nativeSelfData{}, 401
-	}
-	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://unix/api/user/self", nil)
-	req.Host = "localhost"
-	req.Header.Set("Authorization", auth)
-	req.Header.Set("New-Api-User", claimed)
-	if session != "" {
-		req.Header.Set("X-Auth-Session", session)
-	}
-	// RoundTrip never follows redirects and has no cookie jar. Only fixed native Unix transport is wired in production.
-	resp, err := transport.RoundTrip(req)
-	if err != nil {
-		return nativeSelfData{}, 502
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		return nativeSelfData{}, resp.StatusCode
-	}
-	if resp.StatusCode != 200 {
-		return nativeSelfData{}, 502
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 65537))
-	if err != nil || len(body) > 65536 {
-		return nativeSelfData{}, 502
-	}
-	var result struct {
-		Success bool           `json:"success"`
-		Data    nativeSelfData `json:"data"`
-	}
-	if json.Unmarshal(body, &result) != nil || !result.Success || result.Data.ID <= 0 || result.Data.Status == nil {
-		return nativeSelfData{}, 502
-	}
-	if result.Data.ID != id {
-		return nativeSelfData{}, 401
-	}
-	return result.Data, 0
-}
-
-func verifyWalletUser(r *http.Request, transport http.RoundTripper) (int64, int) {
-	data, status := readNativeSelf(r, transport)
-	if status != 0 {
-		return 0, status
-	}
-	if *data.Status != 1 {
-		return 0, 401
-	}
-	return data.ID, 0
+	return user.ID, 0
 }
 
 type walletView struct {
@@ -142,7 +82,7 @@ type walletView struct {
 	Version      int64          `json:"version,string"`
 }
 
-func newWalletHandler(origin string, store walletStore, transport http.RoundTripper) http.Handler {
+func newWalletHandler(origin string, store walletStore) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			walletError(w, 503, "WALLET_UNAVAILABLE")
@@ -151,15 +91,9 @@ func newWalletHandler(origin string, store walletStore, transport http.RoundTrip
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
-		id, status := verifyWalletUser(r, transport)
+		id, status := verifyWalletUser(r)
 		if status != 0 {
-			code := "AUTH_UNAVAILABLE"
-			if status == 401 {
-				code = "AUTH_UNAUTHORIZED"
-			} else if status == 403 {
-				code = "AUTH_FORBIDDEN"
-			}
-			walletError(w, status, code)
+			walletError(w, status, "AUTH_UNAUTHORIZED")
 			return
 		}
 		ledger := r.URL.Path == "/platform/v1/wallet/ledger"

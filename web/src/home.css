@@ -66,6 +66,7 @@
 .moon-home-enter svg { width: 21px; height: 21px; }
 .moon-home-enter:hover { background: #234978; color: #fff; }
 .moon-home-enter:focus-visible { outline: 3px solid #203e63; outline-offset: 5px; }
+.moon-home-footer { margin-top: 28px; }
 @media (max-width: 640px) {
     .moon-home { align-items: flex-end; }
     .moon-home-background { object-position: 65% center; }

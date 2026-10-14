@@ -3,9 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -13,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -20,14 +18,6 @@ type gateFixture struct {
 	stage               string
 	calls               []string
 	ackUser, ackVersion int64
-}
-
-func (s *gateFixture) CatalogAuthority(context.Context, int64) (platform.AnnouncementPrincipal, error) {
-	s.calls = append(s.calls, "models-role")
-	if s.stage == "models-denied" {
-		return platform.AnnouncementPrincipal{}, platform.ErrCatalogForbidden
-	}
-	return platform.AnnouncementPrincipal{Role: "OPERATOR"}, nil
 }
 
 func TestAccessGateCatalogRoutesAndScope(t *testing.T) {
@@ -41,14 +31,18 @@ func TestAccessGateCatalogRoutesAndScope(t *testing.T) {
 			t.Errorf("unbounded model navigation accepted: %s", route)
 		}
 	}
-	transport := walletTransport(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"data":{"id":9007199254740993,"username":"synthetic-root","status":1,"role":100}}`))}, nil
-	})
+
 	for _, tc := range []struct{ stage, want string }{{"models-denied", "ROLE_DENIED"}, {"allowed", "READY"}} {
 		store := &gateFixture{stage: tc.stage}
 		w := httptest.NewRecorder()
-		newAccessGateHandler("https://example.test", store, &accessDeclaration{Resources: map[string]string{"OPERATIONS": "AVAILABLE"}}, transport, false).ServeHTTP(w, announcementReq("GET", "/platform/v1/access-gate?route="+url.QueryEscape("/ops/models"), ""))
-		if w.Code != 200 || !strings.Contains(w.Body.String(), `"stage":"`+tc.want+`"`) || strings.Join(store.calls, ",") != "master,migration,models-role" {
+		r := announcementReq("GET", "/platform/v1/access-gate?route="+url.QueryEscape("/ops/models"), "")
+		if tc.stage == "models-denied" {
+			user, _ := identity.UserFromContext(r.Context())
+			user.Role = 1
+			r = r.WithContext(identity.WithUser(r.Context(), user, identity.SessionIDFromContext(r.Context())))
+		}
+		newAccessGateHandler("https://example.test", store, &accessDeclaration{Resources: map[string]string{"OPERATIONS": "AVAILABLE"}}, false).ServeHTTP(w, r)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"stage":"`+tc.want+`"`) || strings.Join(store.calls, ",") != "master,migration" {
 			t.Errorf("models scope/order lost: %d %s %v", w.Code, w.Body.String(), store.calls)
 		}
 	}
@@ -112,9 +106,7 @@ func TestAccessDeclarationStrictSource(t *testing.T) {
 }
 
 func TestMigrationNoticeHTTPWriteBoundary(t *testing.T) {
-	transport := walletTransport(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"data":{"id":9007199254740993,"username":"synthetic-user","status":1,"role":1}}`))}, nil
-	})
+
 	for _, tc := range []struct {
 		name, body, origin string
 		want               int
@@ -131,7 +123,7 @@ func TestMigrationNoticeHTTPWriteBoundary(t *testing.T) {
 			r.Header.Set("Origin", tc.origin)
 			r.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
-			newAccessGateHandler("https://example.test", store, nil, transport, false).ServeHTTP(w, r)
+			newAccessGateHandler("https://example.test", store, nil, false).ServeHTTP(w, r)
 			if w.Code != tc.want {
 				t.Fatalf("got %d %s", w.Code, w.Body.String())
 			}
@@ -145,32 +137,29 @@ func TestMigrationNoticeHTTPWriteBoundary(t *testing.T) {
 		})
 	}
 }
-func (s *gateFixture) AnnouncementAuthority(context.Context, int64) (platform.AnnouncementPrincipal, error) {
-	s.calls = append(s.calls, "role")
-	if s.stage == "role" {
-		return platform.AnnouncementPrincipal{}, platform.ErrAnnouncementForbidden
-	}
-	return platform.AnnouncementPrincipal{Role: "SUPER_ADMIN"}, nil
-}
 
 func TestAccessGateOrderAndMissingDeclaration(t *testing.T) {
 	for _, tc := range []struct {
 		stage       string
 		status      int
 		want, calls string
-	}{{"account", 2, "ACCOUNT_RESTRICTED", ""}, {"master", 1, "MASTER_REQUIRED", "master"}, {"migration", 1, "MIGRATION_REQUIRED", "master,migration"}, {"role", 1, "ROLE_DENIED", "master,migration,role"}, {"resource", 1, "RESOURCE_UNVERIFIED", "master,migration,role"}, {"AVAILABLE", 1, "READY", "master,migration,role"}, {"MAINTENANCE", 1, "MAINTENANCE", "master,migration,role"}} {
+	}{{"account", 2, "ACCOUNT_RESTRICTED", ""}, {"master", 1, "MASTER_REQUIRED", "master"}, {"migration", 1, "MIGRATION_REQUIRED", "master,migration"}, {"role", 1, "ROLE_DENIED", "master,migration"}, {"resource", 1, "RESOURCE_UNVERIFIED", "master,migration"}, {"AVAILABLE", 1, "READY", "master,migration"}, {"MAINTENANCE", 1, "MAINTENANCE", "master,migration"}} {
 		t.Run(tc.stage, func(t *testing.T) {
 			store := &gateFixture{stage: tc.stage}
-			transport := walletTransport(func(r *http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"success":true,"data":{"id":9007199254740993,"username":"synthetic-user","status":%d,"role":1}}`, tc.status)))}, nil
-			})
+
 			r := announcementReq("GET", "/platform/v1/access-gate?route=%2Fops%2Fannouncements", "")
+			user, _ := identity.UserFromContext(r.Context())
+			user.Status = tc.status
+			if tc.stage == "role" {
+				user.Role = 1
+			}
+			r = r.WithContext(identity.WithUser(r.Context(), user, identity.SessionIDFromContext(r.Context())))
 			w := httptest.NewRecorder()
 			var declaration *accessDeclaration
 			if tc.stage == "AVAILABLE" || tc.stage == "MAINTENANCE" {
 				declaration = &accessDeclaration{Resources: map[string]string{"OPERATIONS": tc.stage}}
 			}
-			newAccessGateHandler("https://example.test", store, declaration, transport, false).ServeHTTP(w, r)
+			newAccessGateHandler("https://example.test", store, declaration, false).ServeHTTP(w, r)
 			var result struct {
 				Data struct {
 					Stage string `json:"stage"`

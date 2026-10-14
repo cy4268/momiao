@@ -218,9 +218,6 @@ func TestRegistrationAdmissionIntegration(t *testing.T) {
 		}
 	})
 	// A capped registration is still a complete, immutable issuance receipt.
-	if err := s.ConfigureEconomicObserver(&exchangeNative{}); err != nil {
-		t.Fatal(err)
-	}
 	execute(`UPDATE economy.policy_runtime SET active_version='economy-cap-v1' WHERE singleton`)
 	t.Cleanup(func() {
 		_, _ = s.pool.Exec(ctx, `UPDATE economy.policy_runtime SET active_version=NULL WHERE singleton`)

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,11 +14,7 @@ func TestM1DirectRoutesAndNativePrefix(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<html>M1 candidate</html>"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	var forwarded string
-	handler := newPortalHandler(config{WebDir: root}, roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		forwarded = r.URL.Path
-		return &http.Response{StatusCode: http.StatusNotFound, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"native":true}`))}, nil
-	}))
+	handler := newPortalHandler(config{WebDir: root})
 	for _, path := range []string{"/", "/me", "/rewards"} {
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
 			t.Run(method+path, func(t *testing.T) {
@@ -36,8 +31,8 @@ func TestM1DirectRoutesAndNativePrefix(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/keys", nil))
-	if forwarded != "/api/keys" || w.Code != http.StatusNotFound || strings.Contains(w.Body.String(), "M1 candidate") {
-		t.Fatal("native /api prefix was captured by SPA routing")
+	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), `"code":"NOT_FOUND"`) || strings.Contains(w.Body.String(), "M1 candidate") {
+		t.Fatal("removed API route was captured by SPA routing")
 	}
 }
 
@@ -47,7 +42,7 @@ func TestM1PublicImageFormats(t *testing.T) {
 	if err := os.MkdirAll(assetDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	handler := newPortalHandler(config{WebDir: root}, nil)
+	handler := newPortalHandler(config{WebDir: root})
 	for _, ext := range []string{"avif", "webp"} {
 		name := "bg-royal-observatory-v001." + ext
 		if err := os.WriteFile(filepath.Join(assetDir, name), []byte("synthetic image bytes"), 0600); err != nil {

@@ -1,28 +1,20 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"github.com/cy4268/momiao/internal/bffauth"
-	"github.com/cy4268/momiao/internal/nativeself"
+	"github.com/cy4268/momiao/internal/identity"
+	"github.com/cy4268/momiao/internal/relay"
 	"io"
-	"log"
 	"mime"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"time"
-)
-
-const (
-	apiProxyRequestTimeout = 30 * time.Second
-	v1ProxyRequestTimeout  = 5 * time.Minute
 )
 
 var browserRoutes = map[string]bool{
@@ -33,14 +25,10 @@ var browserRoutes = map[string]bool{
 	"/account":          true,
 	"/account/security": true,
 	"/welcome":          true,
-	"/sign-in":          true,
-	"/sign-up":          true,
-	"/otp":              true,
 	"/dashboard":        true,
 	"/me":               true,
 	"/rewards":          true,
 	"/wallet":           true,
-	"/wallet/activate":  true,
 	"/master-profile":   true,
 	"/games/dice":       true,
 	"/keys":             true,
@@ -77,7 +65,7 @@ func healthHandler() http.Handler {
 func newServer(cfg config) *http.Server {
 	return &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           newPortalHandler(cfg, nil),
+		Handler:           newPortalHandler(cfg),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -86,25 +74,43 @@ func newServer(cfg config) *http.Server {
 	}
 }
 
-func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
+func newPortalHandler(cfg config) http.Handler {
 	if cfg.RecoveryLock {
 		return newRecoveryLockedHandler(cfg)
 	}
 	if cfg.maintenanceNotices == nil {
 		cfg.maintenanceNotices = newMaintenanceNoticesHandler(nil, "")
 	}
+	models := relay.ModelsHandler(cfg.relay)
+	generation := relay.Handler(cfg.relay)
 	if cfg.WebDir == "" {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/channel" || strings.HasPrefix(r.URL.Path, "/api/channel/") {
+				walletError(w,404,"NOT_FOUND")
+				return
+			}
+			if r.URL.Path == "/v1/models" {
+				models.ServeHTTP(w, r)
+				return
+			}
+			if strings.HasPrefix(r.URL.Path, "/v1/") {
+				generation.ServeHTTP(w, r)
+				return
+			}
 			if r.URL.Path == "/api/v1/maintenance/notices" {
 				cfg.maintenanceNotices.ServeHTTP(w, r)
 				return
 			}
 			if opsAPIRoute(r.URL.Path) {
-				serveOpsRoute(cfg.ops, w, r)
+				serveOpsRoute(cfg, w, r)
 				return
 			}
 			if r.URL.Path == "/readyz" {
 				newReadinessHandler(cfg.readiness).ServeHTTP(w, r)
+				return
+			}
+			if r.URL.Path == "/api/v1/rankings/me" {
+				domainHandler(cfg, newRankingsHandler(cfg.rankings, true)).ServeHTTP(w,r)
 				return
 			}
 			if r.URL.Path == "/api/v1/rankings" {
@@ -112,7 +118,35 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				return
 			}
 			if historyAPIRoute(r.URL.Path) {
-				cfg.history.ServeHTTP(w, r)
+				domainHandler(cfg, cfg.history).ServeHTTP(w, r)
+				return
+			}
+			if r.URL.Path == "/api/user/self" {
+				domainHandler(cfg, newLocalSelfHandler(cfg.relay)).ServeHTTP(w, r)
+				return
+			}
+			if r.URL.Path == "/api/v1/usage/rp" {
+				domainHandler(cfg, newRPUsageHandler(cfg)).ServeHTTP(w, r)
+				return
+			}
+			if localWorkspaceRoute(r.URL.Path) {
+				domainHandler(cfg, newLocalWorkspaceHandler(cfg.relay)).ServeHTTP(w, r)
+				return
+			}
+			if strings.HasPrefix(r.URL.Path, "/api/token/") {
+				if cfg.relay == nil {
+					walletError(w, 503, "KEY_UNAVAILABLE")
+					return
+				}
+				domainHandler(cfg, newLocalKeysHandler(cfg.relay)).ServeHTTP(w, r)
+				return
+			}
+			if r.URL.Path == "/platform/v1/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/announcements/") || r.URL.Path == "/platform/v1/ops/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/announcements/") {
+				domainHandler(cfg, newAnnouncementHandler(cfg.PublicOrigin, cfg.announcements)).ServeHTTP(w, r)
+				return
+			}
+			if catalogAPIRoute(r.URL.Path) {
+				domainHandler(cfg, newCatalogHandler(cfg)).ServeHTTP(w, r)
 				return
 			}
 			if sessionAPIRoute(r.URL.Path) {
@@ -131,11 +165,15 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 				walletError(w, 503, "PROFILE_UNAVAILABLE")
 				return
 			}
-			if strings.HasPrefix(r.URL.Path, "/platform/v1/") {
+			if r.URL.Path == "/platform/v1/wallet" || r.URL.Path == "/platform/v1/wallet/ledger" || r.URL.Path == "/platform/v1/wallet/initialize" {
 				walletError(w, 503, "WALLET_UNAVAILABLE")
 				return
 			}
-			if r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			if strings.HasPrefix(r.URL.Path, "/platform/v1/") {
+				walletError(w, 404, "NOT_FOUND")
+				return
+			}
+			if r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/") {
 				walletError(w, 404, "NOT_FOUND")
 				return
 			}
@@ -145,22 +183,18 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 	if root, err := filepath.EvalSymlinks(cfg.WebDir); err == nil {
 		cfg.WebDir = root
 	}
-	if root, err := filepath.EvalSymlinks(cfg.NativeAuthWebDir); cfg.NativeAuthWebDir != "" && err == nil {
-		cfg.NativeAuthWebDir = root
-	}
-	if transport == nil {
-		transport = newNativeTransport(cfg.NewAPISocket)
-	}
-	proxy := newNativeProxy(transport)
 	readPoker := cfg.pokerCatalogRuntime
 	if !cfg.Poker.Enabled || cfg.poker == nil {
 		readPoker = nil
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		isRelay := strings.HasPrefix(r.URL.Path, "/v1/")
 		switch {
+		case r.URL.Path == "/v1/models":
+			models.ServeHTTP(w, r)
+		case strings.HasPrefix(r.URL.Path, "/v1/"):
+			generation.ServeHTTP(w, r)
 		case opsAPIRoute(r.URL.Path):
-			serveOpsRoute(cfg.ops, w, r)
+			serveOpsRoute(cfg, w, r)
 		case r.URL.Path == "/api/v1/maintenance/notices":
 			cfg.maintenanceNotices.ServeHTTP(w, r)
 		case r.URL.Path == "/readyz":
@@ -172,178 +206,116 @@ func newPortalHandler(cfg config, transport http.RoundTripper) http.Handler {
 		case r.URL.Path == "/api/v1/usage/rp":
 			domainHandler(cfg, newRPUsageHandler(cfg)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/key-purposes" || strings.HasPrefix(r.URL.Path, "/platform/v1/key-purposes/"):
-			domainHandler(cfg, newKeyPurposeHandler(cfg.PublicOrigin, cfg.keyPurposes, cfg.nativePurposes, transport)).ServeHTTP(w, r)
+			walletError(w, http.StatusNotFound, "NOT_FOUND")
 		case historyAPIRoute(r.URL.Path):
-			cfg.history.ServeHTTP(w, r)
+			domainHandler(cfg, cfg.history).ServeHTTP(w, r)
 		case sessionAPIRoute(r.URL.Path):
 			serveSessionRoute(cfg.sessionAuth, w, r)
-		case cfg.Session.Enabled && legacyNativeBrowserAuthRoute(r.URL.Path):
-			sessionError(w, bffauth.Fault{Status: http.StatusNotFound, Code: "AUTH_ROUTE_NOT_FOUND"})
-		case cfg.Session.Enabled && strings.HasPrefix(r.URL.Path, nativeTokenWritePath) && (r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete):
-			domainHandler(cfg, newNativeTokenWriteProjectionHandler(transport)).ServeHTTP(w, r)
-		case cfg.Session.Enabled && r.URL.Path == nativeLogProjectionPath:
-			domainHandler(cfg, newNativeLogProjectionHandler(transport)).ServeHTTP(w, r)
-		case cfg.Session.Enabled && r.Method == http.MethodGet && r.URL.Path == nativeTokenListPath:
-			domainHandler(cfg, newNativeTokenListProjectionHandler(transport)).ServeHTTP(w, r)
-		case cfg.Session.Enabled && (r.URL.Path == nativeWorkspaceGroupsPath || r.URL.Path == nativeWorkspaceModelsPath):
-			domainHandler(cfg, newNativeWorkspaceProjectionHandler(transport)).ServeHTTP(w, r)
-		case cfg.Session.Enabled && r.URL.Path == "/api/user/self":
-			domainHandler(cfg, newNativeSelfProjectionHandler(transport)).ServeHTTP(w, r)
+		case strings.HasPrefix(r.URL.Path, "/api/token/"):
+			if cfg.relay == nil {
+				walletError(w, 503, "KEY_UNAVAILABLE")
+				return
+			}
+			domainHandler(cfg, newLocalKeysHandler(cfg.relay)).ServeHTTP(w, r)
+		case localWorkspaceRoute(r.URL.Path):
+			domainHandler(cfg, newLocalWorkspaceHandler(cfg.relay)).ServeHTTP(w, r)
+		case r.URL.Path == "/api/user/self":
+			domainHandler(cfg, newLocalSelfHandler(cfg.relay)).ServeHTTP(w, r)
 		case pokerAPIRoute(r.URL.Path):
 			servePokerRoute(domainHandler(cfg, cfg.poker), w, r)
 		case r.URL.Path == "/api/v1/games" || strings.HasPrefix(r.URL.Path, "/api/v1/games/") || r.URL.Path == "/api/v1/game-rounds" || strings.HasPrefix(r.URL.Path, "/api/v1/game-rounds/"):
-			domainHandler(cfg, newGameHandler(cfg.PublicOrigin, cfg.games, transport, readPoker)).ServeHTTP(w, r)
+			domainHandler(cfg, newGameHandler(cfg.PublicOrigin, cfg.games, readPoker)).ServeHTTP(w, r)
 		case r.URL.Path == "/api/v1/roulette" || strings.HasPrefix(r.URL.Path, "/api/v1/roulette/"):
-			domainHandler(cfg, newRouletteHandler(cfg.PublicOrigin, cfg.roulette, cfg.games, transport)).ServeHTTP(w, r)
+			domainHandler(cfg, newRouletteHandler(cfg.PublicOrigin, cfg.roulette, cfg.games)).ServeHTTP(w, r)
 		case path.Clean(r.URL.Path) == "/internal" || strings.HasPrefix(path.Clean(r.URL.Path), "/internal/"):
 			walletError(w, 404, "NOT_FOUND")
-		case r.URL.Path == "/platform/v1/models" || strings.HasPrefix(r.URL.Path, "/platform/v1/models/") || r.URL.Path == "/platform/v1/ops/models" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/models/"):
-			domainHandler(cfg, newCatalogHandler(cfg, transport)).ServeHTTP(w, r)
+		case catalogAPIRoute(r.URL.Path):
+			domainHandler(cfg, newCatalogHandler(cfg)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/announcements/") || r.URL.Path == "/platform/v1/ops/announcements" || strings.HasPrefix(r.URL.Path, "/platform/v1/ops/announcements/"):
-			domainHandler(cfg, newAnnouncementHandler(cfg.PublicOrigin, cfg.announcements, transport)).ServeHTTP(w, r)
+			domainHandler(cfg, newAnnouncementHandler(cfg.PublicOrigin, cfg.announcements)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/access-gate" || strings.HasPrefix(r.URL.Path, "/platform/v1/migration-notice"):
-			domainHandler(cfg, newAccessGateHandler(cfg.PublicOrigin, cfg.accessGate, cfg.accessDeclaration, transport, cfg.Poker.Enabled && cfg.poker != nil)).ServeHTTP(w, r)
+			domainHandler(cfg, newAccessGateHandler(cfg.PublicOrigin, cfg.accessGate, cfg.accessDeclaration, cfg.Poker.Enabled && cfg.poker != nil)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/admission/config":
 			newAdmissionConfigHandler(cfg.AdmissionEnabled).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/admission" || strings.HasPrefix(r.URL.Path, "/platform/v1/admission/"):
-			domainHandler(cfg, newAdmissionHandler(cfg.PublicOrigin, cfg.admission, transport)).ServeHTTP(w, r)
-		case r.URL.Path == "/platform/v1/native-quota" || strings.HasPrefix(r.URL.Path, "/platform/v1/quota-transfers"):
-			domainHandler(cfg, newQuotaHandler(cfg.PublicOrigin, cfg.transfers, cfg.nativeQuota, transport)).ServeHTTP(w, r)
+			domainHandler(cfg, newAdmissionHandler(cfg.PublicOrigin, cfg.admission)).ServeHTTP(w, r)
 		case r.URL.Path == "/platform/v1/wallet/exchange" || strings.HasPrefix(r.URL.Path, "/platform/v1/rewards/") || strings.HasPrefix(r.URL.Path, "/platform/v1/transactions"):
-			domainHandler(cfg, newEconomyHandler(cfg.PublicOrigin, cfg.economy, transport)).ServeHTTP(w, r)
+			domainHandler(cfg, newEconomyHandler(cfg.PublicOrigin, cfg.economy)).ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/platform/v1/master-profile"):
-			domainHandler(cfg, newProfileHandler(cfg.PublicOrigin, cfg.profile, transport)).ServeHTTP(w, r)
+			domainHandler(cfg, newProfileHandler(cfg.PublicOrigin, cfg.profile)).ServeHTTP(w, r)
+		case r.URL.Path == "/platform/v1/wallet" || r.URL.Path == "/platform/v1/wallet/ledger" || r.URL.Path == "/platform/v1/wallet/initialize":
+			domainHandler(cfg, newWalletHandler(cfg.PublicOrigin, cfg.wallet)).ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/platform/v1/"):
-			domainHandler(cfg, newWalletHandler(cfg.PublicOrigin, cfg.wallet, transport)).ServeHTTP(w, r)
+			walletError(w, 404, "NOT_FOUND")
 		case r.URL.Path == "/healthz":
 			healthHandler().ServeHTTP(w, r)
-		case nativeAuthBrowserRoute(cfg, r):
-			serveNativeAuthIndex(cfg.NativeAuthWebDir, w, r)
-		case cfg.NativeAuthWebDir != "" && strings.HasPrefix(r.URL.Path, "/native-auth/"):
-			serveNativeAuthAsset(cfg.NativeAuthWebDir, w, r)
 		case r.URL.Path == "/api/access":
 			serveWebFile(cfg.WebDir, cfg.AssetCDNOrigin, w, r)
-		case r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/v1/"):
-			walletError(w, 404, "NOT_FOUND")
-		case strings.HasPrefix(r.URL.Path, "/api/") || isRelay:
-			if r.Header.Get("Upgrade") != "" || headerHasToken(r.Header.Get("Connection"), "upgrade") {
-				writeJSONError(w, http.StatusBadRequest, "unsupported protocol upgrade")
-				return
-			}
-			timeout := apiProxyRequestTimeout
-			if isRelay {
-				timeout = v1ProxyRequestTimeout
-			}
-			deadline := time.Now().Add(timeout)
-			if parentDeadline, ok := r.Context().Deadline(); ok && parentDeadline.Before(deadline) {
-				deadline = parentDeadline
-			}
-			_ = http.NewResponseController(w).SetWriteDeadline(deadline)
-			ctx, cancel := context.WithDeadline(r.Context(), deadline)
-			defer cancel()
-			proxy.ServeHTTP(w, r.WithContext(ctx))
+		case r.URL.Path == "/api/v1" || strings.HasPrefix(r.URL.Path, "/api/"):
+			walletError(w, http.StatusNotFound, "NOT_FOUND")
 		default:
 			serveWebFile(cfg.WebDir, cfg.AssetCDNOrigin, w, r)
 		}
 	})
 }
 
-func nativeAuthBrowserRoute(cfg config, r *http.Request) bool {
-	if cfg.NativeAuthWebDir == "" || r == nil {
-		return false
-	}
-	switch r.URL.Path {
-	case "/sign-in", "/sign-up", "/otp":
-		return true
-	case "/oauth/discord":
-		return cfg.sessionBridge != nil && cfg.sessionBridge.OwnsNativeUICallback(r)
-	}
-	return false
-}
-
-func serveNativeAuthIndex(root string, w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	file, err := os.Open(filepath.Join(root, "index.html"))
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 1<<20 {
-		http.NotFound(w, r)
-		return
-	}
-	raw, err := io.ReadAll(io.LimitReader(file, 1<<20+1))
-	if err != nil || len(raw) > 1<<20 || bytes.Count(raw, []byte("</head>")) != 1 {
-		http.NotFound(w, r)
-		return
-	}
-	marker := []byte("<meta name=\"chaldea-auth-ui\" content=\"opaque-v1\">\n</head>")
-	raw = bytes.Replace(raw, []byte("</head>"), marker, 1)
-	raw = bytes.Replace(raw, []byte("href=\"/logo.png\""), []byte("href=\"/native-auth/logo.png\""), 1)
-	setIndexHeaders(w, "")
-	http.ServeContent(w, r, "index.html", info.ModTime(), bytes.NewReader(raw))
-}
-
-func serveNativeAuthAsset(root string, w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	relative := strings.TrimPrefix(r.URL.Path, "/native-auth/")
-	if relative != "logo.png" && relative != "favicon.ico" && !strings.HasPrefix(relative, "static/") || !safeAssetPath("/"+relative) {
-		http.NotFound(w, r)
-		return
-	}
-	name := filepath.Join(root, filepath.FromSlash(relative))
-	resolved, err := filepath.EvalSymlinks(name)
-	if err != nil || !pathWithin(root, resolved) {
-		http.NotFound(w, r)
-		return
-	}
-	file, err := os.Open(resolved)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if contentType := mime.TypeByExtension(filepath.Ext(resolved)); contentType != "" {
-		w.Header().Set("Content-Type", contentType)
-	}
-	if fingerprinted(filepath.Base(resolved)) {
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	} else {
-		w.Header().Set("Cache-Control", "public, max-age=3600")
-	}
-	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
-}
-
 func serveSessionRoute(handler http.Handler, w http.ResponseWriter, r *http.Request) {
 	if handler == nil {
-		sessionError(w, bffauth.Fault{Status: http.StatusServiceUnavailable, Code: "SESSION_UNAVAILABLE"})
+		identity.WriteError(w, identity.Fault{Status: http.StatusServiceUnavailable, Code: "SESSION_UNAVAILABLE"})
 		return
 	}
 	handler.ServeHTTP(w, r)
 }
 
-func serveOpsRoute(handler http.Handler, w http.ResponseWriter, r *http.Request) {
-	if handler == nil {
+func serveOpsRoute(cfg config, w http.ResponseWriter, r *http.Request) {
+ if strings.HasPrefix(r.URL.Path,"/api/v1/ops/economy/gambler-campaigns/") {domainHandler(cfg,newOpsGamblerHandler(cfg.relay,cfg.OpsEnvironment)).ServeHTTP(w,r);return}
+ if r.URL.Path=="/api/v1/ops/native-runtime"{walletError(w,404,"NOT_FOUND");return}
+ if opsRuntimeRoute(r.URL.Path){domainHandler(cfg,newOpsRuntimeHandler(cfg.relay,cfg.OpsEnvironment)).ServeHTTP(w,r);return}
+ if opsSupportRecordsRoute(r.URL.Path){domainHandler(cfg,newOpsSupportRecordsHandler(cfg.relay)).ServeHTTP(w,r);return}
+ if opsPokerRoute(r.URL.Path){domainHandler(cfg,newOpsPokerHandler(cfg.pokerOps)).ServeHTTP(w,r);return}
+ if opsGamesRoute(r.URL.Path) {
+  domainHandler(cfg,newOpsGamesHandler(cfg.games)).ServeHTTP(w,r)
+  return
+ }
+
+ if opsRankingsRoute(r.URL.Path) {
+  domainHandler(cfg,newOpsRankingsHandler(cfg.rankings)).ServeHTTP(w,r)
+  return
+ }
+
+ if opsEconomyRuntimeRoute(r.URL.Path) {
+  domainHandler(cfg, newOpsEconomyRuntimeHandler(cfg.relay)).ServeHTTP(w, r)
+  return
+ }
+
+ if opsRecordsRoute(r.URL.Path) {
+  domainHandler(cfg, newLocalOpsRecordsHandler(cfg.relay, cfg.history)).ServeHTTP(w, r)
+  return
+ }
+
+	if localOpsUsersRoute(r.URL.Path) {
+		domainHandler(cfg,newLocalOpsUsersHandler(cfg.relay,cfg.localIdentity)).ServeHTTP(w,r)
+		return
+	}
+	if opsRelayRoute(r.URL.Path) {
+		domainHandler(cfg,newOpsRelayHandler(cfg.relay)).ServeHTTP(w,r)
+		return
+	}
+	var handler http.Handler
+	switch {
+	case r.URL.Path == "/api/v1/ops/maintenance":
+		handler = cfg.opsMaintenance
+	case r.URL.Path == "/api/v1/ops/audit" || strings.HasPrefix(r.URL.Path, "/api/v1/ops/audit/"):
+		handler = cfg.opsAudit
+	default:
+		walletError(w, http.StatusNotFound, "NOT_FOUND")
+		return
+	}
+	if handler == nil || cfg.OpsEnvironment == "" {
 		walletError(w, http.StatusServiceUnavailable, "OPS_UNAVAILABLE")
 		return
 	}
-	handler.ServeHTTP(w, r)
+	domainHandler(cfg, handler).ServeHTTP(w, r)
 }
 
 func pokerAPIRoute(path string) bool {
@@ -358,33 +330,13 @@ func servePokerRoute(handler http.Handler, w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
-func newNativeTransport(socket string) *http.Transport { return nativeself.NewTransport(socket) }
-func newNativeProxy(transport http.RoundTripper) *httputil.ReverseProxy {
-	return &httputil.ReverseProxy{
-		Transport: transport,
-		Rewrite: func(proxyRequest *httputil.ProxyRequest) {
-			request := proxyRequest.Out
-			request.URL.Scheme = "http"
-			request.URL.Host = "unix"
-			request.Host = "localhost"
-			for _, key := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP", "CF-Connecting-IP", "True-Client-IP"} {
-				request.Header.Del(key)
-			}
-		},
-		ErrorLog: log.New(io.Discard, "", 0),
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
-			writeJSONError(w, http.StatusBadGateway, "upstream unavailable")
-		},
-	}
-}
-
 func serveWebFile(root, assetCDNOrigin string, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if browserRoutes[r.URL.Path] || opsBrowserPermission(r.URL.EscapedPath()) != "" || gameBrowserRoute(r.URL.EscapedPath()) || rouletteBrowserRoute(r.URL.EscapedPath()) || walletTransactionBrowserRoute(r.URL.EscapedPath()) || pokerBrowserRoute(r.URL.EscapedPath()) && r.URL.RawQuery == "" && !r.URL.ForceQuery && r.URL.Fragment == "" || announcementBrowserRoute(r.URL.Path) || catalogBrowserRoute(r.URL.EscapedPath()) || r.URL.Path == "/index.html" {
+	if browserRoutes[r.URL.Path] || opsBrowserRoute(r.URL.EscapedPath()) || gameBrowserRoute(r.URL.EscapedPath()) || rouletteBrowserRoute(r.URL.EscapedPath()) || walletTransactionBrowserRoute(r.URL.EscapedPath()) || pokerBrowserRoute(r.URL.EscapedPath()) && r.URL.RawQuery == "" && !r.URL.ForceQuery && r.URL.Fragment == "" || announcementBrowserRoute(r.URL.Path) || catalogBrowserRoute(r.URL.EscapedPath()) || r.URL.Path == "/index.html" {
 		serveIndex(root, assetCDNOrigin, w, r)
 		return
 	}
@@ -492,15 +444,6 @@ func fingerprinted(name string) bool {
 			}
 		}
 		if valid {
-			return true
-		}
-	}
-	return false
-}
-
-func headerHasToken(value, token string) bool {
-	for _, part := range strings.Split(value, ",") {
-		if strings.EqualFold(strings.TrimSpace(part), token) {
 			return true
 		}
 	}

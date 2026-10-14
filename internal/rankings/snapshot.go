@@ -94,16 +94,6 @@ func (s *Service) collectAssets(ctx context.Context, now time.Time) ([]assetRow,
 
 func (s *Service) buildInputs(ctx context.Context, domain string, now time.Time) ([]assetRow, time.Time, error) {
 	checked := now
-	if domain == "RP" {
-		if s.attributionHealth == nil || s.sourceID == "" {
-			return nil, time.Time{}, ErrUnavailable
-		}
-		var err error
-		checked, err = s.attributionHealth(ctx)
-		if err != nil || checked.IsZero() || now.Sub(checked) > 5*time.Minute || checked.After(now.Add(time.Minute)) {
-			return nil, time.Time{}, ErrUnavailable
-		}
-	}
 	if domain == "ASSETS" {
 		return s.collectAssets(ctx, now)
 	}
@@ -207,7 +197,7 @@ func (s *Service) buildSnapshotTx(ctx context.Context, tx pgx.Tx, domain, period
 	case "GAMES":
 		_, err = tx.Exec(ctx, gameAggregateSQL, id)
 	case "RP":
-		_, err = tx.Exec(ctx, rpAggregateSQL, id, s.sourceID)
+		_, err = tx.Exec(ctx, rpAggregateSQL, id)
 	case "ASSETS":
 		for _, row := range assets {
 			if row.value == "0" {
@@ -274,7 +264,7 @@ func pointerLockKey(domain, metric, period string, start, activation time.Time) 
 }
 
 func publishPointer(ctx context.Context, tx pgx.Tx, meta snapshotMeta, metric string,
-	expectedVersion *int64, operationID string, actor *int64, source string) (int64, string, error) {
+	operationID string, actor *int64, source string) (int64, string, error) {
 	if len(meta.hash) != sha256.Size || metricDomain(metric) != meta.domain {
 		return 0, "", platform.ErrOpsConflict
 	}
@@ -288,15 +278,10 @@ func publishPointer(ctx context.Context, tx pgx.Tx, meta snapshotMeta, metric st
 		WHERE domain=$1 AND metric=$2 AND period=$3 AND period_start=$4 AND activation_at=$5 FOR UPDATE`,
 		meta.domain, metric, meta.period, meta.start, meta.activation).Scan(&previous, &currentVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
-		if expectedVersion != nil && *expectedVersion != 0 {
-			return 0, "", platform.ErrOpsPreviewStale
-		}
 		currentVersion = 0
 		previous = ""
 	} else if err != nil {
 		return 0, "", err
-	} else if expectedVersion != nil && *expectedVersion != currentVersion {
-		return 0, "", platform.ErrOpsPreviewStale
 	}
 	if previous == meta.id {
 		if source == "REPAIR" {
@@ -342,7 +327,7 @@ func (s *Service) publishRoutine(ctx context.Context, id string) error {
 		}
 		sort.Strings(metrics)
 		for _, metric := range metrics {
-			if _, _, err = publishPointer(ctx, tx, meta, metric, nil, "", nil, "ROUTINE"); err != nil {
+			if _, _, err = publishPointer(ctx, tx, meta, metric, "", nil, "ROUTINE"); err != nil {
 				return err
 			}
 		}
@@ -493,13 +478,12 @@ func (s *Service) repairMissingPeriod(ctx context.Context, domain string) {
 		) SELECT c.period,to_char(c.start,'YYYY-MM-DD') FROM candidates c WHERE NOT EXISTS(
 		 SELECT 1 FROM rankings.published_pointers p WHERE p.domain=$2 AND p.period=c.period AND p.period_start=c.start AT TIME ZONE 'Asia/Shanghai'
 		  AND p.activation_at=$1)
-		 OR ($2='RP' AND EXISTS(SELECT 1 FROM economy.request_attributions a WHERE a.source_instance_id=$3::uuid
-		  AND a.key_purpose_snapshot='ROLEPLAY' AND a.entered_model_flow
+		 OR ($2='RP' AND EXISTS(SELECT 1 FROM economy.request_attributions a WHERE a.key_purpose_snapshot='ROLEPLAY' AND a.entered_model_flow
 		  AND a.requested_at>=greatest($1::timestamptz,c.start AT TIME ZONE 'Asia/Shanghai') AND a.requested_at<c.finish AT TIME ZONE 'Asia/Shanghai'
 		  AND a.imported_at>coalesce((SELECT min(s.built_at) FROM rankings.published_pointers p
 		   JOIN rankings.snapshots s USING(snapshot_id) WHERE p.domain=$2 AND p.period=c.period
 		   AND p.period_start=c.start AT TIME ZONE 'Asia/Shanghai' AND p.activation_at=$1),'-infinity'::timestamptz)))
-		 ORDER BY c.start,c.period LIMIT 1`, s.activation, domain, nullableSourceID(s.sourceID)).Scan(&period, &date)
+		 ORDER BY c.start,c.period LIMIT 1`, s.activation, domain).Scan(&period, &date)
 	})
 	if err != nil {
 		return
@@ -507,11 +491,4 @@ func (s *Service) repairMissingPeriod(ctx context.Context, domain string) {
 	work, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	_, _ = s.Build(work, domain, period, date)
-}
-
-func nullableSourceID(value string) any {
-	if value == "" {
-		return nil
-	}
-	return value
 }

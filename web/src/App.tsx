@@ -8,13 +8,13 @@ import { Catalog, CatalogDetailPage, APIAccess } from './Catalog';
 import { OpsCatalog } from './OpsCatalog';
 import { OpsShell, OpsHome } from './ops/OpsShell';
 import { OpsAttention, OpsJobs, OpsServiceHealth } from './ops/OpsRuntime';
-import { OpsOperationDetail, OpsOperationLookup } from './ops/OpsOperationDetail';
-import { OpsAudit, OpsAuditDetail } from './ops/OpsAudit';
+import { OpsAudit } from './ops/OpsAudit';
 import { OpsMaintenance } from './ops/OpsMaintenance';
-import { OpsAccessControl } from './ops/OpsAccessControl';
 import { OpsEconomy } from './ops/OpsEconomy';
+import { OpsGamblerCampaign } from './ops/OpsGamblerCampaign';
 import { OpsRewards } from './ops/OpsRewards';
 import { OpsUsers } from './ops/OpsUsers';
+import { OpsLogs } from './ops/OpsLogs';
 import { OpsSupportCases } from './ops/OpsCases';
 import { OpsIncidents } from './ops/OpsIncidents';
 import { OpsRecords } from './ops/OpsRecords';
@@ -22,11 +22,9 @@ import { OpsGames } from './ops/OpsGames';
 import { OpsPoker } from './ops/OpsPoker';
 import { OpsRankings } from './ops/OpsRankings';
 import { CriticalNotice } from './CriticalNotice';
-import { isOpsDiscordPopup, OpsDiscordPopup } from './ops/OpsDiscordPopup';
 import type { CatalogLoginRequired } from './catalog-api';
-import { Channels } from './Channels';
+import { Channels, Groups } from './Channels';
 import { Wallet } from './Wallet';
-import { QuotaActivation } from './QuotaActivation';
 import { GamesCatalog, GamePage } from './Games';
 import {RouletteLobby} from './roulette/RouletteLobby';
 import {RouletteHistory} from './roulette/RouletteHistory';
@@ -39,8 +37,8 @@ import { OpsAnnouncements } from './OpsAnnouncements';
 import { PersonalHub, MasterSummary, CommandChamber, type MasterResource } from './PersonalHub';
 import { Rewards } from './Rewards';
 import { readProfile, profileError } from './profile-api';
-import { Alert, Crest, Empty, Loading, Pager, date, number, useResource } from './ui';
-import { DiscordCallback, type CapturedCallback } from './Authentication';
+import { Alert, Crest, Empty, Loading, NewAPIAttribution, Pager, date, number, useResource } from './ui';
+import { Authentication, DiscordCallback, type CapturedCallback } from './Authentication';
 import { Account } from './Account';
 import { AccessGate, LoginRequired, PostAuthGate } from './PostAuthGate';
 import type { SensitiveProof } from './admission-api';
@@ -69,10 +67,12 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
     };
     const [proof,setProof]=useState<{value:SensitiveProof;generation:number}>();
     useEffect(()=>{if(proof&&(proof.generation!==client.getSessionGeneration()||!['/account','/account/security','/oauth/discord'].includes(location.pathname)))setProof(undefined);},[session.user,client,location.pathname,proof]);
-    useEffect(() => { if(!isOpsDiscordPopup())void client.bootstrap(); }, [client]);
+    useEffect(() => { void client.bootstrap(); }, [client]);
     const loading = <div className="session-loading"><Crest /><Loading /></div>;
     const announcementSession = (session.user?.id || 'guest') + ':' + client.getSessionGeneration() + ':' + session.ready;
     const routedSession=announcementSession+':'+location.pathname+location.search;
+    // Credential rotation must not discard the account form's completed result.
+    const privateRouteSession=['/account','/account/security'].includes(location.pathname)?session.user?.id+':'+location.pathname:routedSession;
     return <>{location.pathname !== '/' && <CriticalNotice client={client}/>}{location.pathname !== '/' && session.ready && !session.user && <AnnouncementEntry client={client} />}{pokerNotice&&held&&<p role="status">{held.path==='/poker'?'入桌结果正在自动同步，已保留当前页面。':'当前牌桌会话仍在进行，安全离座后即可切换页面。'}</p>}<Routes location={effectiveLocation}>
         <Route path="/" element={<Home key={announcementSession} signedIn={!!session.user} client={client} />} />
         <Route path="/entertainment" element={<GamesCatalog key={announcementSession} client={client}/>} />
@@ -83,38 +83,40 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
         <Route path="/models" element={<Catalog key={routedSession} client={client} />} />
         <Route path="/models/*" element={<CatalogDetailPage key={routedSession} client={client} onLoginRequired={onCatalogLoginRequired} />} />
         <Route path="/api/access" element={<APIAccess key={routedSession} client={client} onLoginRequired={onCatalogLoginRequired} />} />
-        <Route path="/ops" element={!session.ready?loading:session.user?<AccessGate key={routedSession} client={client} user={session.user} route={location.pathname}><OpsShell client={client}/></AccessGate>:<LoginRequired/>}>
+        <Route path="/ops" element={!session.ready?loading:session.user?<AccessGate key={routedSession} client={client} user={session.user} route={location.pathname}><OpsShell client={client} user={session.user}/></AccessGate>:<LoginRequired/>}>
             <Route path="models" element={<OpsCatalog client={client} embedded/>}/>
+            <Route path="channels" element={<Channels client={client}/>}/>
+            <Route path="channels/:channelID" element={<Channels client={client}/>}/>
+            <Route path="groups" element={<Groups client={client}/>}/>
+            <Route path="users" element={<OpsUsers client={client} user={session.user!}/>}/>
+            <Route path="users/:userID" element={<OpsUsers client={client} user={session.user!}/>}/>
+            <Route path="logs" element={<OpsLogs key={location.search} client={client}/>}/>
+            <Route path="records" element={<OpsRecords key={location.search} client={client}/>}/>
             <Route path="announcements" element={<OpsAnnouncements client={client} embedded/>}/>
-            <Route path="jobs" element={<OpsJobs/>}/>
-            <Route path="attention" element={<OpsAttention/>}/>
-            <Route path="operations" element={<OpsOperationLookup/>}/>
-            <Route path="operations/:operationID" element={<OpsOperationDetail/>}/>
-            <Route path="audit" element={<OpsAudit/>}/>
-            <Route path="audit/:auditID" element={<OpsAuditDetail/>}/>
+            <Route path="economy" element={<OpsEconomy client={client}/>}/>
+            <Route path="rewards" element={<OpsRewards client={client}/>}/>
+            <Route path="rankings" element={<OpsRankings client={client}/>}/>
+            <Route path="games" element={<OpsGames client={client}/>}/>
+            <Route path="poker" element={<OpsPoker client={client}/>}/>
+            <Route path="support-cases" element={<OpsSupportCases client={client}/>}/>
+            <Route path="incidents" element={<OpsIncidents client={client}/>}/>
+            <Route path="jobs" element={<OpsJobs client={client}/>}/>
+            <Route path="attention" element={<OpsAttention client={client}/>}/>
+            <Route path="service-health" element={<OpsServiceHealth client={client}/>}/>
+            <Route path="gambler-campaign" element={<OpsGamblerCampaign client={client}/>}/>
             <Route path="maintenance" element={<OpsMaintenance/>}/>
-            <Route path="access-control" element={<OpsAccessControl/>}/>
-            <Route path="economy" element={<OpsEconomy/>}/>
-            <Route path="rewards" element={<OpsRewards/>}/>
-            <Route path="users" element={<OpsUsers/>}/>
-            <Route path="support-cases" element={<OpsSupportCases/>}/>
-            <Route path="incidents" element={<OpsIncidents/>}/>
-            <Route path="records" element={<OpsRecords/>}/>
-            <Route path="games" element={<OpsGames/>}/>
-            <Route path="poker" element={<OpsPoker/>}/>
-            <Route path="rankings" element={<OpsRankings/>}/>
-            <Route path="service-health" element={<OpsServiceHealth/>}/>
+            <Route path="audit" element={<OpsAudit/>}/>
+            <Route path="audit/:auditID" element={<OpsAudit/>}/>
             <Route index element={<OpsHome/>}/>
         </Route>
-        <Route path="/login" element={<NativeAuthEntry registration={false} />} />
-        <Route path="/register" element={<NativeAuthEntry registration />} />
-        <Route path="/oauth/discord" element={isOpsDiscordPopup()?<OpsDiscordPopup captured={capturedCallback}/>:!session.ready?loading:<DiscordCallback client={client} captured={capturedCallback} onComplete={value=>{if(value){setProof({value,generation:client.getSessionGeneration()});navigate('/account/security',{replace:true});}else navigate('/welcome',{replace:true});}}/>}/>
+        <Route path="/login" element={!session.ready?loading:session.user?<Navigate to="/welcome" replace/>:<Authentication client={client} mode="login"/>} />
+        <Route path="/register" element={!session.ready?loading:session.user?<Navigate to="/welcome" replace/>:<Authentication client={client} mode="registration"/>} />
+        <Route path="/oauth/discord" element={!session.ready?loading:<DiscordCallback client={client} captured={capturedCallback} onComplete={value=>{if(value){setProof({value,generation:client.getSessionGeneration()});navigate('/account/security',{replace:true});}else navigate('/welcome',{replace:true});}}/>}/>
         <Route path="/welcome" element={!session.ready?loading:session.user?<PostAuthGate key={session.user.id+':'+client.getSessionGeneration()} client={client} user={session.user}/>:<Navigate to="/login" replace/>}/>
-        {['/sign-in','/sign-up','/otp'].map(path => <Route key={path} path={path} element={<NativeAuthUnavailable />} />)}
-        <Route path="/poker/*" element={!session.ready?loading:session.user?client.sessionFeatureUnavailable('POKER_LOGOUT_S2')?<OpaquePokerHold/>:<AccessGate key={announcementSession} client={client} user={session.user} route="/poker" pokerRecovery><PokerRoute key={announcementSession} client={client} path={effectivePath} onHold={holdPoker} frame={children=><Shell client={client} user={session.user!}>{children}</Shell>}/></AccessGate>:<LoginRequired/>}/>
-        <Route element={!session.ready ? loading : session.user ? <AccessGate key={routedSession} client={client} user={session.user} route={location.pathname+(['/keys','/logs'].includes(location.pathname)?location.search:'')}><Shell client={client} user={session.user} /></AccessGate> : <LoginRequired />}>
-            <Route path="/account" element={<Account key={session.user?.id+':'+client.getSessionGeneration()} client={client} proof={proof?.generation===client.getSessionGeneration()?proof.value:undefined} clearProof={()=>setProof(undefined)}/>}/>
-            <Route path="/account/security" element={<Account key={session.user?.id+':'+client.getSessionGeneration()} client={client} proof={proof?.generation===client.getSessionGeneration()?proof.value:undefined} clearProof={()=>setProof(undefined)}/>}/>
+        <Route path="/poker/*" element={!session.ready?loading:session.user?<AccessGate key={announcementSession} client={client} user={session.user} route="/poker" pokerRecovery><PokerRoute key={announcementSession} client={client} path={effectivePath} onHold={holdPoker} frame={children=><Shell client={client} user={session.user!}>{children}</Shell>}/></AccessGate>:<LoginRequired/>}/>
+        <Route element={!session.ready ? loading : session.user ? <AccessGate key={privateRouteSession} client={client} user={session.user} route={location.pathname+(['/keys','/logs'].includes(location.pathname)?location.search:'')}><Shell client={client} user={session.user} /></AccessGate> : <LoginRequired />}>
+            <Route path="/account" element={<Account key={session.user?.id} client={client} proof={proof?.generation===client.getSessionGeneration()?proof.value:undefined} clearProof={()=>setProof(undefined)}/>}/>
+            <Route path="/account/security" element={<Account key={session.user?.id} client={client} proof={proof?.generation===client.getSessionGeneration()?proof.value:undefined} clearProof={()=>setProof(undefined)}/>}/>
             <Route path="/dashboard" element={<Dashboard client={client} user={session.user!} />} />
             <Route path="/me" element={<PersonalHub client={client} user={session.user!} />} />
             <Route path="/rewards" element={<Rewards client={client} user={session.user!} />} />
@@ -128,34 +130,18 @@ export function App({ client = api, capturedCallback = missingCallback, onCatalo
             <Route path="/history/sessions/:id" element={<HistorySession key={routedSession} client={client}/>} />
             <Route path="/history/hands/:id" element={<HistoryHand key={routedSession} client={client}/>} />
             <Route path="/wallet/transactions/:id" element={<HistoryTransaction key={routedSession} client={client}/>} />
-            <Route path="/wallet/activate" element={session.user && <QuotaActivation key={session.user.id + ':' + client.getSessionGeneration()} client={client} userID={String(session.user.id)} />} />
             <Route path="/wallet" element={<Wallet client={client} user={session.user!} />} />
             <Route path="/master-profile" element={<ProfileRoute client={client} user={session.user!} />} />
-            <Route path="/admin/channels" element={<Channels client={client} user={session.user!} />} />
+            <Route path="/admin/channels" element={<Navigate to="/ops/channels" replace/>} />
             <Route path="/keys" element={<Keys client={client} />} />
             <Route path="/logs" element={<Logs client={client} />} />
         </Route>
         <Route path="*" element={!session.ready ? loading : <Navigate to={session.user ? '/dashboard' : '/login'} replace />} />
     </Routes></>;
 }
-function NativeAuthEntry({ registration }: { registration: boolean }) {
-    const destination = registration ? '/sign-up' : '/sign-in';
-    useEffect(() => {
-        document.title = (registration ? '注册' : '登录') + ' · momiao';
-        window.location.replace(destination);
-    }, [destination, registration]);
-    return <main className="welcome-page"><h1>正在前往 New API {registration ? '注册' : '登录'}</h1><p role="status">请稍候，正在打开账户页面。</p><a className="button" href={destination}>前往 New API {registration ? '注册' : '登录'}</a></main>;
-}
-function NativeAuthUnavailable() {
-    useEffect(() => { document.title = '登录入口尚未就绪 · momiao'; }, []);
-    return <main className="welcome-page"><h1>登录入口尚未就绪</h1><p>请稍后重试。</p><Link className="button" to="/">返回首页</Link></main>;
-}
 function LegacyRoundRedirect() {
     const {id}=useParams();
     return <Navigate to={id&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)?`/history/rounds/${id}`:'/history'} replace/>;
-}
-function OpaquePokerHold() {
-    return <main className="welcome-page"><Alert>Poker 安全退出控制尚未接入不透明会话模式（POKER_LOGOUT_S2）；当前不会进入牌桌或发起后台请求。</Alert><div className="auth-actions"><Link to="/entertainment">返回娱乐目录</Link><Link to="/account/security">账户与安全</Link></div></main>;
 }
 function ProfileRoute({ client, user }: { client: ApiClient; user: User }) {
     const master = useOutletContext<MasterResource>();
@@ -163,13 +149,13 @@ function ProfileRoute({ client, user }: { client: ApiClient; user: User }) {
 }
 const pageTitles: Record<string, string> = {
     '/dashboard': '指挥台', '/me': '个人中心', '/rewards': '奖励中心', '/games/dice': '命运骰盅', '/games/scratch':'星纹刮刮卡', '/games/summon':'圣晶召唤', '/games/slot':'月光回响', '/games/blackjack':'二十一点', '/history':'游戏记录',
-    '/master-profile': 'Master 资料', '/account': '账户与安全', '/account/security': '账户与安全', '/wallet/activate': '转入 API 额度', '/wallet': '我的钱包', '/poker':'Poker 大厅',
+    '/master-profile': 'Master 资料', '/account': '账户与安全', '/account/security': '账户与安全', '/wallet': '我的钱包', '/poker':'Poker 大厅',
     '/models': '模型目录', '/admin/channels': '渠道管理', '/keys': '密钥管理', '/logs': '调用记录',
 };
 function Shell({ client, user, children }: { client: ApiClient; user: User; children?:ReactNode }) {
     const location = useLocation();
     const domain = ['/models', '/keys', '/logs'].includes(location.pathname) ? 'models'
-        : ['/wallet', '/wallet/activate', '/rewards'].includes(location.pathname) || location.pathname.startsWith('/wallet/transactions/') ? 'assets'
+        : ['/wallet', '/rewards'].includes(location.pathname) || location.pathname.startsWith('/wallet/transactions/') ? 'assets'
         : ['/me', '/account', '/account/security', '/master-profile', '/admin/channels'].includes(location.pathname) ? 'my'
         : location.pathname==='/poker' || location.pathname.startsWith('/games/') || location.pathname.startsWith('/roulette/') || location.pathname.startsWith('/history') ? 'experience' : 'home';
     const main = useRef<HTMLElement>(null);
@@ -178,7 +164,7 @@ function Shell({ client, user, children }: { client: ApiClient; user: User; chil
     return <div className="portal-shell"><a className="skip-link" href="#main-content">跳至主要内容</a>
         <SiteHeader client={client} master={master} />
         <main ref={main} id="main-content" tabIndex={-1} className="main-content">{children??<Outlet context={master} />}</main>
-        <footer className="workspace-foot"><span>momiao / Chaldea Platform <span> / </span><a href="https://github.com/cy4268/momiao" target="_blank" rel="noopener noreferrer">源代码</a></span><span>你的连接，由你掌握。</span></footer>
+        <footer className="workspace-foot"><span>momiao / Chaldea Platform <span> / </span><a href="https://github.com/cy4268/momiao" target="_blank" rel="noopener noreferrer">源代码</a><NewAPIAttribution /></span><span>你的连接，由你掌握。</span></footer>
         <nav className="mobile-nav" aria-label="底部导航">
             <Link to="/dashboard" aria-current={domain === 'home' ? 'page' : undefined}>首页</Link>
             <Link to="/models" aria-current={domain === 'models' ? 'true' : undefined}>模型</Link>
@@ -194,8 +180,8 @@ function Dashboard({ client, user }: { client: ApiClient; user: User }) {
     const current = r.data?.self || user;
     return <CommandChamber page="dashboard"><header className="page-heading"><div><p className="eyebrow">COMMAND CENTER</p><h1>指挥台</h1><p>欢迎回来，御主。</p></div><Link className="button primary" to="/models">选择模型并接入</Link></header>
         <MasterSummary master={master} />
-        <div className="chamber-ledger"><section className="account-ledger" aria-label="账户使用概览"><div><p>可用 API 额度</p><strong>{number(current.quota)}</strong></div><div><p>已用 API 额度</p><strong>{number(current.used_quota)}</strong></div><div><p>累计请求</p><strong>{number(current.request_count)}</strong><span>次调用</span></div><div><p>API 密钥</p><strong>{r.loading ? '…' : r.error ? '—' : number(r.data?.keys.total)}</strong><Link to="/keys">管理密钥</Link></div></section><p className="ledger-note"><Link className="text-link" to="/wallet">查看 Reserve 与筹码</Link></p></div>
-        <div className="dashboard-paths"><Link to="/me">个人中心</Link><Link to="/rewards">领取每日奖励</Link><Link to="/wallet/activate">激活 API 额度</Link></div>
+        <div className="chamber-ledger"><section className="account-ledger" aria-label="账户使用概览"><div><p>Reserve 余额</p><strong>{current.reserve_amount ?? '—'}</strong></div><div><p>已用 API 额度</p><strong>{number(current.used_quota ?? undefined)}</strong></div><div><p>累计请求</p><strong>{number(current.request_count ?? undefined)}</strong><span>次调用</span></div><div><p>API 密钥</p><strong>{r.loading ? '…' : r.error ? '—' : number(r.data?.keys.total)}</strong><Link to="/keys">管理密钥</Link></div></section><p className="ledger-note"><Link className="text-link" to="/wallet">查看 Reserve 与筹码</Link></p></div>
+        <div className="dashboard-paths"><Link to="/me">个人中心</Link><Link to="/rewards">领取每日奖励</Link><Link to="/keys">管理 API 密钥</Link></div>
         <section className="panel recent"><div className="section-heading"><h2>最近调用与活动</h2><Link className="text-link" to="/logs">查看全部</Link></div><div className="chamber-activity" role="region" aria-label="最近调用内容" tabIndex={0}>{r.loading ? <Loading /> : r.error ? <><Alert>{r.error}</Alert><button onClick={r.reload}>重新加载</button></> : r.data && <>{r.data.keys.total === 0 && <div className="first-key"><div><strong>建立你的第一个连接</strong><p>创建一枚独立密钥，再将它添加到你信任的应用。</p></div><Link className="button" to="/keys">创建第一枚密钥</Link></div>}<LogTable items={r.data.logs.items} /></>}</div></section>
     </CommandChamber>;
 }

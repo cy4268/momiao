@@ -2,56 +2,26 @@ package platform
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5"
+	"errors"
 )
 
-func validOpsRecordAccess(kind, recordType string) bool {
-	if !containsString([]string{"LIST", "DETAIL", "VERIFY"}, kind) {
-		return false
-	}
-	switch recordType {
-	case "HISTORY_LIST":
-		return kind == "LIST"
-	case "DIRECT_PLAY_ROUND", "POKER_HAND", "ROULETTE_ROUND":
-		return kind == "DETAIL" || kind == "VERIFY"
-	case "POKER_SESSION", "TRANSACTION":
-		return kind == "DETAIL"
-	default:
-		return false
-	}
-}
-
-// AuditOpsRecordAccess rechecks the current principal and exact authorization
-// epoch, then durably records the intended read before any restricted source
-// reader acquires a connection. The caller must still apply the subject filter.
-func (s *Store) AuditOpsRecordAccess(ctx context.Context, actor, epoch, subject int64,
-	kind, recordType, recordID string) error {
-	if s == nil || s.pool == nil {
-		return ErrOpsUnavailable
-	}
-	if actor <= 0 || epoch <= 0 || subject <= 0 || !validOpsRecordAccess(kind, recordType) ||
-		!validOpsText(recordID, 512, true) {
-		return ErrOpsInvalid
-	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+// AuditOpsRecordAccess checks the live local role and durably records the read
+// before a source reader opens its connection. Existing private-card and seed
+// release rules still run in that source reader, using the actual viewer.
+func (s *Store) AuditOpsRecordAccess(ctx context.Context, actor, subject int64, kind, recordType, recordID string, query any) error {
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer rollback(tx)
-	principal, err := requireOpsPermission(ctx, tx, actor, epoch, "records.read", true)
-	if err != nil {
+	if err = catalogAdmin(ctx, tx, actor, true); err != nil {
+		if errors.Is(err, ErrCatalogForbidden) {
+			return ErrOpsForbidden
+		}
 		return err
 	}
-	accessID, err := uuidV7()
-	if err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO audit.record_access_events(
-	 access_id,actor_newapi_user_id,actor_role,actor_scopes_snapshot,actor_authz_epoch,
-	 subject_newapi_user_id,access_kind,record_type,record_id)
-	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, accessID, principal.UserID, principal.Role,
-		principal.Scopes, principal.Epoch, subject, kind, recordType, recordID); err != nil {
+	if err = relayOpsAudit(ctx, tx, actor, "RECORD_READ_"+kind, recordType, recordID, nil,
+		map[string]any{"subject_user_id": subject, "query": query}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

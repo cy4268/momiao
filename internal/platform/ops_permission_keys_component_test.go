@@ -2,88 +2,156 @@ package platform
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"os"
+	"strings"
 	"testing"
-
-	"github.com/jackc/pgx/v5/pgconn"
+	"time"
 )
 
-// This component test uses bootstrapStore's fresh disposable database. Before
-// migration 0034, the Prepare call fails with admin_operation_typed_shape even
-// though support-cases.write is a canonical permission. After 0034 it proves
-// the complete local operation and keeps rejecting characters outside the
-// bounded permission-key alphabet.
-func TestOpsPermissionShapeAcceptsCanonicalHyphenAndRejectsInvalidCharacters(t *testing.T) {
-	s, _, actor := v04OpsFixture(t)
-	ctx := context.Background()
-	service, err := NewOpsService(s, "STAGING", OpsSupportBindings(s)...)
+// The old support permission/prepare regression now exercises direct local
+// writes on the existing dev database. All business writes roll back together.
+func TestLocalOpsSupportIncidents(t *testing.T) {
+	path := os.Getenv("MOMIAO_SESSION_DSN_FILE")
+	if path == "" {
+		t.Skip("requires existing isolated dev database")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("read dev DSN")
+	}
+	s, err := Open(t.Context(), strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal("open dev database")
+	}
+	defer s.Close()
+	ctx := t.Context()
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	operationID, caseID := announcementID(t), announcementID(t)
-	prepared, err := service.Prepare(ctx, actor.UserID, OpsPrepareRequest{
-		OperationID: operationID, OperationType: "SUPPORT_CASE_CREATE", AuthzEpoch: actor.Epoch,
-		InputSchemaVersion: "support-case-create.v1",
-		Target:             OpsTarget{Type: "SUPPORT_CASE", ID: caseID, ExpectedVersion: "0"},
-		Input:              json.RawMessage(`{"subject_newapi_user_id":"42","category":"OTHER","safe_summary":"Synthetic permission shape regression"}`),
-		Reason:             "V08 isolated support permission regression",
-	})
-	if err != nil {
-		t.Fatal("canonical support permission did not prepare", err)
+	defer tx.Rollback(context.Background())
+	var admin, regular int64
+	if err = tx.QueryRow(ctx, `SELECT min(id) FILTER(WHERE role>=10),max(id) FILTER(WHERE role<10) FROM identity.users WHERE status=1 AND deleted_at IS NULL`).Scan(&admin, &regular); err != nil {
+		t.Fatal(err)
 	}
-	if prepared.Operation.RequiredPermission != "support-cases.write" || prepared.Operation.State != "PREPARED" {
-		t.Fatalf("prepared permission/state=%q/%q", prepared.Operation.RequiredPermission, prepared.Operation.State)
+	var audits, operations int
+	if err = tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM ops.audit_log),(SELECT count(*) FROM ops.admin_operations)`).Scan(&audits, &operations); err != nil {
+		t.Fatal(err)
 	}
-
-	view, err := service.Execute(ctx, actor.UserID, operationID, OpsExecuteRequest{
-		AuthzEpoch: actor.Epoch, ImpactHash: prepared.Operation.ImpactHash,
-	})
-	if err != nil {
-		t.Fatal("canonical support permission did not execute", err)
+	summary := "support-local-" + announcementID(t)
+	input := OpsSupportInput{SubjectID: regular, Category: "OTHER", SafeSummary: summary}
+	if _, err = saveOpsSupportCase(ctx, tx, regular, "", "create", input); !errors.Is(err, ErrCatalogForbidden) {
+		t.Fatal("regular support write", err)
 	}
-	if view.Operation.State != "SUCCEEDED" || view.Operation.RelatedBusinessID != caseID || view.AuditID == "" {
-		t.Fatalf("support operation state/business/audit=%q/%q/%q", view.Operation.State, view.Operation.RelatedBusinessID, view.AuditID)
+	// An ordinary role 10 admin is sufficient, including a local user without Master.
+	if _, err = tx.Exec(ctx, `UPDATE identity.users SET role=10 WHERE id=$1`, regular); err != nil {
+		t.Fatal(err)
 	}
-	wantTimeline := []string{"PREPARED", "AUTHORIZED", "EXECUTING", "SUCCEEDED"}
-	if len(view.Timeline) != len(wantTimeline) {
-		t.Fatalf("support timeline length=%d", len(view.Timeline))
+	actor := regular
+	c, err := saveOpsSupportCase(ctx, tx, actor, "", "create", input)
+	if err != nil || c.State != "OPEN" {
+		t.Fatal("create case", err, c.State)
 	}
-	for i, want := range wantTimeline {
-		if view.Timeline[i].State != want || view.Timeline[i].StateVersion != int64(i+1) {
-			t.Fatalf("support timeline[%d]=%q/%d", i, view.Timeline[i].State, view.Timeline[i].StateVersion)
+	if _, err = saveOpsSupportCase(ctx, tx, actor, c.CaseID, "state", OpsSupportInput{NextState: "EXECUTED"}); !errors.Is(err, ErrOpsConflict) {
+		t.Fatal("case skipped state", err)
+	}
+	if _, err = saveOpsSupportCase(ctx, tx, actor, c.CaseID, "facts", OpsSupportInput{FactType: "IDENTITY_MATCH", Result: "VERIFIED", SafeReference: "dev:metadata"}); err != nil {
+		t.Fatal("fact", err)
+	}
+	for _, state := range []string{"VERIFYING", "VERIFYING", "APPROVED", "EXECUTED", "CLOSED"} {
+		c, err = saveOpsSupportCase(ctx, tx, actor, c.CaseID, "state", OpsSupportInput{NextState: state})
+		if err != nil || c.State != state {
+			t.Fatal("case transition", state, err)
 		}
 	}
-
-	var subject, version int64
-	var category, state, summary, permission string
-	if err = s.pool.QueryRow(ctx, `SELECT c.subject_newapi_user_id,c.category,c.state,c.safe_summary,c.version,o.required_permission
-	 FROM ops.support_cases c JOIN ops.admin_operations o ON o.operation_id=c.last_operation_id
-	 WHERE c.case_id=$1`, caseID).Scan(&subject, &category, &state, &summary, &version, &permission); err != nil {
+	if c.ClosedAt == nil {
+		t.Fatal("case closed timestamp")
+	}
+	if _, err = saveOpsSupportCase(ctx, tx, actor, c.CaseID, "facts", OpsSupportInput{FactType: "CONTACT_VERIFIED", Result: "VERIFIED"}); !errors.Is(err, ErrOpsConflict) {
+		t.Fatal("closed fact", err)
+	}
+	d, err := readOpsSupportCase(ctx, tx, c.CaseID)
+	if err != nil || len(d.VerificationFacts) != 1 || d.VerificationFacts[0].ActorUserID != actor || d.VerificationFacts[0].OperationID != "" {
+		t.Fatal("case detail", err)
+	}
+	filter := OpsSupportCaseQuery{Page: 1, SubjectID: regular, State: "CLOSED", Category: "OTHER", Search: summary, From: time.Now().Add(-time.Hour), To: time.Now().Add(time.Hour)}
+	page, err := readOpsSupportCases(ctx, tx, filter)
+	if err != nil || page.Total != 1 || len(page.Items) != 1 {
+		t.Fatal("case filters", err, page.Total)
+	}
+	filter.Page = 2
+	page, err = readOpsSupportCases(ctx, tx, filter)
+	if err != nil || page.Total != 1 || len(page.Items) != 0 {
+		t.Fatal("case second page", err)
+	}
+	filter.Page = 1
+	filter.SubjectID = admin
+	page, err = readOpsSupportCases(ctx, tx, filter)
+	if err != nil || page.Total != 0 {
+		t.Fatal("case user filter", err)
+	}
+	incidentInput := OpsIncidentInput{Title: summary, Severity: "WARNING", SafeSummary: "Local development incident"}
+	i, err := saveOpsIncident(ctx, tx, actor, "", "create", incidentInput)
+	if err != nil || i.State != "OPEN" {
+		t.Fatal("create incident", err)
+	}
+	if _, err = saveOpsIncident(ctx, tx, actor, i.IncidentID, "state", OpsIncidentInput{NextState: "RESOLVED"}); !errors.Is(err, ErrOpsConflict) {
+		t.Fatal("incident skipped state", err)
+	}
+	if _, err = saveOpsIncident(ctx, tx, actor, i.IncidentID, "events", OpsIncidentInput{EventType: "COMMENT", SafeSummary: "Investigated in dev"}); err != nil {
+		t.Fatal("incident comment", err)
+	}
+	if _, err = saveOpsIncident(ctx, tx, actor, i.IncidentID, "events", OpsIncidentInput{EventType: "BUSINESS_FACT_LINKED", RelatedType: "BUSINESS_FACT", RelatedID: c.CaseID}); err != nil {
+		t.Fatal("incident link", err)
+	}
+	for _, state := range []string{"TRIAGED", "IN_PROGRESS", "MONITORING", "RESOLVED", "CLOSED"} {
+		i, err = saveOpsIncident(ctx, tx, actor, i.IncidentID, "state", OpsIncidentInput{NextState: state})
+		if err != nil || i.State != state {
+			t.Fatal("incident transition", state, err)
+		}
+	}
+	if i.ResolvedAt == nil || i.ClosedAt == nil {
+		t.Fatal("incident timestamps")
+	}
+	if _, err = saveOpsIncident(ctx, tx, actor, i.IncidentID, "events", OpsIncidentInput{EventType: "COMMENT", SafeSummary: "closed"}); !errors.Is(err, ErrOpsConflict) {
+		t.Fatal("closed incident comment", err)
+	}
+	detail, err := readOpsIncident(ctx, tx, i.IncidentID)
+	if err != nil || len(detail.Events) != 8 {
+		t.Fatal("incident timeline", err, len(detail.Events))
+	}
+	for _, event := range detail.Events {
+		if event.ActorUserID != actor || event.OperationID != "" {
+			t.Fatal("incident actor/history")
+		}
+	}
+	inf := OpsIncidentQuery{Page: 1, Search: summary, State: "CLOSED", Severity: "WARNING", From: filter.From, To: filter.To}
+	ip, err := readOpsIncidents(ctx, tx, inf)
+	if err != nil || ip.Total != 1 || len(ip.Items) != 1 {
+		t.Fatal("incident filters", err)
+	}
+	inf.Page = 2
+	ip, err = readOpsIncidents(ctx, tx, inf)
+	if err != nil || ip.Total != 1 || len(ip.Items) != 0 {
+		t.Fatal("incident page", err)
+	}
+	var added, legacy, facts, eventAudit int
+	if err = tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM ops.audit_log),(SELECT count(*) FROM ops.admin_operations),(SELECT count(*) FROM ops.audit_log WHERE target=$1::text AND after_state->'verification_fact'->>'result'='VERIFIED'),(SELECT count(*) FROM ops.audit_log WHERE target=$2::text AND after_state->'event'->>'event_type'='COMMENT')`, c.CaseID, i.IncidentID).Scan(&added, &legacy, &facts, &eventAudit); err != nil {
 		t.Fatal(err)
 	}
-	if subject != 42 || category != "OTHER" || state != "OPEN" || summary != "Synthetic permission shape regression" ||
-		version != 1 || permission != "support-cases.write" {
-		t.Fatalf("support durable facts=%d/%q/%q/%q/%d/%q", subject, category, state, summary, version, permission)
+	if added-audits != 15 || legacy != operations || facts != 1 || eventAudit != 1 {
+		t.Fatal("atomic audit", added-audits, legacy-operations, facts, eventAudit)
 	}
-
-	invalidID := announcementID(t)
-	_, err = s.pool.Exec(ctx, `INSERT INTO ops.admin_operations(
-	 operation_id,actor_kind,newapi_user_id,action,request_hash,details,result,operation_type,
-	 actor_role_snapshot,actor_scopes_snapshot,actor_authz_epoch_snapshot,required_permission,risk_level,
-	 target_type,target_id,target_version_snapshot,input_schema_version,input_payload,input_hash,environment,
-	 impact_schema_version,impact_preview,impact_hash,confirmation_mode,requires_fresh_auth)
-	 VALUES($1,'ADMIN',42,'TEST_PERMISSION_SHAPE',repeat('0',64),'{}'::jsonb,'{}'::jsonb,'TEST_PERMISSION_SHAPE',
-	 'SUPER_ADMIN',ARRAY['RECORDS'],1,'support/cases.write','LEVEL_1_ROUTINE',
-	 'TEST','test','0','test.v1','{}'::jsonb,decode(repeat('00',32),'hex'),'STAGING',
-	 'test-impact.v1','{}'::jsonb,decode(repeat('00',32),'hex'),'NONE',false)`, invalidID)
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "admin_operation_typed_shape" {
-		t.Fatalf("invalid permission bypassed typed shape: %v", err)
+	if _, err = tx.Exec(ctx, `SET CONSTRAINTS ALL IMMEDIATE`); err != nil {
+		t.Fatal(err)
 	}
-	var invalidRows int
-	if err = s.pool.QueryRow(ctx, `SELECT count(*) FROM ops.admin_operations WHERE operation_id=$1`, invalidID).Scan(&invalidRows); err != nil || invalidRows != 0 {
-		t.Fatalf("invalid permission row count=%d error=%v", invalidRows, err)
+	if err = tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
 	}
+	var remaining int
+	if err = s.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM ops.support_cases WHERE case_id=$1)+(SELECT count(*) FROM ops.incidents WHERE incident_id=$2)+(SELECT count(*) FROM ops.audit_log WHERE target IN ($1::text,$2::text))`, c.CaseID, i.IncidentID).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatal("rollback", err, remaining)
+	}
+	t.Log("role 10 local writes; support create/fact/transition and incident timeline; filters + page; closed/skipped state denied; 15 atomic audits / 0 legacy operations; all rows and actor role rolled back")
 }

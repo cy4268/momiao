@@ -2,20 +2,20 @@ import { expect, it, vi } from 'vitest';
 import { ApiClient } from './api';
 import { catalogModelPath, decodeCatalogModelPath, catalogSelectionPath, catalogCurl, decimalDisplay, useCatalogModel } from './catalog-api';
 import { peekRouteIntent } from './post-auth-intent';
-import { bundle, ok } from './m1-test-fixtures';
+import { bundle, ok, user } from './m1-test-fixtures';
 
 it('checks the shared Gate before reading keys and retains a blocked model destination',async()=>{
  sessionStorage.clear();const calls:string[]=[];const navigate=vi.fn();
- const client=new ApiClient(async path=>{calls.push(path);if(path==='/api/user/login')return ok(bundle);if(path.startsWith('/platform/v1/access-gate?'))return ok({user_id:'1',route:'/api/access?model_id=team%2Fmodel&intent=use',stage:'MIGRATION_UNVERIFIED'});return ok({items:[],total:0,page:1,page_size:1})});
+ const client=new ApiClient(async path=>{calls.push(path);if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'ANONYMOUS',csrf_token:'anonymous-csrf'});if(path==='/api/v1/auth/password/login')return ok(bundle);if(path==='/api/user/self')return ok(user);if(path.startsWith('/platform/v1/access-gate?'))return ok({user_id:'1',route:'/api/access?model_id=team%2Fmodel&intent=use',stage:'MIGRATION_UNVERIFIED'});return ok({items:[],total:0,page:1,page_size:1})});
  await client.login('one','x');await useCatalogModel(client,'team/model',navigate,()=>{throw new Error('already signed in')});
  expect(navigate).toHaveBeenCalledWith('/welcome');expect(peekRouteIntent()).toBe('/api/access?model_id=team%2Fmodel&intent=use');expect(calls.some(path=>path.startsWith('/api/token/'))).toBe(false);
 });
 
 it('continues a READY model choice to explicit key creation without creating a key itself',async()=>{
  const calls:string[]=[];const navigate=vi.fn();
- const client=new ApiClient(async path=>{calls.push(path);if(path==='/api/user/login')return ok(bundle);if(path.startsWith('/platform/v1/access-gate?'))return ok({user_id:'1',route:'/api/access?model_id=team%2Fmodel&intent=use',stage:'READY'});return ok({items:[],total:0,page:1,page_size:1})});
+ const client=new ApiClient(async path=>{calls.push(path);if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'ANONYMOUS',csrf_token:'anonymous-csrf'});if(path==='/api/v1/auth/password/login')return ok(bundle);if(path==='/api/user/self')return ok(user);if(path.startsWith('/platform/v1/access-gate?'))return ok({user_id:'1',route:'/api/access?model_id=team%2Fmodel&intent=use',stage:'READY'});return ok({items:[],total:0,page:1,page_size:1})});
  await client.login('one','x');await useCatalogModel(client,'team/model',navigate,()=>{});
- expect(calls.map(path=>path.split('?')[0])).toEqual(['/api/user/login','/platform/v1/access-gate','/api/token/']);expect(navigate).toHaveBeenCalledWith('/keys?model_id=team%2Fmodel');
+ expect(calls.map(path=>path.split('?')[0])).toEqual(['/api/v1/session/bootstrap','/api/v1/auth/password/login','/api/user/self','/platform/v1/access-gate','/api/token/']);expect(navigate).toHaveBeenCalledWith('/keys?model_id=team%2Fmodel');
 });
 
 it('round trips opaque IDs without URL dot normalization or double decoding',()=>{
@@ -37,8 +37,8 @@ it('builds only verified endpoints with JSON and POSIX shell quoting and placeho
 });
 it('reads public catalog without credential headers and discards responses across account changes',async()=>{
  let resolve!:(r:Response)=>void;const pending=new Promise<Response>(r=>resolve=r);
- const fetcher=vi.fn().mockResolvedValueOnce(ok(bundle)).mockReturnValueOnce(pending).mockResolvedValueOnce(ok({...bundle,user:{...bundle.user,id:2},session:{sid:'other'}}));
+ let account=0;const fetcher=vi.fn(async(path:string,_init?:RequestInit)=>{if(path==='/api/v1/session/bootstrap')return ok({authentication_state:'ANONYMOUS',csrf_token:'anonymous-csrf'});if(path==='/api/v1/auth/password/login'){account++;return ok({...bundle,csrf_token:'account-'+account})}if(path==='/api/user/self')return ok({...user,id:account});return pending;});
  const client=new ApiClient(fetcher);await client.login('one','x');const read=client.catalogRequest('/platform/v1/models');const caught=read.catch(e=>e);await client.login('two','x');resolve(ok({items:[]}));expect(await caught).toMatchObject({status:401});
- const headers=new Headers(fetcher.mock.calls[1][1].headers);expect(headers.has('Authorization')).toBe(false);expect(headers.has('New-Api-User')).toBe(false);expect(fetcher.mock.calls[1][1].cache).toBe('no-store');
+ const readCall=fetcher.mock.calls.find(([path])=>path==='/platform/v1/models')!;const headers=new Headers(readCall[1]?.headers);expect(headers.has('Authorization')).toBe(false);expect(headers.has('New-Api-User')).toBe(false);expect(readCall[1]?.cache).toBe('no-store');
  await expect(client.catalogRequest('/platform/v1/models/personal-price?model_id=x')).rejects.toThrow();
 });

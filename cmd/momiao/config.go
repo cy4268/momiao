@@ -2,12 +2,11 @@ package main
 
 import (
 	"errors"
-	"github.com/cy4268/momiao/internal/bffauth"
 	"github.com/cy4268/momiao/internal/games"
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/cy4268/momiao/internal/rankings"
 	"github.com/cy4268/momiao/internal/roulette"
-	"github.com/cy4268/momiao/internal/session"
 	"net"
 	"net/http"
 	"os"
@@ -17,31 +16,29 @@ import (
 )
 
 type config struct {
+ pokerOps PokerOpsPort
+	Discord identity.Discord
 	BotGames botGamesConfig
- EconomyReadSocket string
- economicObserver platform.NativeQuotaObserver
 	RecoveryLock              bool
 	RecoveryAuthProbes        bool
 	ProcessRole               string
 	PokerRemoteSocket         string
 	PokerServiceKeyringFile   string
 	PokerPeerKeyringFile      string
-	ops                       http.Handler
+	opsMaintenance            http.Handler
+	opsAudit                  http.Handler
 	maintenanceNotices        http.Handler
 	OpsEnvironment            string
 	readiness                 map[string]readinessCheck
 	rankings                  *rankings.Service
-	keyPurposes               keyPurposeStore
-	nativePurposes            platform.NativePurposeWriter
+	relay                     *platform.Store
 	rpUsage                   *platform.Store
 	RankingActivationTime     time.Time
-	AttributionSourceInstanceID string
 	History                   historyConfig
 	history                   *historyHTTP
 	Session                   sessionConfig
 	sessionAuth               http.Handler
-	sessionBridge             *bffauth.Service
-	sessions                  *session.Service
+	localIdentity             *identity.HTTP
 	Poker                     pokerConfig
 	poker                     http.Handler
 	pokerCatalogRuntime       games.PokerCatalogRuntime
@@ -51,25 +48,12 @@ type config struct {
 	catalog                   catalogStore
 	CatalogAssets             catalogAssetConfig
 	catalogAssets             *catalogAssetStore
-	catalogSource             platform.CatalogSource
-	CatalogReaderKeyFile      string
-	CatalogSyncInterval       time.Duration
-	CatalogStaleAfter         time.Duration
-	CatalogDisableAfter       time.Duration
 	APIBaseURL                string
 	accessGate                accessGateStore
 	accessDeclaration         *accessDeclaration
 	announcements             announcementStore
 	AdmissionEnabled          bool
 	admission                 admissionStore
-	RegistrationReaderKeyFile string
-	NativeQuotaDSNFile        string
-	NativeQuotaKeyFile        string
-	RefillSocket             string
-	RefillKeyFile            string
-	RefillPolicy             platform.ActiveQuotaRefillPolicy
-	transfers                 quotaTransferStore
-	nativeQuota               nativeQuotaReader
 	WalletDSNFile             string
 	PublicOrigin              string
 	wallet                    walletStore
@@ -79,8 +63,6 @@ type config struct {
 	ListenSocket              string
 	AssetCDNOrigin            string
 	WebDir                    string
-	NativeAuthWebDir          string
-	NewAPISocket              string
 	ShutdownTimeout           time.Duration
 }
 
@@ -142,24 +124,6 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 		}
 		cfg.WebDir = resolved
 	}
-	if value, ok := lookup("MOMIAO_NEWAPI_SOCKET"); ok {
-		if value == "" {
-			return config{}, errors.New("MOMIAO_NEWAPI_SOCKET must not be empty")
-		}
-		if !filepath.IsAbs(value) {
-			return config{}, errors.New("MOMIAO_NEWAPI_SOCKET must be an absolute path")
-		}
-		cfg.NewAPISocket = filepath.Clean(value)
-	}
-	if cfg.WebDir != "" && cfg.NewAPISocket == "" {
-		return config{}, errors.New("MOMIAO_NEWAPI_SOCKET is required when MOMIAO_WEB_DIR is set")
-	}
-	if cfg.WebDir == "" && cfg.NewAPISocket != "" && cfg.ProcessRole != "poker" {
-		return config{}, errors.New("MOMIAO_NEWAPI_SOCKET requires MOMIAO_WEB_DIR")
-	}
-	if cfg.ListenSocket != "" && cfg.ListenSocket == cfg.NewAPISocket {
-		return config{}, errors.New("MOMIAO_LISTEN_SOCKET and MOMIAO_NEWAPI_SOCKET must differ")
-	}
 	if value, ok := lookup("MOMIAO_SHUTDOWN_TIMEOUT"); ok {
 		if value == "" {
 			return config{}, errors.New("MOMIAO_SHUTDOWN_TIMEOUT must not be empty")
@@ -179,19 +143,6 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 		}
 		cfg.GameFairnessKeyringFile = filepath.Clean(value)
 	}
-	if value, ok := lookup("MOMIAO_NATIVE_QUOTA_DSN_FILE"); ok {
-		if value == "" || !filepath.IsAbs(value) || cfg.WalletDSNFile == "" {
-			return config{}, errors.New("native quota DSN requires an absolute path and platform wallet configuration")
-		}
-		cfg.NativeQuotaDSNFile = filepath.Clean(value)
-	}
-	if value, ok := lookup("MOMIAO_NATIVE_QUOTA_KEY_FILE"); ok {
-		if value == "" || !filepath.IsAbs(value) || cfg.WalletDSNFile == "" || cfg.NewAPISocket == "" || cfg.NativeQuotaDSNFile != "" {
-			return config{}, errors.New("native quota port requires an absolute private key path, platform wallet and Native socket; legacy DSN cannot be combined")
-		}
-		cfg.NativeQuotaKeyFile = filepath.Clean(value)
-	}
-	if err := loadRefillConfig(&cfg, lookup); err != nil { return config{}, err }
 	if err := admissionConfig(&cfg, lookup); err != nil {
 		return config{}, err
 	}
@@ -201,12 +152,6 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 			return config{}, errors.New("ranking activation requires an explicit RFC3339 cutover time and platform wallet")
 		}
 		cfg.RankingActivationTime = activation.UTC()
-	}
-	if value, ok := lookup("MOMIAO_ATTRIBUTION_SOURCE_INSTANCE_ID"); ok {
-		if !platform.ValidOperationKey(value) || cfg.NativeQuotaKeyFile == "" {
-			return config{}, errors.New("attribution source requires an immutable UUID and private Native quota port configuration")
-		}
-		cfg.AttributionSourceInstanceID = value
 	}
 	if path, ok := lookup("MOMIAO_ACCESS_GATE_DECLARATION_FILE"); ok {
 		declaration, err := loadAccessDeclaration(path, cfg.PublicOrigin)
@@ -229,48 +174,33 @@ func loadConfig(lookup func(string) (string, bool)) (config, error) {
 	if err := loadSessionConfig(&cfg, lookup); err != nil {
 		return config{}, err
 	}
-	if value, ok := lookup("MOMIAO_NATIVE_AUTH_WEB_DIR"); ok {
-		if value == "" || !filepath.IsAbs(value) {
-			return config{}, errors.New("MOMIAO_NATIVE_AUTH_WEB_DIR must be an absolute existing build directory")
+	if path, ok := lookup("MOMIAO_DISCORD_CONFIG_FILE"); ok {
+		if !cfg.Session.Enabled || cfg.ProcessRole == "poker" {
+			return config{}, errors.New("MOMIAO_DISCORD_CONFIG_FILE requires local platform sessions")
 		}
-		resolved, err := filepath.EvalSymlinks(value)
+		discord, err := readDiscordConfig(path, cfg.PublicOrigin)
 		if err != nil {
-			return config{}, errors.New("MOMIAO_NATIVE_AUTH_WEB_DIR must be an absolute existing build directory")
+			return config{}, err
 		}
-		info, err := os.Stat(resolved)
-		if err != nil || !info.IsDir() {
-			return config{}, errors.New("MOMIAO_NATIVE_AUTH_WEB_DIR must be an absolute existing build directory")
-		}
-		index, err := os.Stat(filepath.Join(resolved, "index.html"))
-		if err != nil || !index.Mode().IsRegular() {
-			return config{}, errors.New("MOMIAO_NATIVE_AUTH_WEB_DIR must contain a regular index.html")
-		}
-		sameBuild := resolved == cfg.WebDir
-		if portalInfo, statErr := os.Stat(cfg.WebDir); statErr == nil && os.SameFile(info, portalInfo) {
-			sameBuild = true
-		}
-		if !cfg.Session.Enabled || cfg.WebDir == "" || sameBuild {
-			return config{}, errors.New("MOMIAO_NATIVE_AUTH_WEB_DIR requires opaque sessions and a distinct portal build")
-		}
-		cfg.NativeAuthWebDir = resolved
+		cfg.Discord = discord
 	}
-	if cfg.PokerRemoteSocket != "" && !cfg.Session.Enabled { return config{}, errors.New("remote Poker requires platform opaque sessions") }
+	if cfg.PokerRemoteSocket != "" && !cfg.Session.Enabled { return config{}, errors.New("remote Poker requires platform local sessions") }
 	history, err := loadHistoryConfig(lookup)
 	if err != nil || history.Enabled && (!cfg.Session.Enabled || cfg.WalletDSNFile == "" || cfg.GameFairnessKeyringFile == "") {
 		return config{}, errHistoryConfig
 	}
 	cfg.History = history
-	if cfg.ProcessRole == "poker" && (cfg.Session.Enabled || cfg.History.Enabled || cfg.WebDir != "" || cfg.NativeAuthWebDir != "" || cfg.AssetCDNOrigin != "" || cfg.GameFairnessKeyringFile != "" || cfg.AdmissionEnabled || cfg.NativeQuotaKeyFile != "" || cfg.NativeQuotaDSNFile != "" || cfg.CatalogReaderKeyFile != "" || !cfg.Poker.Enabled) {
+	if cfg.ProcessRole == "poker" && (cfg.Session.Enabled || cfg.History.Enabled || cfg.WebDir != "" || cfg.AssetCDNOrigin != "" || cfg.GameFairnessKeyringFile != "" || cfg.AdmissionEnabled || !cfg.Poker.Enabled) {
 		return config{}, errors.New("Poker process must own only its Poker runtime")
 	}
 	if value, ok := lookup("MOMIAO_OPS_ENVIRONMENT"); ok {
-		if (value != "DEVELOPMENT" && value != "STAGING" && value != "PRODUCTION") || !cfg.Session.Enabled || cfg.WalletDSNFile == "" || value != cfg.Session.Environment {
-			return config{}, errors.New("Ops requires an explicit DEVELOPMENT, STAGING or PRODUCTION environment, opaque sessions and platform wallet")
+		if (value != "DEVELOPMENT" && value != "STAGING" && value != "PRODUCTION") || !cfg.Session.Enabled || cfg.WalletDSNFile == "" {
+			return config{}, errors.New("Ops requires an explicit DEVELOPMENT, STAGING or PRODUCTION environment, local sessions and platform wallet")
 		}
 		cfg.OpsEnvironment = value
 	}
 	if cfg.RecoveryAuthProbes && (!cfg.Session.Enabled || cfg.ProcessRole != "platform") {
-		return config{}, errors.New("DR_RECOVERY_AUTH_PROBES requires platform opaque sessions")
+		return config{}, errors.New("DR_RECOVERY_AUTH_PROBES requires platform local sessions")
 	}
 	if err := loadBotGamesConfig(&cfg, lookup); err != nil {
 		return config{}, err

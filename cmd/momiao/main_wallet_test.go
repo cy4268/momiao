@@ -27,7 +27,7 @@ func TestWalletDatabaseOutageDoesNotBlockPortalStartup(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "index.html"), []byte("portal alive"), 0600)
 	dsn := filepath.Join(dir, "dsn")
 	os.WriteFile(dsn, []byte("host=127.0.0.1 port=1 user=wallet password=private dbname=wallet sslmode=disable"), 0600)
-	cfg := config{WalletDSNFile: dsn, PublicOrigin: "https://wallet.example", WebDir: dir, NewAPISocket: filepath.Join(dir, "unavailable.sock"), ListenAddr: "127.0.0.1:0", ShutdownTimeout: time.Second}
+	cfg := config{WalletDSNFile: dsn, PublicOrigin: "https://wallet.example", WebDir: dir, ListenAddr: "127.0.0.1:0", ShutdownTimeout: time.Second}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	logs := make(startupLog, 4)

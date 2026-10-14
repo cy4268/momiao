@@ -1,16 +1,13 @@
 package poker
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strconv"
-	"strings"
 	"time"
 
+	"github.com/cy4268/momiao/internal/platform"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -52,6 +49,10 @@ type OpsTable struct {
 }
 
 type OpsTableQuery struct {
+	Search   string `json:"search,omitempty"`
+	State    string `json:"state,omitempty"`
+	From, To *time.Time
+
 	Cursor string `json:"cursor,omitempty"`
 	Limit  int    `json:"limit,omitempty"`
 }
@@ -70,7 +71,7 @@ type OpsPlayer struct {
 	State          string `json:"state"`
 	StackUnits     string `json:"stack_units"`
 	Connected      bool   `json:"connected"`
-	LeaveAfterHand bool  `json:"leave_after_hand"`
+	LeaveAfterHand bool   `json:"leave_after_hand"`
 }
 
 type OpsMessageAuthor struct {
@@ -86,7 +87,7 @@ type OpsMessage struct {
 	Body            string            `json:"body"`
 	CreatedAt       time.Time         `json:"created_at"`
 	Author          *OpsMessageAuthor `json:"author,omitempty"`
-	ModerationState string           `json:"moderation_state"`
+	ModerationState string            `json:"moderation_state"`
 }
 
 type OpsSafeEvent struct {
@@ -124,6 +125,10 @@ type OpsSession struct {
 }
 
 type OpsSessionQuery struct {
+	UserID   int64  `json:"user_id,omitempty"`
+	State    string `json:"state,omitempty"`
+	From, To *time.Time
+
 	TableID string `json:"table_id,omitempty"`
 	Cursor  string `json:"cursor,omitempty"`
 	Limit   int    `json:"limit,omitempty"`
@@ -143,7 +148,7 @@ type OpsHand struct {
 	HandVersion      string     `json:"hand_version"`
 	EventSequence    string     `json:"event_sequence"`
 	PublicBoardCount int64      `json:"public_board_count,string"`
-	ParticipantCount int64     `json:"participant_count,string"`
+	ParticipantCount int64      `json:"participant_count,string"`
 	TotalPotUnits    string     `json:"total_pot_units"`
 	CreatedAt        time.Time  `json:"created_at"`
 	SettledAt        *time.Time `json:"settled_at,omitempty"`
@@ -151,31 +156,22 @@ type OpsHand struct {
 }
 
 type OpsCommand struct {
-	OperationID          string `json:"operation_id"`
-	ActorUserID          int64  `json:"actor_user_id,string"`
-	CommandType          string `json:"command_type"`
-	TableID              string `json:"table_id"`
-	ExpectedTableVersion string `json:"expected_table_version"`
-	Accepting             *bool  `json:"accepting,omitempty"`
-	AllowNewHands         *bool  `json:"allow_new_hands,omitempty"`
-	TargetSessionID       string `json:"target_session_id,omitempty"`
-	TargetUserID          string `json:"target_user_id,omitempty"`
-	MessageID             string `json:"message_id,omitempty"`
-	Muted                 *bool  `json:"muted,omitempty"`
-	Hidden                *bool  `json:"hidden,omitempty"`
-	RecoveryAction        string `json:"recovery_action,omitempty"`
-	Reason                string `json:"reason"`
+	ActorUserID     int64  `json:"actor_user_id,string"`
+	CommandType     string `json:"command_type"`
+	TableID         string `json:"table_id"`
+	Accepting       *bool  `json:"accepting,omitempty"`
+	AllowNewHands   *bool  `json:"allow_new_hands,omitempty"`
+	TargetSessionID string `json:"target_session_id,omitempty"`
+	TargetUserID    string `json:"target_user_id,omitempty"`
+	MessageID       string `json:"message_id,omitempty"`
+	Muted           *bool  `json:"muted,omitempty"`
+	Hidden          *bool  `json:"hidden,omitempty"`
+	RecoveryAction  string `json:"recovery_action,omitempty"`
 }
 
-type OpsReceipt struct {
-	OperationID  string `json:"operation_id"`
-	State        string `json:"state"`
-	CommandType  string `json:"command_type"`
-	TableID      string `json:"table_id"`
-	TableVersion string `json:"table_version"`
-	CommandHash  string `json:"command_hash"`
-	Duplicate    bool   `json:"duplicate"`
-	ResultCode   string `json:"result_code"`
+type OpsResult struct {
+	TableID string `json:"table_id"`
+	Status  string `json:"status"`
 }
 
 func (s *Service) opsAvailable() bool {
@@ -267,8 +263,8 @@ func (s *Service) ListOpsTables(ctx context.Context, query OpsTableQuery) (OpsTa
 	if err != nil || query.Cursor != "" && !canonicalSessionID(query.Cursor) {
 		return result, ErrInvalid
 	}
-	rows, err := s.opts.Pool.Query(ctx, opsTableSelect+` WHERE ($1='' OR t.table_id<$1::uuid)`+opsTableGroup+
-		` ORDER BY t.table_id DESC LIMIT $2`, query.Cursor, limit+1)
+	rows, err := s.opts.Pool.Query(ctx, opsTableSelect+` WHERE ($1='' OR t.table_id<NULLIF($1,'')::uuid) AND ($3='' OR t.name ILIKE '%'||$3||'%') AND ($4='' OR t.lifecycle_state=$4) AND ($5::timestamptz IS NULL OR t.created_at >= $5) AND ($6::timestamptz IS NULL OR t.created_at < $6)`+opsTableGroup+
+		` ORDER BY t.table_id DESC LIMIT $2`, query.Cursor, limit+1, query.Search, query.State, query.From, query.To)
 	if err != nil {
 		return result, err
 	}
@@ -375,7 +371,7 @@ func (s *Service) ReadOpsTable(ctx context.Context, tableID string) (OpsTableDet
 	rows.Close()
 
 	rows, err = tx.Query(ctx, `SELECT event_id::text,event_type,actor_kind,created_at,details
-	 FROM poker.audit_events WHERE table_id=$1 ORDER BY created_at DESC,event_id DESC LIMIT 100`, tableID)
+	 FROM (SELECT event_id,event_type,actor_kind,created_at,details FROM poker.audit_events WHERE table_id=$1 UNION ALL SELECT id,action,'ADMIN',occurred_at,jsonb_build_object('before',before_state,'after',after_state) FROM ops.audit_log WHERE target_type='POKER_TABLE' AND target=$1::text) events ORDER BY created_at DESC,event_id DESC LIMIT 100`, tableID)
 	if err != nil {
 		return result, err
 	}
@@ -440,8 +436,8 @@ func (s *Service) ListOpsSessions(ctx context.Context, query OpsSessionQuery) (O
 		return result, ErrInvalid
 	}
 	rows, err := s.opts.Pool.Query(ctx, opsSessionSelect+`
-	 WHERE ($1='' OR table_id=$1::uuid) AND ($2='' OR session_id<$2::uuid)
-	 ORDER BY session_id DESC LIMIT $3`, query.TableID, query.Cursor, limit+1)
+	 WHERE ($1='' OR table_id=NULLIF($1,'')::uuid) AND ($2='' OR session_id<NULLIF($2,'')::uuid) AND ($4::bigint=0 OR newapi_user_id=$4) AND ($5='' OR state=$5) AND ($6::timestamptz IS NULL OR started_at >= $6) AND ($7::timestamptz IS NULL OR started_at < $7)
+	 ORDER BY session_id DESC LIMIT $3`, query.TableID, query.Cursor, limit+1, query.UserID, query.State, query.From, query.To)
 	if err != nil {
 		return result, err
 	}
@@ -505,96 +501,48 @@ func (s *Service) ReadOpsHand(ctx context.Context, handID string) (OpsHand, erro
 	return result, err
 }
 
-func opsCommandHash(command OpsCommand) ([]byte, []byte, error) {
-	raw, err := json.Marshal(command)
-	if err != nil {
-		return nil, nil, ErrInvalid
-	}
-	digest := sha256.Sum256(append([]byte("CHALDEA-POKER-OPS-COMMAND-V1\x00"), raw...))
-	return raw, digest[:], nil
-}
-
-// OpsCommandHash is the safe, canonical binding carried by remote operation
-// receipts. Callers use it to prove a query-first receipt belongs to the exact
-// typed command, not merely the same operation ID.
-func OpsCommandHash(command OpsCommand) (string, error) {
-	_, digest, err := opsCommandHash(command)
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(digest), nil
-}
-
-func validOpsReason(value string) bool {
-	return value != "" && len(value) <= 2048 && strings.TrimSpace(value) == value && !strings.ContainsRune(value, 0)
-}
-
-func parseOpsUint(value string) (uint64, bool) {
-	parsed, err := strconv.ParseUint(value, 10, 64)
-	return parsed, err == nil && parsed > 0 && strconv.FormatUint(parsed, 10) == value
-}
-
-func parseOpsUser(value string) (int64, bool) {
-	parsed, err := strconv.ParseInt(value, 10, 64)
-	return parsed, err == nil && parsed > 0 && strconv.FormatInt(parsed, 10) == value
-}
-
-func validateOpsCommand(command OpsCommand) (uint64, int64, error) {
-	version, ok := parseOpsUint(command.ExpectedTableVersion)
-	if !ok || command.ActorUserID <= 0 || !canonicalSessionID(command.OperationID) ||
-		!canonicalSessionID(command.TableID) || !validOpsReason(command.Reason) {
-		return 0, 0, ErrInvalid
-	}
-	noTargets := func() bool {
-		return command.TargetSessionID == "" && command.TargetUserID == "" && command.MessageID == "" &&
-			command.Accepting == nil && command.AllowNewHands == nil && command.Muted == nil && command.Hidden == nil && command.RecoveryAction == ""
+func validateOpsCommand(command OpsCommand) (int64, error) {
+	if command.ActorUserID <= 0 || !canonicalSessionID(command.TableID) {
+		return 0, ErrInvalid
 	}
 	var targetUser int64
+	if command.CommandType == "POKER_REMOVE_PLAYER_AFTER_HAND" || command.CommandType == "POKER_REMOVE_SPECTATOR" || command.CommandType == "POKER_CHAT_MUTE_SET" {
+		var err error
+		targetUser, err = strconv.ParseInt(command.TargetUserID, 10, 64)
+		if err != nil || targetUser <= 0 {
+			return 0, ErrInvalid
+		}
+	}
 	switch command.CommandType {
 	case "POKER_ACCEPTING_PLAYERS_SET":
-		if command.Accepting == nil || command.TargetSessionID != "" || command.TargetUserID != "" || command.MessageID != "" || command.AllowNewHands != nil || command.Muted != nil || command.Hidden != nil || command.RecoveryAction != "" {
-			return 0, 0, ErrInvalid
+		if command.Accepting == nil {
+			return 0, ErrInvalid
 		}
 	case "POKER_NEW_HANDS_SET":
-		if command.AllowNewHands == nil || command.TargetSessionID != "" || command.TargetUserID != "" || command.MessageID != "" || command.Accepting != nil || command.Muted != nil || command.Hidden != nil || command.RecoveryAction != "" {
-			return 0, 0, ErrInvalid
+		if command.AllowNewHands == nil {
+			return 0, ErrInvalid
 		}
-	case "POKER_CLOSE_AFTER_HAND", "POKER_TABLE_PAUSE", "POKER_TABLE_RESUME", "POKER_EMERGENCY_PAUSE":
-		if !noTargets() {
-			return 0, 0, ErrInvalid
-		}
+	case "POKER_CLOSE_AFTER_HAND", "POKER_TABLE_PAUSE", "POKER_TABLE_RESUME", "POKER_EMERGENCY_PAUSE", "POKER_REMOVE_SPECTATOR":
 	case "POKER_REMOVE_PLAYER_AFTER_HAND":
-		var userOK bool
-		targetUser, userOK = parseOpsUser(command.TargetUserID)
-		if !userOK || !canonicalSessionID(command.TargetSessionID) || command.MessageID != "" || command.Accepting != nil || command.AllowNewHands != nil || command.Muted != nil || command.Hidden != nil || command.RecoveryAction != "" {
-			return 0, 0, ErrInvalid
-		}
-	case "POKER_REMOVE_SPECTATOR":
-		var userOK bool
-		targetUser, userOK = parseOpsUser(command.TargetUserID)
-		if !userOK || command.TargetSessionID != "" || command.MessageID != "" || command.Accepting != nil || command.AllowNewHands != nil || command.Muted != nil || command.Hidden != nil || command.RecoveryAction != "" {
-			return 0, 0, ErrInvalid
+		if !canonicalSessionID(command.TargetSessionID) {
+			return 0, ErrInvalid
 		}
 	case "POKER_CHAT_MUTE_SET":
-		var userOK bool
-		targetUser, userOK = parseOpsUser(command.TargetUserID)
-		if !userOK || command.Muted == nil || command.TargetSessionID != "" || command.MessageID != "" || command.Accepting != nil || command.AllowNewHands != nil || command.Hidden != nil || command.RecoveryAction != "" {
-			return 0, 0, ErrInvalid
+		if command.Muted == nil {
+			return 0, ErrInvalid
 		}
 	case "POKER_CHAT_VISIBILITY_SET":
-		if !canonicalSessionID(command.MessageID) || command.Hidden == nil || command.TargetSessionID != "" || command.TargetUserID != "" || command.Accepting != nil || command.AllowNewHands != nil || command.Muted != nil || command.RecoveryAction != "" {
-			return 0, 0, ErrInvalid
+		if !canonicalSessionID(command.MessageID) || command.Hidden == nil {
+			return 0, ErrInvalid
 		}
 	case "POKER_RECOVERY_REQUEST":
-		if command.TargetSessionID != "" || command.TargetUserID != "" || command.MessageID != "" ||
-			command.Accepting != nil || command.AllowNewHands != nil || command.Muted != nil || command.Hidden != nil ||
-			!containsString([]string{"RECOVER", "RESUME", "SAFE_CLOSE", "ESCALATE"}, command.RecoveryAction) {
-			return 0, 0, ErrInvalid
+		if !containsString([]string{"RECOVER", "RESUME", "SAFE_CLOSE", "ESCALATE"}, command.RecoveryAction) {
+			return 0, ErrInvalid
 		}
 	default:
-		return 0, 0, ErrInvalid
+		return 0, ErrInvalid
 	}
-	return version, targetUser, nil
+	return targetUser, nil
 }
 
 func containsString(values []string, wanted string) bool {
@@ -604,52 +552,6 @@ func containsString(values []string, wanted string) bool {
 		}
 	}
 	return false
-}
-
-func scanOpsReceipt(row pgx.Row, expectedHash []byte) (OpsReceipt, error) {
-	var result OpsReceipt
-	var storedHash, body []byte
-	err := row.Scan(&storedHash, &body)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return result, ErrDenied
-	}
-	if err != nil {
-		return result, err
-	}
-	if len(storedHash) != sha256.Size {
-		return result, ErrCorruptSnapshot
-	}
-	if expectedHash != nil && !bytes.Equal(expectedHash, storedHash) {
-		return result, ErrConflict
-	}
-	if json.Unmarshal(body, &result) != nil {
-		return result, ErrCorruptSnapshot
-	}
-	commandHash := hex.EncodeToString(storedHash)
-	if result.CommandHash != commandHash {
-		return OpsReceipt{}, ErrCorruptSnapshot
-	}
-	return result, nil
-}
-
-func (s *Service) ReadOpsOperation(ctx context.Context, operationID string) (OpsReceipt, error) {
-	if !s.opsAvailable() {
-		return OpsReceipt{}, ErrClosed
-	}
-	if !canonicalSessionID(operationID) {
-		return OpsReceipt{}, ErrInvalid
-	}
-	return scanOpsReceipt(s.opts.Pool.QueryRow(ctx, `SELECT request_hash,result FROM poker.admin_operations
-	 WHERE operation_id=$1`, operationID), nil)
-}
-
-func (s *Service) currentOpsReceipt(ctx context.Context, operationID string, hash []byte) (OpsReceipt, bool, error) {
-	result, err := scanOpsReceipt(s.opts.Pool.QueryRow(ctx, `SELECT request_hash,result FROM poker.admin_operations
-	 WHERE operation_id=$1`, operationID), hash)
-	if errors.Is(err, ErrDenied) {
-		return result, false, nil
-	}
-	return result, err == nil, err
 }
 
 type opsNeedsReviewContextKey struct{}
@@ -673,254 +575,227 @@ func isOpsCommand(ctx context.Context) bool {
 	return opsCommand
 }
 
-func (s *Service) ExecuteOpsCommand(ctx context.Context, command OpsCommand) (OpsReceipt, error) {
-	expectedVersion, targetUser, err := validateOpsCommand(command)
+func (s *Service) ExecuteOpsCommand(ctx context.Context, command OpsCommand) (OpsResult, error) {
+	targetUser, err := validateOpsCommand(command)
 	if err != nil {
-		return OpsReceipt{}, err
+		return OpsResult{}, err
 	}
-	payload, requestHash, err := opsCommandHash(command)
+	table, err := s.readOpsTable(ctx, s.opts.Pool, command.TableID)
 	if err != nil {
-		return OpsReceipt{}, err
+		return OpsResult{}, err
 	}
-	if prior, found, readErr := s.currentOpsReceipt(ctx, command.OperationID, requestHash); readErr != nil || found {
-		prior.Duplicate = found
-		return prior, readErr
+	if table.LifecycleState == "CLOSED" {
+		return OpsResult{}, ErrConflict
 	}
 	if command.CommandType == "POKER_RECOVERY_REQUEST" || command.CommandType == "POKER_EMERGENCY_PAUSE" {
 		ctx = allowOpsNeedsReview(ctx)
 	}
-	ctx = withOpsCommand(ctx)
-	domainReceipt, err := s.mutate(ctx, command.TableID, func(ctx context.Context, tx pgx.Tx, table *tableRow) (Receipt, error) {
-		if prior, readErr := scanOpsReceipt(tx.QueryRow(ctx, `SELECT request_hash,result FROM poker.admin_operations
-		 WHERE operation_id=$1`, command.OperationID), requestHash); readErr == nil {
-			return Receipt{TableID: prior.TableID, Status: prior.ResultCode, Version: table.Version, Duplicate: true}, nil
-		} else if !errors.Is(readErr, ErrDenied) {
-			return Receipt{}, readErr
+	receipt, err := s.mutate(withOpsCommand(ctx), command.TableID, func(ctx context.Context, tx pgx.Tx, table *tableRow) (Receipt, error) {
+		return s.applyOpsCommand(ctx, tx, table, command, targetUser)
+	})
+	return OpsResult{TableID: command.TableID, Status: receipt.Status}, err
+}
+
+// Keep table serialization, hand-boundary settlement and recovery in the existing actor.
+func (s *Service) applyOpsCommand(ctx context.Context, tx pgx.Tx, table *tableRow, command OpsCommand, targetUser int64) (Receipt, error) {
+	if err := platform.RequireLocalOpsAdmin(ctx, tx, command.ActorUserID); err != nil {
+		return Receipt{}, err
+	}
+	if table.State == "CLOSED" {
+		return Receipt{}, ErrConflict
+	}
+	before, err := s.opsChangeState(ctx, tx, table.ID, command, targetUser)
+	if err != nil {
+		return Receipt{}, err
+	}
+	resultCode := ""
+	var removedUser int64
+	switch command.CommandType {
+	case "POKER_ACCEPTING_PLAYERS_SET":
+		table.Accepting = *command.Accepting
+		resultCode = map[bool]string{true: "ACCEPTING_PLAYERS", false: "NOT_ACCEPTING_PLAYERS"}[*command.Accepting]
+	case "POKER_NEW_HANDS_SET":
+		table.AllowHands = *command.AllowNewHands
+		if !table.AllowHands && (table.State == "WAITING" || table.State == "INTERMISSION") {
+			table.State = "PAUSED"
+		} else if table.AllowHands && table.State == "PAUSED" {
+			table.State = "INTERMISSION"
 		}
-		if table.Version != expectedVersion || table.State == "CLOSED" {
-			return Receipt{}, ErrStaleVersion
-		}
-		resultCode := ""
-		var auditSession any
-		var removedUser int64
-		switch command.CommandType {
-		case "POKER_ACCEPTING_PLAYERS_SET":
-			table.Accepting = *command.Accepting
-			resultCode = map[bool]string{true: "ACCEPTING_PLAYERS", false: "NOT_ACCEPTING_PLAYERS"}[*command.Accepting]
-		case "POKER_NEW_HANDS_SET":
-			table.AllowHands = *command.AllowNewHands
-			if !table.AllowHands && (table.State == "WAITING" || table.State == "INTERMISSION") {
-				table.State = "PAUSED"
-			} else if table.AllowHands && table.State == "PAUSED" {
-				table.State = "INTERMISSION"
-			}
-			resultCode = map[bool]string{true: "NEW_HANDS_RESUMED", false: "NEW_HANDS_PAUSED"}[*command.AllowNewHands]
-		case "POKER_CLOSE_AFTER_HAND":
-			table.State, table.Accepting, table.AllowHands = "CLOSING", false, false
-			if _, err = tx.Exec(ctx, `UPDATE poker.seats SET leave_after_hand=true
+		resultCode = map[bool]string{true: "NEW_HANDS_RESUMED", false: "NEW_HANDS_PAUSED"}[*command.AllowNewHands]
+	case "POKER_CLOSE_AFTER_HAND":
+		table.State, table.Accepting, table.AllowHands = "CLOSING", false, false
+		if _, err = tx.Exec(ctx, `UPDATE poker.seats SET leave_after_hand=true
 			 WHERE table_id=$1 AND session_id IS NOT NULL`, table.ID); err != nil {
-				return Receipt{}, err
+			return Receipt{}, err
+		}
+		resultCode = "CLOSE_AFTER_HAND"
+	case "POKER_REMOVE_PLAYER_AFTER_HAND":
+		seats, loadErr := loadSeats(ctx, tx, table.ID)
+		if loadErr != nil {
+			return Receipt{}, loadErr
+		}
+		var target seatRow
+		found := false
+		for _, seat := range seats {
+			if seat.Session == command.TargetSessionID && seat.User == targetUser {
+				target, found = seat, true
+				break
 			}
-			if err = s.boundary(ctx, tx, table); err != nil {
-				return Receipt{}, err
-			}
-			resultCode = "CLOSE_AFTER_HAND"
-		case "POKER_REMOVE_PLAYER_AFTER_HAND":
-			seats, loadErr := loadSeats(ctx, tx, table.ID)
-			if loadErr != nil {
-				return Receipt{}, loadErr
-			}
-			var target seatRow
-			found := false
-			for _, seat := range seats {
-				if seat.Session == command.TargetSessionID && seat.User == targetUser {
-					target, found = seat, true
-					break
-				}
-			}
-			if !found {
-				return Receipt{}, ErrDenied
-			}
-			if _, err = tx.Exec(ctx, `UPDATE poker.sessions SET end_reason=coalesce(end_reason,'OPS_REMOVED')
+		}
+		if !found {
+			return Receipt{}, ErrDenied
+		}
+		if _, err = tx.Exec(ctx, `UPDATE poker.sessions SET end_reason=coalesce(end_reason,'OPS_REMOVED')
 			 WHERE session_id=$1`, target.Session); err != nil {
-				return Receipt{}, err
-			}
-			active, activeErr := ownsHand(ctx, tx, target.Session)
-			if activeErr != nil {
-				return Receipt{}, activeErr
-			}
-			if active {
-				_, err = tx.Exec(ctx, `UPDATE poker.seats SET state='LEAVE_AFTER_HAND',leave_after_hand=true
+			return Receipt{}, err
+		}
+		active, activeErr := ownsHand(ctx, tx, target.Session)
+		if activeErr != nil {
+			return Receipt{}, activeErr
+		}
+		if active {
+			_, err = tx.Exec(ctx, `UPDATE poker.seats SET state='LEAVE_AFTER_HAND',leave_after_hand=true
 				 WHERE table_id=$1 AND seat_no=$2`, table.ID, target.Seat)
-				resultCode = "PLAYER_REMOVE_AFTER_HAND"
-			} else {
-				if _, err = tx.Exec(ctx, `UPDATE poker.funding_operations SET state='FAILED_NO_EFFECT',failure_code='OPS_REMOVED'
+			resultCode = "PLAYER_REMOVE_AFTER_HAND"
+		} else {
+			if _, err = tx.Exec(ctx, `UPDATE poker.funding_operations SET state='FAILED_NO_EFFECT',failure_code='OPS_REMOVED'
 				 WHERE session_id=$1 AND state='PENDING' AND kind IN('TOP_UP','REBUY')`, target.Session); err == nil {
-					var funding Receipt
-					funding, err = cashout(ctx, tx, table, target, "OPS_REMOVED")
-					if err == nil && funding.Status != "CONFIRMED" {
-						err = ErrDenied
-					}
+				var funding Receipt
+				funding, err = cashout(ctx, tx, table, target, "OPS_REMOVED")
+				if err == nil && funding.Status != "CONFIRMED" {
+					err = ErrDenied
 				}
-				if err == nil {
-					err = updateEmpty(ctx, tx, table)
-				}
-				resultCode = "PLAYER_REMOVED"
 			}
-			if err != nil {
-				return Receipt{}, err
+			if err == nil {
+				err = updateEmpty(ctx, tx, table)
 			}
-			auditSession = target.Session
-		case "POKER_REMOVE_SPECTATOR":
-			if !s.liveSpectator(ctx, tx, table, targetUser) {
-				return Receipt{}, ErrDenied
-			}
-			removedUser, resultCode = targetUser, "SPECTATOR_REMOVED"
-		case "POKER_CHAT_MUTE_SET":
-			var targetExists bool
-			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity.account_refs WHERE newapi_user_id=$2)
-			 AND (EXISTS(SELECT 1 FROM poker.sessions WHERE table_id=$1 AND newapi_user_id=$2)
+			resultCode = "PLAYER_REMOVED"
+		}
+		if err != nil {
+			return Receipt{}, err
+		}
+	case "POKER_REMOVE_SPECTATOR":
+		if !s.liveSpectator(ctx, tx, table, targetUser) {
+			return Receipt{}, ErrDenied
+		}
+		removedUser, resultCode = targetUser, "SPECTATOR_REMOVED"
+	case "POKER_CHAT_MUTE_SET":
+		var targetExists bool
+		if err = tx.QueryRow(ctx, `SELECT (EXISTS(SELECT 1 FROM poker.sessions WHERE table_id=$1 AND newapi_user_id=$2)
 			  OR EXISTS(SELECT 1 FROM poker.chat_members WHERE table_id=$1 AND newapi_user_id=$2))`, table.ID, targetUser).Scan(&targetExists); err != nil {
-				return Receipt{}, err
-			}
-			if !targetExists {
-				return Receipt{}, ErrDenied
-			}
-			var current bool
-			if err = tx.QueryRow(ctx, `SELECT coalesce((SELECT action='MUTE' FROM poker.chat_moderation_events
-			 WHERE table_id=$1 AND target_kind='USER' AND target_newapi_user_id=$2
-			 ORDER BY created_at DESC,event_id DESC LIMIT 1),false)`, table.ID, targetUser).Scan(&current); err != nil {
-				return Receipt{}, err
-			}
-			if current == *command.Muted {
-				return Receipt{}, ErrStaleVersion
-			}
-			action := map[bool]string{true: "MUTE", false: "UNMUTE"}[*command.Muted]
-			if _, err = tx.Exec(ctx, `INSERT INTO poker.chat_moderation_events(
-			 operation_id,table_id,target_kind,target_newapi_user_id,action,actor_user_id,actor_kind)
-			 VALUES($1,$2,'USER',$3,$4,$5,'ADMIN')`, command.OperationID, table.ID, targetUser, action, command.ActorUserID); err != nil {
-				return Receipt{}, err
-			}
-			resultCode = "CHAT_USER_" + action + "D"
-		case "POKER_CHAT_VISIBILITY_SET":
-			var exists bool
-			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM poker.chat_messages
-			 WHERE table_id=$1 AND message_id=$2)`, table.ID, command.MessageID).Scan(&exists); err != nil {
-				return Receipt{}, err
-			}
-			if !exists {
-				return Receipt{}, ErrDenied
-			}
-			var current bool
-			if err = tx.QueryRow(ctx, `SELECT coalesce((SELECT action='HIDE' FROM poker.chat_moderation_events
-			 WHERE table_id=$1 AND target_kind='MESSAGE' AND message_id=$2
-			 ORDER BY created_at DESC,event_id DESC LIMIT 1),false)`, table.ID, command.MessageID).Scan(&current); err != nil {
-				return Receipt{}, err
-			}
-			if current == *command.Hidden {
-				return Receipt{}, ErrStaleVersion
-			}
-			action := map[bool]string{true: "HIDE", false: "RESTORE"}[*command.Hidden]
-			if _, err = tx.Exec(ctx, `INSERT INTO poker.chat_moderation_events(
-			 operation_id,table_id,target_kind,message_id,action,actor_user_id,actor_kind)
-			 VALUES($1,$2,'MESSAGE',$3,$4,$5,'ADMIN')`, command.OperationID, table.ID, command.MessageID, action, command.ActorUserID); err != nil {
-				return Receipt{}, err
-			}
-			resultCode = map[bool]string{true: "CHAT_MESSAGE_HIDDEN", false: "CHAT_MESSAGE_RESTORED"}[*command.Hidden]
-		case "POKER_TABLE_PAUSE":
-			table.AllowHands = false
-			if table.State == "WAITING" || table.State == "INTERMISSION" {
-				table.State = "PAUSED"
-			}
-			resultCode = "TABLE_PAUSED"
-		case "POKER_TABLE_RESUME":
-			if table.NeedsReview || table.State == "RECOVERING" {
-				return Receipt{}, ErrNeedsReview
-			}
-			table.AllowHands = true
-			if table.State == "PAUSED" {
-				table.State = "INTERMISSION"
-			}
-			resultCode = "TABLE_RESUMED"
-		case "POKER_RECOVERY_REQUEST":
-			resultCode, err = s.applyOpsRecovery(ctx, tx, table, command)
-			if err != nil {
-				return Receipt{}, err
-			}
-		case "POKER_EMERGENCY_PAUSE":
-			previous := table.recoveryPreviousState()
-			table.Accepting, table.AllowHands, table.State = false, false, "RECOVERING"
-			_, err = tx.Exec(ctx, `INSERT INTO poker.recovery_state(
+			return Receipt{}, err
+		}
+		if !targetExists {
+			return Receipt{}, ErrDenied
+		}
+		action := map[bool]string{true: "MUTE", false: "UNMUTE"}[*command.Muted]
+		if _, err = tx.Exec(ctx, `INSERT INTO poker.chat_moderation_events(
+			 table_id,target_kind,target_newapi_user_id,action,actor_user_id,actor_kind)
+ VALUES($1,'USER',$2,$3,$4,'ADMIN')`, table.ID, targetUser, action, command.ActorUserID); err != nil {
+			return Receipt{}, err
+		}
+		resultCode = "CHAT_USER_" + action + "D"
+	case "POKER_CHAT_VISIBILITY_SET":
+		var exists bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM poker.chat_messages
+			 WHERE table_id=$1 AND message_id=$2 AND kind='USER_TEXT')`, table.ID, command.MessageID).Scan(&exists); err != nil {
+			return Receipt{}, err
+		}
+		if !exists {
+			return Receipt{}, ErrDenied
+		}
+		action := map[bool]string{true: "HIDE", false: "RESTORE"}[*command.Hidden]
+		if _, err = tx.Exec(ctx, `INSERT INTO poker.chat_moderation_events(
+			 table_id,target_kind,message_id,action,actor_user_id,actor_kind)
+ VALUES($1,'MESSAGE',$2,$3,$4,'ADMIN')`, table.ID, command.MessageID, action, command.ActorUserID); err != nil {
+			return Receipt{}, err
+		}
+		resultCode = map[bool]string{true: "CHAT_MESSAGE_HIDDEN", false: "CHAT_MESSAGE_RESTORED"}[*command.Hidden]
+	case "POKER_TABLE_PAUSE":
+		table.AllowHands = false
+		if table.State == "WAITING" || table.State == "INTERMISSION" {
+			table.State = "PAUSED"
+		}
+		resultCode = "TABLE_PAUSED"
+	case "POKER_TABLE_RESUME":
+		if table.NeedsReview || table.State == "RECOVERING" {
+			return Receipt{}, ErrNeedsReview
+		}
+		table.AllowHands = true
+		if table.State == "PAUSED" {
+			table.State = "INTERMISSION"
+		}
+		resultCode = "TABLE_RESUMED"
+	case "POKER_RECOVERY_REQUEST":
+		resultCode, err = s.applyOpsRecovery(ctx, tx, table, command)
+		if err != nil {
+			return Receipt{}, err
+		}
+	case "POKER_EMERGENCY_PAUSE":
+		previous := table.recoveryPreviousState()
+		table.Accepting, table.AllowHands, table.State = false, false, "RECOVERING"
+		_, err = tx.Exec(ctx, `INSERT INTO poker.recovery_state(
 			 table_id,hand_id,runtime_epoch,state,previous_table_state,reason_code,detected_at)
 			 VALUES($1,NULLIF($2,'')::uuid,$3,'NEEDS_REVIEW',$4,'ADMIN_EMERGENCY_PAUSE',$5)
 			 ON CONFLICT(table_id) DO UPDATE SET hand_id=excluded.hand_id,runtime_epoch=excluded.runtime_epoch,
 			 state='NEEDS_REVIEW',previous_table_state=excluded.previous_table_state,reason_code=excluded.reason_code,
 			 detected_at=excluded.detected_at,started_at=NULL,grace_until=NULL,resumed_at=NULL`,
-				table.ID, table.HandID, table.Epoch, previous, table.Now)
-			if err != nil {
-				return Receipt{}, err
-			}
-			table.NeedsReview = true
-			resultCode = "EMERGENCY_PAUSED"
+			table.ID, table.HandID, table.Epoch, previous, table.Now)
+		if err != nil {
+			return Receipt{}, err
 		}
-		if _, err = tx.Exec(ctx, `UPDATE poker.tables SET lifecycle_state=$2,accepting_players=$3,
+		table.NeedsReview = true
+		resultCode = "EMERGENCY_PAUSED"
+	}
+	if _, err = tx.Exec(ctx, `UPDATE poker.tables SET lifecycle_state=$2,accepting_players=$3,
 		 allow_new_hands=$4,intermission_until=CASE WHEN $2='INTERMISSION' THEN $5::timestamptz+interval '5 seconds' ELSE intermission_until END
 		 WHERE table_id=$1`, table.ID, table.State, table.Accepting, table.AllowHands, table.Now); err != nil {
+		return Receipt{}, err
+	}
+	// A settled boundary can write CLOSED; do not overwrite it with CLOSING afterward.
+	if command.CommandType == "POKER_CLOSE_AFTER_HAND" {
+		if err = s.boundary(ctx, tx, table); err != nil {
 			return Receipt{}, err
 		}
-		details, _ := json.Marshal(struct {
-			OperationID string `json:"operation_id"`
-			CommandType string `json:"command_type"`
-			ResultCode  string `json:"result_code"`
-			Reason      string `json:"reason"`
-		}{command.OperationID, command.CommandType, resultCode, command.Reason})
-		if _, err = tx.Exec(ctx, `INSERT INTO poker.audit_events(
-		 event_id,table_id,session_id,actor_user_id,actor_kind,event_type,request_hash,details)
-		 VALUES($1,$2,$3,$4,'ADMIN',$5,$6,$7)`, uuid(), table.ID, auditSession, command.ActorUserID,
-			command.CommandType, requestHash, details); err != nil {
-			return Receipt{}, err
-		}
-		completionState := "SUCCEEDED"
-		if resultCode == "NEEDS_REVIEW" {
-			completionState = "NEEDS_REVIEW"
-		}
-		result := OpsReceipt{OperationID: command.OperationID, State: completionState, CommandType: command.CommandType,
-			TableID: table.ID, TableVersion: strconv.FormatUint(table.Version+1, 10),
-			CommandHash: hex.EncodeToString(requestHash), ResultCode: resultCode}
-		resultJSON, _ := json.Marshal(result)
-		if _, err = tx.Exec(ctx, `INSERT INTO poker.admin_operations(
-		 operation_id,actor_user_id,command_type,table_id,request_hash,command_payload,result)
-		 VALUES($1,$2,$3,$4,$5,$6,$7)`, command.OperationID, command.ActorUserID, command.CommandType,
-			table.ID, requestHash, payload, resultJSON); err != nil {
-			return Receipt{}, err
-		}
-		if removedUser > 0 && s.opts.AfterSpectatorRemoved != nil {
-			table.onCommit = func(context.Context) { s.opts.AfterSpectatorRemoved(table.ID, removedUser) }
-		}
-		return Receipt{TableID: table.ID, Status: resultCode, Version: table.Version + 1}, nil
-	})
+	}
+	after, err := s.opsChangeState(ctx, tx, table.ID, command, targetUser)
 	if err != nil {
-		return OpsReceipt{}, err
+		return Receipt{}, err
 	}
-	if domainReceipt.Duplicate {
-		prior, _, readErr := s.currentOpsReceipt(ctx, command.OperationID, requestHash)
-		prior.Duplicate = readErr == nil
-		return prior, readErr
+	after.Table.TableVersion = strconv.FormatUint(table.Version+1, 10)
+	if err = platform.RecordOpsChange(ctx, tx, command.ActorUserID, command.CommandType, "POKER_TABLE", table.ID, before, map[string]any{"state": after, "command": command, "result": resultCode}); err != nil {
+		return Receipt{}, err
 	}
-	completionState := "SUCCEEDED"
-	if domainReceipt.Status == "NEEDS_REVIEW" {
-		completionState = "NEEDS_REVIEW"
+	if removedUser > 0 && s.opts.AfterSpectatorRemoved != nil {
+		table.onCommit = func(context.Context) { s.opts.AfterSpectatorRemoved(table.ID, removedUser) }
 	}
-	return OpsReceipt{OperationID: command.OperationID, State: completionState, CommandType: command.CommandType,
-		TableID: command.TableID, TableVersion: strconv.FormatUint(domainReceipt.Version, 10),
-		CommandHash: hex.EncodeToString(requestHash), ResultCode: domainReceipt.Status}, nil
+	return Receipt{TableID: table.ID, Status: resultCode, Version: table.Version + 1}, nil
+}
+
+type opsChangeState struct {
+	Table         OpsTable        `json:"table"`
+	Players       json.RawMessage `json:"players"`
+	Muted         bool            `json:"muted"`
+	MessageHidden bool            `json:"message_hidden"`
+}
+
+func (s *Service) opsChangeState(ctx context.Context, tx pgx.Tx, tableID string, command OpsCommand, targetUser int64) (opsChangeState, error) {
+	var state opsChangeState
+	var err error
+	if state.Table, err = s.readOpsTable(ctx, tx, tableID); err != nil {
+		return state, err
+	}
+	err = tx.QueryRow(ctx, `SELECT coalesce((SELECT jsonb_agg(jsonb_build_object('session_id',s.session_id,'user_id',s.newapi_user_id::text,'state',s.state,'stack_units',s.current_stack_units::text,'leave_after_hand',seat.leave_after_hand)) FROM poker.sessions s JOIN poker.seats seat ON seat.session_id=s.session_id WHERE s.table_id=$1),'[]'::jsonb),
+ coalesce((SELECT action='MUTE' FROM poker.chat_moderation_events WHERE table_id=$1 AND target_kind='USER' AND target_newapi_user_id=$2 ORDER BY created_at DESC,event_id DESC LIMIT 1),false),
+ coalesce((SELECT action='HIDE' FROM poker.chat_moderation_events WHERE table_id=$1 AND target_kind='MESSAGE' AND message_id=NULLIF($3,'')::uuid ORDER BY created_at DESC,event_id DESC LIMIT 1),false)`, tableID, targetUser, command.MessageID).Scan(&state.Players, &state.Muted, &state.MessageHidden)
+	return state, err
 }
 
 func (s *Service) applyOpsRecovery(ctx context.Context, tx pgx.Tx, table *tableRow, command OpsCommand) (string, error) {
 	switch command.RecoveryAction {
 	case "RECOVER":
 		if !table.NeedsReview {
-			return "", ErrStaleVersion
+			return "", ErrConflict
 		}
 		resultCode := "RECOVERY_RELEASED"
 		if table.HandID != "" {
@@ -944,7 +819,7 @@ func (s *Service) applyOpsRecovery(ctx context.Context, tx pgx.Tx, table *tableR
 			return "", err
 		}
 		if tag.RowsAffected() != 1 {
-			return "", ErrStaleVersion
+			return "", ErrConflict
 		}
 		table.NeedsReview = false
 		table.State = "PAUSED"
@@ -953,7 +828,7 @@ func (s *Service) applyOpsRecovery(ctx context.Context, tx pgx.Tx, table *tableR
 		var state string
 		var grace *time.Time
 		if err := tx.QueryRow(ctx, `SELECT state,grace_until FROM poker.recovery_state WHERE table_id=$1`, table.ID).Scan(&state, &grace); errors.Is(err, pgx.ErrNoRows) {
-			return "", ErrStaleVersion
+			return "", ErrConflict
 		} else if err != nil {
 			return "", err
 		}
@@ -963,7 +838,7 @@ func (s *Service) applyOpsRecovery(ctx context.Context, tx pgx.Tx, table *tableR
 		if table.HandID != "" {
 			receipt, err := s.tickMutation(ctx, tx, table)
 			if err == nil && receipt.Status == "NOOP" {
-				return "", ErrStaleVersion
+				return "", ErrConflict
 			}
 			return receipt.Status, err
 		}
@@ -971,7 +846,7 @@ func (s *Service) applyOpsRecovery(ctx context.Context, tx pgx.Tx, table *tableR
 		return "RECOVERY_RESUMED", nil
 	case "SAFE_CLOSE":
 		if !table.NeedsReview && table.State != "RECOVERING" {
-			return "", ErrStaleVersion
+			return "", ErrConflict
 		}
 		table.State, table.Accepting, table.AllowHands = "CLOSING", false, false
 		if _, err := tx.Exec(ctx, `UPDATE poker.seats SET leave_after_hand=true

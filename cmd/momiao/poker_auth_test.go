@@ -4,92 +4,27 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"io"
-	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/cy4268/momiao/internal/poker/authbridge"
 	"github.com/cy4268/momiao/internal/poker/connectticket"
 	pt "github.com/cy4268/momiao/internal/poker/transport"
 )
 
-func TestPokerHTTPAuthVerifiesNativeBeforeBinding(t *testing.T) {
-	req := announcementReq("POST", "/api/v1/poker/connect-tickets", "")
-	verified := false
-	nativeStatus := 200
-	bindCalls := 0
-	native := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.String() != "http://unix/api/user/self" || r.Host != "localhost" || r.Header.Get("Authorization") != req.Header.Get("Authorization") || r.Header.Get("X-Auth-Session") != "fixture-session" || r.Header.Get("Cookie") != "" {
-			t.Fatal("original native credential was not checked at fixed boundary")
-		}
-		verified = nativeStatus == 200
-		return &http.Response{StatusCode: nativeStatus, Body: io.NopCloser(strings.NewReader(`{"success":true,"data":{"id":9007199254740993,"status":1}}`))}, nil
-	})
-	bind := func(_ context.Context, r authbridge.NativeRef) (connectticket.Session, error) {
-		bindCalls++
-		if !verified {
-			t.Fatal("unverified native claim reached binding")
-		}
-		hash := sha256.Sum256([]byte("fixture-session"))
-		if r.UserID != "9007199254740993" || r.SessionVersion != 1 || r.SessionIDHash != hex.EncodeToString(hash[:]) {
-			t.Fatal("native reference was rounded or not hashed", r)
-		}
-		return connectticket.Session{UserID: r.UserID, SessionIDHash: r.SessionIDHash, SessionVersion: r.SessionVersion, SecurityEpoch: 7}, nil
+func TestPokerHTTPAuthRequiresLocalContext(t *testing.T) {
+	req := httptest.NewRequest("POST", "/api/v1/poker/connect-tickets", nil)
+	req.Header.Set("Authorization", "Bearer forged")
+	req.Header.Set("New-Api-User", "9007199254740993")
+	req.Header.Set("X-Auth-Session", "session")
+	if _, err := pokerHTTPAuth(req); err == nil {
+		t.Fatal("native headers established a local Poker identity")
 	}
-	auth := newPokerHTTPAuth(native, bind)
-	p, e := auth(req)
-	if e != nil || p.UserID != 9007199254740993 || p.SecurityEpoch != 7 || p.ControlIntent != connectticket.ReadOnly {
-		t.Fatal("verified principal", p, e)
-	}
-	for _, status := range []int{401, 403, 502} {
-		nativeStatus = status
-		verified = false
-		if _, e = auth(req); e == nil {
-			t.Fatal("native failure granted principal")
-		}
-	}
-	if bindCalls != 1 {
-		t.Fatal("failed native verification entered binder")
-	}
-	nativeStatus = 200
-	for _, change := range []func(*http.Request){func(r *http.Request) { r.Header.Set("Authorization", "Bearer opaque-pat") }, func(r *http.Request) { r.Header.Set("X-Auth-Session", "different") }, func(r *http.Request) { r.Header.Set("New-Api-User", "1") }} {
-		r := req.Clone(context.Background())
-		change(r)
-		if _, e = auth(r); e == nil {
-			t.Fatal("invalid credential accepted")
-		}
-	}
-	if bindCalls != 1 {
-		t.Fatal("credential gate lost")
-	}
-}
-
-func TestPokerHTTPAuthFailsClosedOnBindingDrift(t *testing.T) {
-	req := announcementReq("GET", "/api/v1/poker/lobby", "")
-	native := roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"data":{"id":9007199254740993,"status":1}}`))}, nil
-	})
-	for _, bind := range []func(context.Context, authbridge.NativeRef) (connectticket.Session, error){
-		func(context.Context, authbridge.NativeRef) (connectticket.Session, error) {
-			return connectticket.Session{}, errors.New("private-password")
-		},
-		func(context.Context, authbridge.NativeRef) (connectticket.Session, error) {
-			return connectticket.Session{UserID: "42", SessionVersion: 1}, nil
-		},
-	} {
-		_, e := newPokerHTTPAuth(native, bind)(req)
-		if e == nil || strings.Contains(e.Error(), "private-password") {
-			t.Fatal("binding drift/error", e)
-		}
-	}
-	if _, e := newPokerHTTPAuth(nil, nil)(req); e == nil {
-		t.Fatal("missing provider accepted")
+	principal, err := pokerHTTPAuth(announcementReq("POST", "/api/v1/poker/connect-tickets", ""))
+	if err != nil || principal.UserID != 9007199254740993 || principal.SessionIDHash != strings.Repeat("a", 64) {
+		t.Fatal("local user/session context not preserved", principal, err)
 	}
 }
 

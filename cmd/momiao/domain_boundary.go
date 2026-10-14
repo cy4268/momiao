@@ -3,10 +3,11 @@ package main
 import (
 	"net/http"
 	"strings"
+
+	"github.com/cy4268/momiao/internal/identity"
 )
 
-// Only wrap explicitly selected local domain handlers. Never wrap the Native
-// proxy, session/History handlers (already F4), or ticket-authenticated sockets.
+// Local domain handlers receive the verified user in context, not native headers.
 func domainHandler(cfg config, next http.Handler) http.Handler {
 	if next == nil || !cfg.Session.Enabled {
 		return next
@@ -21,16 +22,14 @@ func domainHandler(cfg config, next http.Handler) http.Handler {
 		game := p == "/api/v1/game-rounds" || strings.HasPrefix(p, "/api/v1/game-rounds/") || strings.HasPrefix(p, "/api/v1/games/") || p == "/api/v1/roulette" || strings.HasPrefix(p, "/api/v1/roulette/")
 		announcement := p == "/platform/v1/announcements" || strings.HasPrefix(p, "/platform/v1/announcements/")
 		optional := announcement && r.Method == http.MethodGet && !strings.HasSuffix(p, "/reads") && p != "/platform/v1/announcements/current-post-login-popup"
-		var prepared *http.Request
-		var err error
-		if optional && cfg.sessionBridge != nil {
-			prepared, err = cfg.sessionBridge.OptionalDomainRequest(r)
-		} else {
-			prepared, err = cfg.sessionBridge.DomainRequest(r, game)
-		}
+		prepared, err := cfg.localIdentity.Request(r, optional)
 		if err != nil {
-			sessionError(w, err)
+			identity.WriteError(w, err)
 			return
+		}
+		if game {
+			// The game's existing commitment token is separate from login CSRF.
+			prepared.Header.Set("X-CSRF-Token", r.Header.Get("X-Game-CSRF-Token"))
 		}
 		next.ServeHTTP(w, prepared)
 	})

@@ -9,40 +9,17 @@ import (
 )
 
 func TestConfigDefaults(t *testing.T) {
-	cfg, err := loadConfig(func(string) (string, bool) { return "", false })
+	cfg, err := loadConfig(func(key string) (string, bool) {
+		if key == "MOMIAO_NEWAPI_SOCKET" || strings.HasPrefix(key, "MOMIAO_NATIVE_QUOTA_") || strings.HasPrefix(key, "MOMIAO_REFILL_") {
+			t.Fatalf("obsolete native config still read: %s", key)
+		}
+		return "", false
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.ListenAddr != "127.0.0.1:8080" || cfg.ShutdownTimeout != 10*time.Second {
 		t.Fatalf("unexpected defaults: %+v", cfg)
-	}
-}
-
-func TestNativeQuotaConfigRequiresExplicitWallet(t *testing.T) {
-	web := t.TempDir()
-	if err := os.WriteFile(filepath.Join(web, "index.html"), []byte("portal"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct {
-		path          string
-		wallet, valid bool
-	}{
-		{"", true, false}, {"relative.dsn", true, false},
-		{filepath.Join(t.TempDir(), "native.dsn"), false, false},
-		{filepath.Join(t.TempDir(), "native.dsn"), true, true},
-	} {
-		env := map[string]string{"MOMIAO_WEB_DIR": web, "MOMIAO_NEWAPI_SOCKET": filepath.Join(t.TempDir(), "native.sock"), "MOMIAO_NATIVE_QUOTA_DSN_FILE": tc.path}
-		if tc.wallet {
-			env["MOMIAO_WALLET_DSN_FILE"] = filepath.Join(t.TempDir(), "wallet.dsn")
-			env["MOMIAO_PUBLIC_ORIGIN"] = "https://wallet.example"
-		}
-		cfg, err := loadConfig(func(k string) (string, bool) { v, ok := env[k]; return v, ok })
-		if (err == nil) != tc.valid {
-			t.Fatalf("valid=%v error=%v", tc.valid, err)
-		}
-		if err == nil && cfg.NativeQuotaDSNFile != tc.path {
-			t.Fatal("native DSN not retained")
-		}
 	}
 }
 
@@ -108,56 +85,22 @@ func TestPortalConfigAcceptanceAndRejection(t *testing.T) {
 		t.Fatal(err)
 	}
 	absSocket := filepath.Join(t.TempDir(), "portal.sock")
-	upstreamSocket := filepath.Join(t.TempDir(), "newapi.sock")
-	nativeAuthDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(nativeAuthDir, "index.html"), []byte("native auth"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	completeNativeAuth := map[string]string{
-		"MOMIAO_WEB_DIR":                          webDir,
-		"MOMIAO_NATIVE_AUTH_WEB_DIR":              nativeAuthDir,
-		"MOMIAO_NEWAPI_SOCKET":                    upstreamSocket,
-		"MOMIAO_WALLET_DSN_FILE":                  filepath.Join(t.TempDir(), "wallet.dsn"),
-		"MOMIAO_PUBLIC_ORIGIN":                    "https://portal.example",
-		"MOMIAO_SESSION_ENABLED":                  "true",
-		"MOMIAO_SESSION_DSN_FILE":                 filepath.Join(t.TempDir(), "session.dsn"),
-		"MOMIAO_SESSION_REDIS_CONFIG_FILE":        filepath.Join(t.TempDir(), "redis.json"),
-		"MOMIAO_SESSION_READER_KEY_FILE":          filepath.Join(t.TempDir(), "reader.key"),
-		"MOMIAO_SESSION_OPS_KEY_FILE":             filepath.Join(t.TempDir(), "ops.key"),
-		"MOMIAO_SESSION_SEAL_KEY_FILE":            filepath.Join(t.TempDir(), "session.key"),
-		"MOMIAO_SESSION_CREDENTIAL_SEAL_KEY_FILE": filepath.Join(t.TempDir(), "credential.key"),
-		"MOMIAO_SESSION_OPS_SOCKET":               filepath.Join(t.TempDir(), "ops.sock"),
-		"MOMIAO_SESSION_ENVIRONMENT":              "TEST",
-	}
-	nativeAuthSameBuild := make(map[string]string, len(completeNativeAuth))
-	for key, value := range completeNativeAuth {
-		nativeAuthSameBuild[key] = value
-	}
-	nativeAuthSameBuild["MOMIAO_NATIVE_AUTH_WEB_DIR"] = webDir
 
 	for _, tc := range []struct {
 		name string
 		env  map[string]string
 		ok   bool
 	}{
-		{"web with fixed upstream", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, true},
 		{"unix listener", map[string]string{"MOMIAO_LISTEN_SOCKET": absSocket}, true},
-		{"complete production shape", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_LISTEN_SOCKET": absSocket, "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, true},
-		{"native auth with opaque session", completeNativeAuth, true},
-		{"native auth without opaque session", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_NATIVE_AUTH_WEB_DIR": nativeAuthDir, "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, false},
-		{"native auth cannot share portal build", nativeAuthSameBuild, false},
 		{"empty web", map[string]string{"MOMIAO_WEB_DIR": ""}, false},
 		{"empty listener socket", map[string]string{"MOMIAO_LISTEN_SOCKET": ""}, false},
-		{"empty upstream socket", map[string]string{"MOMIAO_NEWAPI_SOCKET": ""}, false},
+		{"missing web", map[string]string{"MOMIAO_WEB_DIR": filepath.Join(t.TempDir(), "missing")}, false},
+		{"web without index", map[string]string{"MOMIAO_WEB_DIR": t.TempDir()}, false},
 		{"relative web", map[string]string{"MOMIAO_WEB_DIR": "web"}, false},
-		{"missing web", map[string]string{"MOMIAO_WEB_DIR": filepath.Join(t.TempDir(), "missing"), "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, false},
-		{"web without index", map[string]string{"MOMIAO_WEB_DIR": t.TempDir(), "MOMIAO_NEWAPI_SOCKET": upstreamSocket}, false},
 		{"relative listener socket", map[string]string{"MOMIAO_LISTEN_SOCKET": "portal.sock"}, false},
-		{"relative upstream socket", map[string]string{"MOMIAO_NEWAPI_SOCKET": "newapi.sock"}, false},
-		{"web without upstream", map[string]string{"MOMIAO_WEB_DIR": webDir}, false},
-		{"upstream without web", map[string]string{"MOMIAO_NEWAPI_SOCKET": upstreamSocket}, false},
+		{"web without upstream", map[string]string{"MOMIAO_WEB_DIR": webDir}, true},
+		{"local sessions without native", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_WALLET_DSN_FILE": filepath.Join(webDir, "wallet.dsn"), "MOMIAO_PUBLIC_ORIGIN": "https://dev.momiao.win", "MOMIAO_SESSION_ENABLED": "true", "MOMIAO_SESSION_REDIS_CONFIG_FILE": filepath.Join(webDir, "redis.json"), "MOMIAO_OPS_ENVIRONMENT": "DEVELOPMENT"}, true},
 		{"tcp and unix listener", map[string]string{"MOMIAO_LISTEN_ADDR": "127.0.0.1:8090", "MOMIAO_LISTEN_SOCKET": absSocket}, false},
-		{"same listener and upstream", map[string]string{"MOMIAO_WEB_DIR": webDir, "MOMIAO_LISTEN_SOCKET": absSocket, "MOMIAO_NEWAPI_SOCKET": absSocket}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg, err := loadConfig(func(key string) (string, bool) {

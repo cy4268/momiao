@@ -15,11 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cy4268/momiao/internal/poker/authbridge"
 	"github.com/cy4268/momiao/internal/poker/connectticket"
 	pt "github.com/cy4268/momiao/internal/poker/transport"
-	"github.com/cy4268/momiao/internal/session"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"net"
 )
 
 const pokerInternalPrefix = "/internal/v1/poker/"
@@ -28,20 +26,17 @@ var pokerSessionHash = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // A separate process is the deployment composition. Embedded mode remains for
 // existing callers; remote mode never opens a second Poker service or lease pool.
 func loadPokerProcessConfig(cfg *config, lookup func(string) (string, bool)) error {
-	readSocket, hasRead := lookup("MOMIAO_ECONOMY_READ_SOCKET")
  remote, hasRemote := lookup("MOMIAO_POKER_REMOTE_SOCKET")
 	key, hasKey := lookup("MOMIAO_POKER_SERVICE_KEYRING_FILE")
 	peer,hasPeer:=lookup("MOMIAO_POKER_PEER_KEYRING_FILE")
-	if !hasRead && !hasRemote && !hasKey && !hasPeer && cfg.ProcessRole != "poker" { return nil }
+	if !hasRemote && !hasKey && !hasPeer && cfg.ProcessRole != "poker" { return nil }
 	if !hasKey || !filepath.IsAbs(key) || !hasPeer || !filepath.IsAbs(peer) || pokerPathKey(key)==pokerPathKey(peer) { return errPokerConfig }
-	if !hasRead || !filepath.IsAbs(readSocket) || pokerPathKey(readSocket)==pokerPathKey(cfg.ListenSocket) || pokerPathKey(readSocket)==pokerPathKey(cfg.NewAPISocket) || (cfg.RefillSocket!="" && pokerPathKey(readSocket)==pokerPathKey(cfg.RefillSocket)) || (hasRemote && pokerPathKey(readSocket)==pokerPathKey(remote)) { return errPokerConfig }
- cfg.EconomyReadSocket=filepath.Clean(readSocket)
  cfg.PokerServiceKeyringFile = filepath.Clean(key)
 	cfg.PokerPeerKeyringFile = filepath.Clean(peer)
 	if cfg.ProcessRole == "poker" {
-		if hasRemote || cfg.ListenSocket == "" || cfg.ListenSocket == cfg.NewAPISocket { return errPokerConfig }
+		if hasRemote || cfg.ListenSocket == "" { return errPokerConfig }
 	} else {
-		if !hasRemote || !filepath.IsAbs(remote) || filepath.Clean(remote) == cfg.NewAPISocket || filepath.Clean(remote) == cfg.ListenSocket { return errPokerConfig }
+		if !hasRemote || !filepath.IsAbs(remote) || filepath.Clean(remote) == cfg.ListenSocket { return errPokerConfig }
 		cfg.PokerRemoteSocket = filepath.Clean(remote)
 	}
 	return nil
@@ -56,10 +51,6 @@ func runPokerProcess(ctx context.Context, cfg config, logger *log.Logger) error 
 	if err!=nil||!distinctPokerPublicKeys(keys,signer.public){return errPokerStartup}
 	ticketKeys,err:=readPokerPublicKeys(cfg.Poker.TicketKeyringFile)
 	if err!=nil||!distinctPokerPublicKeys(keys,ticketKeys)||!distinctPokerPublicKeys(signer.public,ticketKeys){return errPokerStartup}
-	transport := newNativeTransport(cfg.EconomyReadSocket)
- defer transport.CloseIdleConnections()
- cfg.economicObserver,err=newEconomyQuotaObserver(transport,signer)
- if err!=nil{return errPokerStartup}
  app, err := openPokerApplication(ctx, cfg)
 	if err != nil || app == nil { return errPokerStartup }
 	defer app.Close()
@@ -68,7 +59,7 @@ func runPokerProcess(ctx context.Context, cfg config, logger *log.Logger) error 
 		"poker_database": app.pokerPool.Ping,
 		"poker_auth_database": app.authPool.Ping,
 		"poker_cache": func(ctx context.Context) error { return app.tickets.Ping(ctx).Err() },
-		"native": nativeReadiness(app.native),
+		"session_cache": func(ctx context.Context) error { return app.sessionRedis.Ping(ctx).Err() },
 	}
 	listener, err := openListener(cfg)
 	if err != nil { return err }
@@ -110,15 +101,6 @@ func runPokerProcess(ctx context.Context, cfg config, logger *log.Logger) error 
 		case pokerInternalPrefix+"catalog":
 			if r.Method != http.MethodGet { walletError(w,405,"METHOD_NOT_ALLOWED");return }
 			state,err:=app.service.CatalogRuntime(r.Context());if err!=nil {walletError(w,503,"POKER_SERVICE_UNAVAILABLE");return};walletJSON(w,200,map[string]string{"state":state})
-		case pokerInternalPrefix+"revoke":
-			if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/json" {walletError(w,400,"POKER_INVALID_REQUEST");return}
-			raw,err:=io.ReadAll(io.LimitReader(r.Body,1025));var input pokerRevokeInput
-			if err!=nil||len(raw)>1024||decodePokerObject(raw,&input,"user_id","native_session_id_hash")!=nil||!pokerSessionHash.MatchString(input.NativeSessionIDHash){walletError(w,400,"POKER_INVALID_REQUEST");return}
-			user,err:=strconv.ParseInt(input.UserID,10,64);if err!=nil||user<=0||strconv.FormatInt(user,10)!=input.UserID {walletError(w,400,"POKER_INVALID_REQUEST");return}
-			bounded,cancel:=context.WithTimeout(r.Context(),5*time.Second);defer cancel()
-			err=app.service.RevokeSessionControls(bounded,user,input.NativeSessionIDHash)
-			app.handler.RevokeSession(user,input.NativeSessionIDHash)
-			if err!=nil {walletError(w,503,"POKER_SERVICE_UNAVAILABLE");return};walletJSON(w,200,map[string]bool{"revoked":true})
 		default: walletError(w,404,"NOT_FOUND")
 		}
 	})
@@ -130,14 +112,8 @@ func runPokerProcess(ctx context.Context, cfg config, logger *log.Logger) error 
 	return serve(ctx,server,listener,cfg.ShutdownTimeout)
 }
 
-type pokerRevokeInput struct {
-	UserID string `json:"user_id"`
-	NativeSessionIDHash string `json:"native_session_id_hash"`
-}
 type pokerRemote struct {
 	transport *http.Transport
-	native *http.Transport
-	authPool *pgxpool.Pool
 	signing pokerTicketKeys
 	auth func(*http.Request)(pt.Principal,error)
 	mint *pt.Handler
@@ -149,12 +125,9 @@ func openPokerRemote(ctx context.Context,cfg config) (*pokerRemote,error) {
 	peer,err:=readPokerPublicKeys(cfg.PokerPeerKeyringFile);if err!=nil||!distinctPokerPublicKeys(signing.public,peer){return nil,errPokerStartup}
 	ticket,err:=readPokerTicketKeys(cfg.Poker.TicketKeyringFile);if err!=nil{return nil,errPokerStartup}
 	if !distinctPokerPublicKeys(signing.public,ticket.public)||!distinctPokerPublicKeys(peer,ticket.public){return nil,errPokerStartup}
-	readerKey,err:=readPokerReaderKey(cfg.Poker.ReaderKeyFile);if err!=nil{return nil,errPokerStartup}
-	out:=&pokerRemote{transport:newNativeTransport(cfg.PokerRemoteSocket),native:newNativeTransport(cfg.NewAPISocket),signing:signing}
-	out.authPool,err=openPokerPool(ctx,cfg.WalletDSNFile);if err!=nil{out.Close();return nil,errPokerStartup}
-	reader,err:=authbridge.NewNativeReader(out.native,readerKey);if err!=nil{out.Close();return nil,errPokerStartup}
-	authority,err:=authbridge.New(out.authPool,reader.Check);if err!=nil{out.Close();return nil,errPokerStartup}
-	out.auth=newPokerHTTPAuth(out.native,authority.Bind)
+	out:=&pokerRemote{transport:newPokerTransport(cfg.PokerRemoteSocket),signing:signing}
+	authority:=pokerSessionAuthority{sessions:cfg.localIdentity.Sessions,pool:cfg.localIdentity.Store.Pool}
+	out.auth=pokerHTTPAuth
 	issuer,err:=connectticket.NewIssuer(connectticket.IssuerOptions{KeyID:ticket.active,PrivateKey:ticket.private,CheckSession:authority.Check});if err!=nil{out.Close();return nil,errPokerStartup}
 	// Only /connect-tickets is dispatched to this transport instance. It owns
 	// the existing mint/parser/live-auth path, with no table or WS capabilities.
@@ -185,7 +158,7 @@ func openPokerRemote(ctx context.Context,cfg config) (*pokerRemote,error) {
 	})
 	return out,nil
 }
-func(p *pokerRemote)Close(){if p==nil{return};if p.mint!=nil{p.mint.Close()};if p.authPool!=nil{p.authPool.Close()};if p.native!=nil{p.native.CloseIdleConnections()};if p.transport!=nil{p.transport.CloseIdleConnections()}}
+func(p *pokerRemote)Close(){if p==nil{return};if p.mint!=nil{p.mint.Close()};if p.transport!=nil{p.transport.CloseIdleConnections()}}
 func(p *pokerRemote)call(ctx context.Context,method,path string,input,output any)error{
 	if p==nil||p.transport==nil{return errPokerStartup}
 	var raw []byte
@@ -205,7 +178,19 @@ func(p *pokerRemote)catalogRuntime(ctx context.Context)(string,error){
 func(p *pokerRemote)ready(ctx context.Context)error{
 	var out readinessView;if err:=p.call(ctx,http.MethodGet,"ready",nil,&out);err!=nil{return err};if !out.Ready||len(out.Components)==0{return errors.New("Poker unavailable")};return nil
 }
-func(p *pokerRemote)revoke(ctx context.Context,binding session.BFFBinding)error{
-	var out struct{Revoked bool `json:"revoked"`};err:=p.call(ctx,http.MethodPost,"revoke",pokerRevokeInput{binding.UserID,binding.NativeSessionIDHash},&out)
-	if err!=nil||!out.Revoked{return errPokerStartup};return nil
+
+// The Poker service retains its existing fixed Unix transport, independent of Native.
+func newPokerTransport(socket string) *http.Transport {
+	dialer := &net.Dialer{Timeout: 2 * time.Second, KeepAlive: 30 * time.Second}
+	return &http.Transport{
+		Proxy: nil,
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, "unix", socket)
+		},
+		ForceAttemptHTTP2:     false,
+		MaxIdleConns:          16,
+		MaxIdleConnsPerHost:   16,
+		IdleConnTimeout:       60 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}
 }

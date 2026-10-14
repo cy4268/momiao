@@ -10,12 +10,12 @@ const user = { id: 1, username: 'native-user', display_name: 'Native User', role
 const incomplete = { user_id: '1', short_account_id: 'CA-123456789ABC', status: 'INCOMPLETE', display_name: '', avatar_id: 'system-default', profile_version: '0', nickname_changed_at: null, next_rename_at: null, suggested_name: 'Master-CA-123456789ABC', avatars: [{ id: 'system-default', label: '系统默认头像', source: 'SYSTEM' }] };
 const complete = { ...incomplete, status: 'COMPLETE', display_name: 'Moonlit', profile_version: '1' };
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }));
-const bundle = (sid = 'sid', id = 1) => ({ access_token: 'memory', access_expires_at: 9999999999, session: { sid }, user: { ...user, id } });
+const bundle = (csrf_token = 'fixture-csrf') => ({ authentication_state: 'AUTHENTICATED', csrf_token });
 const fail = (code: string, status = 409) => new Response(JSON.stringify({ success: false, code, message: 'upstream English detail' }), { status });
 function setup(respond?: (path: string, init?: RequestInit) => Response | Promise<Response> | undefined) {
     const f = vi.fn(async (p: string, init?: RequestInit) => {
         const custom = respond?.(p, init); if (custom) return custom;
-        if (p.includes('/refresh')) return ok(bundle());
+        if (p.endsWith('/session/bootstrap')) return ok(bundle());
         if (p === '/api/user/self') return ok(user);
         if (p === '/platform/v1/master-profile') return ok(incomplete);
         return ok({ items: [], total: 0, page: 1, page_size: 10 });
@@ -52,7 +52,9 @@ it('previews without writing, explicitly initializes once and round-trips the id
     expect(writes(f)[0][0]).toBe('/platform/v1/master-profile/initialize'); expect(writes(f)[0][1]?.method).toBe('POST');
     expect(JSON.parse(String(writes(f)[0][1]?.body))).toEqual({ expected_version: '0', display_name: 'Moonlit', avatar_id: 'system-default' });
     const headers = new Headers(writes(f)[0][1]?.headers);
-    expect(headers.get('New-Api-User')).toBe('1'); expect(headers.get('Authorization')).toBe('Bearer memory');
+    expect(headers.get('X-CSRF-Token')).toBe('fixture-csrf');
+    expect(writes(f)[0][1]?.credentials).toBe('same-origin');
+    for (const name of ['Authorization', 'New-Api-User', 'X-Auth-Session']) expect(headers.has(name)).toBe(false);
     // Editor and shell both confirm; the shell's reload effect can follow the saved notice.
     await waitFor(() => expect(f.mock.calls.filter(([p, init]) => p === '/platform/v1/master-profile' && init?.method === 'GET')).toHaveLength(4));
     expect(client.getSnapshot().user).toMatchObject({ username: 'native-user', display_name: 'Native User' });
@@ -123,7 +125,8 @@ it('rejects foreign or malformed GET, recovers by read, and uses only approved s
 it('changing accounts drops the old GET and clears drafts', async () => {
     let resolve!: (r: Response) => void; let account = '1';
     const { f, client } = setup(p => {
-        if (p === '/api/user/login') { account = '2'; return ok(bundle('sid2', 2)); }
+        if (p === '/api/v1/auth/password/login') { account = '2'; return ok(bundle('second-csrf')); }
+        if (p === '/api/user/self') return ok({ ...user, id: Number(account) });
         if (p === '/platform/v1/master-profile') return account === '1' ? new Promise<Response>(r => resolve = r) : ok({ ...incomplete, user_id: '2' });
     });
     await waitFor(() => expect(f.mock.calls.some(([p]) => p === '/platform/v1/master-profile')).toBe(true));
@@ -132,13 +135,13 @@ it('changing accounts drops the old GET and clears drafts', async () => {
 });
 it('a new session for the same user drops prior writes and drafts', async () => {
     let resolve!: (r: Response) => void;
-    const { client, f } = setup(p => p.endsWith('/initialize') ? new Promise<Response>(r => resolve = r) : p === '/api/user/login' ? ok(bundle('new-same-user-session')) : undefined);
+    const { client, f } = setup(p => p.endsWith('/initialize') ? new Promise<Response>(r => resolve = r) : p === '/api/v1/auth/password/login' ? ok(bundle('new-same-user-session')) : undefined);
     await screen.findByLabelText('Master 昵称'); edit('Old draft'); fireEvent.click(screen.getByRole('button', { name: '保存并初始化' }));
     await act(() => client.login('native-user', 'password')); await waitFor(() => expect(screen.getByLabelText('Master 昵称')).toHaveValue(''));
     await act(async () => resolve(ok(complete)));
     expect(screen.queryByText('资料已保存，并已核对最新状态。')).not.toBeInTheDocument(); expect(writes(f)).toHaveLength(1);
 });
-it('normal token refresh preserves an unsaved draft in the same session', async () => {
+it('normal session bootstrap preserves an unsaved draft in the same session', async () => {
     const { client, f } = setup(); await screen.findByLabelText('Master 昵称'); edit('Unsaved');
     await act(() => client.refresh()); expect(screen.getByLabelText('Master 昵称')).toHaveValue('Unsaved');
     expect(f.mock.calls.filter(([p]) => p === '/platform/v1/master-profile')).toHaveLength(2);

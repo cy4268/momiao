@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"github.com/cy4268/momiao/internal/platform"
-	"io"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -25,9 +23,7 @@ func (s *asyncEconomyFake) Exchange(_ context.Context, user int64, _ string, _ p
 	return platform.Transaction{UserID: user, Kind: "API_CHIPS_EXCHANGE", Status: s.status}, nil
 }
 func TestEconomyAsyncExchangeHTTPReceipt(t *testing.T) {
-	tr := walletTransport(func(r *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"data":{"id":9007199254740993,"status":1}}`))}, nil
-	})
+
 	for _, tc := range []struct {
 		status string
 		code   int
@@ -35,7 +31,7 @@ func TestEconomyAsyncExchangeHTTPReceipt(t *testing.T) {
 		r := walletReq("POST", "/platform/v1/wallet/exchange", `{"idempotency_key":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","from_asset":"RESERVE_API_CREDIT","amount":"0.0002"}`)
 		r.Header.Set("Origin", "https://wallet.example")
 		w := httptest.NewRecorder()
-		newEconomyHandler("https://wallet.example", &asyncEconomyFake{status: tc.status}, tr).ServeHTTP(w, r)
+		newEconomyHandler("https://wallet.example", &asyncEconomyFake{status: tc.status}).ServeHTTP(w, r)
 		if w.Code != tc.code || !strings.Contains(w.Body.String(), `"status":"`+tc.status+`"`) {
 			t.Fatalf("%s: %d %s", tc.status, w.Code, w.Body.String())
 		}
@@ -54,9 +50,7 @@ func (s *economyFake) ClaimDaily(_ context.Context, u int64, k string) (platform
 	return platform.Transaction{UserID: u}, nil
 }
 func TestEconomyHTTPBoundary(t *testing.T) {
-	tr := walletTransport(func(r *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"data":{"id":9007199254740993,"status":1}}`))}, nil
-	})
+
 	for _, tc := range []struct {
 		path, body, origin string
 		want               int
@@ -68,7 +62,7 @@ func TestEconomyHTTPBoundary(t *testing.T) {
 		{"/platform/v1/rewards/daily/claim", `{"idempotency_key":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","amount":"1000"}`, "https://wallet.example", 400},
 	} {
 		s := &economyFake{}
-		h := newEconomyHandler("https://wallet.example", s, tr)
+		h := newEconomyHandler("https://wallet.example", s)
 		r := walletReq("POST", tc.path, tc.body)
 		r.Header.Set("Origin", tc.origin)
 		w := httptest.NewRecorder()

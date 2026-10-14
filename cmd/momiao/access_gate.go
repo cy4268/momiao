@@ -16,7 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cy4268/momiao/internal/nativeself"
+	"github.com/cy4268/momiao/internal/identity"
+	"github.com/cy4268/momiao/internal/jsonutil"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -48,7 +49,7 @@ func loadAccessDeclaration(path, origin string) (*accessDeclaration, error) {
 		return nil, invalid
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
-	if !uniqueAnnouncementJSON(decoder, 0) {
+	if !jsonutil.Unique(decoder, 0) {
 		return nil, invalid
 	}
 	if _, err = decoder.Token(); err != io.EOF {
@@ -80,8 +81,6 @@ type accessGateStore interface {
 	ReadProfile(context.Context, int64) (platform.Profile, error)
 	ReadMigrationNotice(context.Context, int64, bool) (platform.MigrationNotice, error)
 	AcknowledgeMigrationNotice(context.Context, int64, int64) (platform.MigrationNotice, error)
-	AnnouncementAuthority(context.Context, int64) (platform.AnnouncementPrincipal, error)
-	CatalogAuthority(context.Context, int64) (platform.AnnouncementPrincipal, error)
 }
 type accessGateView struct {
 	UserID int64                     `json:"user_id,string"`
@@ -98,7 +97,9 @@ func walletTransactionBrowserRoute(route string) bool {
 // Extend these explicit route policies when a new implemented route is added;
 // never accept a URL, write body, arbitrary query or credential as an intent.
 func gateRouteDomain(route string) string {
-	if opsBrowserPermission(route)!="" { return "OPERATIONS" }
+	if opsBrowserRoute(route) {
+		return "OPERATIONS"
+	}
 	if route == "/logs?purpose=ROLEPLAY" {
 		return "API"
 	}
@@ -136,7 +137,7 @@ func gateRouteDomain(route string) string {
 		return "ACCOUNT"
 	case "/models", "/api/access", "/keys", "/logs":
 		return "API"
-	case "/wallet", "/wallet/activate", "/rewards":
+	case "/wallet", "/rewards":
 		return "ASSETS"
 	case "/ops/announcements", "/ops/models", "/admin/channels":
 		return "OPERATIONS"
@@ -145,7 +146,7 @@ func gateRouteDomain(route string) string {
 	}
 	return ""
 }
-func newAccessGateHandler(origin string, store accessGateStore, declaration *accessDeclaration, transport http.RoundTripper, pokerWired bool) http.Handler {
+func newAccessGateHandler(origin string, store accessGateStore, declaration *accessDeclaration, pokerWired bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gate := r.URL.Path == "/platform/v1/access-gate"
 		ack := r.URL.Path == "/platform/v1/migration-notice/acknowledge"
@@ -174,29 +175,25 @@ func newAccessGateHandler(origin string, store accessGateStore, declaration *acc
 			walletError(w, 400, "INVALID_REQUEST")
 			return
 		}
-		if !nativeself.SessionCredential(r) {
+		account, authenticated := identity.UserFromContext(r.Context())
+		if !authenticated {
 			walletError(w, 401, "AUTH_UNAUTHORIZED")
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
-		account, status := readNativeSelf(r, transport)
-		if status != 0 {
-			walletError(w, status, "AUTH_UNAVAILABLE")
-			return
-		}
 		view := accessGateView{UserID: account.ID, Route: route}
 		send := func(stage string) { view.Stage = stage; walletSuccess(w, view) }
 		if account.Username == "" {
 			walletError(w, 503, "ACCOUNT_STATUS_UNVERIFIED")
 			return
 		}
-		if *account.Status != 1 && *account.Status != 2 {
+		if account.Status != 1 && account.Status != 2 {
 			walletError(w, 503, "ACCOUNT_STATUS_UNVERIFIED")
 			return
 		}
-		if *account.Status != 1 {
+		if account.Status != 1 {
 			if gate {
 				send("ACCOUNT_RESTRICTED")
 			} else {
@@ -272,44 +269,9 @@ func newAccessGateHandler(origin string, store accessGateStore, declaration *acc
 			send("MIGRATION_UNVERIFIED")
 			return
 		}
-		if permission:=opsBrowserPermission(route);permission!=""&&route!="/ops/announcements"&&route!="/ops/models" {
-			opsStore, ok := store.(interface { RequireOpsPermission(context.Context,int64,int64,string)(platform.OpsPrincipal,error) })
-			if !ok { send("ROLE_UNVERIFIED"); return }
-			_, err = opsStore.RequireOpsPermission(ctx,account.ID,0,permission)
-			if errors.Is(err,platform.ErrOpsForbidden) { send("ROLE_DENIED"); return }
-			if err!=nil { send("ROLE_UNVERIFIED"); return }
-		}
-		if route == "/ops/announcements" {
-			_, err = store.AnnouncementAuthority(ctx, account.ID)
-			if errors.Is(err, platform.ErrAnnouncementForbidden) {
-				send("ROLE_DENIED")
-				return
-			}
-			if err != nil {
-				send("ROLE_UNVERIFIED")
-				return
-			}
-		}
-		if route == "/ops/models" {
-			_, err = store.CatalogAuthority(ctx, account.ID)
-			if errors.Is(err, platform.ErrCatalogForbidden) {
-				send("ROLE_DENIED")
-				return
-			}
-			if err != nil {
-				send("ROLE_UNVERIFIED")
-				return
-			}
-		}
-		if route == "/admin/channels" {
-			if account.Role == nil {
-				send("ROLE_UNVERIFIED")
-				return
-			}
-			if *account.Role < 10 {
-				send("ROLE_DENIED")
-				return
-			}
+		if (opsBrowserRoute(route) || route == "/admin/channels") && account.Role < 10 {
+			send("ROLE_DENIED")
+			return
 		}
 		if pokerBrowserRoute(route) && !pokerWired {
 			send("RESOURCE_UNAVAILABLE")

@@ -440,7 +440,7 @@ func TestBotRoulettePrivateMountOnly(t *testing.T) {
 		for _, route := range []string{"lobby", "public", "state", "prepare", "commit", "lookup"} {
 			cfg := config{WebDir: web, BotGames: botGamesConfig{RouletteEnabled: true}, roulette: &roulette.Service{}}
 			w := httptest.NewRecorder()
-			newPortalHandler(cfg, nil).ServeHTTP(w, botRouletteRequest(route, botRouletteTestSubject, `{}`))
+			newPortalHandler(cfg).ServeHTTP(w, botRouletteRequest(route, botRouletteTestSubject, `{}`))
 			if w.Code != 404 || w.Header().Get("Location") != "" {
 				t.Fatalf("private route exposed on public router: %s %d", route, w.Code)
 			}

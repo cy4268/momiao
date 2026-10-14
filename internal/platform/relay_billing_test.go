@@ -1,0 +1,266 @@
+package platform
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"strings"
+	"testing"
+	"time"
+)
+
+// One real-dev transaction exercises pricing, wallet/log/key/attribution settlement
+// and its readers. Every mutation (including leaderboard creation) is rolled back.
+func TestLocalRelayBilling(t *testing.T) {
+	path := os.Getenv("MOMIAO_SESSION_DSN_FILE")
+	if path == "" {
+		t.Skip("requires the existing dev database")
+	}
+	dsn, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("read dev DSN")
+	}
+	s, err := Open(t.Context(), strings.TrimSpace(string(dsn)))
+	if err != nil {
+		t.Fatal("open dev database")
+	}
+	defer s.Close()
+	ctx := t.Context()
+	price := func(model string) json.RawMessage {
+		t.Helper()
+		value, err := readRelayPrice(ctx, s.pool, model, "default")
+		if err != nil {
+			t.Fatal("read current price", err)
+		}
+		return value
+	}
+	usage := RelayUsage{Prompt: 1000, Completion: 100, CacheRead: 200, CacheWrite: 100, CacheWrite1h: 40}
+	cost, err := s.RelayCost(ctx, price("gpt-5.6-sol"), usage, nil)
+	if err != nil || cost != 2750 {
+		t.Fatal("final token/cache prices", cost, err)
+	}
+	image, err := s.RelayCost(ctx, price("grok-imagine-image-2.0"), RelayUsage{}, nil)
+	if err != nil || image != 20000 {
+		t.Fatal("per-request price", image, err)
+	}
+	video, err := s.RelayCost(ctx, price("grok-imagine-video"), RelayUsage{}, nil)
+	if err != nil || video != 280000 {
+		t.Fatal("duration price/default", video, err)
+	}
+	zero, err := s.RelayCost(ctx, price("gpt-5.6-sol"), RelayUsage{}, nil)
+	if err != nil || zero != 0 {
+		t.Fatal("missing usage estimated tokens", zero, err)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	var input RelaySettlement
+	var before, usedBefore int64
+	err = tx.QueryRow(ctx, `SELECT k.user_id,k.id,k.name,k.purpose,u.group_name,b.balance_units,k.used_quota
+ FROM relay.api_keys k JOIN identity.users u ON u.id=k.user_id JOIN identity.master_profiles m ON m.newapi_user_id=u.id
+ JOIN economy.wallet_balances b ON b.newapi_user_id=u.id AND b.asset_type='RESERVE_API_CREDIT'
+ WHERE k.status=1 AND k.purpose='ROLEPLAY' AND u.status=1 AND u.deleted_at IS NULL AND u.group_name='default' AND b.balance_units>10000 ORDER BY k.id LIMIT 1`).Scan(&input.UserID, &input.KeyID, &input.KeyName, &input.Purpose, &input.Group, &before, &usedBefore)
+	if err != nil {
+		t.Fatal("existing dev RP account/key", err)
+	}
+	var key string
+	if err = tx.QueryRow(ctx, `SELECT key FROM relay.api_keys WHERE id=$1`, input.KeyID).Scan(&key); err != nil {
+		t.Fatal("read existing key")
+	}
+	route, err := prepareRelay(ctx, tx, key, "gpt-5.6-sol", nil)
+	if err != nil || route.Identity.UserID != input.UserID || route.Identity.KeyID != input.KeyID || route.Channel.ID != 20 {
+		t.Fatal("local relay admission/routing", err)
+	}
+	// An accepted request keeps its price even when Ops renames/reprices its group.
+	priceEdits, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = priceEdits.Exec(ctx, `UPDATE relay.groups SET name='relay-inflight-review',ratio=ratio*3 WHERE name='default';
+ UPDATE relay.prices SET input=input*2,output=output*2,cache_read=cache_read*2,cache_write=cache_write*2,cache_write_1h=cache_write_1h*2 WHERE model='gpt-5.6-sol'`); err != nil {
+		t.Fatal(err)
+	}
+	var inflight int64
+	if err = priceEdits.QueryRow(ctx, relayCostSQL, route.Price, usage.Prompt, usage.Completion, usage.CacheRead, usage.CacheWrite, usage.CacheWrite1h, nil).Scan(&inflight); err != nil || inflight != cost {
+		t.Fatal("accepted request lost its original price after group rename", inflight, err)
+	}
+	nextPrice, err := readRelayPrice(ctx, priceEdits, "gpt-5.6-sol", "relay-inflight-review")
+	if err != nil {
+		t.Fatal("new request price", err)
+	}
+	var nextCost int64
+	if err = priceEdits.QueryRow(ctx, relayCostSQL, nextPrice, usage.Prompt, usage.Completion, usage.CacheRead, usage.CacheWrite, usage.CacheWrite1h, nil).Scan(&nextCost); err != nil || nextCost != cost*6 {
+		t.Fatal("new request missed the new price/ratio", nextCost, err)
+	}
+	if err = priceEdits.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = prepareRelay(ctx, tx, key, "gpt-5.6-sol", []int64{20}); !errors.Is(err, ErrRelayChannel) {
+		t.Fatal("retry reused excluded channel", err)
+	}
+	if _, err = prepareRelay(ctx, tx, key, "gproxy/claude-opus-4-6", nil); !errors.Is(err, ErrRelayChannel) {
+		t.Fatal("channel escaped account group", err)
+	}
+	if _, err = prepareRelay(ctx, tx, key, "workbuddy/glm-5.3", nil); !errors.Is(err, ErrRelayPrice) {
+		t.Fatal("unpriced alias admitted", err)
+	}
+	mapped, err := prepareRelay(ctx, tx, key, "NVIDIA/kimi-k3", nil)
+	if err != nil || mapped.Channel.ID != 8 || mapped.Channel.UpstreamModel != "moonshotai/kimi-k3" || strings.Contains(mapped.Channel.Key, "\n") {
+		t.Fatal("official mapping/multi-key selection", err)
+	}
+	// Exercise live edits on imported rows, then roll back this savepoint.
+	edits, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = edits.Exec(ctx, `UPDATE relay.channels SET priority=1,models=array_append(models,'gpt-5.6-sol') WHERE id=8`); err != nil {
+		t.Fatal(err)
+	}
+	route, err = prepareRelay(ctx, edits, key, "gpt-5.6-sol", nil)
+	if err != nil || route.Channel.ID != 8 {
+		t.Fatal("highest priority selection", err)
+	}
+	if _, err = edits.Exec(ctx, `UPDATE relay.channels SET priority=0,weight=100 WHERE id=8`); err != nil {
+		t.Fatal(err)
+	}
+	route, err = prepareRelay(ctx, edits, key, "gpt-5.6-sol", nil)
+	if err != nil || route.Channel.ID != 8 {
+		t.Fatal("same-priority positive weight selection", err)
+	}
+	if _, err = edits.Exec(ctx, `UPDATE relay.api_keys SET models=ARRAY['NVIDIA/kimi-k3'] WHERE id=$1`, input.KeyID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = prepareRelay(ctx, edits, key, "gpt-5.6-sol", nil); !errors.Is(err, ErrRelayModel) {
+		t.Fatal("key model restriction", err)
+	}
+	if _, err = edits.Exec(ctx, `UPDATE relay.api_keys SET status=2 WHERE id=$1`, input.KeyID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = prepareRelay(ctx, edits, key, "NVIDIA/kimi-k3", nil); !errors.Is(err, ErrRelayKey) {
+		t.Fatal("disabled key admitted", err)
+	}
+	if err = edits.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	input.RequestID, _ = uuidV7()
+	input.Model = "gpt-5.6-sol"
+	input.RequestKind = "OPENAI_CHAT"
+	input.Usage = usage
+	input.CostUnits = cost
+	input.RequestedAt = time.Now().UTC()
+	input.CompletedAt = input.RequestedAt.Add(time.Second)
+	input.DurationMS = 1000
+	input.FinalStatus = "SUCCESS"
+	input.StatusCode = 200
+	input.ProviderAttempts = 1
+	attempt := input
+	attempt.FinalStatus, attempt.Error, attempt.StatusCode = "ERROR", "upstream_http_503", 503
+	attempt.CostUnits, attempt.Usage = 0, RelayUsage{}
+	var attemptID int64
+	if err = insertRelayLog(ctx, tx, attempt).Scan(&attemptID); err != nil {
+		t.Fatal("failed attempt log", err)
+	}
+	input.ProviderAttempts = 2
+	input.Error = "usage_missing" // A success warning must not become a failure attribution.
+	paid, err := settleRelay(ctx, tx, input)
+	if err != nil || paid.CostUnits != cost || paid.ChargedUnits != cost {
+		t.Fatal("Reserve settlement", paid, err)
+	}
+	repeated, err := settleRelay(ctx, tx, input)
+	if err != nil || repeated != paid {
+		t.Fatal("request ID replay", repeated, err)
+	}
+	var attemptRows, requestCount int64
+	var category, warning string
+	err = tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM relay.logs WHERE request_id=$1),
+ (SELECT count(DISTINCT coalesce(request_id,'native:'||id::text)) FROM relay.logs WHERE request_id=$1),
+ a.error_category,l.error FROM economy.request_attributions a JOIN relay.logs l ON l.id=a.source_event_id
+ WHERE a.source_instance_id=$2 AND a.logical_request_id=$1`, input.RequestID, LocalRelaySourceID).Scan(&attemptRows, &requestCount, &category, &warning)
+	if err != nil || attemptRows != 2 || requestCount != 1 || category != "" || warning != "usage_missing" {
+		t.Fatal("retry count or warning attribution", err)
+	}
+	var balance, used, entries, logged, attributed int64
+	err = tx.QueryRow(ctx, `SELECT b.balance_units,k.used_quota,
+ (SELECT count(*) FROM economy.wallet_ledger WHERE biz_type='API_USAGE' AND biz_id=$3),
+ (SELECT cost_units FROM relay.logs WHERE id=$4),
+ (SELECT charged_raw_quota FROM economy.request_attributions WHERE source_instance_id=$5 AND logical_request_id=$3)
+ FROM economy.wallet_balances b CROSS JOIN relay.api_keys k WHERE b.newapi_user_id=$1 AND b.asset_type='RESERVE_API_CREDIT' AND k.id=$2`, input.UserID, input.KeyID, input.RequestID, paid.LogID, LocalRelaySourceID).Scan(&balance, &used, &entries, &logged, &attributed)
+	if err != nil || balance != before-cost || used != usedBefore+cost || entries != 1 || logged != cost || attributed != cost {
+		t.Fatal("atomic debit/key/log/attribution", err)
+	}
+	// A late attribution constraint failure must undo the debit and key/log writes.
+	savepoint, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := input
+	bad.RequestID, _ = uuidV7()
+	bad.FinalStatus = "INVALID"
+	if _, err = settleRelay(ctx, savepoint, bad); err == nil {
+		t.Fatal("invalid final status committed")
+	}
+	if err = savepoint.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var afterFailure int64
+	if err = tx.QueryRow(ctx, `SELECT balance_units FROM economy.wallet_balances WHERE newapi_user_id=$1 AND asset_type='RESERVE_API_CREDIT'`, input.UserID).Scan(&afterFailure); err != nil || afterFailure != balance {
+		t.Fatal("partial settlement remained", err)
+	}
+	drained := input
+	drained.RequestID, _ = uuidV7()
+	drained.CostUnits = balance + 7
+	capped, err := settleRelay(ctx, tx, drained)
+	if err != nil || capped.ChargedUnits != balance || capped.CostUnits != balance+7 {
+		t.Fatal("cap debit at available Reserve", capped, err)
+	}
+	failed := input
+	failed.RequestID, _ = uuidV7()
+	failed.CostUnits = 0
+	failed.Usage = RelayUsage{}
+	failed.FinalStatus = "ERROR"
+	failed.Error = "UPSTREAM_ERROR"
+	failed.StatusCode = 502
+	failed.ProviderAttempts = 2
+	failure, err := settleRelay(ctx, tx, failed)
+	if err != nil || failure.ChargedUnits != 0 {
+		t.Fatal("zero-cost error at empty Reserve", failure, err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT balance_units FROM economy.wallet_balances WHERE newapi_user_id=$1 AND asset_type='RESERVE_API_CREDIT'`, input.UserID).Scan(&balance); err != nil || balance != 0 {
+		t.Fatal("Reserve became negative", err)
+	}
+	if _, err = prepareRelay(ctx, tx, key, "gpt-5.6-sol", nil); !errors.Is(err, ErrInsufficientBalance) {
+		t.Fatal("empty Reserve admitted new relay", err)
+	}
+	page, err := readRPUsage(ctx, tx, input.UserID, RPUsageFilter{ActivationTime: input.RequestedAt, ModelID: input.Model, Page: 1, PageSize: 10})
+	if err != nil || page.Total != 3 {
+		t.Fatal("RP reader missed local source", page.Total, err)
+	}
+	var snapshot string
+	err = tx.QueryRow(ctx, `INSERT INTO rankings.snapshots(domain,period,period_start,activation_at,source_checked_at,status)
+ VALUES('RP','ALL_TIME',$1,$1,$1,'READY') RETURNING snapshot_id::text`, input.RequestedAt).Scan(&snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `SELECT rankings.build_rp_entries($1,NULL::uuid)`, snapshot); err != nil {
+		t.Fatal("rank local attribution", err)
+	}
+	var calls, errorsCount, credits int64
+	err = tx.QueryRow(ctx, `SELECT calls::bigint,errors::bigint,credits_units::bigint FROM rankings.entries WHERE snapshot_id=$1 AND metric='RP_CREDITS' AND model_scope='ALL' AND newapi_user_id=$2`, snapshot, input.UserID).Scan(&calls, &errorsCount, &credits)
+	if err != nil || calls != 2 || errorsCount != 1 || credits != before {
+		t.Fatal("rankings omitted local costs", calls, errorsCount, credits, err)
+	}
+	if err = tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	original, err := s.ReadWallet(ctx, input.UserID, ReserveAPICredit)
+	if err != nil || original.BalanceUnits != before {
+		t.Fatal("dev transaction rollback", err)
+	}
+	var remaining int
+	if err = s.pool.QueryRow(ctx, `SELECT count(*) FROM economy.request_attributions WHERE source_instance_id=$1 AND logical_request_id=ANY($2::text[])`, LocalRelaySourceID, []string{input.RequestID, bad.RequestID, drained.RequestID, failed.RequestID}).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatal("test left local attributions", remaining, err)
+	}
+}

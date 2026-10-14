@@ -1,0 +1,9 @@
+-- Apply after migration 0050 as the table owner.
+\set ON_ERROR_STOP on
+BEGIN;
+GRANT USAGE ON SCHEMA ops TO :"platform_runtime_role";
+GRANT SELECT,INSERT,UPDATE ON ops.maintenance_windows TO :"platform_runtime_role";
+GRANT SELECT,INSERT ON ops.maintenance_window_scopes TO :"platform_runtime_role";
+GRANT SELECT,UPDATE ON ops.maintenance_scope_guards TO :"platform_runtime_role";
+GRANT SELECT,INSERT ON ops.audit_log TO :"platform_runtime_role";
+COMMIT;

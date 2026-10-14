@@ -24,14 +24,26 @@ func NewReader(pool *pgxpool.Pool) *Reader { return &Reader{pool: pool} }
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 var slug = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-func validSource(source Source) bool { return source == Round || source == Session || source == Hand || source == RouletteRound }
+func validSource(source Source) bool {
+	return source == Round || source == Session || source == Hand || source == RouletteRound
+}
 
 func (r *Reader) List(ctx context.Context, user int64, q Query) (Page, error) {
+	return r.list(ctx, user, q, false)
+}
+
+// ListOps requires the platform-only SQL capability; zero means all subjects.
+// The HTTP caller authorizes and audits the operator before invoking it.
+func (r *Reader) ListOps(ctx context.Context, subject int64, q Query) (Page, error) {
+	return r.list(ctx, subject, q, true)
+}
+
+func (r *Reader) list(ctx context.Context, user int64, q Query, ops bool) (Page, error) {
 	page := Page{Items: []Summary{}, GameOptions: []GameOption{}}
 	if q.Limit == 0 {
 		q.Limit = 50
 	}
-	if user <= 0 || q.Limit < 1 || q.Limit > 100 || (q.RecordType != "" && !validSource(q.RecordType)) ||
+	if user < 0 || (!ops && user == 0) || q.Limit < 1 || q.Limit > 100 || (q.RecordType != "" && !validSource(q.RecordType)) ||
 		(q.Mode != "" && q.Mode != "DIRECT_PLAY" && q.Mode != "POKER" && q.Mode != "ROULETTE") ||
 		(q.GameSlug != "" && (len(q.GameSlug) > 128 || !slug.MatchString(q.GameSlug))) ||
 		(q.ID != "" && !uuid.MatchString(q.ID)) || (q.ParentSourceID != "" && !uuid.MatchString(q.ParentSourceID)) ||
@@ -83,10 +95,13 @@ func (r *Reader) List(ctx context.Context, user int64, q Query) (Page, error) {
 		d := json.NewDecoder(bytes.NewReader(data))
 		d.DisallowUnknownFields()
 		if d.Decode(&c) != nil || d.Decode(new(any)) != io.EOF || c.Version != 1 || c.UserID != user || c.Filter != fingerprint ||
-			!validSource(c.Type) || !uuid.MatchString(c.ID) || c.Time.IsZero() || c.Time.Location() != time.UTC || c.Time.Nanosecond()%1000 != 0 {
+			(user == 0 && c.Participant <= 0) || !validSource(c.Type) || !uuid.MatchString(c.ID) || c.Time.IsZero() || c.Time.Location() != time.UTC || c.Time.Nanosecond()%1000 != 0 {
 			return page, ErrQuery
 		}
 		request["before_time"], request["before_type"], request["before_id"] = c.Time.Format(time.RFC3339Nano), c.Type, c.ID
+		if user == 0 {
+			request["before_user"] = c.Participant
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -99,14 +114,18 @@ func (r *Reader) List(ctx context.Context, user int64, q Query) (Page, error) {
 		return page, err
 	}
 	var raw []byte
-	if err = tx.QueryRow(ctx, "SELECT games.history_list($1,$2::jsonb)", user, request).Scan(&raw); err != nil {
+	sql := "SELECT games.history_list($1,$2::jsonb)"
+	if ops {
+		sql = "SELECT games.ops_history_list($1,$2::jsonb)"
+	}
+	if err = tx.QueryRow(ctx, sql, user, request).Scan(&raw); err != nil {
 		return page, err
 	}
 	if err = json.Unmarshal(raw, &page); err != nil {
 		return page, err
 	}
 	for _, item := range page.Items {
-		if item.UserID != strconv.FormatInt(user, 10) {
+		if user > 0 && item.UserID != strconv.FormatInt(user, 10) {
 			return Page{}, ErrQuery
 		}
 	}
@@ -115,7 +134,14 @@ func (r *Reader) List(ctx context.Context, user int64, q Query) (Page, error) {
 			return Page{}, ErrQuery
 		}
 		last := page.Items[len(page.Items)-1]
-		b, e := json.Marshal(cursor{1, user, fingerprint, last.OccurredAt.UTC(), last.RecordType, last.SourceID})
+		c := cursor{Version: 1, UserID: user, Filter: fingerprint, Time: last.OccurredAt.UTC(), Type: last.RecordType, ID: last.SourceID}
+		if user == 0 {
+			c.Participant, err = strconv.ParseInt(last.UserID, 10, 64)
+			if err != nil || c.Participant <= 0 {
+				return Page{}, ErrQuery
+			}
+		}
+		b, e := json.Marshal(c)
 		if e != nil {
 			return Page{}, e
 		}

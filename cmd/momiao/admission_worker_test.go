@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/cy4268/momiao/internal/platform"
-	"net/http"
-	"strings"
 	"testing"
 )
 
@@ -13,6 +11,13 @@ type registrationWorkerFake struct {
 	cursor                        int64
 	ingests, failures, recoveries int
 	failCommit                    bool
+	readErr                       error
+	reads                         []int64
+}
+
+func (s *registrationWorkerFake) ReadRegistrationPage(_ context.Context, after int64, _ int) (platform.RegistrationPage, error) {
+	s.reads = append(s.reads, after)
+	return platform.RegistrationPage{NextCursor: after + 1}, s.readErr
 }
 
 func (s *registrationWorkerFake) RegistrationCursor(context.Context) (int64, error) {
@@ -35,26 +40,18 @@ func (s *registrationWorkerFake) RecoverRegistrationGrant(context.Context) (bool
 	return false, nil
 }
 func TestAdmissionWorkerSourceFailureStillRecoversJobs(t *testing.T) {
-	s := &registrationWorkerFake{cursor: 7}
-	registrationWorkerCycle(context.Background(), s, admissionTransport(func(*http.Request) (*http.Response, error) {
-		return readerResponse(503, "private upstream detail"), nil
-	}), strings.Repeat("k", 32))
+	s := &registrationWorkerFake{cursor: 7, readErr: errors.New("local receipt read failed")}
+	registrationWorkerCycle(context.Background(), s)
 	if s.cursor != 7 || s.ingests != 0 || s.failures != 1 || s.recoveries != 1 {
 		t.Fatal("source failure lost cursor or stopped existing recovery")
 	}
 }
 func TestAdmissionWorkerFailedCommitReusesOriginalCursor(t *testing.T) {
 	s := &registrationWorkerFake{failCommit: true}
-	f := admissionTransport(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Query().Get("after") != "0" {
-			t.Fatal("cursor advanced before durable commit")
-		}
-		return readerResponse(200, `{"success":true,"data":{"receipts":[`+syntheticReceipt+`],"next_cursor":1}}`), nil
-	})
-	registrationWorkerCycle(context.Background(), s, f, strings.Repeat("k", 32))
+	registrationWorkerCycle(context.Background(), s)
 	s.failCommit = false
-	registrationWorkerCycle(context.Background(), s, f, strings.Repeat("k", 32))
-	if s.cursor != 1 || s.ingests != 2 || s.recoveries != 2 {
+	registrationWorkerCycle(context.Background(), s)
+	if s.cursor != 1 || s.ingests != 2 || s.recoveries != 2 || len(s.reads) != 2 || s.reads[0] != 0 || s.reads[1] != 0 {
 		t.Fatal("original page not recovered")
 	}
 }

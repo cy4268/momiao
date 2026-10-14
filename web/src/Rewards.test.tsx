@@ -7,7 +7,7 @@ import { bundle, daily, failed, fixtureClient, ok, profile, receipt, user, walle
 afterEach(() => sessionStorage.clear());
 function ProviderReturn() { const navigate = useNavigate(); return <button onClick={() => navigate('/welcome')}>test provider return</button>; }
 const nav = (name: string) => within(screen.getByRole('navigation', { name: '页面导航' })).getByRole('link', { name });
-it('claims fixed Shanghai-day rewards only on click, refreshes confirmed status, and links activation', async () => {
+it('claims fixed Shanghai-day rewards only on click, refreshes confirmed status, and links the local wallet', async () => {
     let claimed = false;
     const { client, fetcher } = fixtureClient((p, init) => {
         if (p.endsWith('/daily/claim') && init?.method === 'POST') { claimed = true; return ok(receipt); }
@@ -29,7 +29,7 @@ it('claims fixed Shanghai-day rewards only on click, refreshes confirmed status,
     expect(await screen.findByRole('button', { name: '今日已领取' })).toBeDisabled();
     expect(fetcher.mock.calls.filter(c => c[0].endsWith('/claim'))).toHaveLength(1);
     expect(Object.keys(JSON.parse(String(fetcher.mock.calls.find(c => c[0].endsWith('/claim'))![1]?.body)))).toEqual(['idempotency_key']);
-    expect(screen.getByRole('main').querySelector('a[href="/wallet/activate"]')).not.toBeNull();
+    expect(screen.getByRole('main').querySelector('a[href="/wallet"]')).not.toBeNull();
     fireEvent.click(nav('我的钱包'));
     expect(await screen.findByRole('button', { name: '今日已领取' })).toBeDisabled();
 });
@@ -109,7 +109,7 @@ it('never consumes a previous account receipt after switching sessions', async (
     const { client, fetcher } = fixtureClient(p => {
         if (p.endsWith('/daily/claim')) return new Promise<Response>(r => { resolve = r; });
         if (account === 2) {
-            if (p === '/api/user/login') return ok({ ...bundle, user: { ...user, id: 2 }, session: { sid: 'second' } });
+            if (p === '/api/v1/auth/password/login') return ok({ ...bundle, csrf_token: 'second-csrf' });
             if (p === '/api/user/self') return ok({ ...user, id: 2 });
             if (p === '/platform/v1/master-profile') return ok({ ...profile, user_id: '2' });
             if (p === '/platform/v1/wallet') return ok({ ...wallet, user_id: '2' });
@@ -120,7 +120,7 @@ it('never consumes a previous account receipt after switching sessions', async (
     fireEvent.click(await screen.findByRole('button', { name: '领取今日 500 额度' }));
     await waitFor(() => expect(resolve).toBeTypeOf('function'));
     await act(async () => { await client.logout(); });
-    expect(await screen.findByRole('link', { name: '前往 New API 登录' })).toHaveAttribute('href', '/sign-in');
+    expect(await screen.findByRole('button', { name: '登录控制台' })).toBeVisible();
     account = 2;
     await act(async () => { await client.login('second', 'fixture'); });
     fireEvent.click(screen.getByRole('button', { name: 'test provider return' }));

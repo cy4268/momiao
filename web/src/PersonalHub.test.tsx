@@ -7,10 +7,9 @@ import { bundle, failed, fixtureClient, ok, profile, user } from './m1-test-fixt
 function ProviderReturn() { const navigate = useNavigate(); return <button onClick={() => navigate('/welcome')}>test provider return</button>; }
 
 it('shares the Alter chamber while preserving live dashboard data, retry and personal account actions', async () => {
-    const native = { ...user, role: 10, quota: 7654321, used_quota: 123456, request_count: 42 };
+    const native = { ...user, role: 10, reserve_amount: '7654321', used_quota: 123456, request_count: 42 };
     let failLogs = false;
     const { client, fetcher } = fixtureClient(p => {
-        if (p.includes('/auth/refresh')) return ok({ ...bundle, user: native });
         if (p === '/api/user/self') return ok(native);
         if (p.startsWith('/api/token/?')) return ok({ items: [], total: 3, page: 1, page_size: 5 });
         if (p.startsWith('/api/log/self')) return failLogs ? failed() : ok({ items: [{ id: 1, type: 2, created_at: 1727000000, model_name: 'account-model', token_name: 'account-key', prompt_tokens: 321, completion_tokens: 123, quota: 444 }], total: 1, page: 1, page_size: 5 });
@@ -23,7 +22,7 @@ it('shares the Alter chamber while preserving live dashboard data, retry and per
     expect(background).toHaveAttribute('alt', '');
     expect(background.getAttribute('src')).toContain('backgrounds/command-personal/');
     const src = background.getAttribute('src');
-    expect(within(screen.getByRole('region', { name: '账户使用概览' })).getByText('7,654,321')).toBeVisible();
+    expect(within(screen.getByRole('region', { name: '账户使用概览' })).getByText('7654321')).toBeVisible();
     expect(screen.getByText('account-key')).toBeVisible();
     // Internal identity (login name, short account number, "native" wording) stays off the dashboard.
     expect(main).not.toHaveTextContent('fixture-account');
@@ -44,7 +43,7 @@ it('shares the Alter chamber while preserving live dashboard data, retry and per
     failLogs = false;
     fireEvent.click(screen.getByRole('button', { name: '重新加载' }));
     expect(await screen.findByText('account-model')).toBeVisible();
-    expect(fetcher.mock.calls.some(([path, init]) => init?.method && init.method !== 'GET' && !path.includes('/auth/refresh'))).toBe(false);
+    expect(fetcher.mock.calls.some(([, init]) => init?.method && init.method !== 'GET')).toBe(false);
 });
 
 it('shows verified Master identity separately from the native account and links the existing journey', async () => {
@@ -54,7 +53,7 @@ it('shows verified Master identity separately from the native account and links 
     expect(await within(hub).findByText(profile.display_name)).toBeVisible();
     expect(screen.queryByText(/fixture-account/)).not.toBeInTheDocument();
     const main = screen.getByRole('main');
-    for (const path of ['/master-profile', '/rewards', '/wallet', '/wallet/activate', '/keys', '/logs']) {
+    for (const path of ['/master-profile', '/rewards', '/wallet', '/keys', '/logs']) {
         expect(main.querySelector('a[href="' + path + '"]')).not.toBeNull();
     }
     expect(main.querySelector('a[href="/admin/channels"]')).toBeNull();
@@ -100,13 +99,13 @@ it('discards a late identity from the previous account after logout and a new lo
     let account = 1;
     const { client } = fixtureClient(p => {
         if (p === '/platform/v1/master-profile') return account === 1 ? new Promise<Response>(r => { resolve = r; }) : ok({ ...profile, user_id: '2', display_name: '另一个观测员' });
-        if (p === '/api/user/login' && account === 2) return ok({ ...bundle, user: { ...user, id: 2 }, session: { sid: 'second-session' } });
+        if (p === '/api/v1/auth/password/login' && account === 2) return ok({ ...bundle, csrf_token: 'second-csrf' });
         if (p === '/api/user/self' && account === 2) return ok({ ...user, id: 2 });
     });
     render(<MemoryRouter initialEntries={['/me']}><ProviderReturn /><App client={client} /></MemoryRouter>);
     await waitFor(() => expect(resolve).toBeTypeOf('function'));
     await act(async () => { await client.logout(); });
-    expect(await screen.findByRole('link', { name: '前往 New API 登录' })).toHaveAttribute('href', '/sign-in');
+    expect(await screen.findByRole('button', { name: '登录控制台' })).toBeVisible();
     account = 2;
     await act(async () => { await client.login('fixture-second', 'fixture'); });
     fireEvent.click(screen.getByRole('button', { name: 'test provider return' }));

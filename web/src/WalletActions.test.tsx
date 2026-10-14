@@ -20,15 +20,22 @@ it('retains the original exchange through pending and review receipts until term
  status='CONFIRMED';fireEvent.click(screen.getByRole('button',{name:'核对交易结果'}));
  await waitFor(()=>expect(sessionStorage.getItem('momiao.wallet.pending.1')).toBeNull());expect(onChange).toHaveBeenCalled();
 });
-function setup(action:(path:string,method?:string,body?:unknown)=>unknown,loadDaily:()=>unknown=()=>daily,loadNative:()=>unknown=()=>({user_id:'1',raw_quota:'0',amount:'0',enabled:true})){const request=vi.fn(async(path:string,method?:string,body?:unknown)=>{if(method==='POST'||path.includes('by-key'))return action(path,method,body);return path.endsWith('/daily')?loadDaily():path.endsWith('/native-quota')?loadNative():{items:[],has_more:false,next_after_id:null}});const c={request,getSessionGeneration:()=>1,getSnapshot:()=>({user:{id:1},loggingOut:false})} as unknown as ApiClient;const onChange=vi.fn();const mounted=render(<WalletActions client={c} userID="1" wallet={wallet} onChange={onChange}/>);return {request,onChange,...mounted}}
+function setup(action:(path:string,method?:string,body?:unknown)=>unknown,loadDaily:()=>unknown=()=>daily){const request=vi.fn(async(path:string,method?:string,body?:unknown)=>{if(method==='POST'||path.includes('by-key'))return action(path,method,body);return path.endsWith('/daily')?loadDaily():{items:[],has_more:false,next_after_id:null}});const c={request,getSessionGeneration:()=>1,getSnapshot:()=>({user:{id:1},loggingOut:false})} as unknown as ApiClient;const onChange=vi.fn();const mounted=render(<WalletActions client={c} userID="1" wallet={wallet} onChange={onChange}/>);return {request,onChange,...mounted}}
 it('never auto-claims and explicit daily claim sends only an idempotency key',async()=>{const {request,onChange}=setup(()=>receipt);const button=await screen.findByRole('button',{name:'领取今日 500 额度'});expect(request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(0);fireEvent.click(button);await waitFor(()=>expect(onChange).toHaveBeenCalledOnce());expect(Object.keys(request.mock.calls.find(c=>c[1]==='POST')![2] as object)).toEqual(['idempotency_key']);expect(sessionStorage.length).toBe(0)});
-it('offers Reserve plus Active for API exchange and retains a successful pending response',async()=>{
- const accepted={...receipt,kind:'API_CHIPS_EXCHANGE',status:'PENDING',from_asset:'RESERVE_API_CREDIT',to_asset:'AVAILABLE_CHIPS',amount_units:'300000000',amount:'600',reserve_debit_units:'250000000',active_debit_units:'50000000',chips_credit_units:'300000000',confirmed_at:undefined};
- const {request,onChange}=setup(()=>accepted,()=>daily,()=>({user_id:'1',raw_quota:'80000000',amount:'160',account_enabled:true,result:'APPLIED',observed_at:'2026-09-05T12:00:00Z'}));
- await screen.findByText(/可用 660/);fireEvent.change(screen.getByLabelText('兑换数量'),{target:{value:'600'}});
- expect(screen.getByRole('button',{name:'确认兑换'})).toBeEnabled();fireEvent.click(screen.getByRole('button',{name:'确认兑换'}));
- await screen.findByText(/固定来源/);expect(sessionStorage.getItem('momiao.wallet.pending.1')).not.toBeNull();expect(onChange).not.toHaveBeenCalled();
+it('exchanges only local Reserve and does not query Native quota',async()=>{
+ const accepted={...receipt,kind:'LOCAL_EXCHANGE',from_asset:'RESERVE_API_CREDIT',to_asset:'AVAILABLE_CHIPS',amount_units:'50000000',amount:'100'};
+ const {request,onChange}=setup(()=>accepted);
+ await screen.findByText(/可用 500/);
+ fireEvent.change(screen.getByLabelText('兑换数量'),{target:{value:'600'}});
+ expect(screen.getByRole('button',{name:'确认兑换'})).toBeDisabled();
+ fireEvent.change(screen.getByLabelText('兑换数量'),{target:{value:'100'}});
+ fireEvent.click(screen.getByRole('button',{name:'确认兑换'}));
+ await waitFor(()=>expect(onChange).toHaveBeenCalledOnce());
  expect(request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(1);
+ expect(request.mock.calls.find(c=>c[1]==='POST')![2]).toEqual(expect.objectContaining({from_asset:'RESERVE_API_CREDIT',amount:'100'}));
+ expect(sessionStorage.getItem('momiao.wallet.pending.1')).toBeNull();
+ expect(request.mock.calls.some(c=>c[0].includes('native-quota')||c[0].includes('quota-transfers'))).toBe(false);
+ expect(screen.queryByRole('button',{name:'刷新 Active 额度'})).not.toBeInTheDocument();
 });
 it('keeps a lost exchange locked across remount and retries only the same key after lookup',async()=>{let first=true;const exchange={...receipt,kind:'LOCAL_EXCHANGE',from_asset:'RESERVE_API_CREDIT',to_asset:'AVAILABLE_CHIPS',amount_units:'500000',amount:'1'};const action=(path:string)=>{if(path.includes('by-key'))return null;if(first){first=false;throw new ApiError('lost',0,'',true)}return exchange};const a=setup(action);await screen.findByRole('button',{name:'领取今日 500 额度'});fireEvent.change(screen.getByLabelText('兑换数量'),{target:{value:'1'}});fireEvent.click(screen.getByRole('button',{name:'确认兑换'}));await screen.findByRole('button',{name:'核对交易结果'});const original=JSON.parse(sessionStorage.getItem('momiao.wallet.pending.1')!);a.unmount();const b=setup(action);await screen.findByRole('button',{name:'核对交易结果'});expect(screen.getByRole('button',{name:'确认兑换'})).toBeDisabled();expect(b.request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(0);fireEvent.click(screen.getByRole('button',{name:'核对交易结果'}));fireEvent.click(await screen.findByRole('button',{name:'按原请求重试'}));await waitFor(()=>expect(b.onChange).toHaveBeenCalledOnce());expect(b.request.mock.calls.find(c=>c[1]==='POST')![2]).toEqual({idempotency_key:original.key,from_asset:'RESERVE_API_CREDIT',amount:'1'})});
 it('reconciles a confirmed response without sending another mutation',async()=>{sessionStorage.setItem('momiao.wallet.pending.1',JSON.stringify({kind:'DAILY',key:'01990000-1111-7777-aaaa-000000000001'}));const {request,onChange}=setup(()=>receipt);fireEvent.click(await screen.findByRole('button',{name:'核对交易结果'}));await waitFor(()=>expect(onChange).toHaveBeenCalledOnce());expect(request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(0)});
@@ -53,7 +60,7 @@ it('checks a claim made elsewhere when the tab regains focus without POST',async
  expect(view.request.mock.calls.filter(c=>c[1]==='POST')).toHaveLength(0);
 });
 it('lists transactions without exposing their internal ids',async()=>{
- const request=vi.fn(async(path:string)=>path.endsWith('/daily')?daily:path.includes('native-quota')?{user_id:'1',raw_quota:'0',amount:'0',enabled:true}:path.startsWith('/platform/v1/transactions')?{items:[receipt],has_more:false,next_after_id:null}:{items:[],has_more:false,next_after_seq:null});
+ const request=vi.fn(async(path:string)=>path.endsWith('/daily')?daily:path.startsWith('/platform/v1/transactions')?{items:[receipt],has_more:false,next_after_id:null}:{items:[],has_more:false,next_after_seq:null});
  const c={request,getSessionGeneration:()=>1,getSnapshot:()=>({user:{id:1},loggingOut:false})} as unknown as ApiClient;
  render(<WalletActions client={c} userID="1" wallet={wallet} onChange={vi.fn()}/>);
  const table=await screen.findByRole('region',{name:'资产交易记录'});

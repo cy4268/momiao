@@ -39,6 +39,7 @@ function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,child
  const [loaded,setLoaded]=useState<{value:AccessGateView;scope:GateScope}>();const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [destination,setDestination]=useState<GateScope>();
  const [admitted,setAdmitted]=useState<GateScope>();const revision=useRef(0);const generation=client.getSessionGeneration();const scope=useRef<GateScope>({client,userID:user.id,generation,route});
  scope.current={client,userID:user.id,generation,route};const poker=pokerRecovery&&pokerRouteIntent(route),roulette=rouletteRouteIntent(route);
+ const account=!postAuth&&(route==='/account'||route==='/account/security');
  const matches=(s:GateScope|undefined)=>!!s&&s.client===scope.current.client&&s.userID===scope.current.userID&&s.generation===scope.current.generation&&s.route===scope.current.route&&s.generation===s.client.getSessionGeneration();
  const view=loaded&&matches(loaded.scope)?loaded.value:undefined;
  const [saving,setSaving]=useState(false);const [reconcile,setReconcile]=useState(false);const active=useRef(true);const loadLock=useRef(false);const writeLock=useRef(false);
@@ -46,7 +47,7 @@ function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,child
   const valid=()=>active.current&&request===revision.current&&matches(start);
   try{
    const next=await readAccessGate(client,route);if(!valid())return;
-   setAdmitted((poker||roulette)&&(next.stage==='READY'||next.stage==='MAINTENANCE')?start:undefined);
+   setAdmitted((account&&next.stage==='READY'||(poker||roulette)&&(next.stage==='READY'||next.stage==='MAINTENANCE'))?start:undefined);
    // Preserve M2's idempotent durable provisional profile, only after native
    // active status is verified. This is never part of migration notice ACK.
    if(next.stage==='MASTER_REQUIRED'){
@@ -70,6 +71,9 @@ function GateSurface({client,user,route,postAuth=false,pokerRecovery=false,child
  }
  useEffect(()=>{active.current=true;setSaving(false);setReconcile(false);const admittedBefore=admittedSessions.get(client);if(postAuth||poker||roulette||admittedBefore?.userID!==user.id||admittedBefore.generation!==generation)document.title='访问状态核对 · momiao';void load();return()=>{active.current=false;revision.current++;loadLock.current=false;writeLock.current=false;};},[client,user.id,route,generation]);
  if(destination&&matches(destination))return <Navigate to={destination.route} replace/>;
+ // Recheck the same account after cookie rotation without unmounting its result.
+ // A denial or read error still replaces the form; another user never inherits it.
+ if(account&&!error&&(!view||loading)&&admitted?.client===client&&admitted.userID===user.id&&admitted.route===route)return <>{children}</>;
  // Page policy only tightens the UI; domain/controller guards still decide every operation.
  if(roulette&&matches(admitted))return <>{view?.stage==='MAINTENANCE'&&<aside aria-label="轮盘访问状态"><Alert>维护中：已开始对局继续，保留退款与回执核对；新开局暂时关闭。</Alert></aside>}{children}</>;
  if(poker&&matches(admitted))return <PokerGateContext.Provider value={{stage:view?.stage,recovery_only:view?.stage!=='READY',mutation_blocked:loading||!!error||!view}}>

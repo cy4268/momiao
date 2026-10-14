@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cy4268/momiao/internal/identity"
 	"github.com/cy4268/momiao/internal/platform"
 )
 
@@ -23,7 +22,7 @@ func TestPokerNavigationDocumentAndGateRoutes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<!doctype html><title>poker navigation fixture</title>"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	handler := newPortalHandler(config{WebDir: root}, nil)
+	handler := newPortalHandler(config{WebDir: root})
 	for _, tc := range []struct {
 		path  string
 		valid bool
@@ -109,18 +108,12 @@ func TestPokerNavigationApplicationGateOrder(t *testing.T) {
 		{"maintenance unchanged", pokerNavigationTable, "", "MAINTENANCE", true, true, 1, 200, "MAINTENANCE", "master,migration"},
 		{"unwired maintenance", pokerNavigationTable, "", "MAINTENANCE", false, false, 1, 200, "RESOURCE_UNAVAILABLE", "master,migration"},
 		{"resource absent", "/poker", "", "", true, true, 1, 200, "RESOURCE_UNVERIFIED", "master,migration"},
-		{"native failure", "/poker", "native-error", "AVAILABLE", true, true, 1, 502, "", ""},
 		{"missing auth", "/poker", "no-auth", "AVAILABLE", true, true, 1, 401, "", ""},
 		{"other route unchanged", "/wallet", "", "AVAILABLE", false, false, 1, 200, "READY", "master,migration"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &pokerNavigationStore{gateFixture: gateFixture{stage: tc.stage}}
-			transport := walletTransport(func(*http.Request) (*http.Response, error) {
-				if tc.stage == "native-error" {
-					return &http.Response{StatusCode: 503, Body: io.NopCloser(strings.NewReader("{}"))}, nil
-				}
-				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"success":true,"data":{"id":9007199254740993,"username":"synthetic-user","status":%d,"role":1}}`, tc.account)))}, nil
-			})
+
 			cfg := config{WebDir: root, PublicOrigin: "https://example.test", Poker: pokerConfig{Enabled: tc.enabled}, accessGate: store, accessDeclaration: &accessDeclaration{Resources: map[string]string{"EXPERIENCE": tc.resource, "ASSETS": "AVAILABLE"}}}
 			if tc.handler {
 				cfg.poker = http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("navigation invoked Poker runtime") })
@@ -128,9 +121,13 @@ func TestPokerNavigationApplicationGateOrder(t *testing.T) {
 			w := httptest.NewRecorder()
 			request := announcementReq("GET", "/platform/v1/access-gate?route="+url.QueryEscape(tc.route), "")
 			if tc.stage == "no-auth" {
-				request.Header.Del("Authorization")
+				request = request.WithContext(context.Background())
+			} else {
+				user, _ := identity.UserFromContext(request.Context())
+				user.Status = tc.account
+				request = request.WithContext(identity.WithUser(request.Context(), user, identity.SessionIDFromContext(request.Context())))
 			}
-			newPortalHandler(cfg, transport).ServeHTTP(w, request)
+			newPortalHandler(cfg).ServeHTTP(w, request)
 			var body struct {
 				Data accessGateView `json:"data"`
 			}
@@ -146,6 +143,6 @@ func TestPokerNavigationApplicationGateOrder(t *testing.T) {
 		})
 	}
 	if !t.Failed() {
-		t.Log("POKER_NAV_GATE SYNTHETIC Native; wired requires enabled AND handler; account/master/migration order unchanged; maintenance retained; no runtime or acknowledgement effects")
+		t.Log("POKER_NAV_GATE local identity; wired requires enabled AND handler; account/master/migration order unchanged; maintenance retained; no runtime or acknowledgement effects")
 	}
 }

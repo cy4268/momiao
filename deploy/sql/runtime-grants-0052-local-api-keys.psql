@@ -1,0 +1,6 @@
+\set ON_ERROR_STOP on
+BEGIN;
+GRANT USAGE ON SCHEMA relay TO :"platform_runtime_role";
+GRANT SELECT,INSERT,UPDATE,DELETE ON relay.api_keys TO :"platform_runtime_role";
+GRANT USAGE,SELECT ON SEQUENCE relay.api_keys_id_seq TO :"platform_runtime_role";
+COMMIT;

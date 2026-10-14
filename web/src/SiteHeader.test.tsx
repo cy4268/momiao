@@ -27,7 +27,7 @@ it('navDomain maps every route family', () => {
         '/dashboard': 'home', '/models': 'models', '/models/x': 'models', '/api/access': 'models', '/keys': 'models', '/logs': 'models',
         '/games': 'experience', '/entertainment': 'experience', '/games/dice': 'experience', '/poker': 'experience', '/poker/t/1': 'experience',
         '/roulette/devil': 'experience', '/history': 'experience', '/history/rounds/x': 'experience', '/rankings': 'rankings',
-        '/announcements': 'announcements', '/announcements/1': 'announcements', '/wallet': 'assets', '/wallet/activate': 'assets',
+        '/announcements': 'announcements', '/announcements/1': 'announcements', '/wallet': 'assets',
         '/wallet/transactions/x': 'assets', '/rewards': 'assets', '/me': 'my', '/account': 'my', '/account/security': 'my', '/master-profile': 'my', '/': null,
     };
     for (const [path, domain] of Object.entries(cases)) expect([path, navDomain(path)]).toEqual([path, domain]);
@@ -76,11 +76,19 @@ it('renders cached master name on remount', async () => {
 });
 it('account menu hides internal identity', async () => {
     session(true);
-    show('/dashboard');
+    const request = vi.spyOn(client, 'request').mockRejectedValue(new Error('unexpected ops bootstrap'));
+    const view = show('/dashboard');
     fireEvent.click(screen.getByRole('button', { name: '账户菜单' }));
     const menu = await waitFor(() => document.getElementById('account-menu')!);
     expect(menu).not.toHaveTextContent('原生登录身份');
     expect(menu).not.toHaveTextContent(user.username);
+    expect(within(menu).queryByRole('link', { name: '运营工作台' })).not.toBeInTheDocument();
+    view.unmount();
+    vi.mocked(client.getSnapshot).mockReturnValue({ user: { ...user, role: 10 }, ready: true, loggingOut: false, notice: '' });
+    show('/dashboard');
+    fireEvent.click(screen.getByRole('button', { name: '账户菜单' }));
+    expect(await screen.findByRole('link', { name: '运营工作台' })).toHaveAttribute('href', '/ops');
+    expect(request).not.toHaveBeenCalled();
 });
 it('shows the domain sub-navigation', () => {
     session(true);

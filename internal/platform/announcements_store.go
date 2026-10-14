@@ -36,25 +36,6 @@ func announcementDBError(err error) error {
 	}
 	return err
 }
-func announcementPermission(action string) (string, bool) {
-	switch action {
-	case "SAVE":
-		return "announcements.write", false
-	case "PUBLISH", "SCHEDULE", "WITHDRAW", "ARCHIVE", "RE_NOTIFY", "UPDATE_CONTENT_ONLY", "UPDATE_PLACEMENTS":
-		return "announcements.publish", true
-	default:
-		return "", false
-	}
-}
-func announcementAuthority(ctx context.Context, q announcementQuerier, userID int64, lock bool) (AnnouncementPrincipal, error) {
-	return opsDomainAuthority(ctx, q, userID, lock, "ANNOUNCEMENTS", "announcements")
-}
-func opsDomainAuthority(ctx context.Context, q announcementQuerier, userID int64, lock bool, domainScope, permissionPrefix string) (AnnouncementPrincipal, error) {
-	return legacyOpsDomainAuthority(ctx, q, userID, lock, domainScope, permissionPrefix)
-}
-func (s *Store) AnnouncementAuthority(ctx context.Context, userID int64) (AnnouncementPrincipal, error) {
-	return announcementAuthority(ctx, s.pool, userID, false)
-}
 
 const announcementSelect = `SELECT a.announcement_id::text,a.current_content_version,a.notification_revision,a.version,
  a.state,a.publish_at,a.visible_from,a.visible_until,a.updated_at,a.withdrawn_at,a.first_published_at,a.expired_reason,COALESCE(a.canonical_key,''),
@@ -106,50 +87,30 @@ func loadOpsAnnouncement(ctx context.Context, q announcementQuerier, id string, 
 	// after locking the identity, so its immutable content is visible in this snapshot.
 	return scanOpsAnnouncement(q.QueryRow(ctx, announcementSelect+" WHERE a.announcement_id=$1", id))
 }
-func (s *Store) OpsAnnouncements(ctx context.Context, userID int64) (AnnouncementPrincipal, []OpsAnnouncement, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
-	if err != nil {
-		return AnnouncementPrincipal{}, nil, err
+func (s *Store) OpsAnnouncements(ctx context.Context, userID int64) ([]OpsAnnouncement, error) {
+	if err := catalogAdmin(ctx, s.pool, userID, false); err != nil {
+		return nil, err
 	}
-	defer rollback(tx)
-	p, err := announcementAuthority(ctx, tx, userID, false)
+	rows, err := s.pool.Query(ctx, announcementSelect+" ORDER BY a.updated_at DESC,a.announcement_id DESC LIMIT 100")
 	if err != nil {
-		return p, nil, err
+		return nil, err
 	}
-	rows, err := tx.Query(ctx, announcementSelect+" ORDER BY a.updated_at DESC,a.announcement_id DESC LIMIT 100")
-	if err != nil {
-		return p, nil, err
-	}
+	defer rows.Close()
 	items := []OpsAnnouncement{}
 	for rows.Next() {
 		a, err := scanOpsAnnouncement(rows)
 		if err != nil {
-			rows.Close()
-			return p, nil, err
+			return nil, err
 		}
 		items = append(items, a)
 	}
-	rows.Close()
-	if err = rows.Err(); err != nil {
-		return p, nil, err
-	}
-	return p, items, tx.Commit(ctx)
+	return items, rows.Err()
 }
-func (s *Store) OpsAnnouncement(ctx context.Context, userID int64, id string) (AnnouncementPrincipal, OpsAnnouncement, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
-	if err != nil {
-		return AnnouncementPrincipal{}, OpsAnnouncement{}, err
+func (s *Store) OpsAnnouncement(ctx context.Context, userID int64, id string) (OpsAnnouncement, error) {
+	if err := catalogAdmin(ctx, s.pool, userID, false); err != nil {
+		return OpsAnnouncement{}, err
 	}
-	defer rollback(tx)
-	p, err := announcementAuthority(ctx, tx, userID, false)
-	if err != nil {
-		return p, OpsAnnouncement{}, err
-	}
-	a, err := loadOpsAnnouncement(ctx, tx, id, false)
-	if err != nil {
-		return p, a, err
-	}
-	return p, a, tx.Commit(ctx)
+	return loadOpsAnnouncement(ctx, s.pool, id, false)
 }
 
 func validAnnouncementContent(c *AnnouncementContent) (RenderedAnnouncement, error) {
@@ -186,22 +147,15 @@ func validAnnouncementPlacements(p []AnnouncementPlacement, visibility string) b
 	}
 	return true
 }
-func validateAnnouncementCommand(ctx context.Context, tx pgx.Tx, p AnnouncementPrincipal, c AnnouncementCommand) (OpsAnnouncement, RenderedAnnouncement, error) {
+func validateAnnouncementCommand(ctx context.Context, tx pgx.Tx, c AnnouncementCommand) (OpsAnnouncement, RenderedAnnouncement, error) {
 	var a OpsAnnouncement
 	var rendered RenderedAnnouncement
-	permission, _ := announcementPermission(c.Action)
-	if permission == "" || !announcementUUID(c.OperationID) || len(c.Reason) > 1000 || !utf8.ValidString(c.Reason) || strings.ContainsRune(c.Reason, 0) {
+	if !slices.Contains([]string{"SAVE", "UPDATE_CONTENT_ONLY", "PUBLISH", "SCHEDULE", "WITHDRAW", "ARCHIVE", "RE_NOTIFY", "UPDATE_PLACEMENTS"}, c.Action) {
 		return a, rendered, ErrAnnouncementInvalid
-	}
-	if !slices.Contains(p.Permissions, permission) {
-		return a, rendered, ErrAnnouncementForbidden
-	}
-	if c.Epoch != p.Epoch {
-		return a, rendered, ErrAnnouncementStale
 	}
 	var err error
 	if c.ID == "" {
-		if c.Action != "SAVE" || c.ExpectedVersion != 0 {
+		if c.Action != "SAVE" {
 			return a, rendered, ErrAnnouncementInvalid
 		}
 		a.State = "DRAFT"
@@ -212,9 +166,6 @@ func validateAnnouncementCommand(ctx context.Context, tx pgx.Tx, p AnnouncementP
 		a, err = loadOpsAnnouncement(ctx, tx, c.ID, true)
 		if err != nil {
 			return a, rendered, err
-		}
-		if a.Version != c.ExpectedVersion {
-			return a, rendered, ErrAnnouncementConflict
 		}
 	}
 	if c.Action == "SAVE" || c.Action == "UPDATE_CONTENT_ONLY" {
@@ -256,7 +207,7 @@ func validateAnnouncementCommand(ctx context.Context, tx pgx.Tx, p AnnouncementP
 			return a, rendered, err
 		}
 	case "RE_NOTIFY", "UPDATE_PLACEMENTS":
-		if a.State != "PUBLISHED" || a.WithdrawnAt != nil || c.Action == "RE_NOTIFY" && strings.TrimSpace(c.Reason) == "" {
+		if a.State != "PUBLISHED" || a.WithdrawnAt != nil {
 			return a, rendered, ErrAnnouncementInvalid
 		}
 		var active bool
@@ -275,7 +226,7 @@ func validateAnnouncementCommand(ctx context.Context, tx pgx.Tx, p AnnouncementP
 			}
 		}
 	case "WITHDRAW":
-		if a.State == "DRAFT" || a.WithdrawnAt != nil || strings.TrimSpace(c.Reason) == "" {
+		if a.State == "DRAFT" || a.WithdrawnAt != nil {
 			return a, rendered, ErrAnnouncementInvalid
 		}
 	case "ARCHIVE":
@@ -306,123 +257,30 @@ func announcementPlacementGuard(ctx context.Context, tx pgx.Tx, id string, place
 	return nil
 }
 
-func (s *Store) PrepareAnnouncement(ctx context.Context, userID int64, c AnnouncementCommand) (AnnouncementPreview, error) {
-	var result AnnouncementPreview
-	_, level2 := announcementPermission(c.Action)
-	if !level2 {
-		return result, ErrAnnouncementInvalid
-	}
+func (s *Store) SaveAnnouncement(ctx context.Context, userID int64, c AnnouncementCommand) (OpsAnnouncement, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return result, err
+		return OpsAnnouncement{}, err
 	}
 	defer rollback(tx)
-	p, err := announcementAuthority(ctx, tx, userID, true)
-	if err != nil {
-		return result, err
-	}
-	a, _, err := validateAnnouncementCommand(ctx, tx, p, c)
-	if err != nil {
-		return result, err
-	}
-	impact := AnnouncementImpact{Action: c.Action, ID: a.ID, TargetVersion: a.Version, Title: a.Title, Visibility: a.Content.Visibility, NotificationRevision: a.NotificationRevision, PublishAt: a.PublishAt, VisibleFrom: a.VisibleFrom, VisibleUntil: a.VisibleUntil, Placements: a.Placements}
-	if c.Content != nil {
-		impact.Title = c.Content.Title
-		impact.Visibility = c.Content.Visibility
-	}
-	switch c.Action {
-	case "PUBLISH", "SCHEDULE":
-		impact.PublishAt = c.PublishAt
-		impact.VisibleFrom = c.VisibleFrom
-		impact.VisibleUntil = c.VisibleUntil
-		impact.Placements = c.Placements
-		impact.Effect = "发布窗口内可见；各展示渠道独立生效。"
-	case "WITHDRAW":
-		impact.Effect = "立即停止全部用户侧访问，保留内容与审计历史。"
-	case "ARCHIVE":
-		impact.Effect = "停止活跃展示；曾发布内容可作为历史归档查看。"
-	case "RE_NOTIFY":
-		impact.NotificationRevision++
-		impact.Effect = "新增通知版本；重新获得未读与弹窗资格。"
-	case "UPDATE_CONTENT_ONLY":
-		impact.Effect = "更新公开正文，保留当前已读与关闭状态。"
-	case "UPDATE_PLACEMENTS":
-		impact.Placements = c.Placements
-		impact.Effect = "独立调整展示渠道，保留正文版本与已读、关闭状态。"
-	}
-	if err = tx.QueryRow(ctx, `SELECT count(*) FROM content.announcement_reads WHERE announcement_id=$1 AND notification_revision=$2`, a.ID, a.NotificationRevision).Scan(&impact.ReadAccounts); err != nil {
-		return result, err
-	}
-	result.ID, err = uuidV7()
-	if err != nil {
-		return result, err
-	}
-	result.Impact = impact
-	err = tx.QueryRow(ctx, `INSERT INTO ops.announcement_previews(preview_id,newapi_user_id,authz_epoch,command_hash,impact,expires_at) VALUES($1,$2,$3,$4,$5,clock_timestamp()+interval '10 minutes') RETURNING expires_at`, result.ID, userID, p.Epoch, announcementHash(c), impact).Scan(&result.ExpiresAt)
+	result, err := saveAnnouncement(ctx, tx, userID, c)
 	if err != nil {
 		return result, err
 	}
 	return result, tx.Commit(ctx)
 }
-
-func (s *Store) ExecuteAnnouncement(ctx context.Context, userID int64, c AnnouncementCommand, previewID string, confirmed bool) (AnnouncementResult, error) {
-	var result AnnouncementResult
-	if !announcementUUID(c.OperationID) {
-		return result, ErrAnnouncementInvalid
+func saveAnnouncement(ctx context.Context, tx pgx.Tx, userID int64, c AnnouncementCommand) (OpsAnnouncement, error) {
+	var result OpsAnnouncement
+	if err := catalogAdmin(ctx, tx, userID, true); err != nil {
+		return result, err
 	}
-	tx, err := s.pool.Begin(ctx)
+	a, rendered, err := validateAnnouncementCommand(ctx, tx, c)
 	if err != nil {
 		return result, err
 	}
-	defer rollback(tx)
-	p, err := announcementAuthority(ctx, tx, userID, true)
-	if err != nil {
-		return result, err
-	}
-	permission, level2 := announcementPermission(c.Action)
-	if !slices.Contains(p.Permissions, permission) {
-		return result, ErrAnnouncementForbidden
-	}
-	if c.Epoch != p.Epoch {
-		return result, ErrAnnouncementStale
-	}
-	// Stable operation serialization precedes target access; a replay may carry an old target version.
-	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,714622314783630005))", c.OperationID); err != nil {
-		return result, err
-	}
-	hash := announcementHash(c)
-	var oldHash string
-	var oldUser int64
-	var oldResult []byte
-	err = tx.QueryRow(ctx, "SELECT newapi_user_id,request_hash,result FROM ops.admin_operations WHERE operation_id=$1", c.OperationID).Scan(&oldUser, &oldHash, &oldResult)
-	if err == nil {
-		if oldUser != userID || oldHash != hash {
-			return result, ErrAnnouncementOperation
-		}
-		if err = json.Unmarshal(oldResult, &result); err != nil {
-			return result, err
-		}
-		return result, tx.Commit(ctx)
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return result, err
-	}
-	a, rendered, err := validateAnnouncementCommand(ctx, tx, p, c)
-	if err != nil {
-		return result, err
-	}
-	if level2 {
-		if !confirmed || !announcementUUID(previewID) {
-			return result, ErrAnnouncementConfirmation
-		}
-		var matches bool
-		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM ops.announcement_previews WHERE preview_id=$1 AND newapi_user_id=$2 AND authz_epoch=$3 AND command_hash=$4 AND expires_at>clock_timestamp())`, previewID, userID, p.Epoch, hash).Scan(&matches)
-		if err != nil {
-			return result, err
-		}
-		if !matches {
-			return result, ErrAnnouncementConfirmation
-		}
+	var before any
+	if c.ID != "" {
+		before = a
 	}
 	if c.ID == "" {
 		a.ID, err = uuidV7()
@@ -498,7 +356,7 @@ func (s *Store) ExecuteAnnouncement(ctx context.Context, userID int64, c Announc
 	case "RE_NOTIFY":
 		a.NotificationRevision++
 		a.Version++
-		if _, err = tx.Exec(ctx, `INSERT INTO content.notification_revisions(announcement_id,notification_revision,created_by,reason) VALUES($1,$2,$3,$4)`, a.ID, a.NotificationRevision, userID, c.Reason); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO content.notification_revisions(announcement_id,notification_revision,created_by,reason) VALUES($1,$2,$3,$4)`, a.ID, a.NotificationRevision, userID, "RE_NOTIFY"); err != nil {
 			return result, err
 		}
 		if _, err = tx.Exec(ctx, `UPDATE content.announcements SET notification_revision=$2,version=$3,updated_at=now() WHERE announcement_id=$1`, a.ID, a.NotificationRevision, a.Version); err != nil {
@@ -520,12 +378,11 @@ func (s *Store) ExecuteAnnouncement(ctx context.Context, userID int64, c Announc
 			return result, err
 		}
 	}
-	result = AnnouncementResult{OperationID: c.OperationID, ID: a.ID, Version: a.Version, ContentVersion: a.ContentVersion, NotificationRevision: a.NotificationRevision, State: a.State}
-	details := map[string]any{"action": c.Action, "previous_version": c.ExpectedVersion, "authz_epoch": c.Epoch, "preview_id": previewID, "reason": c.Reason, "content_version": a.ContentVersion, "notification_revision": a.NotificationRevision}
-	if _, err = tx.Exec(ctx, `INSERT INTO ops.admin_operations(operation_id,actor_kind,newapi_user_id,action,announcement_id,request_hash,details,result) VALUES($1,'ADMIN',$2,$3,$4,$5,$6,$7)`, c.OperationID, userID, c.Action, a.ID, hash, details, result); err != nil {
+	result, err = loadOpsAnnouncement(ctx, tx, a.ID, false)
+	if err != nil {
 		return result, err
 	}
-	return result, tx.Commit(ctx)
+	return result, relayOpsAudit(ctx, tx, userID, "ANNOUNCEMENT_"+c.Action, "ANNOUNCEMENT", a.ID, before, result)
 }
 func insertAnnouncementContent(ctx context.Context, tx pgx.Tx, id string, version, user int64, c AnnouncementContent, r RenderedAnnouncement) error {
 	_, err := tx.Exec(ctx, `INSERT INTO content.announcement_revisions(announcement_id,content_version,title,type,visibility,body_markdown,sanitized_html,body_markdown_hash,sanitized_html_hash,sanitizer_policy_version,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id, version, c.Title, c.Type, c.Visibility, c.Markdown, r.HTML, r.MarkdownHash, r.HTMLHash, r.PolicyVersion, user)

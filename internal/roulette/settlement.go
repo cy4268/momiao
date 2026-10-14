@@ -171,7 +171,7 @@ func (s *Service) settle(ctx context.Context, tx pgx.Tx, r *round, players []par
 					gross = a.Amount
 				}
 			}
-			c, e := platform.PrepareCapSettlementInTx(ctx, payout, s.observer, r.Economy, p.User, r.Stake, gross, 1)
+			c, e := platform.PrepareCapSettlementInTx(ctx, payout, r.Economy, p.User, r.Stake, gross, 1)
 			if e != nil {
 				return e
 			}

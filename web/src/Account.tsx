@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { ApiClient, ApiError } from './api';
-import { admissionError, readAdmission, readNativeAccount, type AdmissionStatus, type NativeAccount, type SensitiveProof } from './admission-api';
+import { ApiClient } from './api';
+import { admissionError, readAdmission, readAccount, type AdmissionStatus, type AccountStatus, type SensitiveProof } from './admission-api';
 import { readProfile } from './profile-api';
 import { PasswordInput } from './Authentication';
 import { Alert, Loading } from './ui';
@@ -21,54 +21,81 @@ export function GrantStatus({client}: {client:ApiClient}) {
 
 export function Account({client,proof,clearProof=()=>{}}: {client:ApiClient;proof?:SensitiveProof;clearProof?:()=>void}) {
     const session=useSyncExternalStore(client.subscribe,client.getSnapshot);const generation=client.getSessionGeneration();
-    const opaqueBlocked=client.sessionFeatureUnavailable('GENERAL_BFF_S2');
-    const [account,setAccount]=useState<NativeAccount>();const [shortID,setShortID]=useState('');const [error,setError]=useState('');const [notice,setNotice]=useState('');const [loading,setLoading]=useState(true);const [busy,setBusy]=useState(false);const [uncertain,setUncertain]=useState(false);
+    const [account,setAccount]=useState<AccountStatus>();const [shortID,setShortID]=useState('');const [error,setError]=useState('');const [notice,setNotice]=useState('');const [loading,setLoading]=useState(true);const [busy,setBusy]=useState(false);
     const [password,setPassword]=useState('');const [confirm,setConfirm]=useState('');const [old,setOld]=useState('');const [show,setShow]=useState(false);const [showConfirm,setShowConfirm]=useState(false);const [showOld,setShowOld]=useState(false);const active=useRef(true);const lock=useRef(false);
     const validProof=proof&&proof.expires_at>Date.now()/1000?proof:undefined;
-    const mode=validProof?.purpose?(validProof.purpose==='PASSWORD_SET'?'set':'reset'):validProof?(account?.has_password?'reset':'set'):'change';
-    async function reload(){setLoading(true);setError('');if(opaqueBlocked){try{await client.refresh();}catch(e){if(active.current)setError(admissionError(e));}finally{if(active.current)setLoading(false);}return;}try{const d=await readNativeAccount(client);if(active.current)setAccount(d);const p=await readProfile(client,String(d.id));if(active.current)setShortID(p.short_account_id);}catch(e){if(active.current)setError(admissionError(e));}finally{if(active.current)setLoading(false);}}
-    useEffect(()=>{active.current=true;if(opaqueBlocked){setLoading(false);setError('');}else void reload();return()=>{active.current=false;};},[client,generation,opaqueBlocked]);
-    async function authorize(reset:boolean){if(lock.current)return;lock.current=true;setBusy(true);setError('');clearProof();try{const url=await client.discordStart(reset?'password-reset':'fresh');if(active.current)window.location.assign(url);}catch(e){if(active.current)setError(admissionError(e));}finally{if(active.current){lock.current=false;setBusy(false);}}}
-    async function submit(e:FormEvent){e.preventDefault();if(lock.current||uncertain||!account)return;if(password!==confirm){setError('两次输入的新密码不一致。');return;}if([...password].length<8||[...password].length>20||new TextEncoder().encode(password).length>72){setError('新密码需为 8–20 个字符，且不超过 72 字节。');return;}
-        lock.current=true;setBusy(true);setError('');setNotice('');try{await client.updatePassword(mode,mode==='change'?{password,old_password:old}:{password,proof:validProof?.proof});clearProof();if(active.current){setNotice('密码已更新，当前登录已重新核对。');await reload();}}catch(e){clearProof();if(active.current){setError(admissionError(e));if(!(e instanceof ApiError)||e.uncertain)setUncertain(true);}}finally{setPassword('');setConfirm('');setOld('');setShow(false);setShowOld(false);setShowConfirm(false);if(active.current){lock.current=false;setBusy(false);}}}
-    if(opaqueBlocked)return <IdentityChamber page="security">
-        <header className="page-heading"><div><p className="eyebrow">ACCOUNT &amp; SECURITY</p><h1>账户与安全</h1><p>当前仅显示已核对的不透明会话身份。</p></div><button disabled={loading||session.loggingOut} onClick={()=>void reload()}>重新核对会话</button></header>
-        {error&&<Alert>{error}</Alert>}
-        <Alert>密码与 Discord 连接设置暂时不可用，登录不受影响。</Alert>
-        <section className="panel account-identity account-verified"><h2>已核对身份</h2><IdentityEmblem/>
-            <dl className="account-details"><div><dt>登录名</dt><dd>{session.user?.username||'会话待核对'}</dd></div><div><dt>用户 ID</dt><dd>{session.user?.id||'—'}</dd></div></dl>
-            <p className="hint">密码与 Discord 连接设置开放后会显示在这里。</p>
-        </section>
-        <div className="account-tools"><AccountExplanation/><button className="account-signout" disabled={session.loggingOut} onClick={()=>{clearProof();void client.logout().catch(()=>{});}}>{session.loggingOut?'正在退出…':'退出当前登录'}</button></div>
-    </IdentityChamber>;
+    const mode=validProof?(validProof.purpose==='PASSWORD_SET'?'set':'reset'):'change';
+    async function reload(){const scope=client.getSessionGeneration();const current=()=>active.current&&scope===client.getSessionGeneration();setLoading(true);setError('');try{const d=await readAccount(client);if(!current())return;setAccount(d);const p=await readProfile(client,String(d.id));if(current())setShortID(p.short_account_id);}catch(e){if(current())setError(admissionError(e));}finally{if(current())setLoading(false);}}
+    useEffect(()=>{active.current=true;setPassword('');setConfirm('');setOld('');setShow(false);setShowOld(false);setShowConfirm(false);void reload();return()=>{active.current=false;};},[client,generation]);
+    async function authorize(reset:boolean){if(lock.current)return;lock.current=true;setBusy(true);setError('');clearProof();try{const url=await client.discordStart(reset?'password-reset':'password-set');if(active.current)window.location.assign(url);}catch(e){if(active.current)setError(admissionError(e));}finally{if(active.current){lock.current=false;setBusy(false);}}}
+    async function submit(e:FormEvent){e.preventDefault();if(lock.current||!account)return;if(password!==confirm){setError('两次输入的新密码不一致。');return;}if([...password].length<8||[...password].length>20||new TextEncoder().encode(password).length>72){setError('新密码需为 8–20 个字符，且不超过 72 字节。');return;}
+        lock.current=true;setBusy(true);setError('');setNotice('');try{await client.updatePassword(mode,mode==='change'?{password,old_password:old}:{password,proof:validProof?.proof});clearProof();if(active.current){setNotice('密码已更新，当前登录已重新核对。');await reload();}}catch(e){clearProof();if(active.current){setError(admissionError(e));}}finally{setPassword('');setConfirm('');setOld('');setShow(false);setShowOld(false);setShowConfirm(false);if(active.current){lock.current=false;setBusy(false);}}}
     return <IdentityChamber page="security">
         <header className="page-heading"><div><p className="eyebrow">ACCOUNT &amp; SECURITY</p><h1>账户与安全</h1><p>核对登录身份、连接状态与密码。</p></div><button disabled={loading||busy} onClick={()=>void reload()}>刷新账户状态</button></header>
         {error&&<Alert>{error}</Alert>}{notice&&<p className="profile-notice" role="status">{notice}</p>}{loading&&!account&&<Loading/>}
         {account&&<div className="account-grid">
             <section className="panel account-identity"><h2>登录身份</h2><IdentityEmblem/>
-                <dl className="account-details"><div><dt>登录名</dt><dd>{account.username}</dd></div><div><dt>账户编号</dt><dd>{shortID||'正在核对'}</dd></div><div><dt>Discord 连接</dt><dd>{account.discord_connected?'已连接':'尚未连接'}</dd></div><div><dt>账户密码</dt><dd>{account.has_password?'已设置':'尚未设置'}</dd></div><div><dt>二次验证</dt><dd>{account.two_fa_enabled===undefined?'状态暂未提供':account.two_fa_enabled?'已启用':'未启用'}</dd></div></dl>
+                <dl className="account-details"><div><dt>登录名</dt><dd>{account.username}</dd></div><div><dt>账户编号</dt><dd>{shortID||'正在核对'}</dd></div><div><dt>Discord 连接</dt><dd>{account.discord_linked?'已连接':'尚未连接'}</dd></div><div><dt>账户密码</dt><dd>{account.has_password?'已设置':'尚未设置'}</dd></div><div><dt>二次验证</dt><dd>{account.two_fa_enabled?'已启用':'未启用'}</dd></div></dl>
                 <p className="hint">公开昵称在 Master 资料中维护，登录名保持固定。联系客服时请提供账户编号。</p><Link to="/master-profile">查看 Master 资料</Link>
             </section>
             <section className="panel account-password"><h2>{validProof?mode==='set'?'设置首个密码':'重置密码':account.has_password?'更改密码':'设置账户密码'}</h2>
                 {validProof&&<p className="account-proof" role="status">Discord 身份验证已通过。请在本页完成密码操作，离开或刷新后需重新验证。</p>}
-                {!account.has_password&&!validProof?<><p className="hint">先重新验证已绑定的 Discord，即可设置首个密码。</p><button className="primary" disabled={busy||!account.discord_connected} onClick={()=>void authorize(false)}>验证 Discord 并设置密码</button></>:<form onSubmit={e=>void submit(e)}>
-                    {mode==='change'&&<PasswordInput id="account-old" label="当前密码" value={old} setValue={setOld} show={showOld} setShow={setShowOld} autoComplete="current-password" disabled={busy||uncertain}/>}
-                    <PasswordInput id="account-new" label="新密码" value={password} setValue={setPassword} show={show} setShow={setShow} autoComplete="new-password" disabled={busy||uncertain}/><PasswordInput id="account-confirm" label="确认新密码" value={confirm} setValue={setConfirm} show={showConfirm} setShow={setShowConfirm} autoComplete="new-password" disabled={busy||uncertain}/>
-                    <p className="hint">8–20 个字符，且不超过 72 字节。成功后其他旧会话将失效。</p><button className="primary" type="submit" disabled={busy||uncertain}>{busy?'正在提交…':mode==='set'?'设置密码':mode==='reset'?'确认重置密码':'更新密码'}</button>
+                {!account.has_password&&!validProof?<><p className="hint">先重新验证已绑定的 Discord，即可设置首个密码。</p><button className="primary" disabled={busy||!account.discord_linked} onClick={()=>void authorize(false)}>验证 Discord 并设置密码</button></>:<form onSubmit={e=>void submit(e)}>
+                    {mode==='change'&&<PasswordInput id="account-old" label="当前密码" value={old} setValue={setOld} show={showOld} setShow={setShowOld} autoComplete="current-password" disabled={busy}/>}
+                    <PasswordInput id="account-new" label="新密码" value={password} setValue={setPassword} show={show} setShow={setShow} autoComplete="new-password" disabled={busy}/><PasswordInput id="account-confirm" label="确认新密码" value={confirm} setValue={setConfirm} show={showConfirm} setShow={setShowConfirm} autoComplete="new-password" disabled={busy}/>
+                    <p className="hint">8–20 个字符，且不超过 72 字节。成功后其他旧会话将失效。</p><button className="primary" type="submit" disabled={busy}>{busy?'正在提交…':mode==='set'?'设置密码':mode==='reset'?'确认重置密码':'更新密码'}</button>
                 </form>}
-                {account.has_password&&!validProof&&<div className="auth-switch"><p className="hint">忘记当前密码？使用同一已绑定的 Discord 重新验证。</p><button disabled={busy||!account.discord_connected} onClick={()=>void authorize(true)}>通过 Discord 重置密码</button></div>}
-                {uncertain&&<p className="hint">密码操作结果尚未确认，本页已暂停提交。请退出后重新登录，核对实际凭据。</p>}
+                {account.has_password&&!validProof&&<div className="auth-switch"><p className="hint">忘记当前密码？使用同一已绑定的 Discord 重新验证。</p><button disabled={busy||!account.discord_linked} onClick={()=>void authorize(true)}>通过 Discord 重置密码</button></div>}
             </section>
+            <TwoFactorSettings key={generation} client={client} enabled={account.two_fa_enabled}/>
         </div>}
         <GrantStatus key={generation} client={client}/>
         <div className="account-tools"><AccountExplanation/>{account&&<button className="account-signout" disabled={session.loggingOut||busy} onClick={()=>{clearProof();void client.logout().catch(()=>{});}}>退出当前登录</button>}</div>
     </IdentityChamber>;
 }
+interface TwoFASetup { secret: string; qr_code_data: string; backup_codes: string[] }
+function TwoFactorSettings({client,enabled}:{client:ApiClient;enabled:boolean}) {
+    const [setup,setSetup]=useState<TwoFASetup>();
+    const [code,setCode]=useState('');
+    const [busy,setBusy]=useState(false);
+    const [error,setError]=useState('');
+    async function start() {
+        setBusy(true);setError('');
+        try { setSetup(await client.request<TwoFASetup>('/api/v1/account/2fa/setup','POST',{})); }
+        catch(e) { setError(admissionError(e)); }
+        finally { setBusy(false); }
+    }
+    async function submit(e:FormEvent) {
+        e.preventDefault();setBusy(true);setError('');
+        try {
+            await client.request(`/api/v1/account/2fa/${enabled?'disable':'enable'}`,'POST',{code});
+            await client.refresh();
+            setSetup(undefined);
+        } catch(e) { setError(admissionError(e)); }
+        finally { setCode('');setBusy(false); }
+    }
+    return <section className="panel account-two-factor">
+        <h2>二次验证</h2>
+        <p>{enabled?'登录时需要验证器验证码或备用码。':'使用验证器保护账户；备用码可在验证器丢失时使用。'}</p>
+        {error&&<Alert>{error}</Alert>}
+        {setup&&!enabled&&<>
+            <p>在验证器中手动输入密钥：<code>{setup.secret}</code></p>
+            <a href={setup.qr_code_data}>在验证器中打开</a>
+            <p>请先保存以下备用码；每个备用码只能使用一次。</p>
+            <ul>{setup.backup_codes.map(value=><li key={value}><code>{value}</code></li>)}</ul>
+        </>}
+        {enabled||setup?<form onSubmit={e=>void submit(e)}>
+            <label htmlFor="account-factor-code">{enabled?'验证码或备用码':'验证器验证码'}</label>
+            <input id="account-factor-code" value={code} onChange={e=>setCode(e.target.value)} autoComplete="one-time-code" required disabled={busy}/>
+            <button className="primary" type="submit" disabled={busy}>{enabled?'关闭二次验证':'启用二次验证'}</button>
+        </form>:<button disabled={busy} onClick={()=>void start()}>设置二次验证</button>}
+        <p className="hint">启用或关闭后，其他旧会话将失效。</p>
+    </section>;
+}
 function AccountExplanation() {
     return <IdentityDisclosure title="账户与会话说明">
-        <h3>登录身份与展示资料</h3><p>登录名保持固定。Master 昵称与头像单独维护，账户编号仅本人可见。二次验证在本页仅展示当前状态。</p>
+        <h3>登录身份与展示资料</h3><p>登录名保持固定。Master 昵称与头像单独维护，账户编号仅本人可见。二次验证在本页设置或关闭；请将备用码保存在独立位置。</p>
         <h3>密码与 Discord 验证</h3><p>密码需为 8–20 个字符，且不超过 72 字节。成功后其他旧会话将失效。设置首个密码或重置密码需重新验证同一已绑定的 Discord；验证凭据仅临时保存在当前页面，离开或刷新后需重新验证。</p>
-        <p>密码操作结果未确认时暂停再次提交，请退出后重新登录核对实际凭据。当前会话未接入的功能不会调用旧端点。</p>
         <h3>注册赠额</h3><p>同一注册资格只发放一次，已有账户不会因为登录或补全资料重复获得新注册赠额。到账状态与账本以服务端记录为准。</p>
     </IdentityDisclosure>;
 }

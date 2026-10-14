@@ -2,9 +2,7 @@ package main
 
 import (
  "context"
- "encoding/json"
  "errors"
- "io"
  "net/http"
  "os"
  "path/filepath"
@@ -41,15 +39,4 @@ func newReadinessHandler(checks map[string]readinessCheck) http.Handler {
 }
 func webReadiness(root string) readinessCheck {
  return func(ctx context.Context)error{if ctx.Err()!=nil{return ctx.Err()};info,err:=os.Stat(filepath.Join(root,"index.html"));if err!=nil||!info.Mode().IsRegular(){return errors.New("web unavailable")};return nil}
-}
-func nativeReadiness(transport http.RoundTripper) readinessCheck {
- return func(ctx context.Context)error{
-  request,_:=http.NewRequestWithContext(ctx,http.MethodGet,"http://unix/api/status",nil);request.Host="localhost";request.Header.Set("Accept","application/json")
-  response,err:=transport.RoundTrip(request)
-  if err!=nil||response==nil {if response!=nil&&response.Body!=nil{_ = response.Body.Close()};return errors.New("native unavailable")}
-  if response.Body==nil{return errors.New("native unavailable")};defer response.Body.Close()
-  if response.StatusCode!=http.StatusOK{return errors.New("native unavailable")}
-  raw,err:=io.ReadAll(io.LimitReader(response.Body,256*1024+1));if err!=nil||len(raw)>256*1024{return errors.New("native unavailable")}
-  var result struct{Success bool `json:"success"`};if json.Unmarshal(raw,&result)!=nil||!result.Success{return errors.New("native unavailable")};return nil
- }
 }

@@ -1,13 +1,13 @@
 import { expect, it } from 'vitest';
 import { ApiClient } from './api';
 import { acknowledgeMigrationNotice, readAccessGate } from './access-gate-api';
-import { bundle, ok } from './m1-test-fixtures';
+import { bundle, ok, user } from './m1-test-fixtures';
 
 it('rejects cross-session, malformed gate and nonmatching acknowledgement responses', async()=>{
  let response:unknown;
- const client=new ApiClient(async(path:string)=>path==='/api/user/login'?ok(bundle):ok(response));
- await client.login('synthetic','synthetic');
- const gate={user_id:String(bundle.user.id),route:'/keys',stage:'READY'};
+ const client=new ApiClient(async(path:string)=>path==='/api/v1/session/bootstrap'?ok(bundle):path==='/api/user/self'?ok(user):ok(response));
+ await client.bootstrap();
+ const gate={user_id:String(user.id),route:'/keys',stage:'READY'};
  for(const invalid of [{...gate,user_id:'43'},{...gate,route:'/wallet'},{...gate,stage:'UNKNOWN'},{...gate,stage:'MIGRATION_REQUIRED'}]){
   response=invalid;await expect(readAccessGate(client,'/keys')).rejects.toMatchObject({code:'ACCESS_GATE_UNVERIFIED'});
  }

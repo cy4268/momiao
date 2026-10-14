@@ -36,13 +36,13 @@ function full(socket:Socket,kind:'PLAYER_SELF'|'SPECTATOR'='PLAYER_SELF',version
 function auth(socket:Socket,kind:'PLAYER_SELF'|'SPECTATOR'='PLAYER_SELF',controller=true,version=7){socket.readyState=1;socket.dispatchEvent(new Event('open'));socket.message(frame('auth.accepted',{request_id:JSON.parse(socket.sent[0]).request_id,connection_id:socket.id}));full(socket,kind,version,controller);}
 async function setup(spectator=false){
   const fetcher=vi.fn<(path:string,init?:RequestInit)=>Promise<Response>>();
-  fetcher.mockResolvedValueOnce(ok({access_token:'synthetic',access_expires_at:4102444800,user:{id:910002,username:'synthetic',role:1},session:{sid:'synthetic'}}));
-  const api=new ApiClient(fetcher);await api.login('synthetic','synthetic');vi.stubGlobal('WebSocket',Socket);
+  fetcher.mockResolvedValueOnce(ok({authentication_state:'AUTHENTICATED',csrf_token:'synthetic'})).mockResolvedValueOnce(ok({id:910002,username:'synthetic',role:1}));
+  const api=new ApiClient(fetcher);await api.bootstrap();vi.stubGlobal('WebSocket',Socket);
   const raw:any=structuredClone(lobby);raw.viewer.user_id='910002';
   if(!spectator){raw.active_session={...active(),small_blind_units:self.small_blind_units,big_blind_units:self.big_blind_units,ante_units:'0',can_reconnect:true};for(const k of ['control_epoch','initial_buy_in_units','total_top_up_units','started_at'])delete raw.active_session[k];raw.viewer.poker_in_play_units='1500000';}
   const p:LivePokerTableProps={client:api,table_id:table,admission:{snapshot:parsePokerLobbySnapshot(raw,'910002'),scope:{user_id:'910002',session_generation:api.getSessionGeneration(),request_generation:1,query_key:'/api/v1/poker'}},mutation_blocked:false,onReturnLobby:vi.fn()};
   let sessionRead=()=>Promise.resolve(ok(active()));
-  fetcher.mockImplementation((path)=>path.endsWith('/connect-tickets')?Promise.resolve(ok({poker_connect_ticket:'ct1.eyJzeW50aGV0aWMiOnRydWV9.c2lnbmF0dXJl'})):path.endsWith('/logout')?Promise.resolve(ok({})):path.endsWith('/safe-leave')?Promise.reject(Error('synthetic lost ACK')):path.endsWith('/sessions/'+session)?sessionRead():Promise.resolve(new Response('',{status:403})));
+  fetcher.mockImplementation((path)=>path.endsWith('/connect-tickets')?Promise.resolve(ok({poker_connect_ticket:'ct1.eyJzeW50aGV0aWMiOnRydWV9.c2lnbmF0dXJl'})):path==='/api/v1/session/bootstrap'?Promise.resolve(ok({authentication_state:'AUTHENTICATED',csrf_token:'synthetic'})):path.endsWith('/logout')?Promise.resolve(ok({authentication_state:'ANONYMOUS',csrf_token:'logged-out'})):path.endsWith('/safe-leave')?Promise.reject(Error('synthetic lost ACK')):path.endsWith('/sessions/'+session)?sessionRead():Promise.resolve(new Response('',{status:403})));
   return{api,fetcher,p,setRead:(read:()=>Promise<Response>)=>{sessionRead=read;}};
 }
 type Runtime=Awaited<ReturnType<typeof setup>>;
@@ -72,7 +72,7 @@ describe('Live Table policy presentation boundary',()=>{
   });
 });
 
-describe('Live Table native lifecycle and real transport binding',()=>{
+describe('Live Table cookie-session lifecycle and real transport binding',()=>{
   it('keeps explicit reconnect reachable before the first full snapshot, with no fabricated Table',async()=>{
     const r=await setup();r.fetcher.mockResolvedValueOnce(new Response(JSON.stringify({success:false,code:'POKER_ACCESS_DENIED'}),{status:403}));render(<LivePokerTable {...r.p}/>);await act(async()=>{});
     expect(observed.current).toBeNull();fireEvent.click(screen.getByRole('button',{name:'重新连接'}));await waitFor(()=>expect(Socket.all).toHaveLength(1));act(()=>auth(Socket.all[0]));expect(observed.current?.authority.connection_state).toBe('LIVE');
@@ -86,8 +86,8 @@ describe('Live Table native lifecycle and real transport binding',()=>{
     const r=await setup(true);await live(r);expect(JSON.parse(calls(r,'/connect-tickets')[0][1]!.body as string).control_intent).toBe('READ_ONLY');
     expect(observed.current?.authority.viewer_kind).toBe('SPECTATOR');fireEvent.click(screen.getByRole('button',{name:'返回大厅'}));expect(r.p.onReturnLobby).toHaveBeenCalledTimes(1);
   });
-  it.each(['wrong-owner','other-table','stale-native'])('opens no connection for %s admission',async kind=>{
-    const r=await setup();if(kind==='wrong-owner')r.p.admission.scope.user_id='910003';if(kind==='other-table')r.p.admission.snapshot.active_session!.table_id=other;if(kind==='stale-native')r.p.admission.scope.session_generation++;
+  it.each(['wrong-owner','other-table','stale-session'])('opens no connection for %s admission',async kind=>{
+    const r=await setup();if(kind==='wrong-owner')r.p.admission.scope.user_id='910003';if(kind==='other-table')r.p.admission.snapshot.active_session!.table_id=other;if(kind==='stale-session')r.p.admission.scope.session_generation++;
     render(<LivePokerTable {...r.p}/>);await act(async()=>{});expect(calls(r,'/connect-tickets')).toHaveLength(0);expect(observed.current).toBeNull();
   });
   it('soft policies preserve UNKNOWN and saved callbacks use latest gate; automatic reads and retry use original IDs',async()=>{
@@ -102,8 +102,8 @@ describe('Live Table native lifecycle and real transport binding',()=>{
     expect(screen.getByRole('button',{name:'重试原操作'})).toBeDisabled();const savedRetry=observed.current!.onRetryPending!;act(()=>savedRetry(context()));expect(actions()).toHaveLength(1);
     v.rerender(<LivePokerTable {...r.p}/>);fireEvent.click(screen.getByRole('button',{name:'重试原操作'}));await act(async()=>{});expect(actions()).toHaveLength(2);expect(actions()[1]).toMatchObject({action_id:original.action_id,request_id:original.request_id});
   });
-  it('does not turn MAINTENANCE metadata or a same-native-session token refresh into a hard boundary',async()=>{
-    const r=await setup(),v=await live(r),generation=r.api.getSessionGeneration();r.fetcher.mockResolvedValueOnce(ok({access_token:'synthetic-refresh',access_expires_at:4102444800,user:{id:910002,username:'synthetic',role:1},session:{sid:'synthetic'}}));await act(async()=>{await r.api.login('synthetic','synthetic');});
+  it('does not turn MAINTENANCE metadata or a same-cookie-session bootstrap into a hard boundary',async()=>{
+    const r=await setup(),v=await live(r),generation=r.api.getSessionGeneration();r.fetcher.mockResolvedValueOnce(ok({authentication_state:'AUTHENTICATED',csrf_token:'synthetic'})).mockResolvedValueOnce(ok({id:910002,username:'synthetic',role:1}));await act(async()=>{await r.api.refresh();});
     v.rerender(<LivePokerTable {...r.p} admission={{...r.p.admission,snapshot:{...r.p.admission.snapshot,service:{state:'MAINTENANCE',production_ready:false,blockers:['MAINTENANCE_ACTIVE'],maintenance_scopes:['POKER_NEW_TABLES_NEW_HANDS']}}}}/>);
     expect(r.api.getSessionGeneration()).toBe(generation);expect(calls(r,'/connect-tickets')).toHaveLength(1);expect(observed.current?.authority.can_control).toBe(true);
     const raw:any=structuredClone(self);raw.table_version='8';raw.hand.hand_version='9';raw.viewer.control={connection_id:v.s.id,session_id:session,mode:'CONTROLLER',control_epoch:'1'};
@@ -186,12 +186,12 @@ describe('Original Session safe-exit binding, not a receipt or empty seat infere
     v.rerender(<LivePokerTable {...r.p} mutation_blocked/>);r.setRead(async()=>ok(settled()));await act(async()=>{vi.advanceTimersByTime(1000);window.dispatchEvent(new Event('focus'));vi.advanceTimersByTime(0);});expect(r.p.onReturnLobby).toHaveBeenCalledTimes(1);expect(calls(r,'/safe-leave')).toHaveLength(1);
     expect((observed.current as PokerTableProps&{recovery_status?:string})?.recovery_status).toContain('已确认');
   });
-  it.each(['B','WS-B','native-SID','account','viewer','logout','table','unmount'])('drops a delayed original A response before decode after %s',async kind=>{
+  it.each(['B','WS-B','cookie-session','account','viewer','logout','table','unmount'])('drops a delayed original A response before decode after %s',async kind=>{
     const r=await setup(),d=deferred<Response>();r.setRead(()=>d.promise);const v=await live(r);await leave();let decoded=0;const raw=settled();Object.defineProperty(raw,'state',{enumerable:true,get(){decoded++;return 'SETTLED';}});
     const response={ok:true,status:200,json:async()=>({success:true,data:raw})} as Response;
     if(kind==='B')v.rerender(<LivePokerTable {...r.p} admission={{...r.p.admission,snapshot:{...r.p.admission.snapshot,active_session:{...r.p.admission.snapshot.active_session!,session_id:other}}}}/>);
     else if(kind==='WS-B')act(()=>full(v.s,'PLAYER_SELF',8,true,other));else if(kind==='viewer')v.rerender(<LivePokerTable {...r.p} admission={{...r.p.admission,snapshot:{...r.p.admission.snapshot,active_session:null}}}/>);
-    else if(kind==='native-SID'||kind==='account'){r.fetcher.mockResolvedValueOnce(ok({access_token:'synthetic-new',access_expires_at:4102444800,user:{id:kind==='account'?910003:910002,username:'synthetic',role:1},session:{sid:'synthetic-new'}}));await act(async()=>{await r.api.login('synthetic','synthetic');});}
+    else if(kind==='cookie-session'||kind==='account'){r.fetcher.mockResolvedValueOnce(ok({authentication_state:'AUTHENTICATED',csrf_token:'synthetic-new'})).mockResolvedValueOnce(ok({id:kind==='account'?910003:910002,username:'synthetic',role:1}));await act(async()=>{await r.api.login('synthetic','synthetic');});}
     else if(kind==='logout')await act(async()=>{await r.api.logout();});else if(kind==='table')v.rerender(<LivePokerTable {...r.p} table_id={other}/>);else v.unmount();
     await act(async()=>{d.resolve(response);});expect(decoded).toBe(0);expect(r.p.onReturnLobby).not.toHaveBeenCalled();
   });

@@ -1,0 +1,7 @@
+-- External read-only website bridge, after migration 0048. Run as schema owner.
+\set ON_ERROR_STOP on
+BEGIN;
+GRANT USAGE ON SCHEMA identity,games TO :"bot_reader_role";
+GRANT SELECT (id,discord_id,status,deleted_at) ON identity.users TO :"bot_reader_role";
+GRANT EXECUTE ON FUNCTION games.history_list(bigint,jsonb) TO :"bot_reader_role";
+COMMIT;

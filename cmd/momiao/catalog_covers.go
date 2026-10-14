@@ -166,105 +166,55 @@ func serveCatalogFamilyCovers(w http.ResponseWriter, r *http.Request, cfg config
 		walletError(w, 400, "INVALID_REQUEST")
 		return
 	}
-	p, err := cfg.catalog.CatalogAuthority(r.Context(), userID)
-	if err != nil {
-		writeCatalogError(w, err)
-		return
-	}
 	var data any
-	if r.Method == "GET" && tail == "" {
+	var err error
+	switch {
+	case r.Method == "GET" && tail == "":
 		var page platform.CatalogFamilyCoverPage
 		page, err = cfg.catalog.CatalogFamilyCovers(r.Context(), userID)
 		data = struct {
 			platform.CatalogFamilyCoverPage
 			UploadEnabled bool `json:"upload_enabled"`
 		}{page, cfg.catalogAssets != nil}
-	} else if r.Method == "POST" {
-		if origins := r.Header.Values("Origin"); len(origins) != 1 || origins[0] != cfg.PublicOrigin {
-			walletError(w, 403, "ORIGIN_REJECTED")
+	case r.Method == "PUT" && tail == "":
+		media, _, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if e != nil || media != "application/json" {
+			walletError(w, 415, "INVALID_CONTENT_TYPE")
 			return
 		}
-		permission := "models.publish"
-		if tail == "/upload" {
-			permission = "models.write"
-		}
-		if !slices.Contains(p.Permissions, permission) {
-			writeCatalogError(w, platform.ErrCatalogForbidden)
+		var body platform.CatalogFamilyCoverSettings
+		if !decodeAnnouncementBody(r.Body, &body) {
+			walletError(w, 400, "INVALID_REQUEST")
 			return
 		}
-		if tail == "/upload" {
-			if cfg.catalogAssets == nil {
-				walletError(w, 503, "CATALOG_ASSET_UPLOAD_DISABLED")
-				return
-			}
-			// Only authenticated, authorized uploads replace the normal socket deadline.
-			deadline := time.Now().Add(90 * time.Second)
-			controller := http.NewResponseController(w)
-			for _, e := range []error{controller.SetReadDeadline(deadline), controller.SetWriteDeadline(deadline)} {
-				if e != nil && !errors.Is(e, http.ErrNotSupported) {
-					walletError(w, 503, "CATALOG_UNAVAILABLE")
-					return
-				}
-			}
-			ctx, cancel := context.WithDeadline(r.Context(), deadline)
-			defer cancel()
-			r = r.WithContext(ctx)
-			c, f, e := parseCatalogCoverUpload(w, r)
-			if e != nil {
-				writeCatalogError(w, e)
-				return
-			}
-			if c.Epoch != p.Epoch {
-				writeCatalogError(w, platform.ErrAnnouncementStale)
-				return
-			}
-			receipt, e := cfg.catalog.CatalogCoverUploadReceipt(ctx, userID, c, f.Image)
-			if e != nil {
-				writeCatalogError(w, e)
-				return
-			}
-			if receipt != nil {
-				walletSuccess(w, *receipt)
-				return
-			}
-			if e = cfg.catalogAssets.Put(ctx, c.Family, f); e != nil {
-				walletError(w, 503, "CATALOG_ASSET_UPLOAD_FAILED")
-				return
-			}
-			data, err = cfg.catalog.RegisterCatalogCoverUpload(ctx, userID, c, f.Image)
-		} else {
-			media, _, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
-			if e != nil || media != "application/json" || len(r.Header.Values("Content-Type")) != 1 {
-				walletError(w, 415, "INVALID_CONTENT_TYPE")
-				return
-			}
-			switch tail {
-			case "/prepare":
-				var body struct {
-					Command platform.CatalogFamilyCoverCommand `json:"command"`
-				}
-				if !decodeAnnouncementBody(r.Body, &body) {
-					walletError(w, 400, "INVALID_REQUEST")
-					return
-				}
-				data, err = cfg.catalog.PrepareCatalogFamilyCover(r.Context(), userID, body.Command)
-			case "/execute":
-				var body struct {
-					Command   platform.CatalogFamilyCoverCommand `json:"command"`
-					PreviewID string                             `json:"preview_id"`
-					Confirmed bool                               `json:"confirmed"`
-				}
-				if !decodeAnnouncementBody(r.Body, &body) {
-					walletError(w, 400, "INVALID_REQUEST")
-					return
-				}
-				data, err = cfg.catalog.ExecuteCatalogFamilyCover(r.Context(), userID, body.Command, body.PreviewID, body.Confirmed)
-			default:
-				walletError(w, 404, "NOT_FOUND")
+		data, err = cfg.catalog.SaveCatalogFamilyCover(r.Context(), userID, body)
+	case r.Method == "POST" && tail == "/upload":
+		if cfg.catalogAssets == nil {
+			walletError(w, 503, "CATALOG_ASSET_UPLOAD_DISABLED")
+			return
+		}
+		deadline := time.Now().Add(90 * time.Second)
+		controller := http.NewResponseController(w)
+		for _, e := range []error{controller.SetReadDeadline(deadline), controller.SetWriteDeadline(deadline)} {
+			if e != nil && !errors.Is(e, http.ErrNotSupported) {
+				walletError(w, 503, "CATALOG_UNAVAILABLE")
 				return
 			}
 		}
-	} else {
+		ctx, cancel := context.WithDeadline(r.Context(), deadline)
+		defer cancel()
+		r = r.WithContext(ctx)
+		c, f, e := parseCatalogCoverUpload(w, r)
+		if e != nil {
+			writeCatalogError(w, e)
+			return
+		}
+		if e = cfg.catalogAssets.Put(ctx, c.Family, f); e != nil {
+			walletError(w, 503, "CATALOG_ASSET_UPLOAD_FAILED")
+			return
+		}
+		data, err = cfg.catalog.RegisterCatalogCoverUpload(ctx, userID, c, f.Image)
+	default:
 		walletError(w, 404, "NOT_FOUND")
 		return
 	}
