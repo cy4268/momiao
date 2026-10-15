@@ -171,6 +171,19 @@ An uploaded file has a public address immediately; publishing controls the catal
 
 The portal's runtime CSP must separately allow the same CDN origin used at build time. Set `MOMIAO_ASSET_CDN_ORIGIN=https://assets.example.com` (origin only, no path or trailing slash) alongside `VITE_ASSET_BASE_URL=https://assets.example.com`. Only `img-src` gains that explicit HTTPS origin; script, connection, frame and native-auth policies remain unchanged. Missing runtime configuration deliberately keeps images self-only. Reverse proxies must not add a conflicting self-only image CSP.
 
+The checked-in `web/.env.production` sets the public production asset origin to
+`https://assets.momiao.win`. The 2026-10-15 image outage was fixed by restoring this
+build-time value; keeping it only in ignored `.env.production.local` made a fresh
+checkout omit the CDN prefix. Vite embeds this value when building the frontend;
+changing a running container's environment does not rewrite built assets. Other
+deployments can override it through the build environment or their own ignored
+`.env.production.local`, with the corresponding runtime CSP origin above.
+
+The independently deployed AIStudio upstream's non-stream empty-response fix is
+packaged in [deploy/patches/aistudio-empty-response](../deploy/patches/aistudio-empty-response/README.md).
+Its pinned-image rebuild, existing regression check and image-only rollback are
+separate from the portal build and database migrations.
+
 ### 本地渠道和分组运营
 
 `/ops/channels` 与 `/ops/groups` 使用本地管理员会话和 CSRF，直接写 `relay.channels/groups`；已有 0053 运行授权即可，无新迁移。旧 `/admin/channels` 跳转，旧 `/api/channel/` 返回 404。密钥只写不读，留空保留；导入的多 Key、参数与 Vertex 配置保持原值。分组改名同步用户/渠道，仍被引用的分组拒绝删除；注册默认组 `default` 名称固定。

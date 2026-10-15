@@ -1,0 +1,192 @@
+--- a/src/core/FormatConverter.js
++++ b/src/core/FormatConverter.js
+@@ -1773,6 +1773,23 @@
+         return eventsToSend.length > 0 ? eventsToSend.join("") : null;
+     }
+ 
++    _getNonStreamCandidate(googleResponse) {
++        const candidate = googleResponse.candidates?.[0];
++        const upstreamError = googleResponse.error;
++        if (candidate && !upstreamError) return candidate;
++
++        const feedback = googleResponse.promptFeedback;
++        const blockReason = feedback?.blockReason;
++        let message = upstreamError?.message || "Google returned no candidates";
++        if (!upstreamError && blockReason) {
++            message = `Google rejected the prompt: ${blockReason}`;
++            if (feedback.blockReasonMessage) message += ` (${feedback.blockReasonMessage})`;
++        }
++        const code = upstreamError?.code;
++        const upstreamStatus = Number.isInteger(code) && code >= 400 && code <= 599 ? code : blockReason ? 400 : 502;
++        throw Object.assign(new Error(message), { upstreamStatus });
++    }
++
+     /**
+      * Convert Google non-stream response to OpenAI format
+      */
+@@ -1789,29 +1806,7 @@
+             );
+         }
+ 
+-        const candidate = googleResponse.candidates?.[0];
+-
+-        if (!candidate) {
+-            this.logger.warn("[Adapter] No candidate found in Google response");
+-            return {
+-                choices: [
+-                    {
+-                        finish_reason: "stop",
+-                        index: 0,
+-                        message: { content: "", role: "assistant" },
+-                    },
+-                ],
+-                created: Math.floor(Date.now() / 1000),
+-                id: `chatcmpl-${this._generateRequestId()}`,
+-                model: modelName,
+-                object: "chat.completion",
+-                usage: {
+-                    completion_tokens: 0,
+-                    prompt_tokens: 0,
+-                    total_tokens: 0,
+-                },
+-            };
+-        }
++        const candidate = this._getNonStreamCandidate(googleResponse);
+ 
+         let content = "";
+         let reasoning_content = "";
+@@ -1897,55 +1892,7 @@
+             );
+         }
+ 
+-        const candidate = googleResponse.candidates?.[0];
+-
+-        if (!candidate) {
+-            this.logger.warn("[Adapter] No candidate found in Google response");
+-            return {
+-                completed_at: Math.floor(Date.now() / 1000),
+-                created_at: Math.floor(Date.now() / 1000),
+-                error: null,
+-                id: `resp_${this._generateRequestId()}`,
+-                incomplete_details: null,
+-                instructions: null,
+-                max_output_tokens: null,
+-                metadata: {},
+-                model: modelName,
+-                object: "response",
+-                output: [],
+-                parallel_tool_calls: true,
+-                reasoning: {
+-                    effort: null,
+-                    summary: null,
+-                },
+-                service_tier: "default",
+-                status: "completed",
+-                temperature: 1.0,
+-                text: {
+-                    format: {
+-                        type: "text",
+-                    },
+-                },
+-                tool_choice: "auto",
+-                tools: [],
+-                top_p: 1.0,
+-                truncation: "disabled",
+-                usage: {
+-                    input_tokens: 0,
+-                    input_tokens_details: {
+-                        cached_tokens: 0,
+-                    },
+-                    output_tokens: 0,
+-                    output_tokens_details: {
+-                        reasoning_tokens: 0,
+-                    },
+-                    total_tokens: 0,
+-                },
+-                ...(responseDefaults || {}),
+-                // This proxy does not support OpenAI-side persistence.
+-                ...{ store: false },
+-            };
+-        }
++        const candidate = this._getNonStreamCandidate(googleResponse);
+ 
+         const output = [];
+         let messageContent = "";
+@@ -2922,28 +2869,11 @@
+             );
+         }
+ 
+-        const candidate = googleResponse.candidates?.[0];
++        const candidate = this._getNonStreamCandidate(googleResponse);
+         const usage = googleResponse.usageMetadata || {};
+ 
+         const messageId = `msg_${this._generateRequestId()}`;
+         const content = [];
+-
+-        if (!candidate) {
+-            return {
+-                content: [{ text: "", type: "text" }],
+-                id: messageId,
+-                model: modelName,
+-                role: "assistant",
+-                stop_reason: "end_turn",
+-                stop_sequence: null,
+-                type: "message",
+-                usage: {
+-                    input_tokens: (usage.promptTokenCount || 0) + (usage.toolUsePromptTokenCount || 0),
+-                    // Match OpenAI logic: sum candidates tokens + thoughts tokens
+-                    output_tokens: (usage.candidatesTokenCount || 0) + (usage.thoughtsTokenCount || 0),
+-                },
+-            };
+-        }
+ 
+         let hasToolUse = false;
+ 
+--- a/src/core/RequestHandler.js
++++ b/src/core/RequestHandler.js
+@@ -2645,8 +2645,13 @@
+             res.type("application/json").send(JSON.stringify(claudeResponse));
+             this.logger.info(`✅ [Request] Response completed (Claude non-stream), request ID: ${requestId}`);
+         } catch (e) {
+-            this.logger.error(`❌ [Adapter] Failed to parse response for Claude: ${e.message}`);
+-            this._sendErrorResponse(res, 500, "Failed to parse backend response", "api_error");
++            this.logger.error(`❌ [Adapter] Failed to convert response for Claude: ${e.message}`);
++            this._sendErrorResponse(
++                res,
++                e.upstreamStatus || 500,
++                e.upstreamStatus ? e.message : "Failed to parse backend response",
++                "api_error"
++            );
+         }
+     }
+ 
+@@ -3677,8 +3682,12 @@
+                 `✅ [Request] Response completed (OpenAI Response API non-stream), request ID: ${requestId}`
+             );
+         } catch (e) {
+-            this.logger.error(`❌ [Adapter] Failed to parse response for OpenAI Response API: ${e.message}`);
+-            this._sendErrorResponse(res, 500, "Failed to parse backend response");
++            this.logger.error(`❌ [Adapter] Failed to convert response for OpenAI Response API: ${e.message}`);
++            this._sendErrorResponse(
++                res,
++                e.upstreamStatus || 500,
++                e.upstreamStatus ? e.message : "Failed to parse backend response"
++            );
+         }
+     }
+ 
+@@ -3711,8 +3720,12 @@
+             res.type("application/json").send(JSON.stringify(openAIResponse));
+             this.logger.info(`✅ [Request] Response completed (OpenAI non-stream), request ID: ${requestId}`);
+         } catch (e) {
+-            this.logger.error(`❌ [Adapter] Failed to parse response for OpenAI: ${e.message}`);
+-            this._sendErrorResponse(res, 500, "Failed to parse backend response");
++            this.logger.error(`❌ [Adapter] Failed to convert response for OpenAI: ${e.message}`);
++            this._sendErrorResponse(
++                res,
++                e.upstreamStatus || 500,
++                e.upstreamStatus ? e.message : "Failed to parse backend response"
++            );
+         }
+     }
+ 
