@@ -12,6 +12,17 @@ Production builds emit the original LICENSE, NOTICE and THIRD-PARTY-LICENSES.md 
 
 The unmodified upstream [LICENSE](docs/upstream/new-api/LICENSE) and [NOTICE](docs/upstream/new-api/NOTICE) are retained separately from the deleted VPS-customized Native source patches and deployment tooling. The legacy Native login bridge is not the source of the local authentication implementation. New API contributors retain their authorship; no affiliation or endorsement is implied.
 
+## AIStudio upstream patch
+
+`deploy/patches/aistudio-empty-response/no-candidate.patch` modifies
+[iBUHub/AIStudioToAPI](https://github.com/iBUHub/AIStudioToAPI) v1.3.7, revision
+`db624c24ab111ad0f50308f20f8a75a216dbf873`. It replaces non-stream empty-success
+responses with explicit upstream errors. Upstream authors retain their rights;
+the patch and its upstream-derived context retain the upstream
+[CC BY-NC 4.0 license](https://github.com/iBUHub/AIStudioToAPI/blob/db624c24ab111ad0f50308f20f8a75a216dbf873/LICENSE),
+not the portal's AGPL designation. No upstream endorsement is implied. The full
+upstream source, accounts and runtime configuration are not vendored here.
+
 ## Design archive and third-party assets
 
 The six Markdown documents under `docs/design/archive/` are historical project design references, not source code or artwork from a third-party product. Their original project name, product/character references and textual visual intent are retained for traceability; private file locations and session-image identifiers are replaced by descriptive example paths.
