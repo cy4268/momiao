@@ -45,6 +45,7 @@ func Handler(store *platform.Store) http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 		defer cancel()
+		requestStarted := time.Now()
 		deadline, _ := ctx.Deadline()
 		controller := http.NewResponseController(w)
 		_ = controller.SetReadDeadline(deadline)
@@ -96,6 +97,19 @@ func Handler(store *platform.Store) http.Handler {
 				slog.Error("relay settlement failed", "request_id", settlement.RequestID, "channel_id", settlement.ChannelID)
 			}
 		}()
+		var output *streamResponse
+		if request.Stream {
+			output = newStreamResponse(ctx, w, time.Until(requestStarted.Add(20*time.Second)))
+			ctx = output.ctx
+			defer output.close()
+		}
+		fail := func(detail *upstreamError) {
+			if output != nil {
+				output.fail(detail, format)
+			} else {
+				writeUpstreamError(w, detail)
+			}
+		}
 		for attempt := 1; attempt <= 3; attempt++ {
 			attemptStarted := time.Now().UTC()
 			channel := route.Channel
@@ -104,7 +118,7 @@ func Handler(store *platform.Store) http.Handler {
 			upstream, upstreamFormat, meta, err := upstreamRequest(ctx, r, body, format, request.Model, request.Stream, channel)
 			if err != nil {
 				settlement.StatusCode, settlement.Error = 400, "request_conversion_failed"
-				writeError(w, 400, "request conversion or channel configuration failed")
+				fail(&upstreamError{Status: 400, Message: "request conversion or channel configuration failed", Type: "relay_error", Code: http.StatusText(400)})
 				return
 			}
 			settlement.ProviderAttempts = attempt
@@ -130,7 +144,7 @@ func Handler(store *platform.Store) http.Handler {
 					failed.RequestedAt, failed.DurationMS = attemptStarted, time.Since(attemptStarted).Milliseconds()
 					if err := store.LogRelayAttempt(ctx, failed); err != nil {
 						settlement.StatusCode, settlement.Error = 503, "attempt_log_failed"
-						writeError(w, 503, "relay logging unavailable")
+						fail(&upstreamError{Status: 503, Message: "relay logging unavailable", Type: "relay_error", Code: http.StatusText(503)})
 						return
 					}
 					route = next
@@ -141,15 +155,15 @@ func Handler(store *platform.Store) http.Handler {
 				if ctx.Err() != nil {
 					settlement.FinalStatus = "CANCELLED_POST_UPSTREAM"
 				}
-				writeUpstreamError(w, failure)
+				fail(failure)
 				return
 			}
 			defer response.Body.Close()
 			if response.StatusCode < 200 || response.StatusCode >= 300 {
-				writeUpstreamError(w, readUpstreamError(response, channel.Key))
+				fail(readUpstreamError(response, channel.Key))
 				return
 			}
-			result := forwardResponse(ctx, w, response, upstreamFormat, format, meta, request.Stream, settlement.RequestID, channel.Key)
+			result := forwardResponse(ctx, w, response, upstreamFormat, format, meta, request.Stream, settlement.RequestID, channel.Key, output)
 			settlement.Usage, usageReported = result.usage, result.reported
 			settlement.Error = result.failure
 			if result.failure == "" {
@@ -160,7 +174,7 @@ func Handler(store *platform.Store) http.Handler {
 					settlement.FinalStatus = "CANCELLED_POST_UPSTREAM"
 				}
 				if !result.wrote {
-					writeUpstreamError(w, result.detail)
+					fail(result.detail)
 				}
 			}
 			return

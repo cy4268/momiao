@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
@@ -130,7 +129,7 @@ func (u *responseUsage) decode(raw []byte, format types.RelayFormat, stream bool
 	return value, terminal, nil
 }
 
-func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.Response, from, to types.RelayFormat, meta *convmeta.Values, stream bool, id, secret string) (result responseResult) {
+func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.Response, from, to types.RelayFormat, meta *convmeta.Values, stream bool, id, secret string, output *streamResponse) (result responseResult) {
 	var usage responseUsage
 	defer func() {
 		result.usage, result.reported = usage.value, usage.reported
@@ -147,8 +146,8 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 			result.failure = fmt.Sprintf("upstream_http_%d", detail.Status)
 		}
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	if !stream {
+		w.Header().Set("Cache-Control", "no-store")
 		raw, err := io.ReadAll(response.Body)
 		if err != nil {
 			result.failure = "upstream_read_failed"
@@ -190,24 +189,15 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 		result.failure = "response_conversion_failed"
 		return
 	}
-	const heartbeatInterval = 15 * time.Second
-	idle := time.NewTimer(heartbeatInterval)
-	defer idle.Stop()
+	if output == nil {
+		// Non-/v1 callers (channel tests) already have confirmed upstream SSE.
+		output = newStreamResponse(ctx, w, requestTimeout)
+		defer output.close()
+	}
 	write := func(raw []byte) error {
-		if !result.wrote {
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.Header().Set("X-Accel-Buffering", "no")
-			w.WriteHeader(response.StatusCode)
-			result.wrote = true
-		}
-		if _, err := w.Write(raw); err != nil {
-			return err
-		}
-		if err := http.NewResponseController(w).Flush(); err != nil {
-			return err
-		}
-		idle.Reset(heartbeatInterval)
-		return nil
+		var err error
+		result.wrote, err = output.write(raw, response.StatusCode)
+		return err
 	}
 	// Both callers have already handled non-2xx responses and channel retries.
 	// Flush confirmed SSE headers without waiting for the first model event.
@@ -282,18 +272,12 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 readLoop:
 	for !done {
 		var frame streamFrame
-		// This loop owns every ResponseWriter access, including idle comments.
+		// The shared committer serializes body frames with idle comments.
 		select {
-		case <-ctx.Done():
+		case <-output.ctx.Done():
 			result.failure = "upstream_stream_interrupted"
-			result.detail = transportFailure(ctx.Err(), result.failure)
+			result.detail = transportFailure(output.ctx.Err(), result.failure)
 			break readLoop
-		case <-idle.C:
-			if err = write([]byte(": ping\n\n")); err != nil {
-				result.failure = "stream_forward_failed"
-				break readLoop
-			}
-			continue
 		case frame = <-frames:
 		}
 		if len(frame.raw) == 0 && frame.err == io.EOF {
@@ -360,12 +344,7 @@ readLoop:
 		if result.detail == nil {
 			result.detail = transportFailure(ctx.Err(), result.failure)
 		}
-		raw, _ := json.Marshal(map[string]any{"type": "error", "error": result.detail})
-		prefix := ""
-		if to != types.RelayFormatOpenAI {
-			prefix = "event: error\n"
-		}
-		_ = write(append([]byte(prefix+"data: "), append(raw, '\n', '\n')...))
+		output.fail(result.detail, to)
 	}
 	return
 }

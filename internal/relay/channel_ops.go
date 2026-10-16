@@ -251,7 +251,7 @@ func TestChannel(ctx context.Context, c platform.RelayChannel, options ChannelTe
 		detail := readUpstreamError(res, c.Key)
 		return finish(fmt.Sprintf("上游 HTTP %d: %s", detail.Status, detail.Message))
 	}
-	response := forwardResponse(ctx, httptest.NewRecorder(), res, format, format, meta, options.Stream, "channel-test", c.Key)
+	response := forwardResponse(ctx, httptest.NewRecorder(), res, format, format, meta, options.Stream, "channel-test", c.Key, nil)
 	if response.failure != "" {
 		result.Status = response.detail.Status
 		return finish(fmt.Sprintf("上游 HTTP %d: %s", result.Status, response.detail.Message))
