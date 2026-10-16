@@ -3,6 +3,8 @@ package relay
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/cy4268/momiao/internal/platform"
+	"github.com/tidwall/gjson"
 )
 
 func TestDelayedStreamHeaders(t *testing.T) {
@@ -207,6 +210,100 @@ func TestChannelErrorFeedback(t *testing.T) {
 			t.Fatal("heartbeat continued after cancellation")
 		}
 	})
+	// Gemini tool arguments must be forwarded before the model finishes, not
+	// turned into a new call with null arguments for every upstream fragment.
+	for _, tc := range []struct {
+		channel             int
+		stream, tools, want bool
+	}{{24, true, true, true}, {41, true, true, true}, {41, false, true, false}, {41, true, false, false}, {1, true, true, false}} {
+		body := fmt.Sprintf(`{"model":"example","messages":[{"role":"user","content":"hello"}],"stream":%t}`, tc.stream)
+		if tc.tools {
+			body = strings.TrimSuffix(body, "}") + `,"tools":[{"type":"function","function":{"name":"router_emit_test","parameters":{"type":"object","properties":{"content":{"type":"string"}}}}}]}`
+		}
+		channel := platform.RelayChannel{Type: tc.channel, BaseURL: "https://example.invalid", Key: "synthetic", UpstreamModel: "gemini-4-argon", Settings: json.RawMessage(`{"vertex_key_type":"api_key"}`), ParamOverride: json.RawMessage(`{"toolConfig":{"functionCallingConfig":{"mode":"ANY","allowedFunctionNames":["router_emit_test"]}}}`)}
+		request, _, _, err := upstreamRequest(t.Context(), httptest.NewRequest("POST", "/v1/chat/completions", nil), []byte(body), types.RelayFormatOpenAI, "example", tc.stream, channel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := io.ReadAll(request.Body)
+		request.Body.Close()
+		config := gjson.GetBytes(raw, "toolConfig.functionCallingConfig")
+		if config.Get("streamFunctionCallArguments").Bool() != tc.want || config.Get("mode").String() != "ANY" || config.Get("allowedFunctionNames.0").String() != "router_emit_test" {
+			t.Errorf("channel=%d stream=%t tools=%t: config=%s; want flag=%t and existing fields", tc.channel, tc.stream, tc.tools, config.Raw, tc.want)
+		}
+	}
+	synctest.Test(t, func(t *testing.T) {
+		body, upstream := io.Pipe()
+		defer upstream.Close()
+		recorder := httptest.NewRecorder()
+		finished := make(chan responseResult, 1)
+		go func() {
+			finished <- forwardResponse(t.Context(), recorder, &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body}, types.RelayFormatGemini, types.RelayFormatOpenAI, &convmeta.Values{OriginModelName: "example", UpstreamModelName: "gemini-4-argon"}, true, "test", "", nil)
+		}()
+		sendCall := func(call string) {
+			t.Helper()
+			if _, err := fmt.Fprintf(upstream, "data: {\"candidates\":[{\"index\":0,\"content\":{\"parts\":[{\"functionCall\":%s}]}}]}\n\n", call); err != nil {
+				t.Fatal(err)
+			}
+			synctest.Wait()
+		}
+		sendCall(`{"id":"native1","name":"router_emit_test","willContinue":true}`)
+		sendCall(`{"partialArgs":[{"jsonPath":"$.content","stringValue":"first \"\ud83d","willContinue":true}],"willContinue":true}`)
+		if !strings.Contains(recorder.Body.String(), "first") {
+			t.Error("first argument fragment was not delivered before upstream completion")
+		}
+		sendCall(`{"partialArgs":[{"jsonPath":"$.content","stringValue":"\ude00\ntail\\","willContinue":true}],"willContinue":true}`)
+		// Google also sends a no-value fragment to close a streamed string.
+		sendCall(`{"partialArgs":[{"jsonPath":"$.content"},{"jsonPath":"$.details[0].count","numberValue":2},{"jsonPath":"$.details[0]['enabled']","boolValue":false},{"jsonPath":"$.details[0].note","nullValue":null}],"willContinue":true}`)
+		sendCall(`{}`)
+		sendCall(`{"id":"native2","name":"lookup","args":{"q":"ok"}}`)
+		_, _ = io.WriteString(upstream, "data: {\"candidates\":[{\"index\":0,\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":1,\"totalTokenCount\":8}}\n\n")
+		upstream.Close()
+		result := <-finished
+		arguments, ids, names := map[int]string{}, map[int]string{}, map[int]string{}
+		finish := ""
+		for _, line := range strings.Split(recorder.Body.String(), "\n") {
+			raw := strings.TrimPrefix(line, "data: ")
+			for _, choice := range gjson.Get(raw, "choices").Array() {
+				if reason := choice.Get("finish_reason").String(); reason != "" {
+					finish = reason
+				}
+				for _, call := range choice.Get("delta.tool_calls").Array() {
+					i := int(call.Get("index").Int())
+					arguments[i] += call.Get("function.arguments").String()
+					ids[i] += call.Get("id").String()
+					names[i] += call.Get("function.name").String()
+				}
+			}
+		}
+		first := gjson.Parse(arguments[0])
+		if result.failure != "" || !result.reported || result.usage.Prompt != 7 || result.usage.Completion != 1 || finish != "tool_calls" || !strings.Contains(recorder.Body.String(), "data: [DONE]") {
+			t.Errorf("incremental stream result=%+v finish=%q", result, finish)
+		}
+		if len(arguments) != 2 || !json.Valid([]byte(arguments[0])) || first.Get("content").String() != "first \"😀\ntail\\" || first.Get("details.0.count").Int() != 2 || first.Get("details.0.enabled").Raw != "false" || first.Get("details.0.note").Raw != "null" || arguments[1] != `{"q":"ok"}` || ids[0] != "native1" || ids[1] != "native2" || names[0] != "router_emit_test" || names[1] != "lookup" {
+			t.Errorf("corrupt tool deltas: args=%v ids=%v names=%v", arguments, ids, names)
+		}
+	})
+	// The same Gemini flag is used by all downstream protocols. Check the two
+	// composed converters plus ordinary text and incomplete arguments here too.
+	const toolStream = "data: " + `{"candidates":[{"index":0,"content":{"parts":[{"functionCall":{"name":"emit","partialArgs":[{"jsonPath":"$.content","stringValue":"hello"}]}}]}}]}` + "\n\n"
+	const stopStream = "data: " + `{"candidates":[{"index":0,"finishReason":"STOP"}]}` + "\n\n"
+	for _, tc := range []struct {
+		target       types.RelayFormat
+		body, marker string
+		incomplete   bool
+	}{
+		{types.RelayFormatClaude, toolStream + stopStream, `"partial_json":"{\"content\":\"hello\"}"`, false},
+		{types.RelayFormatOpenAIResponses, toolStream + stopStream, `"arguments":"{\"content\":\"hello\"}"`, false},
+		{types.RelayFormatOpenAI, "data: " + `{"candidates":[{"index":0,"content":{"parts":[{"text":"hello"}]},"finishReason":"STOP"}]}` + "\n\n", `"content":"hello"`, false},
+		{types.RelayFormatOpenAI, strings.Replace(toolStream, `"name":"emit",`, `"name":"emit","willContinue":true,`, 1) + stopStream, `"type":"error"`, true},
+	} {
+		recorder := httptest.NewRecorder()
+		result := forwardResponse(t.Context(), recorder, &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(tc.body))}, types.RelayFormatGemini, tc.target, &convmeta.Values{OriginModelName: "example", UpstreamModelName: "gemini-4-argon"}, true, "test", "", nil)
+		if (result.failure != "") != tc.incomplete || !strings.Contains(recorder.Body.String(), tc.marker) || (tc.incomplete && strings.Contains(recorder.Body.String(), "[DONE]")) {
+			t.Errorf("Gemini to %s incomplete=%t: result=%+v body=%s", tc.target, tc.incomplete, result, recorder.Body.String())
+		}
+	}
 	const secret = "synthetic-channel-key"
 	const quota = `{"error":{"code":429,"type":"RESOURCE_EXHAUSTED","message":"quota exceeded synthetic-channel-key ?key=synthetic-google-key"}}`
 	for _, tc := range []struct {

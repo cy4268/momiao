@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
@@ -184,7 +185,19 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 		result.failure = "upstream_stream_expected"
 		return
 	}
-	state, err := relayconvert.NewResponseStreamState(from, to, relayconvert.ResponseStreamOptions{ID: id, Model: meta.OriginModelName, IncludeUsage: true})
+	options := relayconvert.ResponseStreamOptions{ID: id, Model: meta.OriginModelName, Created: time.Now().Unix(), IncludeUsage: true}
+	conversionFrom := from
+	var gemini *geminiArgumentStream
+	if from == types.RelayFormatGemini && to != types.RelayFormatGemini {
+		state, err := relayconvert.NewResponseStreamState(from, types.RelayFormatOpenAI, options)
+		if err != nil {
+			result.failure = "response_conversion_failed"
+			return
+		}
+		gemini = &geminiArgumentStream{state: state, candidates: make(map[int]*geminiCalls)}
+		conversionFrom = types.RelayFormatOpenAI
+	}
+	state, err := relayconvert.NewResponseStreamState(conversionFrom, to, options)
 	if err != nil {
 		result.failure = "response_conversion_failed"
 		return
@@ -216,6 +229,21 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 				prefix = "event: " + gjson.GetBytes(raw, "type").String() + "\n"
 			}
 			if err := write(append([]byte(prefix+"data: "), append(raw, '\n', '\n')...)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	emitConverted := func(values []relayconvert.ResponseResult) error {
+		if gemini == nil {
+			return emit(values)
+		}
+		for _, value := range values {
+			converted, err := relayconvert.ConvertStreamResponseChunk(ctx, meta, state, value.Value)
+			if err != nil {
+				return err
+			}
+			if err := emit(converted); err != nil {
 				return err
 			}
 		}
@@ -306,9 +334,13 @@ readLoop:
 				err = write(frame.raw)
 			} else {
 				var converted []relayconvert.ResponseResult
-				converted, err = relayconvert.ConvertStreamResponseChunk(ctx, meta, state, value)
+				if gemini != nil {
+					converted, err = gemini.convert(ctx, meta, raw, value)
+				} else {
+					converted, err = relayconvert.ConvertStreamResponseChunk(ctx, meta, state, value)
+				}
 				if err == nil {
-					err = emit(converted)
+					err = emitConverted(converted)
 				}
 			}
 			if last && (from == types.RelayFormatClaude || from == types.RelayFormatOpenAIResponses) {
@@ -329,7 +361,16 @@ readLoop:
 		result.failure = "upstream_stream_incomplete"
 	}
 	if result.failure == "" && from != to {
-		values, err := relayconvert.FinalizeStreamResponse(ctx, meta, state)
+		var values []relayconvert.ResponseResult
+		if gemini != nil {
+			values, err = gemini.finalize(ctx, meta)
+			if err == nil {
+				err = emitConverted(values)
+			}
+		}
+		if err == nil {
+			values, err = relayconvert.FinalizeStreamResponse(ctx, meta, state)
+		}
 		if err == nil {
 			err = emit(values)
 		}
