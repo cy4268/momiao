@@ -1,0 +1,82 @@
+diff --git a/integration/v1/cmd/b01-runtime/main.go b/integration/v1/cmd/b01-runtime/main.go
+--- a/integration/v1/cmd/b01-runtime/main.go
++++ b/integration/v1/cmd/b01-runtime/main.go
+@@ -1437,6 +1437,8 @@
+ 	}
+ }
+ 
++var channelTestPath = regexp.MustCompile(`^/api/v1/ops/channels/[1-9][0-9]*/test$`)
++
+ func newEdgeProxy(target *url.URL) http.Handler {
+ 	proxy := &httputil.ReverseProxy{
+ 		Rewrite: func(r *httputil.ProxyRequest) {
+@@ -1446,19 +1448,25 @@
+ 			r.Out.Host = target.Host
+ 		},
+ 		Transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 2 * time.Second, KeepAlive: 30 * time.Second}).DialContext, ForceAttemptHTTP2: false, MaxIdleConns: 32, MaxIdleConnsPerHost: 16, IdleConnTimeout: 30 * time.Second, ResponseHeaderTimeout: 10 * time.Second},
+-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
++		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+ 			w.Header().Set("Content-Type", "application/json")
+ 			w.Header().Set("Cache-Control", "no-store")
+-			w.WriteHeader(http.StatusBadGateway)
+-			_, _ = io.WriteString(w, "{\"success\":false,\"code\":\"EDGE_UPSTREAM_UNAVAILABLE\"}\n")
++			status, code, message := 502, "EDGE_UPSTREAM_UNAVAILABLE", "platform connection failed"
++            var network net.Error
++            if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &network) && network.Timeout() {
++                status, code, message = 504, "EDGE_UPSTREAM_TIMEOUT", "platform response timed out"
++            }
++            w.WriteHeader(status)
++            _ = json.NewEncoder(w).Encode(map[string]any{"success": false, "code": code, "message": message,
++                "error": map[string]any{"code": status, "type": code, "message": message}})
+ 		},
+ 	}
+ 	uploadProxy := *proxy
+ 	uploadTransport := proxy.Transport.(*http.Transport).Clone()
+ 	uploadTransport.ResponseHeaderTimeout = 95 * time.Second
+ 	uploadProxy.Transport = uploadTransport
+-	// Outlive the platform's five-minute model budget without relaxing other routes.
+-	const modelRelayTimeout = 330 * time.Second
++	// Leave 30s to return the platform's 330s business-timeout error.
++	const modelRelayTimeout = 360 * time.Second
+ 	modelProxy := *proxy
+ 	modelTransport := proxy.Transport.(*http.Transport).Clone()
+ 	modelTransport.ResponseHeaderTimeout = modelRelayTimeout
+@@ -1467,7 +1475,7 @@
+ 		stripForwarding(r.Header)
+ 		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+ 		w.Header().Set("X-Content-Type-Options", "nosniff")
+-		if strings.HasPrefix(r.URL.Path, "/v1/") {
++		if strings.HasPrefix(r.URL.Path, "/v1/") || r.Method == http.MethodPost && channelTestPath.MatchString(r.URL.EscapedPath()) {
+ 			if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(modelRelayTimeout)); err != nil {
+ 				proxy.ErrorHandler(w, r, err)
+ 				return
+diff --git a/integration/v1/cmd/b01-runtime/main_test.go b/integration/v1/cmd/b01-runtime/main_test.go
+--- a/integration/v1/cmd/b01-runtime/main_test.go
++++ b/integration/v1/cmd/b01-runtime/main_test.go
+@@ -296,7 +296,7 @@
+ 	cancelled := make(chan struct{})
+ 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+ 		switch r.URL.Path {
+-		case "/v1/slow-first-byte":
++		case "/api/v1/ops/channels/25/test":
+ 			select {
+ 			case <-time.After(11 * time.Second):
+ 			case <-r.Context().Done():
+@@ -371,7 +371,7 @@
+ 
+ 	// Reuse this TLS proxy and upstream to exercise the actual relay path.
+ 	client.Timeout = 45 * time.Second
+-	response, err = client.Post(edgeServer.URL+"/v1/slow-first-byte", "application/json", strings.NewReader("{}"))
++	response, err = client.Post(edgeServer.URL+"/api/v1/ops/channels/25/test", "application/json", strings.NewReader("{}"))
+ 	if err != nil {
+ 		t.Fatalf("model slow first byte was cut off: %v", err)
+ 	}
+@@ -380,7 +380,7 @@
+ 	if readErr != nil || response.StatusCode != http.StatusOK || string(body) != `{"ok":true}` {
+ 		t.Fatalf("model slow first byte: status=%d body=%q err=%v", response.StatusCode, body, readErr)
+ 	}
+-	t.Log("slow_first_byte_11s=PASS")
++	t.Log("channel_test_first_byte_11s=PASS")
+ 
+ 	response, err = client.Post(edgeServer.URL+"/v1/long-stream", "application/json", strings.NewReader("{}"))
+ 	if err != nil {

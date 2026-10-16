@@ -41,4 +41,8 @@ it('late protected response after logout is discarded', async () => {
 });
 it('reports HTTP success:false and failed writes without automatically retrying',async()=>{
  const f=vi.fn().mockResolvedValueOnce(ok(anonymous)).mockResolvedValueOnce(failure(400));const c=new ApiClient(f);await c.bootstrap();await expect(c.login('a','b')).rejects.toThrow('test failure');expect(f).toHaveBeenCalledTimes(2);
+ const probes=vi.fn().mockResolvedValueOnce(ok(authenticated)).mockResolvedValueOnce(ok(user)).mockImplementation(async()=>ok({ok:false,status_code:429,message:'quota exceeded'}));const probeClient=new ApiClient(probes);await probeClient.bootstrap();const timeout=vi.spyOn(AbortSignal,'timeout');
+ expect(await probeClient.request('/api/v1/ops/channels/25/test','POST',{})).toMatchObject({status_code:429,message:'quota exceeded'});expect(timeout).toHaveBeenLastCalledWith(360000);
+ await probeClient.request('/api/v1/ops/channels/25/models','POST',{});expect(timeout).toHaveBeenLastCalledWith(25000);
+ await probeClient.request('/api/v1/ops/channels/25/test','GET');expect(timeout).toHaveBeenLastCalledWith(25000);
 });

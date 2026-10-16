@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -22,6 +23,7 @@ type responseResult struct {
 	usage           platform.RelayUsage
 	reported, wrote bool
 	failure         string
+	detail          *upstreamError
 }
 
 // Claude's message_delta omits start usage fields. Decode into the same usage
@@ -127,19 +129,35 @@ func (u *responseUsage) decode(raw []byte, format types.RelayFormat, stream bool
 	return value, terminal, nil
 }
 
-func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.Response, from, to types.RelayFormat, meta *convmeta.Values, stream bool, id string) (result responseResult) {
+func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.Response, from, to types.RelayFormat, meta *convmeta.Values, stream bool, id, secret string) (result responseResult) {
 	var usage responseUsage
-	defer func() { result.usage, result.reported = usage.value, usage.reported }()
+	defer func() {
+		result.usage, result.reported = usage.value, usage.reported
+		if result.failure != "" && result.detail == nil {
+			result.detail = transportFailure(ctx.Err(), result.failure)
+		}
+		if result.detail != nil && (result.detail.Status == 504 || result.detail.Status == 499) {
+			result.failure = result.detail.Type
+		}
+	}()
+	upstreamFailure := func(raw []byte) {
+		if detail := parseUpstreamError(raw, 0, secret); detail != nil {
+			result.detail = detail
+			result.failure = fmt.Sprintf("upstream_http_%d", detail.Status)
+		}
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	if !stream {
 		raw, err := io.ReadAll(response.Body)
 		if err != nil {
 			result.failure = "upstream_read_failed"
+			result.detail = transportFailure(err, result.failure)
 			return
 		}
 		value, _, err := usage.decode(raw, from, false)
 		if err != nil {
 			result.failure = "upstream_response_invalid"
+			upstreamFailure(raw)
 			return
 		}
 		if from != to {
@@ -229,6 +247,7 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 		}
 		if readErr != nil && readErr != io.EOF {
 			result.failure = "upstream_stream_interrupted"
+			result.detail = transportFailure(readErr, result.failure)
 			break
 		}
 		raw := data.Bytes()
@@ -242,6 +261,7 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 			terminal = terminal || last
 			if decodeErr != nil {
 				result.failure = "upstream_stream_invalid"
+				upstreamFailure(raw)
 				break
 			}
 			if from == to {
@@ -282,8 +302,11 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 			result.failure = "stream_finalize_failed"
 		}
 	}
-	if result.failure != "" && result.wrote && ctx.Err() == nil {
-		raw, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]string{"type": "relay_error", "message": result.failure}})
+	if result.failure != "" && result.wrote && !errors.Is(ctx.Err(), context.Canceled) {
+		if result.detail == nil {
+			result.detail = transportFailure(ctx.Err(), result.failure)
+		}
+		raw, _ := json.Marshal(map[string]any{"type": "error", "error": result.detail})
 		prefix := ""
 		if to != types.RelayFormatOpenAI {
 			prefix = "event: error\n"

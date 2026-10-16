@@ -2,7 +2,7 @@
 # Preserve the standard license text byte-for-byte.
 LICENSE -text
 # Unified patches require blank context lines and may end with one.
-deploy/patches/**/*.patch whitespace=-blank-at-eol,-blank-at-eof
+deploy/patches/**/*.patch whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
 # Preserve historical Markdown hard breaks and terminal blank lines.
 docs/design/archive/** whitespace=-blank-at-eol,-blank-at-eof
 # These applied migrations retain their exact checksum bytes, including CRLF.
