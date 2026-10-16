@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
@@ -19,6 +20,80 @@ func TestChannelErrorFeedback(t *testing.T) {
 	if requestTimeout != 330*time.Second {
 		t.Errorf("business timeout=%s, want 330s", requestTimeout)
 	}
+	// Reuse this response-path test without spending upstream quota or real time.
+	synctest.Test(t, func(t *testing.T) {
+		body, upstream := io.Pipe()
+		defer upstream.Close()
+		recorder := httptest.NewRecorder()
+		response := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body}
+		finished := make(chan responseResult, 1)
+		go func() {
+			finished <- forwardResponse(t.Context(), recorder, response, types.RelayFormatOpenAI, types.RelayFormatOpenAI, &convmeta.Values{OriginModelName: "example"}, true, "test", "")
+		}()
+		synctest.Wait()
+		if !recorder.Flushed || recorder.Code != 200 || recorder.Header().Get("Content-Type") != "text/event-stream" || recorder.Body.Len() != 0 {
+			t.Fatal("confirmed SSE headers were not flushed before the first upstream event")
+		}
+		time.Sleep(14 * time.Second)
+		synctest.Wait()
+		if recorder.Body.Len() != 0 {
+			t.Fatal("heartbeat arrived before the idle interval")
+		}
+		time.Sleep(time.Second)
+		synctest.Wait()
+		if recorder.Body.String() != ": ping\n\n" {
+			t.Fatalf("idle heartbeat = %q", recorder.Body.String())
+		}
+		time.Sleep(5 * time.Second)
+		const partial = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":1}}\n\n"
+		if _, err := io.WriteString(upstream, partial); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		time.Sleep(14 * time.Second)
+		synctest.Wait()
+		if recorder.Body.String() != ": ping\n\n"+partial {
+			t.Fatal("normal output did not reset the idle heartbeat")
+		}
+		// Reach 140 seconds: one initial ping and eight since the data at t=20.
+		time.Sleep(106 * time.Second)
+		synctest.Wait()
+		if strings.Count(recorder.Body.String(), ": ping\n\n") != 9 {
+			t.Fatalf("keepalive stopped during the long upstream pause: %q", recorder.Body.String())
+		}
+		if _, err := io.WriteString(upstream, "data: [DONE]\n\n"); err != nil {
+			t.Fatal(err)
+		}
+		result := <-finished
+		if result.failure != "" || !result.reported || result.usage.Prompt != 7 || result.usage.Completion != 1 {
+			t.Fatalf("stream completion/usage changed: %+v", result)
+		}
+		completed := recorder.Body.String()
+		time.Sleep(30 * time.Second)
+		synctest.Wait()
+		if recorder.Body.String() != completed {
+			t.Fatal("heartbeat continued after stream completion")
+		}
+		// Cancellation must also unblock a pending upstream read and stop output.
+		ctx, cancel := context.WithCancel(t.Context())
+		body, upstream = io.Pipe()
+		defer upstream.Close()
+		response.Body = body
+		go func() {
+			finished <- forwardResponse(ctx, recorder, response, types.RelayFormatOpenAI, types.RelayFormatOpenAI, &convmeta.Values{OriginModelName: "example"}, true, "test", "")
+		}()
+		synctest.Wait()
+		cancel()
+		result = <-finished
+		if result.detail == nil || result.detail.Status != 499 {
+			t.Fatalf("cancelled stream = %+v; want 499", result)
+		}
+		time.Sleep(30 * time.Second)
+		synctest.Wait()
+		if recorder.Body.String() != completed {
+			t.Fatal("heartbeat continued after cancellation")
+		}
+	})
 	const secret = "synthetic-channel-key"
 	const quota = `{"error":{"code":429,"type":"RESOURCE_EXHAUSTED","message":"quota exceeded synthetic-channel-key ?key=synthetic-google-key"}}`
 	for _, tc := range []struct {

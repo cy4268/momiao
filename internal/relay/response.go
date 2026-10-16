@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
@@ -189,6 +190,9 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 		result.failure = "response_conversion_failed"
 		return
 	}
+	const heartbeatInterval = 15 * time.Second
+	idle := time.NewTimer(heartbeatInterval)
+	defer idle.Stop()
 	write := func(raw []byte) error {
 		if !result.wrote {
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -199,7 +203,17 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 		if _, err := w.Write(raw); err != nil {
 			return err
 		}
-		return http.NewResponseController(w).Flush()
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			return err
+		}
+		idle.Reset(heartbeatInterval)
+		return nil
+	}
+	// Both callers have already handled non-2xx responses and channel retries.
+	// Flush confirmed SSE headers without waiting for the first model event.
+	if err := write(nil); err != nil {
+		result.failure = "stream_forward_failed"
+		return
 	}
 	emit := func(values []relayconvert.ResponseResult) error {
 		for _, value := range values {
@@ -217,44 +231,84 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 		}
 		return nil
 	}
-	reader := bufio.NewReader(response.Body)
-	terminal, done := false, false
-	// Frame buffering is bounded by one upstream SSE event, not the entire reply;
-	// Reader has no Scanner's 64 KiB token limit (tool arguments can be larger).
-	for !done {
-		var frame, data bytes.Buffer
-		var readErr error
+	type streamFrame struct {
+		raw, data []byte
+		err       error
+	}
+	frames := make(chan streamFrame)
+	stop, readerDone := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		reader := bufio.NewReader(response.Body)
+		// Only one pending event is buffered, never the entire reply. Reader has
+		// no Scanner's 64 KiB token limit (tool arguments can be larger).
 		for {
-			line, e := reader.ReadBytes('\n')
-			frame.Write(line)
-			trimmed := bytes.TrimRight(line, "\r\n")
-			if bytes.HasPrefix(trimmed, []byte("data:")) {
-				if data.Len() > 0 {
-					data.WriteByte('\n')
+			var frame, data bytes.Buffer
+			var readErr error
+			for {
+				line, e := reader.ReadBytes('\n')
+				frame.Write(line)
+				trimmed := bytes.TrimRight(line, "\r\n")
+				if bytes.HasPrefix(trimmed, []byte("data:")) {
+					if data.Len() > 0 {
+						data.WriteByte('\n')
+					}
+					data.Write(bytes.TrimPrefix(bytes.TrimPrefix(trimmed, []byte("data:")), []byte(" ")))
 				}
-				data.Write(bytes.TrimPrefix(bytes.TrimPrefix(trimmed, []byte("data:")), []byte(" ")))
+				if e != nil {
+					readErr = e
+					break
+				}
+				if len(trimmed) == 0 {
+					break
+				}
 			}
-			if e != nil {
-				readErr = e
-				break
+			select {
+			case frames <- streamFrame{frame.Bytes(), data.Bytes(), readErr}:
+			case <-stop:
+				return
 			}
-			if len(trimmed) == 0 {
-				break
+			if readErr != nil {
+				return
 			}
 		}
-		if frame.Len() == 0 && readErr == io.EOF {
-			break
-		}
-		if readErr != nil && readErr != io.EOF {
+	}()
+	defer func() {
+		close(stop)
+		_ = response.Body.Close() // Unblock a pending HTTP body read on cancellation.
+		<-readerDone
+	}()
+	terminal, done := false, false
+readLoop:
+	for !done {
+		var frame streamFrame
+		// This loop owns every ResponseWriter access, including idle comments.
+		select {
+		case <-ctx.Done():
 			result.failure = "upstream_stream_interrupted"
-			result.detail = transportFailure(readErr, result.failure)
+			result.detail = transportFailure(ctx.Err(), result.failure)
+			break readLoop
+		case <-idle.C:
+			if err = write([]byte(": ping\n\n")); err != nil {
+				result.failure = "stream_forward_failed"
+				break readLoop
+			}
+			continue
+		case frame = <-frames:
+		}
+		if len(frame.raw) == 0 && frame.err == io.EOF {
 			break
 		}
-		raw := data.Bytes()
+		if frame.err != nil && frame.err != io.EOF {
+			result.failure = "upstream_stream_interrupted"
+			result.detail = transportFailure(frame.err, result.failure)
+			break
+		}
+		raw := frame.data
 		if bytes.Equal(raw, []byte("[DONE]")) {
 			terminal, done = true, true
 			if from == to {
-				err = write(frame.Bytes())
+				err = write(frame.raw)
 			}
 		} else if len(raw) > 0 {
 			value, last, decodeErr := usage.decode(raw, from, true)
@@ -265,7 +319,7 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 				break
 			}
 			if from == to {
-				err = write(frame.Bytes())
+				err = write(frame.raw)
 			} else {
 				var converted []relayconvert.ResponseResult
 				converted, err = relayconvert.ConvertStreamResponseChunk(ctx, meta, state, value)
@@ -276,14 +330,14 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 			if last && (from == types.RelayFormatClaude || from == types.RelayFormatOpenAIResponses) {
 				done = true
 			}
-		} else if frame.Len() > 0 {
-			err = write(frame.Bytes()) // SSE comments/keepalives, without inventing data.
+		} else if len(frame.raw) > 0 {
+			err = write(frame.raw) // SSE comments/keepalives, without inventing data.
 		}
 		if err != nil {
 			result.failure = "stream_forward_failed"
 			break
 		}
-		if readErr == io.EOF {
+		if frame.err == io.EOF {
 			break
 		}
 	}
