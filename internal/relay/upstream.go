@@ -108,6 +108,12 @@ func upstreamRequest(ctx context.Context, incoming *http.Request, body []byte, f
 	if err != nil {
 		return nil, to, meta, err
 	}
+	if (channel.Type == 24 || channel.Type == 41) && stream && len(gjson.GetBytes(body, "tools").Array()) > 0 {
+		body, err = sjson.SetBytes(body, "toolConfig.functionCallingConfig.streamFunctionCallArguments", true)
+		if err != nil {
+			return nil, to, meta, err
+		}
+	}
 	base := channelBaseURL(channel)
 	headers := make(http.Header)
 	headers.Set("Content-Type", "application/json")

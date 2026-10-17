@@ -145,7 +145,7 @@ func (v ChannelTestOptions) Valid() bool {
 // Request shapes/budgets follow official f1164142 controller/channel-test.go.
 // Reuse the live protocol converter and response reader, not the billing handler.
 func TestChannel(ctx context.Context, c platform.RelayChannel, options ChannelTestOptions) ChannelTestResult {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	start := time.Now()
 	result := ChannelTestResult{Model: options.Model, UpstreamModel: c.UpstreamModel}
@@ -237,18 +237,24 @@ func TestChannel(ctx context.Context, c platform.RelayChannel, options ChannelTe
 	req.Body = io.NopCloser(strings.NewReader(string(body)))
 	req.ContentLength = int64(len(body))
 	req.GetBody = nil
-	res, err := channelClient().Do(req)
+	client := channelClient()
+	client.Timeout = requestTimeout
+	res, err := client.Do(req)
 	if err != nil {
-		return finish("上游连接失败")
+		detail := transportFailure(err, "upstream connection failed")
+		result.Status = detail.Status
+		return finish(detail.Message)
 	}
 	defer res.Body.Close()
 	result.Status = res.StatusCode
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return finish(fmt.Sprintf("上游 HTTP %d", res.StatusCode))
+		detail := readUpstreamError(res, c.Key)
+		return finish(fmt.Sprintf("上游 HTTP %d: %s", detail.Status, detail.Message))
 	}
-	response := forwardResponse(ctx, httptest.NewRecorder(), res, format, format, meta, options.Stream, "channel-test")
+	response := forwardResponse(ctx, httptest.NewRecorder(), res, format, format, meta, options.Stream, "channel-test", c.Key, nil)
 	if response.failure != "" {
-		return finish("上游响应未完成：" + response.failure)
+		result.Status = response.detail.Status
+		return finish(fmt.Sprintf("上游 HTTP %d: %s", result.Status, response.detail.Message))
 	}
 	result.OK = true
 	return finish("测试成功")

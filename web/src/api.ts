@@ -119,7 +119,8 @@ export class ApiClient {
         try {
             let response: Response;
             try {
-                const timeout = AbortSignal.timeout(multipart ? 95000 : 25000);
+                const channelTest = method === 'POST' && /^\/api\/v1\/ops\/channels\/[1-9]\d*\/test$/.test(path);
+                const timeout = AbortSignal.timeout(channelTest ? 360000 : multipart ? 95000 : 25000);
                 const signal = controller ? AbortSignal.any([timeout, controller.signal]) : timeout;
                 response = await this.fetcher(path, { method, headers, body: multipart ? body : body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin', cache: 'no-store', signal });
             }

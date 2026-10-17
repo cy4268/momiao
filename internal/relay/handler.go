@@ -9,16 +9,17 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/cy4268/momiao/internal/platform"
 	"github.com/google/uuid"
-	"github.com/tidwall/gjson"
 )
 
-const requestTimeout = 5 * time.Minute
+const requestTimeout = 330 * time.Second
+
+// RequestTimeout is the shared business budget, not the response write deadline.
+const RequestTimeout = requestTimeout
 
 func Handler(store *platform.Store) http.Handler {
 	client := &http.Client{Timeout: requestTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -44,10 +45,11 @@ func Handler(store *platform.Store) http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 		defer cancel()
+		requestStarted := time.Now()
 		deadline, _ := ctx.Deadline()
 		controller := http.NewResponseController(w)
 		_ = controller.SetReadDeadline(deadline)
-		_ = controller.SetWriteDeadline(deadline)
+		_ = controller.SetWriteDeadline(deadline.Add(30 * time.Second))
 		body, err := io.ReadAll(r.Body)
 		var request struct {
 			Model    string `json:"model"`
@@ -95,6 +97,19 @@ func Handler(store *platform.Store) http.Handler {
 				slog.Error("relay settlement failed", "request_id", settlement.RequestID, "channel_id", settlement.ChannelID)
 			}
 		}()
+		var output *streamResponse
+		if request.Stream {
+			output = newStreamResponse(ctx, w, time.Until(requestStarted.Add(20*time.Second)))
+			ctx = output.ctx
+			defer output.close()
+		}
+		fail := func(detail *upstreamError) {
+			if output != nil {
+				output.fail(detail, format)
+			} else {
+				writeUpstreamError(w, detail)
+			}
+		}
 		for attempt := 1; attempt <= 3; attempt++ {
 			attemptStarted := time.Now().UTC()
 			channel := route.Channel
@@ -103,7 +118,7 @@ func Handler(store *platform.Store) http.Handler {
 			upstream, upstreamFormat, meta, err := upstreamRequest(ctx, r, body, format, request.Model, request.Stream, channel)
 			if err != nil {
 				settlement.StatusCode, settlement.Error = 400, "request_conversion_failed"
-				writeError(w, 400, "request conversion or channel configuration failed")
+				fail(&upstreamError{Status: 400, Message: "request conversion or channel configuration failed", Type: "relay_error", Code: http.StatusText(400)})
 				return
 			}
 			settlement.ProviderAttempts = attempt
@@ -112,7 +127,8 @@ func Handler(store *platform.Store) http.Handler {
 				// Omit the request URL: Vertex credentials can be query parameters.
 				slog.Warn("relay transport failed", "request_id", settlement.RequestID, "channel_id", channel.ID, "cause", transportErr.Err)
 			}
-			settlement.StatusCode, settlement.Error = 502, "upstream_connection_error"
+			failure := transportFailure(err, "upstream connection failed")
+			settlement.StatusCode, settlement.Error = failure.Status, failure.Type
 			if err == nil {
 				settlement.StatusCode = response.StatusCode
 				settlement.Error = fmt.Sprintf("upstream_http_%d", response.StatusCode)
@@ -128,7 +144,7 @@ func Handler(store *platform.Store) http.Handler {
 					failed.RequestedAt, failed.DurationMS = attemptStarted, time.Since(attemptStarted).Milliseconds()
 					if err := store.LogRelayAttempt(ctx, failed); err != nil {
 						settlement.StatusCode, settlement.Error = 503, "attempt_log_failed"
-						writeError(w, 503, "relay logging unavailable")
+						fail(&upstreamError{Status: 503, Message: "relay logging unavailable", Type: "relay_error", Code: http.StatusText(503)})
 						return
 					}
 					route = next
@@ -139,32 +155,26 @@ func Handler(store *platform.Store) http.Handler {
 				if ctx.Err() != nil {
 					settlement.FinalStatus = "CANCELLED_POST_UPSTREAM"
 				}
-				writeError(w, 502, "upstream connection failed")
+				fail(failure)
 				return
 			}
 			defer response.Body.Close()
 			if response.StatusCode < 200 || response.StatusCode >= 300 {
-				message := settlement.Error
-				if raw, err := io.ReadAll(response.Body); err == nil {
-					if detail := gjson.GetBytes(raw, "error.message").String(); detail != "" {
-						message = strings.ReplaceAll(detail, channel.Key, "[credential]")
-					}
-				}
-				writeError(w, response.StatusCode, message)
+				fail(readUpstreamError(response, channel.Key))
 				return
 			}
-			result := forwardResponse(ctx, w, response, upstreamFormat, format, meta, request.Stream, settlement.RequestID)
+			result := forwardResponse(ctx, w, response, upstreamFormat, format, meta, request.Stream, settlement.RequestID, channel.Key, output)
 			settlement.Usage, usageReported = result.usage, result.reported
 			settlement.Error = result.failure
 			if result.failure == "" {
 				settlement.FinalStatus = "SUCCESS"
 			} else {
-				settlement.StatusCode = 502
+				settlement.StatusCode = result.detail.Status
 				if ctx.Err() != nil {
 					settlement.FinalStatus = "CANCELLED_POST_UPSTREAM"
 				}
 				if !result.wrote {
-					writeError(w, 502, result.failure)
+					fail(result.detail)
 				}
 			}
 			return

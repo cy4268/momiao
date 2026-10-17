@@ -130,12 +130,22 @@ func newOpsRelayHandler(store *platform.Store) http.Handler {
 					walletError(w, 400, "OPS_INPUT_INVALID")
 					return
 				}
+				if action == "test" {
+					// Keep the normal ops budget for every other action.
+					var cancelTest context.CancelFunc
+					ctx, cancelTest = context.WithTimeout(r.Context(), relay.RequestTimeout)
+					defer cancelTest()
+					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(relay.RequestTimeout + 30*time.Second))
+				}
 				channel, options.Model, err = store.OpsProbeChannel(ctx, id, strings.TrimSpace(options.Model))
 				if err == nil {
 					if action == "test" {
 						probe := relay.TestChannel(ctx, channel, options)
 						result = probe
-						err = store.RecordChannelTest(ctx, id, probe.TestAt, probe.Duration)
+						// Persist a timeout result after its business context expires.
+						recordCtx, recordCancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+						err = store.RecordChannelTest(recordCtx, id, probe.TestAt, probe.Duration)
+						recordCancel()
 					} else {
 						result, err = relay.FetchChannelModels(ctx, channel)
 						if err != nil {

@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
@@ -22,6 +24,7 @@ type responseResult struct {
 	usage           platform.RelayUsage
 	reported, wrote bool
 	failure         string
+	detail          *upstreamError
 }
 
 // Claude's message_delta omits start usage fields. Decode into the same usage
@@ -127,19 +130,35 @@ func (u *responseUsage) decode(raw []byte, format types.RelayFormat, stream bool
 	return value, terminal, nil
 }
 
-func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.Response, from, to types.RelayFormat, meta *convmeta.Values, stream bool, id string) (result responseResult) {
+func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.Response, from, to types.RelayFormat, meta *convmeta.Values, stream bool, id, secret string, output *streamResponse) (result responseResult) {
 	var usage responseUsage
-	defer func() { result.usage, result.reported = usage.value, usage.reported }()
-	w.Header().Set("Cache-Control", "no-store")
+	defer func() {
+		result.usage, result.reported = usage.value, usage.reported
+		if result.failure != "" && result.detail == nil {
+			result.detail = transportFailure(ctx.Err(), result.failure)
+		}
+		if result.detail != nil && (result.detail.Status == 504 || result.detail.Status == 499) {
+			result.failure = result.detail.Type
+		}
+	}()
+	upstreamFailure := func(raw []byte) {
+		if detail := parseUpstreamError(raw, 0, secret); detail != nil {
+			result.detail = detail
+			result.failure = fmt.Sprintf("upstream_http_%d", detail.Status)
+		}
+	}
 	if !stream {
+		w.Header().Set("Cache-Control", "no-store")
 		raw, err := io.ReadAll(response.Body)
 		if err != nil {
 			result.failure = "upstream_read_failed"
+			result.detail = transportFailure(err, result.failure)
 			return
 		}
 		value, _, err := usage.decode(raw, from, false)
 		if err != nil {
 			result.failure = "upstream_response_invalid"
+			upstreamFailure(raw)
 			return
 		}
 		if from != to {
@@ -166,22 +185,38 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 		result.failure = "upstream_stream_expected"
 		return
 	}
-	state, err := relayconvert.NewResponseStreamState(from, to, relayconvert.ResponseStreamOptions{ID: id, Model: meta.OriginModelName, IncludeUsage: true})
+	options := relayconvert.ResponseStreamOptions{ID: id, Model: meta.OriginModelName, Created: time.Now().Unix(), IncludeUsage: true}
+	conversionFrom := from
+	var gemini *geminiArgumentStream
+	if from == types.RelayFormatGemini && to != types.RelayFormatGemini {
+		state, err := relayconvert.NewResponseStreamState(from, types.RelayFormatOpenAI, options)
+		if err != nil {
+			result.failure = "response_conversion_failed"
+			return
+		}
+		gemini = &geminiArgumentStream{state: state, candidates: make(map[int]*geminiCalls)}
+		conversionFrom = types.RelayFormatOpenAI
+	}
+	state, err := relayconvert.NewResponseStreamState(conversionFrom, to, options)
 	if err != nil {
 		result.failure = "response_conversion_failed"
 		return
 	}
+	if output == nil {
+		// Non-/v1 callers (channel tests) already have confirmed upstream SSE.
+		output = newStreamResponse(ctx, w, requestTimeout)
+		defer output.close()
+	}
 	write := func(raw []byte) error {
-		if !result.wrote {
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.Header().Set("X-Accel-Buffering", "no")
-			w.WriteHeader(response.StatusCode)
-			result.wrote = true
-		}
-		if _, err := w.Write(raw); err != nil {
-			return err
-		}
-		return http.NewResponseController(w).Flush()
+		var err error
+		result.wrote, err = output.write(raw, response.StatusCode)
+		return err
+	}
+	// Both callers have already handled non-2xx responses and channel retries.
+	// Flush confirmed SSE headers without waiting for the first model event.
+	if err := write(nil); err != nil {
+		result.failure = "stream_forward_failed"
+		return
 	}
 	emit := func(values []relayconvert.ResponseResult) error {
 		for _, value := range values {
@@ -199,71 +234,126 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 		}
 		return nil
 	}
-	reader := bufio.NewReader(response.Body)
-	terminal, done := false, false
-	// Frame buffering is bounded by one upstream SSE event, not the entire reply;
-	// Reader has no Scanner's 64 KiB token limit (tool arguments can be larger).
-	for !done {
-		var frame, data bytes.Buffer
-		var readErr error
+	emitConverted := func(values []relayconvert.ResponseResult) error {
+		if gemini == nil {
+			return emit(values)
+		}
+		for _, value := range values {
+			converted, err := relayconvert.ConvertStreamResponseChunk(ctx, meta, state, value.Value)
+			if err != nil {
+				return err
+			}
+			if err := emit(converted); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	type streamFrame struct {
+		raw, data []byte
+		err       error
+	}
+	frames := make(chan streamFrame)
+	stop, readerDone := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		reader := bufio.NewReader(response.Body)
+		// Only one pending event is buffered, never the entire reply. Reader has
+		// no Scanner's 64 KiB token limit (tool arguments can be larger).
 		for {
-			line, e := reader.ReadBytes('\n')
-			frame.Write(line)
-			trimmed := bytes.TrimRight(line, "\r\n")
-			if bytes.HasPrefix(trimmed, []byte("data:")) {
-				if data.Len() > 0 {
-					data.WriteByte('\n')
+			var frame, data bytes.Buffer
+			var readErr error
+			for {
+				line, e := reader.ReadBytes('\n')
+				frame.Write(line)
+				trimmed := bytes.TrimRight(line, "\r\n")
+				if bytes.HasPrefix(trimmed, []byte("data:")) {
+					if data.Len() > 0 {
+						data.WriteByte('\n')
+					}
+					data.Write(bytes.TrimPrefix(bytes.TrimPrefix(trimmed, []byte("data:")), []byte(" ")))
 				}
-				data.Write(bytes.TrimPrefix(bytes.TrimPrefix(trimmed, []byte("data:")), []byte(" ")))
+				if e != nil {
+					readErr = e
+					break
+				}
+				if len(trimmed) == 0 {
+					break
+				}
 			}
-			if e != nil {
-				readErr = e
-				break
+			select {
+			case frames <- streamFrame{frame.Bytes(), data.Bytes(), readErr}:
+			case <-stop:
+				return
 			}
-			if len(trimmed) == 0 {
-				break
+			if readErr != nil {
+				return
 			}
 		}
-		if frame.Len() == 0 && readErr == io.EOF {
-			break
-		}
-		if readErr != nil && readErr != io.EOF {
+	}()
+	defer func() {
+		close(stop)
+		_ = response.Body.Close() // Unblock a pending HTTP body read on cancellation.
+		<-readerDone
+	}()
+	terminal, done := false, false
+readLoop:
+	for !done {
+		var frame streamFrame
+		// The shared committer serializes body frames with idle comments.
+		select {
+		case <-output.ctx.Done():
 			result.failure = "upstream_stream_interrupted"
+			result.detail = transportFailure(output.ctx.Err(), result.failure)
+			break readLoop
+		case frame = <-frames:
+		}
+		if len(frame.raw) == 0 && frame.err == io.EOF {
 			break
 		}
-		raw := data.Bytes()
+		if frame.err != nil && frame.err != io.EOF {
+			result.failure = "upstream_stream_interrupted"
+			result.detail = transportFailure(frame.err, result.failure)
+			break
+		}
+		raw := frame.data
 		if bytes.Equal(raw, []byte("[DONE]")) {
 			terminal, done = true, true
 			if from == to {
-				err = write(frame.Bytes())
+				err = write(frame.raw)
 			}
 		} else if len(raw) > 0 {
 			value, last, decodeErr := usage.decode(raw, from, true)
 			terminal = terminal || last
 			if decodeErr != nil {
 				result.failure = "upstream_stream_invalid"
+				upstreamFailure(raw)
 				break
 			}
 			if from == to {
-				err = write(frame.Bytes())
+				err = write(frame.raw)
 			} else {
 				var converted []relayconvert.ResponseResult
-				converted, err = relayconvert.ConvertStreamResponseChunk(ctx, meta, state, value)
+				if gemini != nil {
+					converted, err = gemini.convert(ctx, meta, raw, value)
+				} else {
+					converted, err = relayconvert.ConvertStreamResponseChunk(ctx, meta, state, value)
+				}
 				if err == nil {
-					err = emit(converted)
+					err = emitConverted(converted)
 				}
 			}
 			if last && (from == types.RelayFormatClaude || from == types.RelayFormatOpenAIResponses) {
 				done = true
 			}
-		} else if frame.Len() > 0 {
-			err = write(frame.Bytes()) // SSE comments/keepalives, without inventing data.
+		} else if len(frame.raw) > 0 {
+			err = write(frame.raw) // SSE comments/keepalives, without inventing data.
 		}
 		if err != nil {
 			result.failure = "stream_forward_failed"
 			break
 		}
-		if readErr == io.EOF {
+		if frame.err == io.EOF {
 			break
 		}
 	}
@@ -271,7 +361,16 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 		result.failure = "upstream_stream_incomplete"
 	}
 	if result.failure == "" && from != to {
-		values, err := relayconvert.FinalizeStreamResponse(ctx, meta, state)
+		var values []relayconvert.ResponseResult
+		if gemini != nil {
+			values, err = gemini.finalize(ctx, meta)
+			if err == nil {
+				err = emitConverted(values)
+			}
+		}
+		if err == nil {
+			values, err = relayconvert.FinalizeStreamResponse(ctx, meta, state)
+		}
 		if err == nil {
 			err = emit(values)
 		}
@@ -282,13 +381,11 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 			result.failure = "stream_finalize_failed"
 		}
 	}
-	if result.failure != "" && result.wrote && ctx.Err() == nil {
-		raw, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]string{"type": "relay_error", "message": result.failure}})
-		prefix := ""
-		if to != types.RelayFormatOpenAI {
-			prefix = "event: error\n"
+	if result.failure != "" && result.wrote && !errors.Is(ctx.Err(), context.Canceled) {
+		if result.detail == nil {
+			result.detail = transportFailure(ctx.Err(), result.failure)
 		}
-		_ = write(append([]byte(prefix+"data: "), append(raw, '\n', '\n')...))
+		output.fail(result.detail, to)
 	}
 	return
 }
