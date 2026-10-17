@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -22,7 +23,7 @@ import (
 
 func TestDelayedStreamHeaders(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		recorder := httptest.NewRecorder()
+		recorder := newLockedRecorder()
 		output := newStreamResponse(t.Context(), recorder, 20*time.Second)
 		defer output.close()
 		clientConn, serverConn := net.Pipe()
@@ -59,7 +60,7 @@ func TestDelayedStreamHeaders(t *testing.T) {
 		synctest.Wait()
 		time.Sleep(19 * time.Second)
 		synctest.Wait()
-		if recorder.Flushed || recorder.Body.Len() != 0 {
+		if recorder.flushed() || len(recorder.body()) != 0 {
 			t.Fatal("stream committed before the grace period")
 		}
 		time.Sleep(time.Second)
@@ -69,23 +70,23 @@ func TestDelayedStreamHeaders(t *testing.T) {
 			t.Fatal("upstream headers arrived before the delayed-header check")
 		default:
 		}
-		if !recorder.Flushed || recorder.Code != 200 || recorder.Body.String() != ": ping\n\n" || recorder.Header().Get("Content-Type") != "text/event-stream" || recorder.Header().Get("X-Accel-Buffering") != "no" {
-			t.Fatalf("no keepalive while client.Do waits: %v %q", recorder.Header(), recorder.Body.String())
+		if !recorder.flushed() || recorder.code() != 200 || recorder.body() != ": ping\n\n" || recorder.Header().Get("Content-Type") != "text/event-stream" || recorder.Header().Get("X-Accel-Buffering") != "no" {
+			t.Fatalf("no keepalive while client.Do waits: %v %q", recorder.Header(), recorder.body())
 		}
 		time.Sleep(120 * time.Second) // t=140: headers at 30 reset the same idle timer.
 		synctest.Wait()
-		if strings.Count(recorder.Body.String(), ": ping\n\n") != 8 {
-			t.Fatalf("duplicated or missing heartbeat after handoff: %q", recorder.Body.String())
+		if strings.Count(recorder.body(), ": ping\n\n") != 8 {
+			t.Fatalf("duplicated or missing heartbeat after handoff: %q", recorder.body())
 		}
 		result := <-finished
 		output.close()
-		if result.failure != "" || !result.reported || result.usage.Prompt != 7 || result.usage.Completion != 1 || strings.Count(recorder.Body.String(), "[DONE]") != 1 {
-			t.Fatalf("150s stream did not finish normally: %+v %q", result, recorder.Body.String())
+		if result.failure != "" || !result.reported || result.usage.Prompt != 7 || result.usage.Completion != 1 || strings.Count(recorder.body(), "[DONE]") != 1 {
+			t.Fatalf("150s stream did not finish normally: %+v %q", result, recorder.body())
 		}
-		completed := recorder.Body.String()
+		completed := recorder.body()
 		time.Sleep(30 * time.Second)
 		synctest.Wait()
-		if recorder.Body.String() != completed {
+		if recorder.body() != completed {
 			t.Fatal("heartbeat continued after request completion")
 		}
 		// Fast failures retain the real HTTP status; late failures use SSE error
@@ -98,25 +99,25 @@ func TestDelayedStreamHeaders(t *testing.T) {
 			{30 * time.Second, types.RelayFormatClaude}, {30 * time.Second, types.RelayFormatOpenAIResponses},
 		} {
 			delay := tc.delay
-			r := httptest.NewRecorder()
+			r := newLockedRecorder()
 			s := newStreamResponse(t.Context(), r, 20*time.Second)
 			time.Sleep(delay)
 			synctest.Wait()
 			s.fail(&upstreamError{Status: 429, Message: "quota exhausted", Type: "RESOURCE_EXHAUSTED", Code: 429}, tc.format)
-			if s.ctx.Err() != nil || (tc.format != types.RelayFormatOpenAI && !strings.Contains(r.Body.String(), "event: error\n")) {
-				t.Errorf("provider error changed cancellation or event format: %v %q", s.ctx.Err(), r.Body.String())
+			if s.ctx.Err() != nil || (tc.format != types.RelayFormatOpenAI && !strings.Contains(r.body(), "event: error\n")) {
+				t.Errorf("provider error changed cancellation or event format: %v %q", s.ctx.Err(), r.body())
 			}
 			s.close()
-			before := r.Body.String()
+			before := r.body()
 			time.Sleep(30 * time.Second)
 			synctest.Wait()
-			if !strings.Contains(before, `"message":"quota exhausted"`) || strings.Contains(before, "[DONE]") || r.Body.String() != before || (delay < 20*time.Second && (r.Code != 429 || r.Header().Get("Content-Type") != "application/json")) || (delay > 20*time.Second && (r.Code != 200 || !strings.Contains(before, "data: {\"error\":"))) {
-				t.Errorf("failure after %s: status=%d headers=%v body=%q", delay, r.Code, r.Header(), before)
+			if !strings.Contains(before, `"message":"quota exhausted"`) || strings.Contains(before, "[DONE]") || r.body() != before || (delay < 20*time.Second && (r.code() != 429 || r.Header().Get("Content-Type") != "application/json")) || (delay > 20*time.Second && (r.code() != 200 || !strings.Contains(before, "data: {\"error\":"))) {
+				t.Errorf("failure after %s: status=%d headers=%v body=%q", delay, r.code(), r.Header(), before)
 			}
 		}
 		ctx, cancel := context.WithTimeout(t.Context(), 40*time.Second)
 		defer cancel()
-		r := httptest.NewRecorder()
+		r := newLockedRecorder()
 		s := newStreamResponse(ctx, r, 20*time.Second)
 		defer s.close()
 		body, upstream := io.Pipe()
@@ -125,8 +126,8 @@ func TestDelayedStreamHeaders(t *testing.T) {
 			finished <- forwardResponse(s.ctx, r, &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body}, types.RelayFormatOpenAI, types.RelayFormatOpenAI, &convmeta.Values{OriginModelName: "example"}, true, "deadline", "", s)
 		}()
 		result = <-finished
-		if result.detail == nil || result.detail.Status != 504 || !strings.Contains(r.Body.String(), `"code":504`) || strings.Contains(r.Body.String(), "[DONE]") {
-			t.Errorf("deadline lost its final SSE error: %+v %q", result, r.Body.String())
+		if result.detail == nil || result.detail.Status != 504 || !strings.Contains(r.body(), `"code":504`) || strings.Contains(r.body(), "[DONE]") {
+			t.Errorf("deadline lost its final SSE error: %+v %q", result, r.body())
 		}
 	})
 }
@@ -140,25 +141,25 @@ func TestChannelErrorFeedback(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		body, upstream := io.Pipe()
 		defer upstream.Close()
-		recorder := httptest.NewRecorder()
+		recorder := newLockedRecorder()
 		response := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body}
 		finished := make(chan responseResult, 1)
 		go func() {
 			finished <- forwardResponse(t.Context(), recorder, response, types.RelayFormatOpenAI, types.RelayFormatOpenAI, &convmeta.Values{OriginModelName: "example"}, true, "test", "", nil)
 		}()
 		synctest.Wait()
-		if !recorder.Flushed || recorder.Code != 200 || recorder.Header().Get("Content-Type") != "text/event-stream" || recorder.Body.Len() != 0 {
+		if !recorder.flushed() || recorder.code() != 200 || recorder.Header().Get("Content-Type") != "text/event-stream" || len(recorder.body()) != 0 {
 			t.Fatal("confirmed SSE headers were not flushed before the first upstream event")
 		}
 		time.Sleep(14 * time.Second)
 		synctest.Wait()
-		if recorder.Body.Len() != 0 {
+		if len(recorder.body()) != 0 {
 			t.Fatal("heartbeat arrived before the idle interval")
 		}
 		time.Sleep(time.Second)
 		synctest.Wait()
-		if recorder.Body.String() != ": ping\n\n" {
-			t.Fatalf("idle heartbeat = %q", recorder.Body.String())
+		if recorder.body() != ": ping\n\n" {
+			t.Fatalf("idle heartbeat = %q", recorder.body())
 		}
 		time.Sleep(5 * time.Second)
 		const partial = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":1}}\n\n"
@@ -168,14 +169,14 @@ func TestChannelErrorFeedback(t *testing.T) {
 		synctest.Wait()
 		time.Sleep(14 * time.Second)
 		synctest.Wait()
-		if recorder.Body.String() != ": ping\n\n"+partial {
+		if recorder.body() != ": ping\n\n"+partial {
 			t.Fatal("normal output did not reset the idle heartbeat")
 		}
 		// Reach 140 seconds: one initial ping and eight since the data at t=20.
 		time.Sleep(106 * time.Second)
 		synctest.Wait()
-		if strings.Count(recorder.Body.String(), ": ping\n\n") != 9 {
-			t.Fatalf("keepalive stopped during the long upstream pause: %q", recorder.Body.String())
+		if strings.Count(recorder.body(), ": ping\n\n") != 9 {
+			t.Fatalf("keepalive stopped during the long upstream pause: %q", recorder.body())
 		}
 		if _, err := io.WriteString(upstream, "data: [DONE]\n\n"); err != nil {
 			t.Fatal(err)
@@ -184,10 +185,10 @@ func TestChannelErrorFeedback(t *testing.T) {
 		if result.failure != "" || !result.reported || result.usage.Prompt != 7 || result.usage.Completion != 1 {
 			t.Fatalf("stream completion/usage changed: %+v", result)
 		}
-		completed := recorder.Body.String()
+		completed := recorder.body()
 		time.Sleep(30 * time.Second)
 		synctest.Wait()
-		if recorder.Body.String() != completed {
+		if recorder.body() != completed {
 			t.Fatal("heartbeat continued after stream completion")
 		}
 		// Cancellation must also unblock a pending upstream read and stop output.
@@ -206,7 +207,7 @@ func TestChannelErrorFeedback(t *testing.T) {
 		}
 		time.Sleep(30 * time.Second)
 		synctest.Wait()
-		if recorder.Body.String() != completed {
+		if recorder.body() != completed {
 			t.Fatal("heartbeat continued after cancellation")
 		}
 	})
@@ -235,7 +236,7 @@ func TestChannelErrorFeedback(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		body, upstream := io.Pipe()
 		defer upstream.Close()
-		recorder := httptest.NewRecorder()
+		recorder := newLockedRecorder()
 		finished := make(chan responseResult, 1)
 		go func() {
 			finished <- forwardResponse(t.Context(), recorder, &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body}, types.RelayFormatGemini, types.RelayFormatOpenAI, &convmeta.Values{OriginModelName: "example", UpstreamModelName: "gemini-4-argon"}, true, "test", "", nil)
@@ -249,7 +250,7 @@ func TestChannelErrorFeedback(t *testing.T) {
 		}
 		sendCall(`{"id":"native1","name":"router_emit_test","willContinue":true}`)
 		sendCall(`{"partialArgs":[{"jsonPath":"$.content","stringValue":"first \"\ud83d","willContinue":true}],"willContinue":true}`)
-		if !strings.Contains(recorder.Body.String(), "first") {
+		if !strings.Contains(recorder.body(), "first") {
 			t.Error("first argument fragment was not delivered before upstream completion")
 		}
 		sendCall(`{"partialArgs":[{"jsonPath":"$.content","stringValue":"\ude00\ntail\\","willContinue":true}],"willContinue":true}`)
@@ -262,7 +263,7 @@ func TestChannelErrorFeedback(t *testing.T) {
 		result := <-finished
 		arguments, ids, names := map[int]string{}, map[int]string{}, map[int]string{}
 		finish := ""
-		for _, line := range strings.Split(recorder.Body.String(), "\n") {
+		for _, line := range strings.Split(recorder.body(), "\n") {
 			raw := strings.TrimPrefix(line, "data: ")
 			for _, choice := range gjson.Get(raw, "choices").Array() {
 				if reason := choice.Get("finish_reason").String(); reason != "" {
@@ -277,7 +278,7 @@ func TestChannelErrorFeedback(t *testing.T) {
 			}
 		}
 		first := gjson.Parse(arguments[0])
-		if result.failure != "" || !result.reported || result.usage.Prompt != 7 || result.usage.Completion != 1 || finish != "tool_calls" || !strings.Contains(recorder.Body.String(), "data: [DONE]") {
+		if result.failure != "" || !result.reported || result.usage.Prompt != 7 || result.usage.Completion != 1 || finish != "tool_calls" || !strings.Contains(recorder.body(), "data: [DONE]") {
 			t.Errorf("incremental stream result=%+v finish=%q", result, finish)
 		}
 		if len(arguments) != 2 || !json.Valid([]byte(arguments[0])) || first.Get("content").String() != "first \"😀\ntail\\" || first.Get("details.0.count").Int() != 2 || first.Get("details.0.enabled").Raw != "false" || first.Get("details.0.note").Raw != "null" || arguments[1] != `{"q":"ok"}` || ids[0] != "native1" || ids[1] != "native2" || names[0] != "router_emit_test" || names[1] != "lookup" {
@@ -298,10 +299,10 @@ func TestChannelErrorFeedback(t *testing.T) {
 		{types.RelayFormatOpenAI, "data: " + `{"candidates":[{"index":0,"content":{"parts":[{"text":"hello"}]},"finishReason":"STOP"}]}` + "\n\n", `"content":"hello"`, false},
 		{types.RelayFormatOpenAI, strings.Replace(toolStream, `"name":"emit",`, `"name":"emit","willContinue":true,`, 1) + stopStream, `"type":"error"`, true},
 	} {
-		recorder := httptest.NewRecorder()
+		recorder := newLockedRecorder()
 		result := forwardResponse(t.Context(), recorder, &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(tc.body))}, types.RelayFormatGemini, tc.target, &convmeta.Values{OriginModelName: "example", UpstreamModelName: "gemini-4-argon"}, true, "test", "", nil)
-		if (result.failure != "") != tc.incomplete || !strings.Contains(recorder.Body.String(), tc.marker) || (tc.incomplete && strings.Contains(recorder.Body.String(), "[DONE]")) {
-			t.Errorf("Gemini to %s incomplete=%t: result=%+v body=%s", tc.target, tc.incomplete, result, recorder.Body.String())
+		if (result.failure != "") != tc.incomplete || !strings.Contains(recorder.body(), tc.marker) || (tc.incomplete && strings.Contains(recorder.body(), "[DONE]")) {
+			t.Errorf("Gemini to %s incomplete=%t: result=%+v body=%s", tc.target, tc.incomplete, result, recorder.body())
 		}
 	}
 	const secret = "synthetic-channel-key"
@@ -337,13 +338,13 @@ func TestChannelErrorFeedback(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer res.Body.Close()
-				recorder := httptest.NewRecorder()
+				recorder := newLockedRecorder()
 				response := forwardResponse(context.Background(), recorder, res, types.RelayFormatOpenAI, types.RelayFormatOpenAI, &convmeta.Values{OriginModelName: "example"}, true, "test", secret, nil)
 				if !response.reported || response.usage.Prompt != 7 || response.usage.Completion != 1 {
 					t.Errorf("partial usage lost: %+v", response)
 				}
-				if !strings.Contains(recorder.Body.String(), `"code":429`) || strings.Contains(recorder.Body.String(), "[DONE]") {
-					t.Errorf("stream error lost: %s", recorder.Body.String())
+				if !strings.Contains(recorder.body(), `"code":429`) || strings.Contains(recorder.body(), "[DONE]") {
+					t.Errorf("stream error lost: %s", recorder.body())
 				}
 			}
 		})
@@ -364,4 +365,50 @@ func TestChannelErrorFeedback(t *testing.T) {
 			t.Errorf("timeout=%+v; want 504", result)
 		}
 	})
+}
+
+// lockedRecorder serializes the stream heartbeat goroutine's writes with test reads.
+type lockedRecorder struct {
+	mu sync.Mutex
+	*httptest.ResponseRecorder
+}
+
+func newLockedRecorder() *lockedRecorder {
+	return &lockedRecorder{ResponseRecorder: httptest.NewRecorder()}
+}
+
+func (l *lockedRecorder) Write(b []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.ResponseRecorder.Write(b)
+}
+
+func (l *lockedRecorder) WriteHeader(code int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.ResponseRecorder.WriteHeader(code)
+}
+
+func (l *lockedRecorder) Flush() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.ResponseRecorder.Flush()
+}
+
+func (l *lockedRecorder) body() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.Body.String()
+}
+
+func (l *lockedRecorder) flushed() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.Flushed
+}
+
+func (l *lockedRecorder) code() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.Code
 }
