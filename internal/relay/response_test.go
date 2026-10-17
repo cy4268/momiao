@@ -332,7 +332,10 @@ func TestChannelErrorFeedback(t *testing.T) {
 				t.Errorf("feedback=%+v; want redacted upstream 429", result)
 			}
 			if tc.stream && strings.HasPrefix(tc.body, "data: {\"choices\"") {
-				res, _ := http.Get(server.URL)
+				res, err := http.Get(server.URL)
+				if err != nil {
+					t.Fatal(err)
+				}
 				defer res.Body.Close()
 				recorder := httptest.NewRecorder()
 				response := forwardResponse(context.Background(), recorder, res, types.RelayFormatOpenAI, types.RelayFormatOpenAI, &convmeta.Values{OriginModelName: "example"}, true, "test", secret, nil)
