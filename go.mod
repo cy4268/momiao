@@ -1,6 +1,6 @@
 module github.com/cy4268/momiao
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/QuantumNous/new-api/relaykit v0.1.2-0.20260818102443-f11641428416
