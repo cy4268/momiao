@@ -332,7 +332,7 @@ it('disables each quick amount by its total cost, including tenfold',async()=>{
     expect(cards).toHaveLength(10);
     for(let i=0;i<cards.length;i++){
         expect(cards[i]).toHaveTextContent(`第 ${i+1} 抽`);
-        expect(within(cards[i]).getByRole('img',{name:i%2?'阿尔托莉雅·卡斯特':'安哥拉曼纽'})).toBeVisible();
+        expect(await within(cards[i]).findByRole('img',{name:i%2?'阿尔托莉雅·卡斯特':'安哥拉曼纽'})).toBeVisible();
         expect(within(cards[i]).getByLabelText(i%2?'5 星':'0 星')).toBeVisible();
         expect(cards[i]).toHaveTextContent(i%2?'×100':'×0');
     }

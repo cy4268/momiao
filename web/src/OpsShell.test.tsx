@@ -383,7 +383,8 @@ it('manages local users and filtered relay logs without legacy operations', asyn
  await waitFor(()=>expect(screen.queryByText('user key')).not.toBeInTheDocument());
  fireEvent.click(screen.getAllByRole('link',{name:'调用日志'})[1]);
  expect(await screen.findByRole('heading',{name:'全局调用日志'})).toBeVisible();
- expect(await screen.findByLabelText('搜索用户')).toHaveValue('新昵称 · #2');
+ // The prefilled user label arrives after the lookup, not with the input itself.
+ await waitFor(()=>expect(screen.getByLabelText('搜索用户')).toHaveValue('新昵称 · #2'));
  await screen.findByText(/请求 1 · 尝试 2/);
  fireEvent.change(screen.getByLabelText('搜索用户'),{target:{value:'新昵称'}});
  fireEvent.click(await screen.findByRole('button',{name:'新昵称 · #2'}));

@@ -132,6 +132,58 @@ func TestDelayedStreamHeaders(t *testing.T) {
 	})
 }
 
+func TestDelayedJSONResponse(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const reply = `{"id":"x","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":1}}`
+		forward := func(delay time.Duration) (*lockedRecorder, responseResult) {
+			r := newLockedRecorder()
+			s := newJSONResponse(t.Context(), r, 20*time.Second)
+			defer s.close()
+			time.Sleep(delay)
+			synctest.Wait()
+			response := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(reply))}
+			result := forwardResponse(s.ctx, r, response, types.RelayFormatOpenAI, types.RelayFormatOpenAI, &convmeta.Values{OriginModelName: "example"}, false, "test", "", s)
+			return r, result
+		}
+		// Fast replies are unchanged: no whitespace, no early commit.
+		r, result := forward(time.Second)
+		if result.failure != "" || !result.wrote || r.code() != 200 || r.body() != reply || r.Header().Get("Content-Type") != "application/json" {
+			t.Fatalf("fast reply changed: %+v %d %q", result, r.code(), r.body())
+		}
+		// t=20 commits 200, then one newline every 15s until the reply at t=150.
+		r, result = forward(150 * time.Second)
+		body := r.body()
+		if result.failure != "" || !result.reported || result.usage.Prompt != 7 || r.code() != 200 || r.Header().Get("Content-Type") != "application/json" ||
+			strings.Count(body, "\n") != 9 || strings.TrimLeft(body, "\n") != reply || !json.Valid([]byte(body)) {
+			t.Fatalf("slow reply: %+v %d %q", result, r.code(), body)
+		}
+		time.Sleep(30 * time.Second)
+		synctest.Wait()
+		if r.body() != body {
+			t.Fatal("heartbeat continued after the JSON body")
+		}
+		// Failures keep their status before the commit; afterwards the body carries the error.
+		for _, delay := range []time.Duration{time.Second, 30 * time.Second} {
+			r := newLockedRecorder()
+			s := newJSONResponse(t.Context(), r, 20*time.Second)
+			time.Sleep(delay)
+			synctest.Wait()
+			s.fail(&upstreamError{Status: 429, Message: "quota exhausted", Type: "RESOURCE_EXHAUSTED", Code: 429}, types.RelayFormatOpenAI)
+			s.close()
+			var parsed struct {
+				Error upstreamError `json:"error"`
+			}
+			want := 429
+			if delay > 20*time.Second {
+				want = 200
+			}
+			if r.code() != want || json.Unmarshal([]byte(r.body()), &parsed) != nil || parsed.Error.Message != "quota exhausted" {
+				t.Errorf("failure after %s: status=%d body=%q", delay, r.code(), r.body())
+			}
+		}
+	})
+}
+
 // Exercise the same response reader used by paid requests and channel tests.
 func TestChannelErrorFeedback(t *testing.T) {
 	if requestTimeout != 330*time.Second {
