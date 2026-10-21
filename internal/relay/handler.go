@@ -100,16 +100,12 @@ func Handler(store *platform.Store) http.Handler {
 		var output *streamResponse
 		if request.Stream {
 			output = newStreamResponse(ctx, w, time.Until(requestStarted.Add(20*time.Second)))
-			ctx = output.ctx
-			defer output.close()
+		} else {
+			output = newJSONResponse(ctx, w, time.Until(requestStarted.Add(20*time.Second)))
 		}
-		fail := func(detail *upstreamError) {
-			if output != nil {
-				output.fail(detail, format)
-			} else {
-				writeUpstreamError(w, detail)
-			}
-		}
+		ctx = output.ctx
+		defer output.close()
+		fail := func(detail *upstreamError) { output.fail(detail, format) }
 		for attempt := 1; attempt <= 3; attempt++ {
 			attemptStarted := time.Now().UTC()
 			channel := route.Channel

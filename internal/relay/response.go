@@ -173,6 +173,13 @@ func forwardResponse(ctx context.Context, w http.ResponseWriter, response *http.
 				return
 			}
 		}
+		if output != nil {
+			// A JSON keepalive may already have committed 200 and leading whitespace.
+			if result.wrote, err = output.finish(raw, response.StatusCode); err != nil {
+				result.failure = "client_write_failed"
+			}
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		result.wrote = true
 		w.WriteHeader(response.StatusCode)
