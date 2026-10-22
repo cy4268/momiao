@@ -49,7 +49,7 @@ The artwork manifest uses relative, content-hashed keys; host matching files und
 
 ## 构建与验证
 
-使用 Go **1.27.1**、Node.js **24.12.0**。在仓库根目录执行：
+使用 Go **1.27.3**、Node.js **24.22.1**。安全版本与上游合并检查见 [构建安全基线](docs/security-baseline.md)。在仓库根目录执行：
 
 ```sh
 go vet ./...

@@ -1,5 +1,11 @@
 # AIStudio non-stream empty-response patch
 
+Historical v1.3.7 recipe: the current deployed application is **v1.4.0 with
+the empty-response fix and Node 24.22.1**. This directory retains the original
+patch provenance; its old base image is not the current production rebuild
+target. Use the current AIStudioToAPI source snapshot/build pin, and see
+`../../../docs/security-baseline.md` for the portal's component boundaries.
+
 Source: [iBUHub/AIStudioToAPI](https://github.com/iBUHub/AIStudioToAPI), v1.3.7,
 revision `db624c24ab111ad0f50308f20f8a75a216dbf873`. The Dockerfile pins the exact
 upstream image used for the deployed fix. The patch and upstream-derived context
